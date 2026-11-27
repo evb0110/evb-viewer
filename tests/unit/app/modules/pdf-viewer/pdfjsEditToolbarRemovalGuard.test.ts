@@ -1,14 +1,7 @@
 import {readFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
-import {
-    dirname,
-    join,
-} from 'node:path';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {dirname, join} from 'node:path';
+import {describe, expect, it} from 'vitest';
 
 /**
  * `FreeTextEditor.addEditToolbar()` awaits each toolbar button. When the
@@ -28,12 +21,7 @@ const LOOP_GUARD = [
     '        }',
     '        await editToolbar.addButton(name, tool);',
 ].join('\n');
-const POST_LOOP_GUARD = [
-    '    if (!this._editToolbar) {',
-    '      return null;',
-    '    }',
-    '    if (!this.hasComment) {',
-].join('\n');
+const POST_LOOP_GUARD = ['    if (!this._editToolbar) {', '      return null;', '    }', '    if (!this.hasComment) {'].join('\n');
 
 function resolvePdfjsBuild(relativePath: string) {
     const require = createRequire(import.meta.url);
@@ -42,10 +30,7 @@ function resolvePdfjsBuild(relativePath: string) {
 }
 
 describe('pdf.js edit toolbar removal guard', () => {
-    it.each([
-        'build/pdf.mjs',
-        'legacy/build/pdf.mjs',
-    ])('keeps the removal guard inside addEditToolbar in %s', async relativePath => {
+    it.each(['build/pdf.mjs', 'legacy/build/pdf.mjs'])('keeps the removal guard inside addEditToolbar in %s', async (relativePath) => {
         const source = await readFile(resolvePdfjsBuild(relativePath), 'utf8');
         const start = source.indexOf('async addEditToolbar() {');
         expect(start).toBeGreaterThan(-1);

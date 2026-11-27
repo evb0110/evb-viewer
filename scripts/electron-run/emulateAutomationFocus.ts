@@ -1,8 +1,4 @@
-import type {
-    Browser,
-    Page,
-    Target,
-} from 'puppeteer-core';
+import type {Browser, Page, Target} from 'puppeteer-core';
 
 // A hidden or no-focus window never receives OS focus, so its document has
 // none: `focus` and `blur` never fire and `:focus` never matches, while a
@@ -34,7 +30,7 @@ export async function emulateAutomationFocus(browser: Browser, page: Page) {
         }
     });
     await page.emulateFocusedPage(true);
-    await Promise.all((await browser.pages())
-        .filter(candidate => candidate !== page)
-        .map(candidate => focusPage(() => Promise.resolve(candidate))));
+    await Promise.all(
+        (await browser.pages()).filter((candidate) => candidate !== page).map((candidate) => focusPage(() => Promise.resolve(candidate))),
+    );
 }

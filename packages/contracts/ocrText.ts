@@ -1,4 +1,4 @@
-import type { IOcrWord } from '@contracts/shared';
+import type {IOcrWord} from '@contracts/shared';
 
 export function buildOcrTextLayerItemText(word: Pick<IOcrWord, 'text'>) {
     return `${word.text} `;
@@ -8,10 +8,7 @@ export function buildOcrWordKey(word: Pick<IOcrWord, 'text' | 'x' | 'y' | 'width
     return `${word.text}|${word.x}|${word.y}|${word.width}|${word.height}`;
 }
 
-export function isLastOcrWordInLine(
-    words: readonly IOcrWord[],
-    index: number,
-) {
+export function isLastOcrWordInLine(words: readonly IOcrWord[], index: number) {
     if (index === words.length - 1) {
         return true;
     }

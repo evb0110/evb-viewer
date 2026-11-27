@@ -1,25 +1,19 @@
-import {
-    parsePageNumber,
-    requirePageNumber,
-} from '@contracts/pageNumbers';
+import {parsePageNumber, requirePageNumber} from '@contracts/pageNumbers';
 import type {
     IGeometryResolution,
     IPagePointResolutionSelection,
 } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/pdfPagePointResolverTypes';
-import type { Ref } from 'vue';
-import type { IPagePointTarget } from '@app/modules/pdf-viewer/engine/annotations/pagePointTarget';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { buildPagePointTargetFromContainer } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/buildPagePointTargetFromContainer';
-import type { INotePlacementDiagnosticsContext } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/notePlacementDiagnosticsContext';
-import { scanPageGeometryCandidates } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/scanPageGeometryCandidates';
-import { selectPagePointResolution } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/selectPagePointResolution';
+import type {Ref} from 'vue';
+import type {IPagePointTarget} from '@app/modules/pdf-viewer/engine/annotations/pagePointTarget';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {buildPagePointTargetFromContainer} from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/buildPagePointTargetFromContainer';
+import type {INotePlacementDiagnosticsContext} from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/notePlacementDiagnosticsContext';
+import {scanPageGeometryCandidates} from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/scanPageGeometryCandidates';
+import {selectPagePointResolution} from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/selectPagePointResolution';
 
 const NOTE_PLACEMENT_LOG_SECTION = 'note-placement';
 
 const MAX_PAGE_CANDIDATE_LOG_ENTRIES = 14;
-
-
-
 
 interface IPagePointPageNumbers {
     byTargetPage: number | null;
@@ -56,10 +50,7 @@ function createEmptyGeometryResolution(collectCandidates: boolean): IGeometryRes
 }
 
 export function createPdfPagePointResolver(options: IPdfPagePointResolverOptions) {
-    const {
-        viewerContainer,
-        currentPage,
-    } = options;
+    const {viewerContainer, currentPage} = options;
 
     function summarizeElementForLog(element: HTMLElement | null) {
         if (!element) {
@@ -108,7 +99,7 @@ export function createPdfPagePointResolver(options: IPdfPagePointResolverOptions
     function resolvePageContainerByGeometry(
         clientX: number,
         clientY: number,
-        resolverOptions: { collectCandidates?: boolean } = {},
+        resolverOptions: {collectCandidates?: boolean} = {},
     ): IGeometryResolution {
         const collectCandidates = resolverOptions.collectCandidates ?? false;
         const container = viewerContainer.value;
@@ -120,8 +111,7 @@ export function createPdfPagePointResolver(options: IPdfPagePointResolverOptions
             return createEmptyGeometryResolution(collectCandidates);
         }
 
-        return scanPageGeometryCandidates(pages, clientX, clientY, collectCandidates)
-            ?? createEmptyGeometryResolution(collectCandidates);
+        return scanPageGeometryCandidates(pages, clientX, clientY, collectCandidates) ?? createEmptyGeometryResolution(collectCandidates);
     }
 
     function findPageContainerFromClientPoint(clientX: number, clientY: number) {
@@ -142,9 +132,10 @@ export function createPdfPagePointResolver(options: IPdfPagePointResolverOptions
             if (!targetPageNumber) {
                 return null;
             }
-            const matchingPage = Array.from(container.querySelectorAll<HTMLElement>('.page_container'))
-                .find(page => parsePageNumberFromContainer(page) === targetPageNumber)
-                ?? null;
+            const matchingPage =
+                Array.from(container.querySelectorAll<HTMLElement>('.page_container')).find(
+                    (page) => parsePageNumberFromContainer(page) === targetPageNumber,
+                ) ?? null;
             return matchingPage;
         }
         return pageContainer;

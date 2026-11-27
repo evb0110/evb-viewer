@@ -1,23 +1,19 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
 import {findSerializableErrorEnvelope} from '@contracts/serializableError';
 import type * as DocumentDialogCommon from '@electron/features/documents/main/documentDialogCommon';
 
 const mocks = vi.hoisted(() => ({
-    openInputPaths: vi.fn(async (
-        _paths: string[],
-        _options?: {
-            signal?: AbortSignal;
-            forceCombine?: boolean;
-        },
-        _owner?: unknown,
-    ): Promise<unknown> => null),
+    openInputPaths: vi.fn(
+        async (
+            _paths: string[],
+            _options?: {
+                signal?: AbortSignal;
+                forceCombine?: boolean;
+            },
+            _owner?: unknown,
+        ): Promise<unknown> => null,
+    ),
     requireOpenPath: vi.fn((path: string, _owner?: unknown) => path),
     stat: vi.fn(),
 }));
@@ -25,21 +21,23 @@ const mocks = vi.hoisted(() => ({
 vi.mock('fs/promises', () => ({
     stat: (path: string) => mocks.stat(path),
 }));
-vi.mock('@electron/features/documents/main/openInputPaths.service', () => ({openInputPaths: (
-    paths: string[],
-    options?: {
-        signal?: AbortSignal;
-        forceCombine?: boolean;
-    },
-    owner?: unknown,
-) => mocks.openInputPaths(paths, options, owner)}));
+vi.mock('@electron/features/documents/main/openInputPaths.service', () => ({
+    openInputPaths: (
+        paths: string[],
+        options?: {
+            signal?: AbortSignal;
+            forceCombine?: boolean;
+        },
+        owner?: unknown,
+    ) => mocks.openInputPaths(paths, options, owner),
+}));
 vi.mock('@electron/file-access/openPathCapabilities', () => ({
     allowOpenPath: vi.fn(),
     logRejectedOpenPath: vi.fn(),
     requireOpenPath: (path: string, owner?: unknown) => mocks.requireOpenPath(path, owner),
 }));
-vi.mock('@electron/features/documents/main/documentDialogCommon', async importOriginal => ({
-    ...await importOriginal<typeof DocumentDialogCommon>(),
+vi.mock('@electron/features/documents/main/documentDialogCommon', async (importOriginal) => ({
+    ...(await importOriginal<typeof DocumentDialogCommon>()),
     showOpenDocumentDialogForContext: vi.fn(async () => ({
         canceled: false,
         filePaths: ['/Users/reader/Documents/damaged.pdf'],
@@ -47,19 +45,23 @@ vi.mock('@electron/features/documents/main/documentDialogCommon', async importOr
 }));
 vi.mock('@electron/recentFiles', () => ({getRecentFiles: vi.fn(async () => [])}));
 vi.mock('@electron/te', () => ({te: (key: string) => key}));
-vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-})}));
+vi.mock('@electron/utils/createLogger', () => ({
+    createLogger: () => ({
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+    }),
+}));
 
 function senderContext(id: number) {
-    return {sender: {
-        id,
-        isDestroyed: () => false,
-        send: vi.fn(),
-    }};
+    return {
+        sender: {
+            id,
+            isDestroyed: () => false,
+            send: vi.fn(),
+        },
+    };
 }
 
 type TSenderContext = ReturnType<typeof senderContext>;
@@ -125,8 +127,9 @@ describe('direct batch open cancellation', () => {
             isGenerated: true,
         });
 
-        await expect(handlers.handleOpenPdfDirectBatch(handlerContext(context), ['/tmp/generated.pdf'], 'open-2'))
-            .resolves.toMatchObject({kind: 'pdf'});
+        await expect(handlers.handleOpenPdfDirectBatch(handlerContext(context), ['/tmp/generated.pdf'], 'open-2')).resolves.toMatchObject({
+            kind: 'pdf',
+        });
 
         expect(handlers.handleCancelOpenDocumentDirectBatch(handlerContext(context), 'open-2')).toBe(false);
     });
@@ -188,18 +191,11 @@ describe('direct batch open cancellation', () => {
         };
         mocks.openInputPaths.mockResolvedValueOnce(result);
 
-        await expect(handlers.handleOpenPdfDirectBatch(
-            handlerContext(context),
-            paths,
-            'combine-1',
-            {forceCombine: true},
-        )).resolves.toEqual(result);
-
-        expect(mocks.openInputPaths).toHaveBeenCalledWith(
-            paths,
-            expect.objectContaining({forceCombine: true}),
-            context.sender,
+        await expect(handlers.handleOpenPdfDirectBatch(handlerContext(context), paths, 'combine-1', {forceCombine: true})).resolves.toEqual(
+            result,
         );
+
+        expect(mocks.openInputPaths).toHaveBeenCalledWith(paths, expect.objectContaining({forceCombine: true}), context.sender);
     });
 
     it('preserves encrypted PDF size failures across direct and batch IPC opens', async () => {
@@ -212,10 +208,13 @@ describe('direct batch open cancellation', () => {
         ];
 
         for (const open of openAttempts) {
-            mocks.openInputPaths.mockRejectedValueOnce(new PdfDecryptTooLargeError(
-                new Error('Encrypted PDF input exceeds the admission ceiling'),
-            ));
-            const error = await open().then(() => null, caught => caught);
+            mocks.openInputPaths.mockRejectedValueOnce(
+                new PdfDecryptTooLargeError(new Error('Encrypted PDF input exceeds the admission ceiling')),
+            );
+            const error = await open().then(
+                () => null,
+                (caught) => caught,
+            );
 
             expect(findSerializableErrorEnvelope(error, NATIVE_ERROR_ENVELOPE_SCHEMA)).toEqual({
                 code: 'too-large',
@@ -227,25 +226,27 @@ describe('direct batch open cancellation', () => {
     it('keeps ordinary batch-open failure details for diagnostics', async () => {
         const handlers = await import('@electron/features/documents/main/documentOpenHandlers');
         mocks.openInputPaths.mockRejectedValueOnce(new Error('Output volume is full'));
-        await expect(handlers.handleOpenPdfDirectBatch(handlerContext(senderContext(7)), ['/tmp/ordinary.pdf']))
-            .rejects.toThrow('Output volume is full');
+        await expect(handlers.handleOpenPdfDirectBatch(handlerContext(senderContext(7)), ['/tmp/ordinary.pdf'])).rejects.toThrow(
+            'Output volume is full',
+        );
     });
 
     it('sends a picked file the main process refused as its code and name, without tool output', async () => {
-        const {
-            DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA,
-            DocumentOpenRefusalError,
-        } = await import('@contracts/documentOpenErrors');
+        const {DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA, DocumentOpenRefusalError} = await import('@contracts/documentOpenErrors');
         const handlers = await import('@electron/features/documents/main/documentOpenHandlers');
-        mocks.openInputPaths.mockRejectedValueOnce(new DocumentOpenRefusalError(
-            'invalid-pdf',
-            'PDF rewrite failed: qpdf(rewrite) failed with exit code 2. WARNING: '
-                + '/private/tmp/evb-viewer-u501/pdf-work-1/document.pdf: file is damaged',
-            {fileName: 'damaged.pdf'},
-        ));
+        mocks.openInputPaths.mockRejectedValueOnce(
+            new DocumentOpenRefusalError(
+                'invalid-pdf',
+                'PDF rewrite failed: qpdf(rewrite) failed with exit code 2. WARNING: ' +
+                    '/private/tmp/evb-viewer-u501/pdf-work-1/document.pdf: file is damaged',
+                {fileName: 'damaged.pdf'},
+            ),
+        );
 
-        const error = await handlers.handleOpenPdfDialog(handlerContext(senderContext(7)))
-            .then(() => null, (caught: unknown) => caught);
+        const error = await handlers.handleOpenPdfDialog(handlerContext(senderContext(7))).then(
+            () => null,
+            (caught: unknown) => caught,
+        );
 
         expect(findSerializableErrorEnvelope(error, DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA)).toEqual({
             code: 'invalid-pdf',
@@ -260,12 +261,12 @@ describe('direct batch open cancellation', () => {
         const handlers = await import('@electron/features/documents/main/documentOpenHandlers');
         mocks.openInputPaths.mockRejectedValueOnce(new DOMException('The resource request was aborted.', 'AbortError'));
 
-        const error = await handlers.handleOpenPdfDirectBatch(
-            handlerContext(senderContext(7)),
-            ['/tmp/canceled.pdf'],
-            'combine-cancel-1',
-            {forceCombine: true},
-        ).then(() => null, (caught: unknown) => caught);
+        const error = await handlers
+            .handleOpenPdfDirectBatch(handlerContext(senderContext(7)), ['/tmp/canceled.pdf'], 'combine-cancel-1', {forceCombine: true})
+            .then(
+                () => null,
+                (caught: unknown) => caught,
+            );
 
         expect(isAbortError(error)).toBe(true);
     });

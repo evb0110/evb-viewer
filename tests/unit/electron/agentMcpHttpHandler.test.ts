@@ -1,25 +1,13 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createServer,
-    request as createHttpRequest,
-} from 'node:http';
-import type {
-    IncomingMessage,
-    Server,
-} from 'node:http';
-import { connect as createNetConnection } from 'node:net';
-import type { AddressInfo } from 'node:net';
-import { isAbortError } from '@contracts/isAbortError';
-import { createHttpHandler } from '@electron/features/agent/mcp/createHttpHandler';
-import { abortAssistantToolRequestsForBinding } from '@electron/features/agent/mcpServer';
-import type { IAssistantSessionScopeBinding } from '@electron/features/agent/assistantMcpSessionScope';
-import type { IProcessMcpRequestOptions } from '@electron/features/agent/mcp/mcpServerCore';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {createServer, request as createHttpRequest} from 'node:http';
+import type {IncomingMessage, Server} from 'node:http';
+import {connect as createNetConnection} from 'node:net';
+import type {AddressInfo} from 'node:net';
+import {isAbortError} from '@contracts/isAbortError';
+import {createHttpHandler} from '@electron/features/agent/mcp/createHttpHandler';
+import {abortAssistantToolRequestsForBinding} from '@electron/features/agent/mcpServer';
+import type {IAssistantSessionScopeBinding} from '@electron/features/agent/assistantMcpSessionScope';
+import type {IProcessMcpRequestOptions} from '@electron/features/agent/mcp/mcpServerCore';
 import {requireTabId} from '@contracts/windowTabs';
 
 const servers: Server[] = [];
@@ -55,10 +43,7 @@ function createOptions(): IProcessMcpRequestOptions {
     };
 }
 
-async function listen(
-    handler: ReturnType<typeof createHttpHandler>,
-    observeRequest?: (request: IncomingMessage) => void,
-) {
+async function listen(handler: ReturnType<typeof createHttpHandler>, observeRequest?: (request: IncomingMessage) => void) {
     const server = createServer();
     if (observeRequest) {
         server.on('request', observeRequest);
@@ -76,9 +61,14 @@ async function listen(
 
 describe('createHttpHandler', () => {
     afterEach(async () => {
-        await Promise.all(servers.splice(0).map(server => new Promise<void>((resolve) => {
-            server.close(() => resolve());
-        })));
+        await Promise.all(
+            servers.splice(0).map(
+                (server) =>
+                    new Promise<void>((resolve) => {
+                        server.close(() => resolve());
+                    }),
+            ),
+        );
     });
 
     it('requires an explicit bearer token by default', async () => {
@@ -94,31 +84,28 @@ describe('createHttpHandler', () => {
         });
 
         expect(response.status).toBe(401);
-        expect(await response.json()).toEqual({ error: 'Unauthorized.' });
+        expect(await response.json()).toEqual({error: 'Unauthorized.'});
     });
 
     it('accepts authorized JSON-RPC requests', async () => {
-        const url = await listen(createHttpHandler(createOptions(), { bearerToken: 'secret' }));
+        const url = await listen(createHttpHandler(createOptions(), {bearerToken: 'secret'}));
 
         const response = await fetch(url, {
             method: 'POST',
-            headers: { Authorization: 'Bearer secret' },
+            headers: {Authorization: 'Bearer secret'},
             body: JSON.stringify({
                 jsonrpc: '2.0',
                 id: 1,
                 method: 'tools/list',
             }),
         });
-        const body = await response.json() as { result?: unknown };
+        const body = (await response.json()) as {result?: unknown};
 
         expect(response.status).toBe(200);
         expect(JSON.stringify(body.result)).toContain('evb_workspace_snapshot');
     });
 
-    it.each([
-        '한',
-        '🦀',
-    ])('rejects an authorized %s body over one MiB despite its shorter UTF-16 length', async (character) => {
+    it.each(['한', '🦀'])('rejects an authorized %s body over one MiB despite its shorter UTF-16 length', async (character) => {
         const url = await listen(createHttpHandler(createOptions(), {bearerToken: 'secret'}));
         const body = JSON.stringify({
             jsonrpc: '2.0',
@@ -128,11 +115,13 @@ describe('createHttpHandler', () => {
         });
         expect(body.length).toBeLessThan(1024 * 1024);
         expect(Buffer.byteLength(body)).toBeGreaterThan(1024 * 1024);
-        await expect(fetch(url, {
-            method: 'POST',
-            headers: {Authorization: 'Bearer secret'},
-            body,
-        })).rejects.toThrow();
+        await expect(
+            fetch(url, {
+                method: 'POST',
+                headers: {Authorization: 'Bearer secret'},
+                body,
+            }),
+        ).rejects.toThrow();
     });
 
     it('accepts an authorized multibyte body exactly at the one MiB boundary', async () => {
@@ -160,21 +149,18 @@ describe('createHttpHandler', () => {
         const events: string[] = [];
         const options = createOptions();
         options.getWorkspaceSnapshot = vi.fn().mockImplementation(async () => {
-            await new Promise<void>(resolve => setImmediate(resolve));
+            await new Promise<void>((resolve) => setImmediate(resolve));
             return {};
         });
-        const url = await listen(
-            createHttpHandler(options, { bearerToken: 'secret' }),
-            (request) => {
-                request.on('data', () => events.push('data'));
-                request.on('end', () => events.push('end'));
-                request.on('close', () => events.push('close'));
-            },
-        );
+        const url = await listen(createHttpHandler(options, {bearerToken: 'secret'}), (request) => {
+            request.on('data', () => events.push('data'));
+            request.on('end', () => events.push('end'));
+            request.on('close', () => events.push('close'));
+        });
 
         const response = await fetch(url, {
             method: 'POST',
-            headers: { Authorization: 'Bearer secret' },
+            headers: {Authorization: 'Bearer secret'},
             body: JSON.stringify({
                 jsonrpc: '2.0',
                 id: 1,
@@ -187,11 +173,7 @@ describe('createHttpHandler', () => {
         });
 
         expect(response.status).toBe(200);
-        expect(events).toEqual([
-            'data',
-            'end',
-            'close',
-        ]);
+        expect(events).toEqual(['data', 'end', 'close']);
         expect(options.getWorkspaceSnapshot).toHaveBeenCalledOnce();
     });
 
@@ -202,17 +184,14 @@ describe('createHttpHandler', () => {
             resolveClosed = resolve;
         });
         const options = createOptions();
-        const url = await listen(
-            createHttpHandler(options, { bearerToken: 'secret' }),
-            (request) => {
-                request.on('data', () => events.push('data'));
-                request.on('aborted', () => events.push('aborted'));
-                request.on('close', () => {
-                    events.push('close');
-                    resolveClosed?.();
-                });
-            },
-        );
+        const url = await listen(createHttpHandler(options, {bearerToken: 'secret'}), (request) => {
+            request.on('data', () => events.push('data'));
+            request.on('aborted', () => events.push('aborted'));
+            request.on('close', () => {
+                events.push('close');
+                resolveClosed?.();
+            });
+        });
         const body = JSON.stringify({
             jsonrpc: '2.0',
             id: 1,
@@ -243,11 +222,7 @@ describe('createHttpHandler', () => {
         });
         await requestClosed;
 
-        expect(events).toEqual([
-            'data',
-            'aborted',
-            'close',
-        ]);
+        expect(events).toEqual(['data', 'aborted', 'close']);
         expect(options.getWorkspaceSnapshot).not.toHaveBeenCalled();
     });
 
@@ -257,18 +232,16 @@ describe('createHttpHandler', () => {
         const options = createOptions();
         options.getWorkspaceSnapshot = vi.fn().mockResolvedValue({
             activeTabId: 'tab-1',
-            tabs: [{
-                tabId: 'tab-1',
-                kind: 'pdf',
-                fileName: 'test.pdf',
-                originalPath: '/tmp/test.pdf',
-            }],
+            tabs: [
+                {
+                    tabId: 'tab-1',
+                    kind: 'pdf',
+                    fileName: 'test.pdf',
+                    originalPath: '/tmp/test.pdf',
+                },
+            ],
         });
-        options.inspectDocumentText = vi.fn().mockImplementation(async (
-            _input,
-            _windowId,
-            signal: AbortSignal | undefined,
-        ) => {
+        options.inspectDocumentText = vi.fn().mockImplementation(async (_input, _windowId, signal: AbortSignal | undefined) => {
             receivedSignal = signal;
             started.resolve(undefined);
             await new Promise<void>((_resolve, reject) => {
@@ -318,20 +291,18 @@ describe('createHttpHandler', () => {
         const options = createOptions();
         options.getWorkspaceSnapshot = vi.fn().mockResolvedValue({
             activeTabId: 'tab-1',
-            tabs: [{
-                tabId: 'tab-1',
-                kind: 'pdf',
-                fileName: 'test.pdf',
-                originalPath: '/tmp/test.pdf',
-                currentPage: 1,
-                totalPages: 1,
-            }],
+            tabs: [
+                {
+                    tabId: 'tab-1',
+                    kind: 'pdf',
+                    fileName: 'test.pdf',
+                    originalPath: '/tmp/test.pdf',
+                    currentPage: 1,
+                    totalPages: 1,
+                },
+            ],
         });
-        options.inspectDocumentText = vi.fn().mockImplementation(async (
-            _input,
-            _windowId,
-            signal: AbortSignal | undefined,
-        ) => {
+        options.inspectDocumentText = vi.fn().mockImplementation(async (_input, _windowId, signal: AbortSignal | undefined) => {
             receivedSignal = signal;
             started.resolve(undefined);
             await new Promise<void>((_resolve, reject) => {
@@ -340,11 +311,13 @@ describe('createHttpHandler', () => {
             operationStarted = true;
             return {};
         });
-        const url = await listen(createHttpHandler(options, {
-            bearerToken: 'secret',
-            activeRequestControllers,
-            getRequestContext: () => binding,
-        }));
+        const url = await listen(
+            createHttpHandler(options, {
+                bearerToken: 'secret',
+                activeRequestControllers,
+                getRequestContext: () => binding,
+            }),
+        );
         const request = fetch(url, {
             method: 'POST',
             headers: {Authorization: 'Bearer secret'},
@@ -370,7 +343,7 @@ describe('createHttpHandler', () => {
     });
 
     it('rejects browser-origin requests unless explicitly allowed', async () => {
-        const url = await listen(createHttpHandler(createOptions(), { bearerToken: 'secret' }));
+        const url = await listen(createHttpHandler(createOptions(), {bearerToken: 'secret'}));
 
         const response = await fetch(url, {
             method: 'POST',
@@ -386,14 +359,16 @@ describe('createHttpHandler', () => {
         });
 
         expect(response.status).toBe(403);
-        expect(await response.json()).toEqual({ error: 'Browser-origin MCP requests are not allowed.' });
+        expect(await response.json()).toEqual({error: 'Browser-origin MCP requests are not allowed.'});
     });
 
     it('can explicitly allow browser-origin requests for trusted test harnesses', async () => {
-        const url = await listen(createHttpHandler(createOptions(), {
-            bearerToken: 'secret',
-            allowBrowserOrigins: true,
-        }));
+        const url = await listen(
+            createHttpHandler(createOptions(), {
+                bearerToken: 'secret',
+                allowBrowserOrigins: true,
+            }),
+        );
 
         const response = await fetch(url, {
             method: 'POST',
@@ -413,22 +388,24 @@ describe('createHttpHandler', () => {
 
     it('rejects oversized JSON-RPC batches before processing', async () => {
         const options = createOptions();
-        const url = await listen(createHttpHandler(options, { bearerToken: 'secret' }));
-        const batch = Array.from({ length: 33 }, (_, index) => ({
+        const url = await listen(createHttpHandler(options, {bearerToken: 'secret'}));
+        const batch = Array.from({length: 33}, (_, index) => ({
             jsonrpc: '2.0',
             id: index + 1,
             method: index === 0 ? 'tools/call' : 'tools/list',
             ...(index === 0
-                ? {params: {
-                    name: 'evb_workspace_snapshot',
-                    arguments: {},
-                }}
+                ? {
+                      params: {
+                          name: 'evb_workspace_snapshot',
+                          arguments: {},
+                      },
+                  }
                 : {}),
         }));
 
         const response = await fetch(url, {
             method: 'POST',
-            headers: { Authorization: 'Bearer secret' },
+            headers: {Authorization: 'Bearer secret'},
             body: JSON.stringify(batch),
         });
         const error = getErrorRecord(await response.json());
@@ -453,18 +430,20 @@ describe('createHttpHandler', () => {
             const promise = baseHandler(request, response);
             const [controller] = activeRequestControllers.keys();
             if (controller) {
-                controller.signal.addEventListener('abort', () => {
-                    observedReasons.push(controller.signal.reason);
-                }, {once: true});
+                controller.signal.addEventListener(
+                    'abort',
+                    () => {
+                        observedReasons.push(controller.signal.reason);
+                    },
+                    {once: true},
+                );
                 capturedController.resolve(controller);
             }
             return promise;
         });
         const parsed = new URL(url);
         const socket = createNetConnection(Number(parsed.port), parsed.hostname, () => {
-            socket.write(
-                'POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer secret\r\nContent-Length: 128\r\n\r\n{"jsonrpc":',
-            );
+            socket.write('POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer secret\r\nContent-Length: 128\r\n\r\n{"jsonrpc":');
         });
         const controller = await capturedController.promise;
         socket.resetAndDestroy();
@@ -481,20 +460,18 @@ describe('createHttpHandler', () => {
         const options = createOptions();
         options.getWorkspaceSnapshot = vi.fn().mockResolvedValue({
             activeTabId: 'tab-1',
-            tabs: [{
-                tabId: 'tab-1',
-                kind: 'pdf',
-                fileName: 'test.pdf',
-                originalPath: '/tmp/test.pdf',
-                currentPage: 1,
-                totalPages: 1,
-            }],
+            tabs: [
+                {
+                    tabId: 'tab-1',
+                    kind: 'pdf',
+                    fileName: 'test.pdf',
+                    originalPath: '/tmp/test.pdf',
+                    currentPage: 1,
+                    totalPages: 1,
+                },
+            ],
         });
-        options.inspectDocumentText = vi.fn().mockImplementation(async (
-            _input,
-            _windowId,
-            signal: AbortSignal | undefined,
-        ) => {
+        options.inspectDocumentText = vi.fn().mockImplementation(async (_input, _windowId, signal: AbortSignal | undefined) => {
             receivedSignal = signal;
             started.resolve(undefined);
             await new Promise<void>((_resolve, reject) => {

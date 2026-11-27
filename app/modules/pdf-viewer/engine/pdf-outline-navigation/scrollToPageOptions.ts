@@ -1,8 +1,5 @@
-import type { IAnnotationMarkerRect } from '@app/types/annotations';
-import type {
-    IDocumentNavigationRequest,
-    IDocumentTextAnchorNavigationOptions,
-} from '@app/modules/document-viewer/public';
+import type {IAnnotationMarkerRect} from '@app/types/annotations';
+import type {IDocumentNavigationRequest, IDocumentTextAnchorNavigationOptions} from '@app/modules/document-viewer/public';
 
 export interface IScrollToPageOptions {
     searchNavigationId?: number | undefined;

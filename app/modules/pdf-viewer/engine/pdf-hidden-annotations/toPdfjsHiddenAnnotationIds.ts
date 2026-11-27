@@ -1,4 +1,4 @@
-import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
+import {normalizePdfJsAnnotationId} from '@app/utils/pdfAnnotationRefs';
 
 /**
  * The annotations PDF.js leaves out of a page raster because the EVB editor

@@ -2,25 +2,9 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    computed,
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    ref,
-} from 'vue';
-import type {
-    IPdfImagePlacementDraft,
-    IPdfImagePlacementRectUpdate,
-} from '@app/types/pdfImagePlacement';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {computed, createApp, defineComponent, h, nextTick, ref} from 'vue';
+import type {IPdfImagePlacementDraft, IPdfImagePlacementRectUpdate} from '@app/types/pdfImagePlacement';
 import PdfImagePlacementOverlay from '@app/modules/pdf-viewer/components/PdfImagePlacementOverlay.vue';
 import {
     annotationEditorSurfaceKey,
@@ -47,11 +31,7 @@ const placement: IPdfImagePlacementDraft = {
     mimeType: 'image/jpeg',
     sourcePixelWidth: 300,
     sourcePixelHeight: 200,
-    bytes: new Uint8Array([
-        1,
-        2,
-        3,
-    ]),
+    bytes: new Uint8Array([1, 2, 3]),
 };
 
 const activeUnmounts = new Set<() => void>();
@@ -71,25 +51,30 @@ function mountOverlay(busy = false, echoRectangleUpdates = false, active?: boole
         cancel: 0,
         finalize: 0,
     };
-    const app = createApp(defineComponent({setup: () => () => h(PdfImagePlacementOverlay, {
-        placement: currentPlacement.value,
-        busy,
-        onUpdateRect: (update: IPdfImagePlacementRectUpdate) => {
-            updates.push(update);
-            if (echoRectangleUpdates) {
-                currentPlacement.value = {
-                    ...currentPlacement.value,
-                    ...update,
-                };
-            }
-        },
-        onCancel: () => {
-            events.cancel += 1;
-        },
-        onFinalize: () => {
-            events.finalize += 1;
-        },
-    })}));
+    const app = createApp(
+        defineComponent({
+            setup: () => () =>
+                h(PdfImagePlacementOverlay, {
+                    placement: currentPlacement.value,
+                    busy,
+                    onUpdateRect: (update: IPdfImagePlacementRectUpdate) => {
+                        updates.push(update);
+                        if (echoRectangleUpdates) {
+                            currentPlacement.value = {
+                                ...currentPlacement.value,
+                                ...update,
+                            };
+                        }
+                    },
+                    onCancel: () => {
+                        events.cancel += 1;
+                    },
+                    onFinalize: () => {
+                        events.finalize += 1;
+                    },
+                }),
+        }),
+    );
     if (active !== undefined) {
         app.provide(annotationEditorSurfaceKey, cast<IAnnotationEditorSurface>({isActive: computed(() => active)}));
     }
@@ -112,18 +97,9 @@ function mountOverlay(busy = false, echoRectangleUpdates = false, active?: boole
 }
 
 const gestureHandles = [
-    [
-        'move',
-        '.pdf-image-placement__surface',
-    ],
-    [
-        'resize',
-        '.pdf-image-placement__resizer--se',
-    ],
-    [
-        'rotate',
-        '.pdf-image-placement__rotate-handle',
-    ],
+    ['move', '.pdf-image-placement__surface'],
+    ['resize', '.pdf-image-placement__resizer--se'],
+    ['rotate', '.pdf-image-placement__rotate-handle'],
 ] as const;
 
 async function completeImageGesture(selector: string, ending: 'pointerup' | 'lostpointercapture' | 'pointercancel', buttons = 0) {
@@ -133,25 +109,29 @@ async function completeImageGesture(selector: string, ending: 'pointerup' | 'los
     const handle = overlay.host.querySelector<HTMLElement>(selector)!;
     handle.setPointerCapture = vi.fn();
     handle.hasPointerCapture = vi.fn(() => false);
-    handle.dispatchEvent(new PointerEvent('pointerdown', {
-        pointerId: 1,
-        pointerType: 'mouse',
-        button: 0,
-        buttons: 1,
-        clientX: 200,
-        clientY: 300,
-        bubbles: true,
-    }));
+    handle.dispatchEvent(
+        new PointerEvent('pointerdown', {
+            pointerId: 1,
+            pointerType: 'mouse',
+            button: 0,
+            buttons: 1,
+            clientX: 200,
+            clientY: 300,
+            bubbles: true,
+        }),
+    );
     await nextTick();
-    window.dispatchEvent(new PointerEvent('pointermove', {
-        pointerId: 1,
-        pointerType: 'mouse',
-        button: -1,
-        buttons: 1,
-        clientX: 225,
-        clientY: 325,
-    }));
-    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    window.dispatchEvent(
+        new PointerEvent('pointermove', {
+            pointerId: 1,
+            pointerType: 'mouse',
+            button: -1,
+            buttons: 1,
+            clientX: 225,
+            clientY: 325,
+        }),
+    );
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     await nextTick();
     const preview = overlay.updates.at(-1);
     expect(preview).toBeDefined();
@@ -164,30 +144,38 @@ async function completeImageGesture(selector: string, ending: 'pointerup' | 'los
         clientX: 260,
         clientY: 350,
     };
-    window.dispatchEvent(new PointerEvent('pointermove', {
-        ...releasePoint,
-        button: -1,
-        buttons: 1,
-    }));
-    window.dispatchEvent(new PointerEvent(ending, {
-        ...releasePoint,
-        button: ending === 'pointerup' ? 0 : -1,
-        buttons,
-    }));
+    window.dispatchEvent(
+        new PointerEvent('pointermove', {
+            ...releasePoint,
+            button: -1,
+            buttons: 1,
+        }),
+    );
+    window.dispatchEvent(
+        new PointerEvent(ending, {
+            ...releasePoint,
+            button: ending === 'pointerup' ? 0 : -1,
+            buttons,
+        }),
+    );
     await nextTick();
     const final = overlay.updates.at(-1);
     const updateCount = overlay.updates.length;
-    window.dispatchEvent(new PointerEvent('pointermove', {
-        ...releasePoint,
-        button: -1,
-        buttons: 0,
-    }));
-    window.dispatchEvent(new PointerEvent('pointerup', {
-        ...releasePoint,
-        button: 0,
-        buttons: 0,
-    }));
-    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    window.dispatchEvent(
+        new PointerEvent('pointermove', {
+            ...releasePoint,
+            button: -1,
+            buttons: 0,
+        }),
+    );
+    window.dispatchEvent(
+        new PointerEvent('pointerup', {
+            ...releasePoint,
+            button: 0,
+            buttons: 0,
+        }),
+    );
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     await nextTick();
     expect(overlay.updates).toHaveLength(updateCount);
     expect(document.documentElement.hasAttribute('data-pdf-image-placement-cursor')).toBe(false);
@@ -211,10 +199,7 @@ describe('PdfImagePlacementOverlay', () => {
     });
 
     it.each(gestureHandles)('rolls back %s on genuine cancellation or capture loss while held', async (_mode, selector) => {
-        for (const ending of [
-            'pointercancel',
-            'lostpointercapture',
-        ] as const) {
+        for (const ending of ['pointercancel', 'lostpointercapture'] as const) {
             const result = await completeImageGesture(selector, ending, ending === 'pointercancel' ? 0 : 1);
             expect(result.final).not.toEqual(result.preview);
             expect(result.final).toEqual({
@@ -228,10 +213,7 @@ describe('PdfImagePlacementOverlay', () => {
     });
 
     it('renders the pending image and routes placement actions', () => {
-        const {
-            events,
-            host,
-        } = mountOverlay();
+        const {events, host} = mountOverlay();
 
         const image = host.querySelector<HTMLImageElement>('.pdf-image-placement__preview');
         expect(image?.getAttribute('src')).toBe(placement.previewUrl);
@@ -239,8 +221,8 @@ describe('PdfImagePlacementOverlay', () => {
         expect(host.querySelector('.pdf-image-placement')?.getAttribute('style')).toContain('width: 30%');
 
         const buttons = [...host.querySelectorAll<HTMLButtonElement>('button')];
-        buttons.find(button => button.textContent?.includes('cancelImagePlacement'))?.click();
-        buttons.find(button => button.textContent?.includes('embedImageToPage'))?.click();
+        buttons.find((button) => button.textContent?.includes('cancelImagePlacement'))?.click();
+        buttons.find((button) => button.textContent?.includes('embedImageToPage'))?.click();
 
         expect(events.cancel).toBe(1);
         expect(events.finalize).toBe(1);
@@ -251,13 +233,10 @@ describe('PdfImagePlacementOverlay', () => {
 
         const buttons = [...host.querySelectorAll<HTMLButtonElement>('button')];
         expect(buttons.length).toBeGreaterThan(0);
-        expect(buttons.every(button => button.disabled)).toBe(true);
+        expect(buttons.every((button) => button.disabled)).toBe(true);
     });
     it('rolls a canceled pointer gesture back to the original image rectangle', async () => {
-        const {
-            host,
-            updates,
-        } = mountOverlay();
+        const {host, updates} = mountOverlay();
         const frame = host.querySelector<HTMLElement>('.pdf-image-placement')!;
         vi.spyOn(frame.parentElement!, 'getBoundingClientRect').mockReturnValue({
             left: 0,
@@ -268,35 +247,37 @@ describe('PdfImagePlacementOverlay', () => {
         const handle = host.querySelector<HTMLElement>('.pdf-image-placement__surface')!;
         handle.setPointerCapture = vi.fn();
         handle.hasPointerCapture = vi.fn(() => false);
-        handle.dispatchEvent(new PointerEvent('pointerdown', {
-            pointerId: 1,
-            button: 0,
-            clientX: 200,
-            clientY: 300,
-            bubbles: true,
-        }));
+        handle.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                pointerId: 1,
+                button: 0,
+                clientX: 200,
+                clientY: 300,
+                bubbles: true,
+            }),
+        );
         await nextTick();
-        window.dispatchEvent(new PointerEvent('pointercancel', {
-            pointerId: 1,
-            clientX: 500,
-            clientY: 600,
-        }));
-        expect(updates).toEqual([{
-            x: placement.x,
-            y: placement.y,
-            width: placement.width,
-            height: placement.height,
-            rotationDegrees: placement.rotationDegrees,
-        }]);
+        window.dispatchEvent(
+            new PointerEvent('pointercancel', {
+                pointerId: 1,
+                clientX: 500,
+                clientY: 600,
+            }),
+        );
+        expect(updates).toEqual([
+            {
+                x: placement.x,
+                y: placement.y,
+                width: placement.width,
+                height: placement.height,
+                rotationDegrees: placement.rotationDegrees,
+            },
+        ]);
         expect(document.documentElement.hasAttribute('data-pdf-image-placement-cursor')).toBe(false);
     });
 
     it('ends the old drag when a new placement replaces it', async () => {
-        const {
-            host,
-            updates,
-            currentPlacement,
-        } = mountOverlay();
+        const {host, updates, currentPlacement} = mountOverlay();
         const frame = host.querySelector<HTMLElement>('.pdf-image-placement')!;
         vi.spyOn(frame.parentElement!, 'getBoundingClientRect').mockReturnValue({
             left: 0,
@@ -307,34 +288,34 @@ describe('PdfImagePlacementOverlay', () => {
         const handle = host.querySelector<HTMLElement>('.pdf-image-placement__surface')!;
         handle.setPointerCapture = vi.fn();
         handle.hasPointerCapture = vi.fn(() => false);
-        handle.dispatchEvent(new PointerEvent('pointerdown', {
-            pointerId: 1,
-            button: 0,
-            clientX: 200,
-            clientY: 300,
-            bubbles: true,
-        }));
+        handle.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                pointerId: 1,
+                button: 0,
+                clientX: 200,
+                clientY: 300,
+                bubbles: true,
+            }),
+        );
         await nextTick();
         currentPlacement.value = {
             ...placement,
             previewUrl: 'blob:new-image',
         };
         await nextTick();
-        window.dispatchEvent(new PointerEvent('pointerup', {
-            pointerId: 1,
-            clientX: 500,
-            clientY: 600,
-        }));
+        window.dispatchEvent(
+            new PointerEvent('pointerup', {
+                pointerId: 1,
+                clientX: 500,
+                clientY: 600,
+            }),
+        );
         expect(updates).toEqual([]);
         expect(document.documentElement.hasAttribute('data-pdf-image-placement-cursor')).toBe(false);
     });
 
     it('continues a drag when the parent echoes each rectangle update through props', async () => {
-        const {
-            host,
-            updates,
-            currentPlacement,
-        } = mountOverlay(false, true);
+        const {host, updates, currentPlacement} = mountOverlay(false, true);
         const frame = host.querySelector<HTMLElement>('.pdf-image-placement')!;
         vi.spyOn(frame.parentElement!, 'getBoundingClientRect').mockReturnValue({
             left: 0,
@@ -345,41 +326,49 @@ describe('PdfImagePlacementOverlay', () => {
         const handle = host.querySelector<HTMLElement>('.pdf-image-placement__surface')!;
         handle.setPointerCapture = vi.fn();
         handle.hasPointerCapture = vi.fn(() => false);
-        handle.dispatchEvent(new PointerEvent('pointerdown', {
-            pointerId: 1,
-            button: 0,
-            clientX: 200,
-            clientY: 300,
-            bubbles: true,
-        }));
+        handle.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                pointerId: 1,
+                button: 0,
+                clientX: 200,
+                clientY: 300,
+                bubbles: true,
+            }),
+        );
         await nextTick();
         for (let step = 1; step <= 8; step += 1) {
-            window.dispatchEvent(new PointerEvent('pointermove', {
-                pointerId: 1,
-                clientX: 200 + step * 6,
-                clientY: 300 + step * 4,
-            }));
-            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+            window.dispatchEvent(
+                new PointerEvent('pointermove', {
+                    pointerId: 1,
+                    clientX: 200 + step * 6,
+                    clientY: 300 + step * 4,
+                }),
+            );
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
             await nextTick();
         }
-        window.dispatchEvent(new PointerEvent('pointerup', {
-            pointerId: 1,
-            clientX: 248,
-            clientY: 332,
-        }));
+        window.dispatchEvent(
+            new PointerEvent('pointerup', {
+                pointerId: 1,
+                clientX: 248,
+                clientY: 332,
+            }),
+        );
         await nextTick();
         expect(updates.length).toBeGreaterThanOrEqual(8);
         expect(currentPlacement.value.x).toBeCloseTo(placement.x + 48 / 600);
         expect(currentPlacement.value.y).toBeCloseTo(placement.y + 32 / 800);
     });
 
-
     describe('keyboard', () => {
-        const press = (target: EventTarget, key: string) => target.dispatchEvent(new KeyboardEvent('keydown', {
-            key,
-            bubbles: true,
-            cancelable: true,
-        }));
+        const press = (target: EventTarget, key: string) =>
+            target.dispatchEvent(
+                new KeyboardEvent('keydown', {
+                    key,
+                    bubbles: true,
+                    cancelable: true,
+                }),
+            );
 
         it('embeds with Enter and cancels with Escape on the image', () => {
             const overlay = mountOverlay();
@@ -422,7 +411,7 @@ describe('PdfImagePlacementOverlay', () => {
             }
         });
 
-        it('takes Enter only in the active pane' , () => {
+        it('takes Enter only in the active pane', () => {
             const inactive = mountOverlay(false, false, false);
             const active = mountOverlay(false, false, true);
             press(document.body, 'Enter');

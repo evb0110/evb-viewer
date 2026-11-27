@@ -5,8 +5,8 @@
 </template>
 
 <script setup lang="ts">
-import { useMutationObserver } from '@vueuse/core';
-import { Agentation } from 'agentation-vue3';
+import {useMutationObserver} from '@vueuse/core';
+import {Agentation} from 'agentation-vue3';
 import 'agentation-vue3/dist/style.css';
 
 const agentationRootRef = useTemplateRef<HTMLElement>('agentationRootRef');
@@ -25,9 +25,7 @@ function removeNativeTooltips(root: HTMLElement) {
         removeNativeTooltip(root);
     }
 
-    root
-        .querySelectorAll<HTMLElement>('[title]')
-        .forEach(removeNativeTooltip);
+    root.querySelectorAll<HTMLElement>('[title]').forEach(removeNativeTooltip);
 }
 
 function removeRootAgentationNativeTooltips() {
@@ -68,9 +66,9 @@ function handleAgentationMutationNode(node: Node) {
         removeNativeTooltips(node.parentElement ?? node);
     }
 
-    node
-        .querySelectorAll<HTMLElement>(agentationControlTitleSelector)
-        .forEach((element) => removeNativeTooltips(element.parentElement ?? element));
+    node.querySelectorAll<HTMLElement>(agentationControlTitleSelector).forEach((element) =>
+        removeNativeTooltips(element.parentElement ?? element),
+    );
 }
 
 function handleAgentationMutations(mutations: MutationRecord[]) {
@@ -89,14 +87,10 @@ onMounted(() => {
     void nextTick(removeDocumentAgentationNativeTooltips);
 });
 
-useMutationObserver(
-    import.meta.dev && typeof document !== 'undefined' ? document.body : null,
-    handleAgentationMutations,
-    {
-        attributes: true,
-        attributeFilter: ['title'],
-        childList: true,
-        subtree: true,
-    },
-);
+useMutationObserver(import.meta.dev && typeof document !== 'undefined' ? document.body : null, handleAgentationMutations, {
+    attributes: true,
+    attributeFilter: ['title'],
+    childList: true,
+    subtree: true,
+});
 </script>

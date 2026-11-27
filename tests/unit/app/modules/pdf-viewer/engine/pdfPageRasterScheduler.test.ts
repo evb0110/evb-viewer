@@ -1,14 +1,5 @@
-import type {
-    IPdfPage,
-    IPdfRenderTask,
-} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import type {IPdfPage, IPdfRenderTask} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {
     createPdfPageRasterScheduler,
     type IPdfRasterDemand,
@@ -20,15 +11,15 @@ import {
     resetCoordinatedPdfPageRendersForTest,
     runCoordinatedPdfPageOperation,
 } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
-import { createWorkspaceSurfaceBudgetController } from '@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController';
-import { resolveWorkspaceMemoryBudget } from '@app/modules/document-viewer/runtime/workspaceMemoryBudget';
-import { resolveWorkspaceResourcePressureLevel } from '@app/modules/workspace-shell/memory/resolveWorkspaceResourcePressureLevel';
+import {createWorkspaceSurfaceBudgetController} from '@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController';
+import {resolveWorkspaceMemoryBudget} from '@app/modules/document-viewer/runtime/workspaceMemoryBudget';
+import {resolveWorkspaceResourcePressureLevel} from '@app/modules/workspace-shell/memory/resolveWorkspaceResourcePressureLevel';
 import {
     createPdfRenderSupervisor,
     type IPdfRenderSupervisorEvent,
 } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
-import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
-import { cast } from '@tests/helpers/cast';
+import {PDF_PAGE_RENDER_TIMEOUT_MS} from '@app/constants/timeouts';
+import {cast} from '@tests/helpers/cast';
 import {requirePageNumber} from '@contracts/pageNumbers';
 
 const documentFence = {
@@ -44,11 +35,7 @@ function createTask(promise: Promise<unknown> = Promise.resolve()) {
     });
 }
 
-function createDemand(
-    pageNumber: number,
-    lane: TPdfRasterLane,
-    generation = 1,
-): IPdfRasterDemand {
+function createDemand(pageNumber: number, lane: TPdfRasterLane, generation = 1): IPdfRasterDemand {
     return {
         consumerGeneration: generation,
         documentFence,
@@ -61,11 +48,13 @@ function createDemand(
     };
 }
 
-function createHarness(options: {
-    maxConcurrency?: number;
-    prepare?: IPdfRasterRenderTarget<{pageNumber: number}>['prepare'];
-    surfaceBudgetBytes?: number;
-} = {}) {
+function createHarness(
+    options: {
+        maxConcurrency?: number;
+        prepare?: IPdfRasterRenderTarget<{pageNumber: number}>['prepare'];
+        surfaceBudgetBytes?: number;
+    } = {},
+) {
     const pages = new Map<number, IPdfPage>();
     const released: number[] = [];
     const committed: number[] = [];
@@ -73,8 +62,8 @@ function createHarness(options: {
     const started: number[] = [];
     const target: IPdfRasterRenderTarget<{pageNumber: number}> = {
         id: 'target',
-        prepare: options.prepare ?? (async demand => ({pageNumber: demand.pageNumber})),
-        start: prepared => {
+        prepare: options.prepare ?? (async (demand) => ({pageNumber: demand.pageNumber})),
+        start: (prepared) => {
             started.push(prepared.pageNumber);
             return createTask();
         },
@@ -82,8 +71,8 @@ function createHarness(options: {
             committed.push(prepared.pageNumber);
             return true;
         },
-        discard: prepared => discarded.push(prepared.pageNumber),
-        release: pageNumber => released.push(pageNumber),
+        discard: (prepared) => discarded.push(prepared.pageNumber),
+        release: (pageNumber) => released.push(pageNumber),
     };
     const scheduler = createPdfPageRasterScheduler({
         documentFence,
@@ -120,39 +109,60 @@ describe('PdfPageRasterScheduler', () => {
     it('acknowledges a raster only after its complete page commit settles', async () => {
         const harness = createHarness();
         let finish!: () => void;
-        const ready = new Promise<void>(resolve => {finish = resolve;});
+        const ready = new Promise<void>((resolve) => {
+            finish = resolve;
+        });
         const committed: string[] = [];
-        harness.target.commit = vi.fn(async () => {await ready; return true;});
-        const requested = harness.scheduler.request({
-            sourceId: 'complete-page',
-            demand: createDemand(1, 'viewport-visible'),
-            target: harness.target,
-        })
-            .then(outcome => {committed.push(outcome.status); return outcome;});
+        harness.target.commit = vi.fn(async () => {
+            await ready;
+            return true;
+        });
+        const requested = harness.scheduler
+            .request({
+                sourceId: 'complete-page',
+                demand: createDemand(1, 'viewport-visible'),
+                target: harness.target,
+            })
+            .then((outcome) => {
+                committed.push(outcome.status);
+                return outcome;
+            });
         try {
             await vi.waitFor(() => expect(harness.target.commit).toHaveBeenCalledOnce());
             expect(committed).toEqual([]);
             finish();
             expect((await requested).status).toBe('committed');
-        } finally {finish(); await harness.scheduler.dispose();}
+        } finally {
+            finish();
+            await harness.scheduler.dispose();
+        }
     });
 
     it('acknowledges published pixels while subsequent page layers are still hydrating', async () => {
         const harness = createHarness();
         let finishLayers!: () => void;
-        const layers = new Promise<void>(resolve => {finishLayers = resolve;});
+        const layers = new Promise<void>((resolve) => {
+            finishLayers = resolve;
+        });
         const receipts: string[] = [];
         harness.target.commit = async (prepared, _demand, publishRaster) => {
             harness.committed.push(prepared.pageNumber);
-            if (!publishRaster()) return false;
+            if (!publishRaster()) {
+                return false;
+            }
             await layers;
             return true;
         };
-        const requested = harness.scheduler.request({
-            sourceId: 'accepted-page',
-            demand: createDemand(1, 'viewport-visible'),
-            target: harness.target,
-        }).then(outcome => {receipts.push(outcome.status); return outcome;});
+        const requested = harness.scheduler
+            .request({
+                sourceId: 'accepted-page',
+                demand: createDemand(1, 'viewport-visible'),
+                target: harness.target,
+            })
+            .then((outcome) => {
+                receipts.push(outcome.status);
+                return outcome;
+            });
         try {
             await vi.waitFor(() => expect(harness.committed).toEqual([1]));
             expect(receipts).toEqual(['committed']);
@@ -162,7 +172,10 @@ describe('PdfPageRasterScheduler', () => {
             finishLayers();
             await cancelled;
             expect((await requested).status).toBe('committed');
-        } finally {finishLayers(); await harness.scheduler.dispose();}
+        } finally {
+            finishLayers();
+            await harness.scheduler.dispose();
+        }
     });
 
     it('orders navigation and viewport demand ahead of thumbnails and prefetch', async () => {
@@ -177,7 +190,7 @@ describe('PdfPageRasterScheduler', () => {
             sourceId: 'all',
             input: demands,
             policy: {
-                expand: input => input,
+                expand: (input) => input,
                 compareWithinLane: (left, right) => left.ordinal - right.ordinal,
             },
             target: harness.target,
@@ -186,12 +199,7 @@ describe('PdfPageRasterScheduler', () => {
         await flush();
         await vi.waitFor(() => expect(harness.committed).toHaveLength(4));
 
-        expect(harness.started).toEqual([
-            4,
-            3,
-            2,
-            1,
-        ]);
+        expect(harness.started).toEqual([4, 3, 2, 1]);
     });
 
     it('deduplicates the same target, page, and render key', async () => {
@@ -224,7 +232,7 @@ describe('PdfPageRasterScheduler', () => {
         const release = vi.fn();
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
-            leasePage: async pageNumber => ({
+            leasePage: async (pageNumber) => ({
                 page: cast<IPdfPage>({pageNumber}),
                 release: vi.fn(),
             }),
@@ -233,29 +241,34 @@ describe('PdfPageRasterScheduler', () => {
         });
         const target: IPdfRasterRenderTarget<{pageNumber: number}> = {
             id: 'resident-promotion',
-            prepare: async demand => ({pageNumber: demand.pageNumber}),
+            prepare: async (demand) => ({pageNumber: demand.pageNumber}),
             start,
             commit: () => true,
             discard: vi.fn(),
             release,
         };
-        const setDemand = (demand: IPdfRasterDemand) => scheduler.setDemand({
-            sourceId: 'viewport',
-            input: [demand],
-            policy: {
-                expand: input => input,
-                compareWithinLane: () => 0,
-            },
-            target,
-        });
+        const setDemand = (demand: IPdfRasterDemand) =>
+            scheduler.setDemand({
+                sourceId: 'viewport',
+                input: [demand],
+                policy: {
+                    expand: (input) => input,
+                    compareWithinLane: () => 0,
+                },
+                target,
+            });
 
         setDemand(createDemand(1, 'viewport-nearby'));
-        await vi.waitFor(() => expect(scheduler.snapshot().residentPages).toEqual([{
-            lane: 'viewport-nearby',
-            pageNumber: 1,
-            sourceId: 'viewport',
-            targetId: 'resident-promotion',
-        }]));
+        await vi.waitFor(() =>
+            expect(scheduler.snapshot().residentPages).toEqual([
+                {
+                    lane: 'viewport-nearby',
+                    pageNumber: 1,
+                    sourceId: 'viewport',
+                    targetId: 'resident-promotion',
+                },
+            ]),
+        );
         budget.reserve({
             scopeId: 'external',
             category: 'djvu-preview',
@@ -267,12 +280,14 @@ describe('PdfPageRasterScheduler', () => {
         setDemand(createDemand(1, 'viewport-visible'));
         budget.setPressureLevel('moderate');
 
-        expect(scheduler.snapshot().residentPages).toEqual([{
-            lane: 'viewport-visible',
-            pageNumber: 1,
-            sourceId: 'viewport',
-            targetId: 'resident-promotion',
-        }]);
+        expect(scheduler.snapshot().residentPages).toEqual([
+            {
+                lane: 'viewport-visible',
+                pageNumber: 1,
+                sourceId: 'viewport',
+                targetId: 'resident-promotion',
+            },
+        ]);
         expect(start).toHaveBeenCalledOnce();
         expect(externalEvict).toHaveBeenCalledOnce();
         expect(release).not.toHaveBeenCalled();
@@ -301,10 +316,12 @@ describe('PdfPageRasterScheduler', () => {
             prepare: async () => ({kind: 'low'}),
             start: () => {
                 starts.push('low');
-                return starts.length === 1 ? cast<IPdfRenderTask>({
-                    cancel: cancelLow,
-                    promise: lowTask.promise,
-                }) : createTask();
+                return starts.length === 1
+                    ? cast<IPdfRenderTask>({
+                          cancel: cancelLow,
+                          promise: lowTask.promise,
+                      })
+                    : createTask();
             },
             commit: lowCommits,
             discard: vi.fn(),
@@ -326,7 +343,7 @@ describe('PdfPageRasterScheduler', () => {
             sourceId: 'thumbnails',
             input: [lowDemand],
             policy: {
-                expand: input => input,
+                expand: (input) => input,
                 compareWithinLane: () => 0,
             },
             target: lowTarget,
@@ -342,20 +359,13 @@ describe('PdfPageRasterScheduler', () => {
             target: highTarget,
         });
         await vi.waitFor(() => expect(cancelLow).toHaveBeenCalledOnce());
-        await vi.waitFor(() => expect(starts).toEqual([
-            'low',
-            'high',
-        ]));
+        await vi.waitFor(() => expect(starts).toEqual(['low', 'high']));
         expect(lowCommits).not.toHaveBeenCalled();
         highTask.resolve(undefined);
         await expect(highRun).resolves.toMatchObject({status: 'committed'});
         // The pre-empted page is still wanted, so it renders once the page is free.
         await vi.waitFor(() => expect(lowCommits).toHaveBeenCalledOnce());
-        expect(starts).toEqual([
-            'low',
-            'high',
-            'low',
-        ]);
+        expect(starts).toEqual(['low', 'high', 'low']);
     });
 
     it('releases a page lease exactly once and only after render settlement', async () => {
@@ -364,7 +374,7 @@ describe('PdfPageRasterScheduler', () => {
         const started = vi.fn();
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
-            leasePage: async pageNumber => ({
+            leasePage: async (pageNumber) => ({
                 page: cast<IPdfPage>({pageNumber}),
                 release,
             }),
@@ -404,7 +414,7 @@ describe('PdfPageRasterScheduler', () => {
         const commit = vi.fn(() => true);
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
-            leasePage: async pageNumber => ({
+            leasePage: async (pageNumber) => ({
                 page: cast<IPdfPage>({pageNumber}),
                 release,
             }),
@@ -414,16 +424,17 @@ describe('PdfPageRasterScheduler', () => {
             sourceId: 'viewport',
             input: [createDemand(1, 'viewport-visible')],
             policy: {
-                expand: input => input,
+                expand: (input) => input,
                 compareWithinLane: () => 0,
             },
             target: {
                 id: 'cancel',
                 prepare: async () => ({}),
-                start: () => cast<IPdfRenderTask>({
-                    cancel,
-                    promise: render.promise,
-                }),
+                start: () =>
+                    cast<IPdfRenderTask>({
+                        cancel,
+                        promise: render.promise,
+                    }),
                 commit,
                 discard: vi.fn(),
                 release: vi.fn(),
@@ -462,23 +473,27 @@ describe('PdfPageRasterScheduler', () => {
             sourceId: 'viewport',
             input: [createDemand(1, 'viewport-visible')],
             policy: {
-                expand: input => input,
+                expand: (input) => input,
                 compareWithinLane: () => 0,
             },
             target: {
                 id: 'cancelled-prepare',
-                prepare: async (_demand, leasedPage, signal, captureSettlement) => runCoordinatedPdfPageOperation({
-                    owner: 'cancelled-prepare',
-                    pageNumber: leasedPage.pageNumber,
-                    pdfPage: leasedPage,
-                    priority: 100,
-                    signal,
-                    captureSettlement,
-                    operation: async () => {
-                        prepareStarted();
-                        return leasedPage.getOperatorList();
-                    },
-                }).then(() => null, () => null),
+                prepare: async (_demand, leasedPage, signal, captureSettlement) =>
+                    runCoordinatedPdfPageOperation({
+                        owner: 'cancelled-prepare',
+                        pageNumber: leasedPage.pageNumber,
+                        pdfPage: leasedPage,
+                        priority: 100,
+                        signal,
+                        captureSettlement,
+                        operation: async () => {
+                            prepareStarted();
+                            return leasedPage.getOperatorList();
+                        },
+                    }).then(
+                        () => null,
+                        () => null,
+                    ),
                 start: () => createTask(),
                 commit: () => true,
                 discard: vi.fn(),
@@ -510,10 +525,7 @@ describe('PdfPageRasterScheduler', () => {
         const operationB = Promise.withResolvers<string>();
         const operationAStarted = vi.fn();
         const operationBStarted = vi.fn();
-        const leaseReleases = [
-            vi.fn(),
-            vi.fn(),
-        ];
+        const leaseReleases = [vi.fn(), vi.fn()];
         let leaseIndex = 0;
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
@@ -530,19 +542,20 @@ describe('PdfPageRasterScheduler', () => {
             operation: Promise<string>,
         ): IPdfRasterRenderTarget<Record<string, never>> => ({
             id,
-            prepare: async (_demand, leasedPage, signal, captureSettlement) => runCoordinatedPdfPageOperation({
-                owner: id,
-                pageNumber: leasedPage.pageNumber,
-                pdfPage: leasedPage,
-                priority: 100,
-                signal,
-                captureSettlement,
-                operation: async () => {
-                    started();
-                    await operation;
-                    return {};
-                },
-            }).catch(() => null),
+            prepare: async (_demand, leasedPage, signal, captureSettlement) =>
+                runCoordinatedPdfPageOperation({
+                    owner: id,
+                    pageNumber: leasedPage.pageNumber,
+                    pdfPage: leasedPage,
+                    priority: 100,
+                    signal,
+                    captureSettlement,
+                    operation: async () => {
+                        started();
+                        await operation;
+                        return {};
+                    },
+                }).catch(() => null),
             start: () => createTask(),
             commit: () => true,
             discard: vi.fn(),
@@ -564,10 +577,12 @@ describe('PdfPageRasterScheduler', () => {
         await vi.waitFor(() => expect(operationAStarted).toHaveBeenCalledOnce());
         scheduler.setDemand({
             sourceId: 'source-b',
-            input: [{
-                ...createDemand(1, 'viewport-visible'),
-                renderKey: 'source-b:1',
-            }],
+            input: [
+                {
+                    ...createDemand(1, 'viewport-visible'),
+                    renderKey: 'source-b:1',
+                },
+            ],
             policy,
             target: targetB,
         });
@@ -594,10 +609,10 @@ describe('PdfPageRasterScheduler', () => {
         expect(disposalSettled).toHaveBeenCalledOnce();
     });
 
-    it('releases one source\'s rasters and keeps another source\'s rasters of the same pages', async () => {
+    it("releases one source's rasters and keeps another source's rasters of the same pages", async () => {
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
-            leasePage: async pageNumber => ({
+            leasePage: async (pageNumber) => ({
                 page: cast<IPdfPage>({pageNumber}),
                 release: vi.fn(),
             }),
@@ -612,24 +627,18 @@ describe('PdfPageRasterScheduler', () => {
             expand: (input: readonly IPdfRasterDemand[]) => input,
             compareWithinLane: () => 0,
         };
-        for (const view of [
-            'left',
-            'right',
-        ] as const) {
+        for (const view of ['left', 'right'] as const) {
             scheduler.setDemand({
                 sourceId: `viewport:${view}`,
-                input: [
-                    createDemand(1, 'viewport-visible'),
-                    createDemand(2, 'viewport-visible'),
-                ],
+                input: [createDemand(1, 'viewport-visible'), createDemand(2, 'viewport-visible')],
                 policy,
                 target: {
                     id: `viewport:${view}`,
-                    prepare: async demand => ({pageNumber: demand.pageNumber}),
+                    prepare: async (demand) => ({pageNumber: demand.pageNumber}),
                     start: () => createTask(),
                     commit: () => true,
                     discard: vi.fn(),
-                    release: pageNumber => released[view].push(pageNumber),
+                    release: (pageNumber) => released[view].push(pageNumber),
                 },
             });
         }
@@ -640,9 +649,10 @@ describe('PdfPageRasterScheduler', () => {
             target: {
                 id: 'viewport:left',
                 // Still preparing when its view leaves; it gives up on abort.
-                prepare: (_demand, _page, signal) => new Promise<null>((resolve) => {
-                    signal.addEventListener('abort', () => resolve(null), {once: true});
-                }),
+                prepare: (_demand, _page, signal) =>
+                    new Promise<null>((resolve) => {
+                        signal.addEventListener('abort', () => resolve(null), {once: true});
+                    }),
                 start: () => createTask(),
                 commit: () => true,
                 discard: vi.fn(),
@@ -653,19 +663,20 @@ describe('PdfPageRasterScheduler', () => {
         // A source ID nobody uses names no source, not every source.
         await scheduler.releaseSource('');
         expect(scheduler.snapshot().residentPages).toHaveLength(4);
-        await vi.waitFor(() => expect(scheduler.snapshot().inFlightPages).toEqual([expect.objectContaining({
-            pageNumber: 3,
-            sourceId: 'viewport:left',
-        })]));
+        await vi.waitFor(() =>
+            expect(scheduler.snapshot().inFlightPages).toEqual([
+                expect.objectContaining({
+                    pageNumber: 3,
+                    sourceId: 'viewport:left',
+                }),
+            ]),
+        );
 
         await scheduler.releaseSource('viewport:left');
 
         await expect(leftWaiting).resolves.toMatchObject({status: 'cancelled'});
         expect(released).toEqual({
-            left: [
-                1,
-                2,
-            ],
+            left: [1, 2],
             right: [],
         });
         expect(scheduler.snapshot()).toMatchObject({
@@ -691,7 +702,7 @@ describe('PdfPageRasterScheduler', () => {
             sourceId: 'viewport',
             input: [createDemand(1, 'viewport-visible', 1)],
             policy: {
-                expand: input => input,
+                expand: (input) => input,
                 compareWithinLane: () => 0,
             },
             target: harness.target,
@@ -701,7 +712,7 @@ describe('PdfPageRasterScheduler', () => {
             sourceId: 'viewport',
             input: [createDemand(1, 'viewport-visible', 2)],
             policy: {
-                expand: input => input,
+                expand: (input) => input,
                 compareWithinLane: () => 0,
             },
             target: harness.target,
@@ -717,31 +728,34 @@ describe('PdfPageRasterScheduler', () => {
         vi.useFakeTimers();
         let attempts = 0;
         const budget = createWorkspaceSurfaceBudgetController(1_000);
-        const harness = createHarness({prepare: async demand => {
-            attempts += 1;
-            if (attempts === 1) {
-                throw new Error('prepare failed');
-            }
-            return {pageNumber: demand.pageNumber};
-        }});
+        const harness = createHarness({
+            prepare: async (demand) => {
+                attempts += 1;
+                if (attempts === 1) {
+                    throw new Error('prepare failed');
+                }
+                return {pageNumber: demand.pageNumber};
+            },
+        });
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
-            leasePage: async pageNumber => ({
+            leasePage: async (pageNumber) => ({
                 page: cast<IPdfPage>({pageNumber}),
                 release: vi.fn(),
             }),
             maxConcurrency: 1,
             surfaceBudget: budget,
         });
-        const publish = () => scheduler.setDemand({
-            sourceId: 'viewport',
-            input: [createDemand(1, 'viewport-visible')],
-            policy: {
-                expand: input => input,
-                compareWithinLane: () => 0,
-            },
-            target: harness.target,
-        });
+        const publish = () =>
+            scheduler.setDemand({
+                sourceId: 'viewport',
+                input: [createDemand(1, 'viewport-visible')],
+                policy: {
+                    expand: (input) => input,
+                    compareWithinLane: () => 0,
+                },
+                target: harness.target,
+            });
         publish();
         await vi.advanceTimersByTimeAsync(1_000);
         expect(attempts).toBe(1);
@@ -754,76 +768,82 @@ describe('PdfPageRasterScheduler', () => {
         expect(budget.getSnapshot().reservedBytes).toBe(400);
     });
 
-    it.each([
-        'render',
-        'lease',
-        'prepare',
-        'commit',
-    ] as const)('settles a current page whose %s attempt ends without a raster, once', async (stage) => {
-        vi.useFakeTimers();
-        const harness = createHarness(stage === 'prepare' ? {prepare: async () => null} : {});
-        const failure = new Error('page render failed');
-        const onRenderUncommitted = vi.fn();
-        const target: IPdfRasterRenderTarget<{pageNumber: number}> = {
-            ...harness.target,
-            start: (prepared) => {
-                harness.started.push(prepared.pageNumber);
-                return createTask(stage === 'render' ? Promise.reject(failure) : Promise.resolve());
-            },
-            commit: stage === 'commit' ? () => false : harness.target.commit,
-            onRenderUncommitted,
-        };
-        const scheduler = stage === 'lease' ? createPdfPageRasterScheduler({
-            documentFence,
-            leasePage: async () => { throw failure; },
-            surfaceBudget: createWorkspaceSurfaceBudgetController(1_000_000),
-        }) : harness.scheduler;
-        const demand = createDemand(1, 'viewport-visible');
-        const publish = (input: IPdfRasterDemand[]) => scheduler.setDemand({
-            sourceId: 'viewport',
-            input,
-            policy: {
-                expand: demands => demands,
-                compareWithinLane: () => 0,
-            },
-            target,
-        });
-        publish([demand]);
-        await vi.advanceTimersByTimeAsync(1_000);
+    it.each(['render', 'lease', 'prepare', 'commit'] as const)(
+        'settles a current page whose %s attempt ends without a raster, once',
+        async (stage) => {
+            vi.useFakeTimers();
+            const harness = createHarness(stage === 'prepare' ? {prepare: async () => null} : {});
+            const failure = new Error('page render failed');
+            const onRenderUncommitted = vi.fn();
+            const target: IPdfRasterRenderTarget<{pageNumber: number}> = {
+                ...harness.target,
+                start: (prepared) => {
+                    harness.started.push(prepared.pageNumber);
+                    return createTask(stage === 'render' ? Promise.reject(failure) : Promise.resolve());
+                },
+                commit: stage === 'commit' ? () => false : harness.target.commit,
+                onRenderUncommitted,
+            };
+            const scheduler =
+                stage === 'lease'
+                    ? createPdfPageRasterScheduler({
+                          documentFence,
+                          leasePage: async () => {
+                              throw failure;
+                          },
+                          surfaceBudget: createWorkspaceSurfaceBudgetController(1_000_000),
+                      })
+                    : harness.scheduler;
+            const demand = createDemand(1, 'viewport-visible');
+            const publish = (input: IPdfRasterDemand[]) =>
+                scheduler.setDemand({
+                    sourceId: 'viewport',
+                    input,
+                    policy: {
+                        expand: (demands) => demands,
+                        compareWithinLane: () => 0,
+                    },
+                    target,
+                });
+            publish([demand]);
+            await vi.advanceTimersByTimeAsync(1_000);
 
-        if (stage === 'render' || stage === 'lease') {
-            expect(onRenderUncommitted).toHaveBeenCalledExactlyOnceWith({
-                status: 'failed',
-                demand,
-                error: failure,
+            if (stage === 'render' || stage === 'lease') {
+                expect(onRenderUncommitted).toHaveBeenCalledExactlyOnceWith({
+                    status: 'failed',
+                    demand,
+                    error: failure,
+                });
+            } else {
+                expect(onRenderUncommitted).toHaveBeenCalledExactlyOnceWith({
+                    status: 'discarded',
+                    demand,
+                });
+                expect(harness.released).toEqual([1]);
+            }
+            expect(harness.committed).toEqual([]);
+
+            // A page the viewport no longer asks for is not a failure to report.
+            onRenderUncommitted.mockClear();
+            publish([createDemand(2, 'viewport-visible')]);
+            publish([]);
+            await vi.advanceTimersByTimeAsync(1_000);
+            expect(onRenderUncommitted).not.toHaveBeenCalled();
+
+            // A report that throws stays the target's problem: rasters go on.
+            onRenderUncommitted.mockImplementation(() => {
+                throw new Error('report failed');
             });
-        } else {
-            expect(onRenderUncommitted).toHaveBeenCalledExactlyOnceWith({
-                status: 'discarded',
-                demand,
-            });
-            expect(harness.released).toEqual([1]);
-        }
-        expect(harness.committed).toEqual([]);
-
-        // A page the viewport no longer asks for is not a failure to report.
-        onRenderUncommitted.mockClear();
-        publish([createDemand(2, 'viewport-visible')]);
-        publish([]);
-        await vi.advanceTimersByTimeAsync(1_000);
-        expect(onRenderUncommitted).not.toHaveBeenCalled();
-
-        // A report that throws stays the target's problem: rasters go on.
-        onRenderUncommitted.mockImplementation(() => {
-            throw new Error('report failed');
-        });
-        publish([createDemand(3, 'viewport-visible')]);
-        await vi.advanceTimersByTimeAsync(1_000);
-        expect(onRenderUncommitted).toHaveBeenCalledOnce();
-        publish([createDemand(4, 'viewport-visible')]);
-        await vi.advanceTimersByTimeAsync(1);
-        if (stage !== 'lease' && stage !== 'prepare') expect(harness.started.at(-1)).toBe(4);
-    });
+            publish([createDemand(3, 'viewport-visible')]);
+            await vi.advanceTimersByTimeAsync(1_000);
+            expect(onRenderUncommitted).toHaveBeenCalledOnce();
+            publish([createDemand(4, 'viewport-visible')]);
+            await vi.advanceTimersByTimeAsync(1);
+            if (stage !== 'lease' && stage !== 'prepare') {
+                expect(harness.started.at(-1)).toBe(4);
+            }
+        },
+    );
 
     it('settles a rejected commit once without leaking a lease or reservation', async () => {
         vi.useFakeTimers();
@@ -833,7 +853,7 @@ describe('PdfPageRasterScheduler', () => {
         let commitAttempts = 0;
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
-            leasePage: async pageNumber => ({
+            leasePage: async (pageNumber) => ({
                 page: cast<IPdfPage>({pageNumber}),
                 release,
             }),
@@ -843,7 +863,7 @@ describe('PdfPageRasterScheduler', () => {
             sourceId: 'viewport',
             input: [createDemand(1, 'viewport-visible')],
             policy: {
-                expand: input => input,
+                expand: (input) => input,
                 compareWithinLane: () => 0,
             },
             target: {
@@ -876,10 +896,7 @@ describe('PdfPageRasterScheduler', () => {
             expectedStallCalls: 0,
             lane: 'prefetch' as const,
         },
-    ])('cancels a wedged $lane task and reports it failed until demand renews', async ({
-        expectedStallCalls,
-        lane,
-    }) => {
+    ])('cancels a wedged $lane task and reports it failed until demand renews', async ({expectedStallCalls, lane}) => {
         vi.useFakeTimers();
         const budget = createWorkspaceSurfaceBudgetController(1_000);
         const events: IPdfRenderSupervisorEvent[] = [];
@@ -895,23 +912,23 @@ describe('PdfPageRasterScheduler', () => {
         const onRenderUncommitted = vi.fn();
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
-            leasePage: async pageNumber => ({
+            leasePage: async (pageNumber) => ({
                 page: cast<IPdfPage>({pageNumber}),
                 release: leaseRelease,
             }),
-            renderSupervisor: createPdfRenderSupervisor({onEvent: event => events.push(event)}),
+            renderSupervisor: createPdfRenderSupervisor({onEvent: (event) => events.push(event)}),
             surfaceBudget: budget,
         });
         const target: IPdfRasterRenderTarget<{pageNumber: number}> = {
             id: `watchdog-${lane}`,
-            prepare: async demand => ({pageNumber: demand.pageNumber}),
+            prepare: async (demand) => ({pageNumber: demand.pageNumber}),
             start: () => {
                 startCount += 1;
                 return startCount === 1
                     ? cast<IPdfRenderTask>({
-                        cancel: firstCancel,
-                        promise: firstRender.promise,
-                    })
+                          cancel: firstCancel,
+                          promise: firstRender.promise,
+                      })
                     : createTask();
             },
             commit: () => true,
@@ -920,15 +937,16 @@ describe('PdfPageRasterScheduler', () => {
             onRenderUncommitted,
             release: vi.fn(),
         };
-        const publish = () => scheduler.setDemand({
-            sourceId: 'viewport',
-            input: [createDemand(1, lane)],
-            policy: {
-                expand: input => input,
-                compareWithinLane: () => 0,
-            },
-            target,
-        });
+        const publish = () =>
+            scheduler.setDemand({
+                sourceId: 'viewport',
+                input: [createDemand(1, lane)],
+                policy: {
+                    expand: (input) => input,
+                    compareWithinLane: () => 0,
+                },
+                target,
+            });
         publish();
         await flush();
         expect(startCount).toBe(1);
@@ -940,20 +958,24 @@ describe('PdfPageRasterScheduler', () => {
         expect(onRenderStall).toHaveBeenCalledTimes(expectedStallCalls);
         expect(leaseRelease).toHaveBeenCalledOnce();
         expect(budget.getSnapshot().reservedBytes).toBe(0);
-        expect(events).toContainEqual(expect.objectContaining({
-            cause: 'page-stage-timeout',
-            metadata: expect.objectContaining({
-                lane,
-                pageNumber: 1,
-                renderKey: '1:1',
-                stage: 'canvas-render',
+        expect(events).toContainEqual(
+            expect.objectContaining({
+                cause: 'page-stage-timeout',
+                metadata: expect.objectContaining({
+                    lane,
+                    pageNumber: 1,
+                    renderKey: '1:1',
+                    stage: 'canvas-render',
+                }),
             }),
-        }));
+        );
 
-        expect(onRenderUncommitted).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-            status: 'failed',
-            error: expect.objectContaining({stage: 'canvas-render'}),
-        }));
+        expect(onRenderUncommitted).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+                status: 'failed',
+                error: expect.objectContaining({stage: 'canvas-render'}),
+            }),
+        );
         await vi.advanceTimersByTimeAsync(1_000);
         expect(startCount).toBe(1);
         expect(scheduler.snapshot().residentPages).toEqual([]);
@@ -977,7 +999,7 @@ describe('PdfPageRasterScheduler', () => {
         let attempts = 0;
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
-            leasePage: async pageNumber => ({
+            leasePage: async (pageNumber) => ({
                 page: cast<IPdfPage>({pageNumber}),
                 release: leaseRelease,
             }),
@@ -985,25 +1007,29 @@ describe('PdfPageRasterScheduler', () => {
         });
         const target: IPdfRasterRenderTarget<{pageNumber: number}> = {
             id: 'watchdog-resource-ownership',
-            prepare: async demand => ({pageNumber: demand.pageNumber}),
-            start: () => ++attempts === 1 ? cast<IPdfRenderTask>({
-                cancel,
-                promise: render.promise,
-            }) : createTask(),
+            prepare: async (demand) => ({pageNumber: demand.pageNumber}),
+            start: () =>
+                ++attempts === 1
+                    ? cast<IPdfRenderTask>({
+                          cancel,
+                          promise: render.promise,
+                      })
+                    : createTask(),
             commit: () => true,
             discard: vi.fn(),
             onRenderStall,
             release: vi.fn(),
         };
-        const setDemand = (demands: IPdfRasterDemand[]) => scheduler.setDemand({
-            sourceId: 'viewport',
-            input: demands,
-            policy: {
-                expand: input => input,
-                compareWithinLane: () => 0,
-            },
-            target,
-        });
+        const setDemand = (demands: IPdfRasterDemand[]) =>
+            scheduler.setDemand({
+                sourceId: 'viewport',
+                input: demands,
+                policy: {
+                    expand: (input) => input,
+                    compareWithinLane: () => 0,
+                },
+                target,
+            });
         setDemand([createDemand(1, 'viewport-visible')]);
         await flush();
 
@@ -1040,7 +1066,7 @@ describe('PdfPageRasterScheduler', () => {
         const budget = createWorkspaceSurfaceBudgetController(800);
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
-            leasePage: async pageNumber => ({
+            leasePage: async (pageNumber) => ({
                 page: cast<IPdfPage>({pageNumber}),
                 release: vi.fn(),
             }),
@@ -1049,7 +1075,7 @@ describe('PdfPageRasterScheduler', () => {
         });
         const target: IPdfRasterRenderTarget<{pageNumber: number}> = {
             id: 'budget-order',
-            prepare: async demand => ({pageNumber: demand.pageNumber}),
+            prepare: async (demand) => ({pageNumber: demand.pageNumber}),
             start: () => createTask(),
             commit: () => true,
             discard: vi.fn(),
@@ -1060,7 +1086,7 @@ describe('PdfPageRasterScheduler', () => {
                 sourceId,
                 input: [demand],
                 policy: {
-                    expand: input => input,
+                    expand: (input) => input,
                     compareWithinLane: () => 0,
                 },
                 target,
@@ -1071,12 +1097,14 @@ describe('PdfPageRasterScheduler', () => {
         setOne('prefetch-2', createDemand(2, 'prefetch'));
         await vi.waitFor(() => expect(scheduler.snapshot().residentPages).toHaveLength(2));
         setOne('required-3', createDemand(3, 'viewport-visible'));
-        await vi.waitFor(() => expect(
-            scheduler.snapshot().residentPages.map(entry => entry.pageNumber).sort(),
-        ).toEqual([
-            1,
-            3,
-        ]));
+        await vi.waitFor(() =>
+            expect(
+                scheduler
+                    .snapshot()
+                    .residentPages.map((entry) => entry.pageNumber)
+                    .sort(),
+            ).toEqual([1, 3]),
+        );
 
         expect(budget.getSnapshot().reservedBytes).toBe(800);
     });
@@ -1089,43 +1117,48 @@ describe('PdfPageRasterScheduler', () => {
             documentFence,
             maxConcurrency: 3,
             surfaceBudget: budget,
-            leasePage: async pageNumber => ({
+            leasePage: async (pageNumber) => ({
                 page: cast<IPdfPage>({pageNumber}),
                 release() {},
             }),
         });
         const target: IPdfRasterRenderTarget<{
             pageNumber: number;
-            generation: number
+            generation: number;
         }> = {
             id: 'held-visible-replacement',
-            prepare: async demand => {
-                if (demand.consumerGeneration === 2) await replacement.promise;
+            prepare: async (demand) => {
+                if (demand.consumerGeneration === 2) {
+                    await replacement.promise;
+                }
                 return {
                     pageNumber: demand.pageNumber,
                     generation: demand.consumerGeneration,
                 };
             },
             start: () => createTask(),
-            commit: prepared => {
+            commit: (prepared) => {
                 painted.set(prepared.pageNumber, prepared.generation);
                 return true;
             },
             discard() {},
             // Like the viewport, a raster taken for budget is disposed with its charge.
             release(pageNumber, reason) {
-                if (reason === 'surface-budget-eviction') painted.delete(pageNumber);
+                if (reason === 'surface-budget-eviction') {
+                    painted.delete(pageNumber);
+                }
             },
         };
-        const publish = (demands: readonly IPdfRasterDemand[]) => scheduler.setDemand({
-            sourceId: 'viewport',
-            input: demands,
-            policy: {
-                expand: input => input,
-                compareWithinLane: (left, right) => left.ordinal - right.ordinal,
-            },
-            target,
-        });
+        const publish = (demands: readonly IPdfRasterDemand[]) =>
+            scheduler.setDemand({
+                sourceId: 'viewport',
+                input: demands,
+                policy: {
+                    expand: (input) => input,
+                    compareWithinLane: (left, right) => left.ordinal - right.ordinal,
+                },
+                target,
+            });
         const sized = (demand: IPdfRasterDemand, estimatedPixels: number) => ({
             ...demand,
             estimatedPixels,
@@ -1142,19 +1175,19 @@ describe('PdfPageRasterScheduler', () => {
     }
 
     it('keeps a replaced visible raster charged until its replacement commits', async () => {
-        const {
-            budget, painted, publish, replacement, scheduler, sized,
-        } = createReplacementHarness();
+        const {budget, painted, publish, replacement, scheduler, sized} = createReplacementHarness();
         try {
             publish([sized(createDemand(1, 'viewport-visible', 1), 100)]);
             await vi.waitFor(() => expect(painted.get(1)).toBe(1));
             publish([sized(createDemand(1, 'viewport-visible', 2), 50)]);
             await vi.waitFor(() => expect(budget.getSnapshot().reservedBytes).toBe(600));
-            expect(budget.tryReserve({
-                scopeId: 'other-surface',
-                category: 'pdf-thumbnail-canvas',
-                bytes: 600,
-            })).toBeNull();
+            expect(
+                budget.tryReserve({
+                    scopeId: 'other-surface',
+                    category: 'pdf-thumbnail-canvas',
+                    bytes: 600,
+                }),
+            ).toBeNull();
             expect(budget.getSnapshot().reservedBytes).toBe(600);
             replacement.resolve(undefined);
             await vi.waitFor(() => expect(painted.get(1)).toBe(2));
@@ -1166,25 +1199,11 @@ describe('PdfPageRasterScheduler', () => {
     });
 
     it('admits a thumbnail by reclaiming a nearby raster while a visible replacement stays charged', async () => {
-        const {
-            budget, painted, publish, replacement, scheduler, sized, target,
-        } = createReplacementHarness();
+        const {budget, painted, publish, replacement, scheduler, sized, target} = createReplacementHarness();
         try {
-            publish([
-                sized(createDemand(1, 'viewport-visible', 1), 100),
-                sized(createDemand(2, 'viewport-nearby', 1), 100),
-            ]);
-            await vi.waitFor(() => expect([
-                painted.get(1),
-                painted.get(2),
-            ]).toEqual([
-                1,
-                1,
-            ]));
-            publish([
-                sized(createDemand(1, 'viewport-visible', 2), 50),
-                sized(createDemand(2, 'viewport-nearby', 1), 100),
-            ]);
+            publish([sized(createDemand(1, 'viewport-visible', 1), 100), sized(createDemand(2, 'viewport-nearby', 1), 100)]);
+            await vi.waitFor(() => expect([painted.get(1), painted.get(2)]).toEqual([1, 1]));
+            publish([sized(createDemand(1, 'viewport-visible', 2), 50), sized(createDemand(2, 'viewport-nearby', 1), 100)]);
             await vi.waitFor(() => expect(budget.getSnapshot().reservedBytes).toBe(1_000));
             const thumbnail = scheduler.request({
                 sourceId: 'thumbnails',
@@ -1208,7 +1227,7 @@ describe('PdfPageRasterScheduler', () => {
         const budget = createWorkspaceSurfaceBudgetController(800);
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
-            leasePage: async pageNumber => ({
+            leasePage: async (pageNumber) => ({
                 page: cast<IPdfPage>({pageNumber}),
                 release: vi.fn(),
             }),
@@ -1217,37 +1236,38 @@ describe('PdfPageRasterScheduler', () => {
         });
         const target: IPdfRasterRenderTarget<{pageNumber: number}> = {
             id: 'required-overflow',
-            prepare: async demand => ({pageNumber: demand.pageNumber}),
+            prepare: async (demand) => ({pageNumber: demand.pageNumber}),
             start: () => createTask(),
             commit: () => true,
             discard: vi.fn(),
             release: vi.fn(),
         };
-        const setVisible = (pages: number[]) => scheduler.setDemand({
-            sourceId: 'viewport',
-            input: pages.map(page => createDemand(page, 'viewport-visible')),
-            policy: {
-                expand: input => input,
-                compareWithinLane: (left, right) => left.pageNumber - right.pageNumber,
-            },
-            target,
-        });
+        const setVisible = (pages: number[]) =>
+            scheduler.setDemand({
+                sourceId: 'viewport',
+                input: pages.map((page) => createDemand(page, 'viewport-visible')),
+                policy: {
+                    expand: (input) => input,
+                    compareWithinLane: (left, right) => left.pageNumber - right.pageNumber,
+                },
+                target,
+            });
 
-        setVisible([
-            1,
-            2,
-            3,
-        ]);
+        setVisible([1, 2, 3]);
         await vi.waitFor(() => expect(scheduler.snapshot().residentPages).toHaveLength(3));
         expect(budget.getSnapshot().reservedBytes).toBe(1_200);
 
         setVisible([3]);
-        await vi.waitFor(() => expect(scheduler.snapshot().residentPages).toEqual([{
-            lane: 'viewport-visible',
-            pageNumber: 3,
-            sourceId: 'viewport',
-            targetId: 'required-overflow',
-        }]));
+        await vi.waitFor(() =>
+            expect(scheduler.snapshot().residentPages).toEqual([
+                {
+                    lane: 'viewport-visible',
+                    pageNumber: 3,
+                    sourceId: 'viewport',
+                    targetId: 'required-overflow',
+                },
+            ]),
+        );
         expect(budget.getSnapshot().reservedBytes).toBe(400);
     });
 
@@ -1257,7 +1277,7 @@ describe('PdfPageRasterScheduler', () => {
         const committed: number[] = [];
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
-            leasePage: async pageNumber => ({
+            leasePage: async (pageNumber) => ({
                 page: cast<IPdfPage>({pageNumber}),
                 release: vi.fn(),
             }),
@@ -1266,7 +1286,7 @@ describe('PdfPageRasterScheduler', () => {
         });
         const target: IPdfRasterRenderTarget<{pageNumber: number}> = {
             id: 'replacement',
-            prepare: async demand => ({pageNumber: demand.pageNumber}),
+            prepare: async (demand) => ({pageNumber: demand.pageNumber}),
             start: ({pageNumber}) => {
                 if (pageNumber > 2) {
                     return createTask();
@@ -1290,33 +1310,25 @@ describe('PdfPageRasterScheduler', () => {
             discard: vi.fn(),
             release: vi.fn(),
         };
-        const setSource = (
-            sourceId: string,
-            demand: IPdfRasterDemand,
-        ) => scheduler.setDemand({
-            sourceId,
-            input: [demand],
-            policy: {
-                expand: input => input,
-                compareWithinLane: () => 0,
-            },
-            target,
-        });
+        const setSource = (sourceId: string, demand: IPdfRasterDemand) =>
+            scheduler.setDemand({
+                sourceId,
+                input: [demand],
+                policy: {
+                    expand: (input) => input,
+                    compareWithinLane: () => 0,
+                },
+                target,
+            });
         setSource('viewport', createDemand(1, 'viewport-visible'));
         setSource('thumbnails', createDemand(2, 'thumbnail-visible'));
         await vi.waitFor(() => expect(renders.size).toBe(2));
 
         setSource('viewport', createDemand(3, 'viewport-visible', 2));
         setSource('thumbnails', createDemand(4, 'thumbnail-current', 2));
-        await vi.waitFor(() => expect(committed.sort()).toEqual([
-            3,
-            4,
-        ]));
+        await vi.waitFor(() => expect(committed.sort()).toEqual([3, 4]));
 
-        expect(cancelled.sort()).toEqual([
-            1,
-            2,
-        ]);
+        expect(cancelled.sort()).toEqual([1, 2]);
     });
 
     it('releases its surface scope once across concurrent disposal after a whole-document invalidation', async () => {
@@ -1328,7 +1340,7 @@ describe('PdfPageRasterScheduler', () => {
         const started: number[] = [];
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
-            leasePage: async pageNumber => ({
+            leasePage: async (pageNumber) => ({
                 page: cast<IPdfPage>({pageNumber}),
                 release,
             }),
@@ -1339,12 +1351,12 @@ describe('PdfPageRasterScheduler', () => {
             sourceId: 'viewport',
             input: [createDemand(1, 'viewport-visible')],
             policy: {
-                expand: input => input,
+                expand: (input) => input,
                 compareWithinLane: () => 0,
             },
             target: {
                 id: 'wedged-render',
-                prepare: async demand => ({pageNumber: demand.pageNumber}),
+                prepare: async (demand) => ({pageNumber: demand.pageNumber}),
                 start: ({pageNumber}) => {
                     started.push(pageNumber);
                     return cast<IPdfRenderTask>({
@@ -1367,10 +1379,7 @@ describe('PdfPageRasterScheduler', () => {
         expect(scheduler.snapshot().accepting).toBe(false);
 
         let disposed = false;
-        const disposals = Promise.all([
-            scheduler.dispose(),
-            scheduler.dispose(),
-        ]).then(() => {
+        const disposals = Promise.all([scheduler.dispose(), scheduler.dispose()]).then(() => {
             disposed = true;
         });
         await flush();
@@ -1398,7 +1407,7 @@ describe('PdfPageRasterScheduler', () => {
         const releaseA = vi.fn();
         const schedulerA = createPdfPageRasterScheduler({
             documentFence,
-            leasePage: async pageNumber => ({
+            leasePage: async (pageNumber) => ({
                 page: cast<IPdfPage>({pageNumber}),
                 release: releaseA,
             }),
@@ -1417,7 +1426,7 @@ describe('PdfPageRasterScheduler', () => {
             sourceId: 'viewport-a',
             input: [createDemand(1, 'viewport-visible')],
             policy: {
-                expand: input => input,
+                expand: (input) => input,
                 compareWithinLane: () => 0,
             },
             target: targetA,
@@ -1440,7 +1449,7 @@ describe('PdfPageRasterScheduler', () => {
         const committedB = vi.fn(() => true);
         const schedulerB = createPdfPageRasterScheduler({
             documentFence: fenceB,
-            leasePage: async pageNumber => ({
+            leasePage: async (pageNumber) => ({
                 page: cast<IPdfPage>({pageNumber}),
                 release: vi.fn(),
             }),
@@ -1455,7 +1464,7 @@ describe('PdfPageRasterScheduler', () => {
             sourceId: 'viewport-b',
             input: [demandB],
             policy: {
-                expand: input => input,
+                expand: (input) => input,
                 compareWithinLane: () => 0,
             },
             target: {
@@ -1471,10 +1480,12 @@ describe('PdfPageRasterScheduler', () => {
         expect(schedulerB.snapshot()).toMatchObject({
             queueDepth: 0,
             inFlightPages: [],
-            residentPages: [{
-                pageNumber: 2,
-                sourceId: 'viewport-b',
-            }],
+            residentPages: [
+                {
+                    pageNumber: 2,
+                    sourceId: 'viewport-b',
+                },
+            ],
         });
 
         wedgedPrepare.resolve(null);
@@ -1490,30 +1501,34 @@ describe('PdfPageRasterScheduler', () => {
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
             surfaceBudget: budget,
-            leasePage: async pageNumber => ({
+            leasePage: async (pageNumber) => ({
                 page: cast<IPdfPage>({pageNumber}),
                 release() {},
             }),
         });
         const target: IPdfRasterRenderTarget<{pageNumber: number}> = {
             id: 'atomic-annotation',
-            prepare: async demand => ({pageNumber: demand.pageNumber}),
+            prepare: async (demand) => ({pageNumber: demand.pageNumber}),
             start: () => createTask(),
             async commit(prepared, _demand, commitRaster) {
                 painted.add(prepared.pageNumber);
-                if (!commitRaster()) return false;
+                if (!commitRaster()) {
+                    return false;
+                }
                 published.resolve(undefined);
                 await hydration.promise;
                 return false;
             },
             discard() {},
-            release: page => {painted.delete(page);},
+            release: (page) => {
+                painted.delete(page);
+            },
         };
         scheduler.setDemand({
             sourceId: 'view',
             input: [createDemand(1, 'viewport-visible')],
             policy: {
-                expand: input => input,
+                expand: (input) => input,
                 compareWithinLane: () => 0,
             },
             target,
@@ -1528,10 +1543,7 @@ describe('PdfPageRasterScheduler', () => {
         expect(painted.size).toBe(0);
         expect(budget.getSnapshot().reservedBytes).toBe(0);
         hydration.resolve(undefined);
-        await Promise.all([
-            cancelling,
-            releasing,
-        ]);
+        await Promise.all([cancelling, releasing]);
         expect(scheduler.snapshot().residentPages).toHaveLength(0);
         expect(budget.getSnapshot()).toMatchObject({
             reservedBytes: 0,
@@ -1543,19 +1555,23 @@ describe('PdfPageRasterScheduler', () => {
     it('commits two visible pages with appearance resources on a 4 GiB host under critical pressure', async () => {
         const GIB = 1024 ** 3;
         const MIB = 1024 ** 2;
-        const host = resolveWorkspaceMemoryBudget({environment: {
-            totalMemoryBytes: 4 * GIB,
-            hardwareConcurrency: 4,
-        }});
-        const budget = createWorkspaceSurfaceBudgetController(host.maxRasterSurfaceBytes);
-        budget.setPressureLevel(resolveWorkspaceResourcePressureLevel({
-            memoryInfo: {
-                availableBytes: 400 * MIB,
-                freeBytes: 400 * MIB,
-                totalBytes: 4 * GIB,
+        const host = resolveWorkspaceMemoryBudget({
+            environment: {
+                totalMemoryBytes: 4 * GIB,
+                hardwareConcurrency: 4,
             },
-            systemFreeReserveBytes: host.systemFreeReserveBytes,
-        }));
+        });
+        const budget = createWorkspaceSurfaceBudgetController(host.maxRasterSurfaceBytes);
+        budget.setPressureLevel(
+            resolveWorkspaceResourcePressureLevel({
+                memoryInfo: {
+                    availableBytes: 400 * MIB,
+                    freeBytes: 400 * MIB,
+                    totalBytes: 4 * GIB,
+                },
+                systemFreeReserveBytes: host.systemFreeReserveBytes,
+            }),
+        );
         expect(budget.getSnapshot().effectiveMaxBytes / MIB).toBeCloseTo(122.88, 2);
         const replacement = Promise.withResolvers<undefined>();
         const painted = new Map<number, number>();
@@ -1563,78 +1579,67 @@ describe('PdfPageRasterScheduler', () => {
             documentFence,
             maxConcurrency: 2,
             surfaceBudget: budget,
-            leasePage: async pageNumber => ({
+            leasePage: async (pageNumber) => ({
                 page: cast<IPdfPage>({pageNumber}),
                 release() {},
             }),
         });
         const target: IPdfRasterRenderTarget<{
             pageNumber: number;
-            generation: number
+            generation: number;
         }> = {
             id: 'pressured-visible-pages',
             async prepare(demand, _page, _signal, _settlement, reserveAdditionalBytes) {
                 reserveAdditionalBytes(MIB);
-                if (demand.consumerGeneration === 2) await replacement.promise;
+                if (demand.consumerGeneration === 2) {
+                    await replacement.promise;
+                }
                 return {
                     pageNumber: demand.pageNumber,
                     generation: demand.consumerGeneration,
                 };
             },
             start: () => createTask(),
-            commit(prepared) {painted.set(prepared.pageNumber, prepared.generation); return true;},
+            commit(prepared) {
+                painted.set(prepared.pageNumber, prepared.generation);
+                return true;
+            },
             discard() {},
             release(pageNumber, reason) {
-                if (reason === 'surface-budget-eviction') painted.delete(pageNumber);
+                if (reason === 'surface-budget-eviction') {
+                    painted.delete(pageNumber);
+                }
             },
         };
-        const visible = (pages: ReadonlyArray<[number, number]>) => scheduler.setDemand({
-            sourceId: 'viewport',
-            input: pages.map(([
-                page,
-                generation,
-            ]) => ({
-                ...createDemand(page, 'viewport-visible', generation),
-                estimatedPixels: 16 * MIB,
-            })),
-            policy: {
-                expand: input => input,
-                compareWithinLane: (left, right) => left.ordinal - right.ordinal,
-            },
-            target,
-        });
+        const visible = (pages: ReadonlyArray<[number, number]>) =>
+            scheduler.setDemand({
+                sourceId: 'viewport',
+                input: pages.map(([page, generation]) => ({
+                    ...createDemand(page, 'viewport-visible', generation),
+                    estimatedPixels: 16 * MIB,
+                })),
+                policy: {
+                    expand: (input) => input,
+                    compareWithinLane: (left, right) => left.ordinal - right.ordinal,
+                },
+                target,
+            });
         try {
             visible([
-                [
-                    1,
-                    1,
-                ],
-                [
-                    2,
-                    1,
-                ],
+                [1, 1],
+                [2, 1],
             ]);
-            await vi.waitFor(() => expect([...painted]).toEqual([
-                [
-                    1,
-                    1,
-                ],
-                [
-                    2,
-                    1,
-                ],
-            ]));
+            await vi.waitFor(() =>
+                expect([...painted]).toEqual([
+                    [1, 1],
+                    [2, 1],
+                ]),
+            );
             expect(budget.getSnapshot().reservedBytes).toBe(2 * 65 * MIB);
 
             visible([
-                [
-                    1,
-                    2,
-                ],
-                [
-                    2,
-                    1,
-                ],
+                [1, 2],
+                [2, 1],
             ]);
             await vi.waitFor(() => expect(budget.getSnapshot().reservedBytes).toBe(3 * 65 * MIB));
             expect(painted.get(1)).toBe(1);
@@ -1656,25 +1661,30 @@ describe('PdfPageRasterScheduler', () => {
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
             surfaceBudget: budget,
-            leasePage: async pageNumber => ({
+            leasePage: async (pageNumber) => ({
                 page: cast<IPdfPage>({pageNumber}),
                 release() {},
             }),
         });
         const target: IPdfRasterRenderTarget<{
             pageNumber: number;
-            generation: number
+            generation: number;
         }> = {
             id: 'bounded-annotation',
             async prepare(demand, _page, _signal, _settlement, reserveAdditionalBytes) {
-                if (demand.consumerGeneration === 2) reserveAdditionalBytes(900);
+                if (demand.consumerGeneration === 2) {
+                    reserveAdditionalBytes(900);
+                }
                 return {
                     pageNumber: demand.pageNumber,
                     generation: demand.consumerGeneration,
                 };
             },
             start: () => createTask(),
-            commit(prepared) {painted.set(prepared.pageNumber, prepared.generation); return true;},
+            commit(prepared) {
+                painted.set(prepared.pageNumber, prepared.generation);
+                return true;
+            },
             discard() {},
             release() {},
         };
@@ -1699,5 +1709,4 @@ describe('PdfPageRasterScheduler', () => {
         });
         await scheduler.dispose();
     });
-
 });

@@ -1,7 +1,7 @@
-import type { IPoint2D } from '@app/types/point2D';
-import { normalizeImagePlacementRotationDegrees } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/normalizeImagePlacementRotationDegrees';
-import type { IImagePlacementRectPx } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/pdfImagePlacementSizingTypes';
-import { snapImagePlacementRotationDegrees } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/snapImagePlacementRotationDegrees';
+import type {IPoint2D} from '@app/types/point2D';
+import {normalizeImagePlacementRotationDegrees} from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/normalizeImagePlacementRotationDegrees';
+import type {IImagePlacementRectPx} from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/pdfImagePlacementSizingTypes';
+import {snapImagePlacementRotationDegrees} from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/snapImagePlacementRotationDegrees';
 
 interface IImagePlacementPointerRotateOptions {
     originRectPx: IImagePlacementRectPx;
@@ -15,11 +15,10 @@ interface IImagePlacementPointerRotateOptions {
     snapStepDegrees?: number;
 }
 
-
 const DEFAULT_ROTATION_SNAP_STEP_DEGREES = 15;
 
 export function getShortestImagePlacementAngleDelta(deltaDegrees: number) {
-    let normalized = ((deltaDegrees + 180) % 360 + 360) % 360 - 180;
+    let normalized = ((((deltaDegrees + 180) % 360) + 360) % 360) - 180;
     if (normalized === -180 && deltaDegrees > 0) {
         normalized = 180;
     }
@@ -28,35 +27,25 @@ export function getShortestImagePlacementAngleDelta(deltaDegrees: number) {
 
 function getRectCenter(rect: IImagePlacementRectPx): IPoint2D {
     return {
-        x: rect.left + (rect.width / 2),
-        y: rect.top + (rect.height / 2),
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
     };
 }
 
-function toRectFromCenter(
-    center: IPoint2D,
-    width: number,
-    height: number,
-): IImagePlacementRectPx {
+function toRectFromCenter(center: IPoint2D, width: number, height: number): IImagePlacementRectPx {
     return {
-        left: center.x - (width / 2),
-        top: center.y - (height / 2),
+        left: center.x - width / 2,
+        top: center.y - height / 2,
         width,
         height,
     };
 }
 
-function getPointerAngleFromCenter(
-    center: IPoint2D,
-    clientX: number,
-    clientY: number,
-) {
+function getPointerAngleFromCenter(center: IPoint2D, clientX: number, clientY: number) {
     return (Math.atan2(clientY - center.y, clientX - center.x) * 180) / Math.PI;
 }
 
-export function rotateImagePlacementRect(
-    options: IImagePlacementPointerRotateOptions,
-) {
+export function rotateImagePlacementRect(options: IImagePlacementPointerRotateOptions) {
     const {
         originRectPx,
         containerOrigin,
@@ -77,9 +66,7 @@ export function rotateImagePlacementRect(
     const nextAngle = getPointerAngleFromCenter(viewportCenter, clientX, clientY);
     const angleDelta = getShortestImagePlacementAngleDelta(nextAngle - startAngle);
     const rawRotation = normalizeImagePlacementRotationDegrees(originRotationDegrees + angleDelta);
-    const rotationDegrees = shiftKey
-        ? snapImagePlacementRotationDegrees(rawRotation, snapStepDegrees)
-        : rawRotation;
+    const rotationDegrees = shiftKey ? snapImagePlacementRotationDegrees(rawRotation, snapStepDegrees) : rawRotation;
 
     return {
         rectPx: toRectFromCenter(center, originRectPx.width, originRectPx.height),

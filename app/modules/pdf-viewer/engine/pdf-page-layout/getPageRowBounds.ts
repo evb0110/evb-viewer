@@ -1,4 +1,4 @@
-import type { TPageNumber } from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 
 import type {IPdfPageLayoutMetrics} from '@app/modules/document-viewer/public';
 

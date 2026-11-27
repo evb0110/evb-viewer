@@ -1,13 +1,9 @@
-import { requireDocumentRef } from '@contracts/documentRef';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { commitPdfLoadedOpeningPageGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfLoadedOpeningPageGeometry';
-import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
-import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {describe, expect, it} from 'vitest';
+import {commitPdfLoadedOpeningPageGeometry} from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfLoadedOpeningPageGeometry';
+import {createDocumentOpenSurfaceSession} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import type {IDocumentViewerRuntime} from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 
 function createHarness(surfaceDocumentId = '/tmp/scan.pdf') {
     const source = {
@@ -100,10 +96,12 @@ describe('commitPdfLoadedOpeningPageGeometry', () => {
     it('accepts an equivalent reconstructed path descriptor', () => {
         const harness = createHarness();
 
-        expect(commitPdfLoadedOpeningPageGeometry(harness.authority, {
-            ...harness.input,
-            currentSource: {...harness.source},
-        })).toBe(true);
+        expect(
+            commitPdfLoadedOpeningPageGeometry(harness.authority, {
+                ...harness.input,
+                currentSource: {...harness.source},
+            }),
+        ).toBe(true);
         expect(harness.openingPageGeometry()?.pageNumber).toBe(1);
     });
 
@@ -115,66 +113,62 @@ describe('commitPdfLoadedOpeningPageGeometry', () => {
             size: 28_000_000,
         } as const;
 
-        expect(commitPdfLoadedOpeningPageGeometry(harness.authority, {
-            ...harness.input,
-            documentId: '/var/tmp/scan.pdf',
-            metricSource: aliasedSource,
-            currentSource: {...aliasedSource},
-        })).toBe(true);
+        expect(
+            commitPdfLoadedOpeningPageGeometry(harness.authority, {
+                ...harness.input,
+                documentId: '/var/tmp/scan.pdf',
+                metricSource: aliasedSource,
+                currentSource: {...aliasedSource},
+            }),
+        ).toBe(true);
         expect(harness.openingPageGeometry()?.documentId).toBe('/var/tmp/scan.pdf');
     });
 
     it('rejects a path descriptor whose size revision changed', () => {
         const harness = createHarness();
 
-        expect(commitPdfLoadedOpeningPageGeometry(harness.authority, {
-            ...harness.input,
-            currentSource: {
-                ...harness.source,
-                size: harness.source.size + 1,
-            },
-        })).toBe(false);
+        expect(
+            commitPdfLoadedOpeningPageGeometry(harness.authority, {
+                ...harness.input,
+                currentSource: {
+                    ...harness.source,
+                    size: harness.source.size + 1,
+                },
+            }),
+        ).toBe(false);
         expect(harness.openingPageGeometry()).toBeNull();
     });
 
     it.each([
-        [
-            'wrong document',
-            {documentId: '/tmp/replacement.pdf'},
-        ],
-        [
-            'wrong generation',
-            {expectedGeneration: 5},
-        ],
-        [
-            'wrong page',
-            {currentPage: 2},
-        ],
-        [
-            'missing metric',
-            {pageMetrics: []},
-        ],
+        ['wrong document', {documentId: '/tmp/replacement.pdf'}],
+        ['wrong generation', {expectedGeneration: 5}],
+        ['wrong page', {currentPage: 2}],
+        ['missing metric', {pageMetrics: []}],
     ])('rejects %s evidence', (_label, override) => {
         const harness = createHarness();
 
-        expect(commitPdfLoadedOpeningPageGeometry(harness.authority, {
-            ...harness.input,
-            ...override,
-        })).toBe(false);
+        expect(
+            commitPdfLoadedOpeningPageGeometry(harness.authority, {
+                ...harness.input,
+                ...override,
+            }),
+        ).toBe(false);
         expect(harness.openingPageGeometry()).toBeNull();
     });
 
     it('rejects metrics captured for a stale source', () => {
         const harness = createHarness();
 
-        expect(commitPdfLoadedOpeningPageGeometry(harness.authority, {
-            ...harness.input,
-            metricSource: {
-                kind: 'path',
-                path: requireDocumentRef('/tmp/older-copy.pdf'),
-                size: 28_000_000,
-            },
-        })).toBe(false);
+        expect(
+            commitPdfLoadedOpeningPageGeometry(harness.authority, {
+                ...harness.input,
+                metricSource: {
+                    kind: 'path',
+                    path: requireDocumentRef('/tmp/older-copy.pdf'),
+                    size: 28_000_000,
+                },
+            }),
+        ).toBe(false);
         expect(harness.openingPageGeometry()).toBeNull();
     });
 });

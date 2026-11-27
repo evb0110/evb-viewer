@@ -5,4 +5,4 @@ function toUint8Array(data: Uint8Array | ArrayBufferLike) {
     return copy;
 }
 
-export { toUint8Array };
+export {toUint8Array};

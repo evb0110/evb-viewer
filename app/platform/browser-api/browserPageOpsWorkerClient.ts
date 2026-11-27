@@ -5,14 +5,11 @@ import type {
     TBrowserPageOpsWorkerRequest,
     TBrowserPageOpsWorkerRequestType,
 } from '@contracts/browserPageOpsWorker';
-import {
-    BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS,
-    EVICT_BROWSER_PAGE_OPS_DOCUMENT_MESSAGE_TYPE,
-} from '@contracts/browserPageOpsWorker';
-import { toTransferableUint8Array } from '@app/platform/browser/toTransferableUint8Array';
-import { PDF_PAGE_OPS_WASM_PATH } from '@app/platform/browser/pdfPageEngine';
-import { settleBrowserWorkerResult } from '@app/platform/browser-api/settleBrowserWorkerResult';
-import type { IPendingBrowserWorkerRequest } from '@app/platform/browser-api/settleBrowserWorkerResult';
+import {BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS, EVICT_BROWSER_PAGE_OPS_DOCUMENT_MESSAGE_TYPE} from '@contracts/browserPageOpsWorker';
+import {toTransferableUint8Array} from '@app/platform/browser/toTransferableUint8Array';
+import {PDF_PAGE_OPS_WASM_PATH} from '@app/platform/browser/pdfPageEngine';
+import {settleBrowserWorkerResult} from '@app/platform/browser-api/settleBrowserWorkerResult';
+import type {IPendingBrowserWorkerRequest} from '@app/platform/browser-api/settleBrowserWorkerResult';
 import {
     BrowserWorkerClient,
     BrowserWorkerRequestOwner,
@@ -21,13 +18,10 @@ import {
 } from '@app/platform/browser-api/browserWorkerClient';
 import {BrowserPageOpsWorkerUnavailableError} from '@app/platform/browser-api/browserPageOpsWorkerUnavailableError';
 import {onBrowserWorkingCopyClose} from '@app/platform/browser-api/browserWorkingCopyClose';
-import { getErrorMessage } from '@app/utils/error';
-import { captureRendererFailure } from '@app/utils/failureReporter';
+import {getErrorMessage} from '@app/utils/error';
+import {captureRendererFailure} from '@app/utils/failureReporter';
 import {yieldToBrowser} from '@app/platform/browser-api/browserYield';
-import {
-    evictCachedBrowserPageOpsDocument,
-    tryRunBrowserPageOpsWithWasm,
-} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+import {evictCachedBrowserPageOpsDocument, tryRunBrowserPageOpsWithWasm} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import * as v from 'valibot';
 
@@ -72,10 +66,14 @@ async function buildWorkerRequestWithTransfers(
     options: IBuildWorkerRequestWithTransfersOptions = {},
 ) {
     const toTransferableRequestData = async (data: Uint8Array) => {
-        if (!options.preserveInputOwnership) return toTransferableUint8Array(data);
+        if (!options.preserveInputOwnership) {
+            return toTransferableUint8Array(data);
+        }
         const copy = new Uint8Array(data.byteLength);
         for (let offset = 0; offset < data.byteLength; offset += WORKER_INPUT_COPY_CHUNK_BYTES) {
-            if (options.signal?.aborted) throw abortErrorFromSignal(options.signal);
+            if (options.signal?.aborted) {
+                throw abortErrorFromSignal(options.signal);
+            }
             copy.set(data.subarray(offset, offset + WORKER_INPUT_COPY_CHUNK_BYTES), offset);
             await yieldToBrowser();
         }
@@ -84,13 +82,15 @@ async function buildWorkerRequestWithTransfers(
     const transfer: Transferable[] = [];
     // Blobs are posted by reference; the engine reads them by range or caches the parsed Document.
     if (
-        request.type === 'textBoxAppearance'
-        || request.type === 'pageStructure'
-        || ('source' in request.payload && request.payload.source instanceof Blob)
-    ) return {
-        request,
-        transfer,
-    };
+        request.type === 'textBoxAppearance' ||
+        request.type === 'pageStructure' ||
+        ('source' in request.payload && request.payload.source instanceof Blob)
+    ) {
+        return {
+            request,
+            transfer,
+        };
+    }
 
     if (request.type === 'replacePageImages') {
         // The base and every attachment get their own buffer, so a caller's
@@ -98,7 +98,9 @@ async function buildWorkerRequestWithTransfers(
         const transferredBuffers = new Set<ArrayBuffer>();
         const ownBuffer = async (source: Uint8Array) => {
             let data = await toTransferableRequestData(source);
-            if (transferredBuffers.has(data.buffer)) data = data.slice();
+            if (transferredBuffers.has(data.buffer)) {
+                data = data.slice();
+            }
             transferredBuffers.add(data.buffer);
             transfer.push(data.buffer);
             return data;
@@ -160,18 +162,22 @@ async function buildWorkerRequestWithTransfers(
     };
 }
 
-
 /**
  * A request whose caller holds an abort signal has no deadline: its owner
  * stops it, and stopping it ends the worker. Others get the size-scaled one.
  */
 function getEngineDeadlineMs(payload: object, signal: AbortSignal | undefined) {
-    if (signal) return undefined;
+    if (signal) {
+        return undefined;
+    }
     let inputBytes = 0;
     for (const value of Object.values(payload)) {
         for (const item of Array.isArray(value) ? value : [value]) {
-            if (item instanceof Uint8Array) inputBytes += item.byteLength;
-            else if (item instanceof Blob) inputBytes += item.size;
+            if (item instanceof Uint8Array) {
+                inputBytes += item.byteLength;
+            } else if (item instanceof Blob) {
+                inputBytes += item.size;
+            }
         }
     }
     return DESKTOP_NATIVE_PAGE_OP_TIMEOUT_MS + Math.ceil(inputBytes / (1024 * 1024)) * ENGINE_DEADLINE_MS_PER_MIB;
@@ -187,19 +193,15 @@ function createBrowserPageOpsWorkerClient() {
         preloadWasmPaths: () => [PDF_PAGE_OPS_WASM_PATH],
         createWorker: () => {
             try {
-                return new Worker(
-                    new URL('./browserPageOps.worker.ts', import.meta.url),
-                    { type: 'module' },
-                );
+                return new Worker(new URL('./browserPageOps.worker.ts', import.meta.url), {type: 'module'});
             } catch (error) {
-                throw reportWorkerFailure(new BrowserPageOpsWorkerUnavailableError(
-                    getErrorMessage(error),
-                ));
+                throw reportWorkerFailure(new BrowserPageOpsWorkerUnavailableError(getErrorMessage(error)));
             }
         },
-        createError: event => reportWorkerFailure(new BrowserPageOpsWorkerUnavailableError(
-            event.error instanceof Error ? event.error.message : event.message,
-        )),
+        createError: (event) =>
+            reportWorkerFailure(
+                new BrowserPageOpsWorkerUnavailableError(event.error instanceof Error ? event.error.message : event.message),
+            ),
         handleMessage: settleBrowserWorkerResult,
     });
 }
@@ -222,13 +224,17 @@ export function evictBrowserPageOpsDocumentCache(keyPrefix?: string) {
     evictCachedBrowserPageOpsDocument(keyPrefix);
 }
 
-onBrowserWorkingCopyClose(ref => {
+onBrowserWorkingCopyClose((ref) => {
     evictBrowserPageOpsDocumentCache(`${ref}\u0000`);
 });
 
 async function runAdmittedPageOperation<TResult>(
     signal: AbortSignal | undefined,
-    run: (client: BrowserWorkerClient<IPendingBrowserWorkerRequest>, requestId: number, yieldAdmitted: () => Promise<void>) => Promise<TResult>,
+    run: (
+        client: BrowserWorkerClient<IPendingBrowserWorkerRequest>,
+        requestId: number,
+        yieldAdmitted: () => Promise<void>,
+    ) => Promise<TResult>,
     affinityKey?: string,
 ) {
     if (signal?.aborted) {
@@ -239,15 +245,20 @@ async function runAdmittedPageOperation<TResult>(
     signal?.addEventListener('abort', abort, {once: true});
     try {
         // An operation aborted or reset during a yield starts no more work.
-        return await pageOpsWorkerOwner.run(requestId, (client, isAdmitted) => run(client, requestId, async () => {
-            await yieldToBrowser();
-            if (signal?.aborted) {
-                throw abortErrorFromSignal(signal);
-            }
-            if (!isAdmitted()) {
-                throw new BrowserWorkerResetError();
-            }
-        }), affinityKey === undefined ? {} : {affinityKey});
+        return await pageOpsWorkerOwner.run(
+            requestId,
+            (client, isAdmitted) =>
+                run(client, requestId, async () => {
+                    await yieldToBrowser();
+                    if (signal?.aborted) {
+                        throw abortErrorFromSignal(signal);
+                    }
+                    if (!isAdmitted()) {
+                        throw new BrowserWorkerResetError();
+                    }
+                }),
+            affinityKey === undefined ? {} : {affinityKey},
+        );
     } finally {
         signal?.removeEventListener('abort', abort);
     }
@@ -270,9 +281,7 @@ export interface IRunBrowserPageOpsWorkerRequestOptions {
 }
 
 function abortErrorFromSignal(signal: AbortSignal) {
-    return signal.reason instanceof Error
-        ? signal.reason
-        : new Error('Browser page operation request was aborted');
+    return signal.reason instanceof Error ? signal.reason : new Error('Browser page operation request was aborted');
 }
 
 async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOpsWorkerRequestType>(
@@ -280,7 +289,9 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
     requestId: number,
     type: K,
     payload: IBrowserPageOpsWorkerRequestMap[K],
-    options: Pick<IRunBrowserPageOpsWorkerRequestOptions, 'signal' | 'timeoutMs' | 'onEngineIdentity'> & {preserveInputOwnership?: boolean} = {},
+    options: Pick<IRunBrowserPageOpsWorkerRequestOptions, 'signal' | 'timeoutMs' | 'onEngineIdentity'> & {
+        preserveInputOwnership?: boolean;
+    } = {},
 ): Promise<IBrowserPageOpsWorkerResultMap[K]> {
     const request = {
         id: requestId,
@@ -306,34 +317,40 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
             return true;
         };
         const rejectRequest = (error: Error) => {
-            if (finish()) reject(error);
+            if (finish()) {
+                reject(error);
+            }
         };
-        client.registerPendingRequest(request.id, {
-            requestType: type,
-            onEngineIdentity: options.onEngineIdentity,
-            resolveData: (value) => {
-                if (settled) {
-                    return false;
-                }
-                const decoded = v.safeParse(BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS[type], value, {abortEarly: true});
-                if (!decoded.success) {
-                    return false;
-                }
-                finish();
-                resolve(decoded.output as IBrowserPageOpsWorkerResultMap[K]);
-                return true;
+        client.registerPendingRequest(
+            request.id,
+            {
+                requestType: type,
+                onEngineIdentity: options.onEngineIdentity,
+                resolveData: (value) => {
+                    if (settled) {
+                        return false;
+                    }
+                    const decoded = v.safeParse(BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS[type], value, {abortEarly: true});
+                    if (!decoded.success) {
+                        return false;
+                    }
+                    finish();
+                    resolve(decoded.output as IBrowserPageOpsWorkerResultMap[K]);
+                    return true;
+                },
+                reject: (error) => rejectRequest(reportWorkerFailure(error)),
             },
-            reject: error => rejectRequest(reportWorkerFailure(error)),
-        }, () => reportWorkerFailure(new BrowserPageOpsWorkerUnavailableError(
-            `Browser page operation worker request timed out after ${String(deadlineMs)}ms`,
-        )), deadlineMs);
+            () =>
+                reportWorkerFailure(
+                    new BrowserPageOpsWorkerUnavailableError(
+                        `Browser page operation worker request timed out after ${String(deadlineMs)}ms`,
+                    ),
+                ),
+            deadlineMs,
+        );
 
         if (options.signal) {
-            const handleAbort = () => client.cancelPendingRequest(
-                request.id,
-                abortErrorFromSignal(options.signal!),
-                {resetWorker: true},
-            );
+            const handleAbort = () => client.cancelPendingRequest(request.id, abortErrorFromSignal(options.signal!), {resetWorker: true});
             options.signal.addEventListener('abort', handleAbort, {once: true});
             removeAbortListener = () => options.signal?.removeEventListener('abort', handleAbort);
             if (options.signal.aborted) {
@@ -342,23 +359,36 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
             }
         }
 
-        void buildWorkerRequestWithTransfers(request, options).then((workerRequest) => {
-            if (!settled) worker.postMessage(workerRequest.request, workerRequest.transfer);
-        }).catch((error: unknown) => {
-            if (settled) return;
-            client.cancelPendingRequest(
-                request.id,
-                reportWorkerFailure(error instanceof Error ? error : new Error(String(error))),
-            );
-        });
+        void buildWorkerRequestWithTransfers(request, options)
+            .then((workerRequest) => {
+                if (!settled) {
+                    worker.postMessage(workerRequest.request, workerRequest.transfer);
+                }
+            })
+            .catch((error: unknown) => {
+                if (settled) {
+                    return;
+                }
+                client.cancelPendingRequest(request.id, reportWorkerFailure(error instanceof Error ? error : new Error(String(error))));
+            });
     });
 }
 
 function isCpuPageOperation(type: TBrowserPageOpsWorkerRequestType) {
-    return type === 'textBoxAppearance' || type === 'decrypt' || type === 'printLayout'
-        || type === 'readPageSizes' || type === 'appendAdmission'
-        || type === 'ocrTextVisibility' || type === 'inspectScanCleanupPdf' || type === 'splitPages' || type === 'renderScanCleanupRaster'
-        || type === 'overlayText' || type === 'recompressImages' || type === 'replacePageImages';
+    return (
+        type === 'textBoxAppearance' ||
+        type === 'decrypt' ||
+        type === 'printLayout' ||
+        type === 'readPageSizes' ||
+        type === 'appendAdmission' ||
+        type === 'ocrTextVisibility' ||
+        type === 'inspectScanCleanupPdf' ||
+        type === 'splitPages' ||
+        type === 'renderScanCleanupRaster' ||
+        type === 'overlayText' ||
+        type === 'recompressImages' ||
+        type === 'replacePageImages'
+    );
 }
 
 async function runBrowserPageOpsWithoutWorker<K extends TBrowserPageOpsWorkerRequestType>(
@@ -387,29 +417,32 @@ function runAdmittedBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWorkerR
     options: IRunBrowserPageOpsWorkerRequestOptions,
 ) {
     const {signal} = options;
-    const affinityKey = type === 'renderScanCleanupRaster'
-        ? (payload as IBrowserPageOpsWorkerRequestMap['renderScanCleanupRaster']).cacheKey
-        : undefined;
-    return runAdmittedPageOperation(signal, async (client, requestId, yieldAdmitted) => {
-        if (isCpuPageOperation(type)) {
-            // Worker startup and the ownership-preserving copy must not extend
-            // the input event's task. Use the same scheduler as the fallback.
-            await yieldAdmitted();
-            try {
-                client.getWorker();
-            } catch (error) {
-                if (!(error instanceof BrowserPageOpsWorkerUnavailableError)) {
-                    throw error;
+    const affinityKey =
+        type === 'renderScanCleanupRaster' ? (payload as IBrowserPageOpsWorkerRequestMap['renderScanCleanupRaster']).cacheKey : undefined;
+    return runAdmittedPageOperation(
+        signal,
+        async (client, requestId, yieldAdmitted) => {
+            if (isCpuPageOperation(type)) {
+                // Worker startup and the ownership-preserving copy must not extend
+                // the input event's task. Use the same scheduler as the fallback.
+                await yieldAdmitted();
+                try {
+                    client.getWorker();
+                } catch (error) {
+                    if (!(error instanceof BrowserPageOpsWorkerUnavailableError)) {
+                        throw error;
+                    }
+                    return runBrowserPageOpsWithoutWorker(type, payload, yieldAdmitted, options.requireWorker);
                 }
-                return runBrowserPageOpsWithoutWorker(type, payload, yieldAdmitted, options.requireWorker);
+                await yieldAdmitted();
             }
-            await yieldAdmitted();
-        }
-        return runBrowserPageOpsWorkerRequestWithClient(client, requestId, type, payload, {
-            ...options,
-            preserveInputOwnership: !options.transferInput,
-        });
-    }, affinityKey);
+            return runBrowserPageOpsWorkerRequestWithClient(client, requestId, type, payload, {
+                ...options,
+                preserveInputOwnership: !options.transferInput,
+            });
+        },
+        affinityKey,
+    );
 }
 
 export async function runBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWorkerRequestType>(
@@ -421,9 +454,9 @@ export async function runBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWo
         if (canUseBrowserPageOpsWorker()) {
             return runAdmittedBrowserPageOpsWorkerRequest(type, payload, options);
         }
-        return runAdmittedPageOperation(options.signal, (_client, _requestId, yieldAdmitted) => (
-            runBrowserPageOpsWithoutWorker(type, payload, yieldAdmitted, options.requireWorker)
-        ));
+        return runAdmittedPageOperation(options.signal, (_client, _requestId, yieldAdmitted) =>
+            runBrowserPageOpsWithoutWorker(type, payload, yieldAdmitted, options.requireWorker),
+        );
     }
     if (options.dedicated) {
         return runAdmittedBrowserPageOpsWorkerRequest(type, payload, options);

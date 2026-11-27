@@ -11,9 +11,7 @@ export interface IPdfPageScale {
 }
 
 function normalizePositiveScale(value: number | null | undefined) {
-    return typeof value === 'number' && Number.isFinite(value) && value > 0
-        ? value
-        : 1;
+    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 1;
 }
 
 function normalizeFiniteCssNumber(value: number) {
@@ -23,10 +21,7 @@ function normalizeFiniteCssNumber(value: number) {
     return Object.is(value, -0) ? 0 : value;
 }
 
-export function createPdfPageScale(
-    scaleFactor: number | null | undefined,
-    userUnit: number | null | undefined,
-): IPdfPageScale {
+export function createPdfPageScale(scaleFactor: number | null | undefined, userUnit: number | null | undefined): IPdfPageScale {
     const normalizedScaleFactor = normalizePositiveScale(scaleFactor);
     const normalizedUserUnit = normalizePositiveScale(userUnit);
     return {
@@ -48,7 +43,5 @@ export function toPdfScaledCssLength(pdfUnits: number, additionalCssPixels = 0) 
     const normalizedPdfUnits = normalizeFiniteCssNumber(pdfUnits);
     const normalizedAdditionalPixels = normalizeFiniteCssNumber(additionalCssPixels);
     const scaledLength = `var(${PDF_PAGE_SCALE_CSS_VARS.totalScaleFactor}, 1) * ${String(normalizedPdfUnits)}px`;
-    return normalizedAdditionalPixels === 0
-        ? `calc(${scaledLength})`
-        : `calc(${scaledLength} + ${String(normalizedAdditionalPixels)}px)`;
+    return normalizedAdditionalPixels === 0 ? `calc(${scaledLength})` : `calc(${scaledLength} + ${String(normalizedAdditionalPixels)}px)`;
 }

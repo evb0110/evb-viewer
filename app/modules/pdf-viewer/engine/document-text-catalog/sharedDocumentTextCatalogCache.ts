@@ -1,14 +1,10 @@
-import type { TPageNumber } from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type {
-    IDocumentOcrAvailability,
-    IDocumentOcrPageRange,
-    IDocumentTextCatalogPage,
-} from '@contracts/documentTextCatalog';
-import { getOcrCapability } from '@app/utils/getOcrCapability';
-import { BrowserLogger } from '@app/utils/browserLogger';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {IDocumentOcrAvailability, IDocumentOcrPageRange, IDocumentTextCatalogPage} from '@contracts/documentTextCatalog';
+import {getOcrCapability} from '@app/utils/getOcrCapability';
+import {BrowserLogger} from '@app/utils/browserLogger';
 
 const MAX_AVAILABILITY_SNAPSHOTS = 8;
 const MAX_PAGE_SNAPSHOTS = 64;
@@ -53,10 +49,7 @@ function trimCache<T>(cache: Map<string, T>, maximumSize: number) {
     }
 }
 
-function pruneStaleRevisionsForDocument(
-    workingCopyPath: TDocumentRef,
-    currentKey: string,
-) {
+function pruneStaleRevisionsForDocument(workingCopyPath: TDocumentRef, currentKey: string) {
     const documentPrefix = `${workingCopyPath}\0`;
     const currentPagePrefix = `${currentKey}\0`;
     for (const key of availabilityEntries.keys()) {
@@ -71,14 +64,13 @@ function pruneStaleRevisionsForDocument(
     }
 }
 
-function indexAvailability(
-    availability: IDocumentOcrAvailability,
-): IIndexedDocumentOcrAvailability {
+function indexAvailability(availability: IDocumentOcrAvailability): IIndexedDocumentOcrAvailability {
     const pageNumbersSet = availability.pageNumbers ? new Set<number>(availability.pageNumbers) : null;
     const pageRanges = availability.pageRanges ?? [];
-    const hasAnyPages = availability.mappedPageCount !== undefined
-        ? availability.mappedPageCount > 0
-        : (pageNumbersSet?.size ?? 0) > 0 || pageRanges.length > 0;
+    const hasAnyPages =
+        availability.mappedPageCount !== undefined
+            ? availability.mappedPageCount > 0
+            : (pageNumbersSet?.size ?? 0) > 0 || pageRanges.length > 0;
     return {
         raw: availability,
         hasAnyPages,
@@ -88,10 +80,7 @@ function indexAvailability(
     };
 }
 
-function isPageInSortedRanges(
-    ranges: readonly IDocumentOcrPageRange[],
-    pageNumber: number,
-) {
+function isPageInSortedRanges(ranges: readonly IDocumentOcrPageRange[], pageNumber: number) {
     let low = 0;
     let high = ranges.length - 1;
     while (low <= high) {
@@ -159,25 +148,25 @@ function getOrLoadAvailabilityEntry(
 
     pruneStaleRevisionsForDocument(workingCopyPath, key);
 
-    let entry!: IAvailabilityCacheEntry;
-    const pending = capability.resolveDocumentOcrAvailability(
-        workingCopyPath,
-        documentRevisionToken,
-    ).then((availability) => {
-        const indexed = availability ? indexAvailability(availability) : null;
-        if (availabilityEntries.get(key) === entry) {
-            entry.resolved = indexed;
-        }
-        return indexed;
-    }).catch((error) => {
-        if (availabilityEntries.get(key) === entry) {
-            availabilityEntries.delete(key);
-        }
-        BrowserLogger.warn('ocr', 'Failed to resolve OCR availability for PDF viewer', error);
-        return null;
-    });
+    const pending = capability
+        .resolveDocumentOcrAvailability(workingCopyPath, documentRevisionToken)
+        .then((availability) => {
+            const indexed = availability ? indexAvailability(availability) : null;
+            const current = availabilityEntries.get(key);
+            if (current?.pending === pending) {
+                current.resolved = indexed;
+            }
+            return indexed;
+        })
+        .catch((error) => {
+            if (availabilityEntries.get(key)?.pending === pending) {
+                availabilityEntries.delete(key);
+            }
+            BrowserLogger.warn('ocr', 'Failed to resolve OCR availability for PDF viewer', error);
+            return null;
+        });
 
-    entry = {
+    const entry: IAvailabilityCacheEntry = {
         key,
         workingCopyPath,
         documentRevisionToken,
@@ -201,7 +190,7 @@ export function loadSharedDocumentOcrAvailability(
     if (entry.resolved !== undefined) {
         return Promise.resolve(entry.resolved?.raw ?? null);
     }
-    return entry.pending.then(indexed => indexed?.raw ?? null);
+    return entry.pending.then((indexed) => indexed?.raw ?? null);
 }
 
 /**
@@ -237,11 +226,7 @@ export async function hasSharedDocumentOcrPage(
     if (decided !== null) {
         return decided;
     }
-    return (await loadSharedDocumentOcrPage(
-        workingCopyPath,
-        documentRevisionToken,
-        pageNumber,
-    )) !== null;
+    return (await loadSharedDocumentOcrPage(workingCopyPath, documentRevisionToken, pageNumber)) !== null;
 }
 
 export function loadSharedDocumentOcrPage(
@@ -263,12 +248,8 @@ export function loadSharedDocumentOcrPage(
             return Promise.resolve(null);
         }
         if (
-            availabilityEntry.resolved !== undefined
-            && evaluateIndexedPageAvailability(
-                availabilityEntry.resolved,
-                availabilityEntry.missingPages,
-                pageNumber,
-            ) === false
+            availabilityEntry.resolved !== undefined &&
+            evaluateIndexedPageAvailability(availabilityEntry.resolved, availabilityEntry.missingPages, pageNumber) === false
         ) {
             return Promise.resolve(null);
         }
@@ -282,28 +263,27 @@ export function loadSharedDocumentOcrPage(
     pruneStaleRevisionsForDocument(workingCopyPath, revKey);
 
     const capturedAvailabilityEntry = availabilityEntry;
-    const pending = capability.resolveDocumentOcrPage(
-        workingCopyPath,
-        documentRevisionToken,
-        pageNumber,
-    ).then((snapshot) => {
-        if (
-            snapshot.page === null
-            && pageSnapshots.get(key) === pending
-            && capturedAvailabilityEntry !== undefined
-            && availabilityEntries.get(revKey) === capturedAvailabilityEntry
-        ) {
-            recordMissingPage(capturedAvailabilityEntry, pageNumber);
-            pageSnapshots.delete(key);
-        }
-        return snapshot.page;
-    }).catch((error) => {
-        if (pageSnapshots.get(key) === pending) {
-            pageSnapshots.delete(key);
-        }
-        BrowserLogger.warn('ocr', `Failed to resolve OCR page ${pageNumber} for PDF viewer`, error);
-        return null;
-    });
+    const pending = capability
+        .resolveDocumentOcrPage(workingCopyPath, documentRevisionToken, pageNumber)
+        .then((snapshot) => {
+            if (
+                snapshot.page === null &&
+                pageSnapshots.get(key) === pending &&
+                capturedAvailabilityEntry !== undefined &&
+                availabilityEntries.get(revKey) === capturedAvailabilityEntry
+            ) {
+                recordMissingPage(capturedAvailabilityEntry, pageNumber);
+                pageSnapshots.delete(key);
+            }
+            return snapshot.page;
+        })
+        .catch((error) => {
+            if (pageSnapshots.get(key) === pending) {
+                pageSnapshots.delete(key);
+            }
+            BrowserLogger.warn('ocr', `Failed to resolve OCR page ${pageNumber} for PDF viewer`, error);
+            return null;
+        });
     pageSnapshots.set(key, pending);
     trimCache(pageSnapshots, MAX_PAGE_SNAPSHOTS);
     return pending;

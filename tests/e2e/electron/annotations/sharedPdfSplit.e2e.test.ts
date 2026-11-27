@@ -1,15 +1,9 @@
-import {
-    appendFile, mkdir, readFile, rm, writeFile,
-} from 'node:fs/promises';
-import {
-    basename, dirname, join, resolve,
-} from 'node:path';
-import { delay } from 'es-toolkit/promise';
-import type { Page } from 'puppeteer-core';
-import {
-    afterEach, describe, expect, it, onTestFinished,
-} from 'vitest';
-import { requireDocumentRef } from '@contracts/documentRef';
+import {appendFile, mkdir, readFile, rm, writeFile} from 'node:fs/promises';
+import {basename, dirname, join, resolve} from 'node:path';
+import {delay} from 'es-toolkit/promise';
+import type {Page} from 'puppeteer-core';
+import {afterEach, describe, expect, it, onTestFinished} from 'vitest';
+import {requireDocumentRef} from '@contracts/documentRef';
 import {
     createCanonicalAnnotationSurfaceFixturePdf,
     createMultiPageTextFixturePdf,
@@ -19,23 +13,14 @@ import {
     readPdfPageSnapshots,
     readPdfTextAnnotationRecords,
 } from '@tests/e2e/electron/helpers/fixtures';
-import {
-    startElectronE2ESession, type IElectronE2ESession,
-} from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import {
-    NATIVE_CLOSE_OBSERVER_ENV, waitForNativeCloseCancel,
-} from '@tests/e2e/electron/helpers/observeNativeCloseCancel';
+import {startElectronE2ESession, type IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {NATIVE_CLOSE_OBSERVER_ENV, waitForNativeCloseCancel} from '@tests/e2e/electron/helpers/observeNativeCloseCancel';
 import {
     createCanonicalTextBoxWithPointer,
     createStickyNoteWithPointer,
     selectAllFocusedAnnotationText,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
-import {
-    clickAsUser,
-    clickFoundAsUser,
-    revealForPointer,
-    activateMenuItemAsUser,
-} from '@tests/e2e/electron/helpers/userInput';
+import {clickAsUser, clickFoundAsUser, revealForPointer, activateMenuItemAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {
     goToPageViaToolbar,
     getToolbarCurrentPage,
@@ -46,18 +31,14 @@ import {
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {
-    activatePaneByTab,
-    createNewWorkspaceTab,
-    splitActiveTabFromTabMenu,
-} from '@tests/e2e/electron/helpers/workspaceTabs';
+import {activatePaneByTab, createNewWorkspaceTab, splitActiveTabFromTabMenu} from '@tests/e2e/electron/helpers/workspaceTabs';
 import {
     requireWorkspaceCommand,
     getLatestAutomationEventId,
     waitForAutomationEvent,
     type IWorkspaceExposeProbeWindow,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
-import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
+import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {sessionDir} from '@scripts/electron-run/electronRunSessionPaths';
 
@@ -112,45 +93,52 @@ it('refreshes the cropped page thumbnail in both linked PDF views', async () => 
         initialOpenPaths: [pdfPath],
     });
     const {page} = session;
-    await writeFile(join(evidence, 'session.json'), JSON.stringify({
-        name: session.name,
-        pdfPath,
-    }, null, 2));
-    const readThumbnails = () => page.$$eval('.editor-pane', panes => panes.map(pane => {
-        const canvas = pane.querySelector<HTMLCanvasElement>('[data-thumbnail-page="1"] canvas');
-        return {
-            pane: (pane as HTMLElement).dataset.editorPaneId,
-            width: canvas?.width,
-            height: canvas?.height,
-            pixels: canvas?.toDataURL(),
-        };
-    }));
-    await session.command('windowResize', [
-        1440,
-        900,
-    ]);
+    await writeFile(
+        join(evidence, 'session.json'),
+        JSON.stringify(
+            {
+                name: session.name,
+                pdfPath,
+            },
+            null,
+            2,
+        ),
+    );
+    const readThumbnails = () =>
+        page.$$eval('.editor-pane', (panes) =>
+            panes.map((pane) => {
+                const canvas = pane.querySelector<HTMLCanvasElement>('[data-thumbnail-page="1"] canvas');
+                return {
+                    pane: (pane as HTMLElement).dataset.editorPaneId,
+                    width: canvas?.width,
+                    height: canvas?.height,
+                    pixels: canvas?.toDataURL(),
+                };
+            }),
+        );
+    await session.command('windowResize', [1440, 900]);
     await waitForPdfLoaded(page);
     await waitForViewerInteractive(page);
     await openDocumentSidebarTab(page, 'Pages');
     await splitActiveTabFromTabMenu(page, 'right');
-    const [
-        leftPane,
-        rightPane,
-    ] = await paneIds(page);
+    const [leftPane, rightPane] = await paneIds(page);
     await page.waitForSelector(`${paneSelector(rightPane!)} ${PAINTED_FIRST_PAGE}`);
     await openDocumentSidebarTab(page, 'Pages');
-    await page.waitForFunction(() => Array.from(document.querySelectorAll('.editor-pane')).length === 2
-        && Array.from(document.querySelectorAll('.editor-pane')).every(pane => {
-            const canvas = pane.querySelector<HTMLCanvasElement>('[data-thumbnail-page="1"] canvas');
-            return canvas && canvas.width > 0 && canvas.height > 0;
-        }));
+    await page.waitForFunction(
+        () =>
+            Array.from(document.querySelectorAll('.editor-pane')).length === 2 &&
+            Array.from(document.querySelectorAll('.editor-pane')).every((pane) => {
+                const canvas = pane.querySelector<HTMLCanvasElement>('[data-thumbnail-page="1"] canvas');
+                return canvas && canvas.width > 0 && canvas.height > 0;
+            }),
+    );
     const before = await readThumbnails();
     await writeFile(join(evidence, 'thumbnails-before.json'), JSON.stringify(before, null, 2));
     await page.screenshot({path: join(evidence, 'before-crop.png')});
     await activatePaneByTab(page, leftPane!);
     await clickVisibleToolbarButton(page, 'Crop Pages');
     await page.waitForSelector('.crop-overlay.is-active');
-    const drag = await page.$eval(`${paneSelector(leftPane!)} .page_container[data-page="1"]`, element => {
+    const drag = await page.$eval(`${paneSelector(leftPane!)} .page_container[data-page="1"]`, (element) => {
         const rect = element.getBoundingClientRect();
         const viewport = element.closest('#pdf-viewer')!.getBoundingClientRect();
         const left = Math.max(rect.left, viewport.left) + 20;
@@ -164,24 +152,36 @@ it('refreshes the cropped page thumbnail in both linked PDF views', async () => 
             endY: top + height * 0.3,
         };
     });
-    expect(await page.evaluate(({
-        x, y,
-    }) => Boolean(document.elementFromPoint(x, y)?.closest('.crop-overlay.is-active')), drag)).toBe(true);
+    expect(await page.evaluate(({x, y}) => Boolean(document.elementFromPoint(x, y)?.closest('.crop-overlay.is-active')), drag)).toBe(true);
     await page.mouse.move(drag.x, drag.y);
     await page.mouse.down();
     await page.mouse.move(drag.endX, drag.endY, {steps: 6});
     await page.mouse.up();
     await page.waitForSelector('[role="dialog"] .crop-preview-area');
-    await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
-        .find(button => button.textContent?.trim() === 'Apply Crop' && !button.disabled), null, {description: 'Apply the selected crop'});
+    await clickFoundAsUser(
+        page,
+        () =>
+            Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find(
+                (button) => button.textContent?.trim() === 'Apply Crop' && !button.disabled,
+            ),
+        null,
+        {description: 'Apply the selected crop'},
+    );
     await page.waitForSelector('[role="dialog"] .crop-preview-area', {hidden: true});
-    await page.waitForFunction((originalRatio: number) => {
-        const canvas = document.querySelector<HTMLCanvasElement>('.editor-pane.is-active [data-thumbnail-page="1"] canvas');
-        return canvas && Math.abs(canvas.width / canvas.height - originalRatio) > 0.15;
-    }, {}, before[0]!.width! / before[0]!.height!);
+    await page.waitForFunction(
+        (originalRatio: number) => {
+            const canvas = document.querySelector<HTMLCanvasElement>('.editor-pane.is-active [data-thumbnail-page="1"] canvas');
+            return canvas && Math.abs(canvas.width / canvas.height - originalRatio) > 0.15;
+        },
+        {},
+        before[0]!.width! / before[0]!.height!,
+    );
     await page.waitForFunction(() => {
         const canvases = Array.from(document.querySelectorAll<HTMLCanvasElement>('.editor-pane [data-thumbnail-page="1"] canvas'));
-        return canvases.length === 2 && canvases.every(canvas => Math.abs(canvas.width / canvas.height - canvases[0]!.width / canvases[0]!.height) < 0.02);
+        return (
+            canvases.length === 2 &&
+            canvases.every((canvas) => Math.abs(canvas.width / canvas.height - canvases[0]!.width / canvases[0]!.height) < 0.02)
+        );
     });
     const after = await readThumbnails();
     expect(after.every((thumbnail, index) => thumbnail.pixels !== before[index]!.pixels)).toBe(true);
@@ -203,9 +203,9 @@ async function centerOf(page: Page, selector: string): Promise<IPoint> {
         const rect = element.getBoundingClientRect();
         return rect.width > 0 && rect.height > 0
             ? {
-                x: rect.left + rect.width / 2,
-                y: rect.top + rect.height / 2,
-            }
+                  x: rect.left + rect.width / 2,
+                  y: rect.top + rect.height / 2,
+              }
             : null;
     });
     if (!point) {
@@ -215,19 +215,21 @@ async function centerOf(page: Page, selector: string): Promise<IPoint> {
 }
 
 async function clickToolbarButton(page: Page, label: string) {
-    await clickFoundAsUser(page, (name: string) => Array.from(
-        document.querySelectorAll<HTMLButtonElement>('#editor-global-toolbar-host button[aria-label]'),
-    ).find((button) => {
-        const ariaLabel = button.getAttribute('aria-label') ?? '';
-        return (ariaLabel === name || ariaLabel.startsWith(`${name} (`)) && !button.disabled;
-    }), label, {description: `toolbar ${label}`});
+    await clickFoundAsUser(
+        page,
+        (name: string) =>
+            Array.from(document.querySelectorAll<HTMLButtonElement>('#editor-global-toolbar-host button[aria-label]')).find((button) => {
+                const ariaLabel = button.getAttribute('aria-label') ?? '';
+                return (ariaLabel === name || ariaLabel.startsWith(`${name} (`)) && !button.disabled;
+            }),
+        label,
+        {description: `toolbar ${label}`},
+    );
 }
 
 async function paneIds(page: Page) {
-    return page.$$eval('.editor-pane', panes => panes.map(pane => (pane as HTMLElement).dataset.editorPaneId ?? ''));
+    return page.$$eval('.editor-pane', (panes) => panes.map((pane) => (pane as HTMLElement).dataset.editorPaneId ?? ''));
 }
-
-
 
 function readPaneView(page: Page, paneId: string): Promise<IPaneView> {
     return page.$eval(paneSelector(paneId), (pane) => {
@@ -236,43 +238,45 @@ function readPaneView(page: Page, paneId: string): Promise<IPaneView> {
         const viewportRect = viewport?.getBoundingClientRect() ?? null;
         const centerY = viewportRect ? viewportRect.top + viewportRect.height / 2 : 0;
         const centerPage = viewportRect
-            ? Array.from(pane.querySelectorAll<HTMLElement>('#pdf-viewer .page_container[data-page]')).find((container) => {
-                const rect = container.getBoundingClientRect();
-                return rect.height > 0 && rect.top <= centerY && rect.bottom >= centerY;
-            }) ?? null
+            ? (Array.from(pane.querySelectorAll<HTMLElement>('#pdf-viewer .page_container[data-page]')).find((container) => {
+                  const rect = container.getBoundingClientRect();
+                  return rect.height > 0 && rect.top <= centerY && rect.bottom >= centerY;
+              }) ?? null)
             : null;
         const tab = pane.querySelector<HTMLElement>('.tab.is-active[data-tab-id]');
         const active = pane.classList.contains('is-active');
         const status = document.querySelector('#editor-global-status-host');
         return {
-            showsStart: Array.from(pane.querySelectorAll<HTMLElement>('.start-open-panel'))
-                .some(panel => panel.getBoundingClientRect().width > 0),
+            showsStart: Array.from(pane.querySelectorAll<HTMLElement>('.start-open-panel')).some(
+                (panel) => panel.getBoundingClientRect().width > 0,
+            ),
             active,
             statusPath: active ? textOf(status?.querySelector('.status-bar-path')) || null : null,
-            saveDotLabel: active ? status?.querySelector('.status-save-dot-button')?.getAttribute('aria-label') ?? null : null,
+            saveDotLabel: active ? (status?.querySelector('.status-save-dot-button')?.getAttribute('aria-label') ?? null) : null,
             pageWidthPx: centerPage ? centerPage.getBoundingClientRect().width : null,
             tabLabel: textOf(tab?.querySelector('.tab-label')),
             tabDirty: tab?.classList.contains('is-dirty') ?? false,
             centerPage: centerPage ? Number(centerPage.dataset.page) : null,
             centerOffsetPx: centerPage ? centerY - centerPage.getBoundingClientRect().top : null,
             renderedTexts: Array.from(pane.querySelectorAll('.pdf-annotation-editor-layer [data-annotation-kind="text-box"]'))
-                .map(element => textOf(element) ?? '').filter(Boolean),
+                .map((element) => textOf(element) ?? '')
+                .filter(Boolean),
             listedTexts: Array.from(pane.querySelectorAll('.notes-list .note-item'))
-                .map(element => textOf(element) ?? '').filter(Boolean),
+                .map((element) => textOf(element) ?? '')
+                .filter(Boolean),
             centerText: textOf(centerPage?.querySelector('.text-layer[data-pdf-text-layer-ready="true"]')) || null,
-            pageCount: Math.max(0, ...Array.from(pane.querySelectorAll<HTMLElement>('#pdf-viewer .page_container[data-page]'))
-                .map(container => Number(container.dataset.page) || 0)),
+            pageCount: Math.max(
+                0,
+                ...Array.from(pane.querySelectorAll<HTMLElement>('#pdf-viewer .page_container[data-page]')).map(
+                    (container) => Number(container.dataset.page) || 0,
+                ),
+            ),
         };
     });
 }
 
 /** Waits until the pane shows what `accept` requires, then returns that view. */
-async function waitForPaneView(
-    page: Page,
-    paneId: string,
-    label: string,
-    accept: (view: IPaneView) => boolean,
-) {
+async function waitForPaneView(page: Page, paneId: string, label: string, accept: (view: IPaneView) => boolean) {
     const deadline = Date.now() + SETTLE_TIMEOUT_MS;
     let view = await readPaneView(page, paneId);
     while (!accept(view) && Date.now() < deadline) {
@@ -286,17 +290,12 @@ async function waitForPaneView(
 }
 
 /** Like waitForPaneView, once the view has also stopped moving. */
-async function waitForSteadyPaneView(
-    page: Page,
-    paneId: string,
-    label: string,
-    accept: (view: IPaneView) => boolean,
-) {
+async function waitForSteadyPaneView(page: Page, paneId: string, label: string, accept: (view: IPaneView) => boolean) {
     const deadline = Date.now() + SETTLE_TIMEOUT_MS;
     let previous = await waitForPaneView(page, paneId, label, accept);
     while (Date.now() < deadline) {
         // Two readings a painted frame apart: a scroll still in flight moves between them.
-        await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
         const view = await waitForPaneView(page, paneId, label, accept);
         if (view.centerPage === previous.centerPage && view.centerOffsetPx === previous.centerOffsetPx) {
             return view;
@@ -325,44 +324,57 @@ function sameWidth(left: number | null, right: number | null) {
 }
 
 function keepsPlacement(view: IPaneView, placement: IPlacement) {
-    return view.centerPage === placement.centerPage
-        && sameWidth(view.pageWidthPx, placement.pageWidthPx)
-        && view.centerOffsetPx !== null
-        && placement.centerOffsetPx !== null
-        && Math.abs(view.centerOffsetPx - placement.centerOffsetPx) <= ANCHOR_TOLERANCE_PX;
+    return (
+        view.centerPage === placement.centerPage &&
+        sameWidth(view.pageWidthPx, placement.pageWidthPx) &&
+        view.centerOffsetPx !== null &&
+        placement.centerOffsetPx !== null &&
+        Math.abs(view.centerOffsetPx - placement.centerOffsetPx) <= ANCHOR_TOLERANCE_PX
+    );
 }
 
 function containsAll(texts: string[], expected: string[]) {
-    return expected.every(text => texts.some(candidate => candidate.includes(text)));
+    return expected.every((text) => texts.some((candidate) => candidate.includes(text)));
 }
 
 function containsNone(texts: string[], unexpected: string[]) {
-    return unexpected.every(text => texts.every(candidate => !candidate.includes(text)));
+    return unexpected.every((text) => texts.every((candidate) => !candidate.includes(text)));
 }
 
 function countSaveEvents(page: Page, afterEventId: number) {
-    return page.evaluate((after: number) => (window as IWorkspaceExposeProbeWindow).__evbTestApi?.getAutomationEvents?.()
-        .filter(event => event.type === 'save-committed' && event.id > after).length ?? 0, afterEventId);
+    return page.evaluate(
+        (after: number) =>
+            (window as IWorkspaceExposeProbeWindow).__evbTestApi
+                ?.getAutomationEvents?.()
+                .filter((event) => event.type === 'save-committed' && event.id > after).length ?? 0,
+        afterEventId,
+    );
 }
 
 // At least one step, so the view has a custom zoom that a narrower pane keeps
 // (a fit mode re-fits when the pane width changes, behavior contract R3).
 async function zoomInUntilPageFillsViewport(page: Page, paneId: string) {
     for (let step = 0; step < 12; step += 1) {
-        const fills = step > 0 && await page.$eval(paneSelector(paneId), (pane) => {
-            const viewport = pane.querySelector<HTMLElement>('#pdf-viewer');
-            const firstPage = pane.querySelector<HTMLElement>('#pdf-viewer .page_container[data-page]');
-            return Boolean(viewport && firstPage
-                && firstPage.getBoundingClientRect().height > viewport.getBoundingClientRect().height * 1.2);
-        });
+        const fills =
+            step > 0 &&
+            (await page.$eval(paneSelector(paneId), (pane) => {
+                const viewport = pane.querySelector<HTMLElement>('#pdf-viewer');
+                const firstPage = pane.querySelector<HTMLElement>('#pdf-viewer .page_container[data-page]');
+                return Boolean(
+                    viewport && firstPage && firstPage.getBoundingClientRect().height > viewport.getBoundingClientRect().height * 1.2,
+                );
+            }));
         if (fills) {
             return;
         }
         const before = await readPaneView(page, paneId);
         await clickToolbarButton(page, 'Zoom In');
-        await waitForPaneView(page, paneId, 'Zoom In enlarges the page', view => (
-            (view.pageWidthPx ?? 0) > (before.pageWidthPx ?? Infinity) + ANCHOR_TOLERANCE_PX
-        ));
+        await waitForPaneView(
+            page,
+            paneId,
+            'Zoom In enlarges the page',
+            (view) => (view.pageWidthPx ?? 0) > (before.pageWidthPx ?? Infinity) + ANCHOR_TOLERANCE_PX,
+        );
     }
     throw new Error('Zoom In never made a page taller than the viewport');
 }
@@ -374,17 +386,20 @@ async function zoomInUntilPageFillsViewport(page: Page, paneId: string) {
 async function undoTextBoxEdit(page: Page, activePane: string, otherPane: string, text: string) {
     const before = await readPaneView(page, activePane);
     await clickToolbarButton(page, 'Undo');
-    await waitForPaneView(page, activePane, `the first undo empties the ${text} box`, view => (
-        containsNone(view.listedTexts, [text]) && view.listedTexts.length === before.listedTexts.length
-    ));
-    await clickToolbarButton(page, 'Undo');
-    for (const paneId of [
+    await waitForPaneView(
+        page,
         activePane,
-        otherPane,
-    ]) {
-        await waitForPaneView(page, paneId, `the second undo removes the ${text} box from ${paneId}`, view => (
-            containsNone(view.renderedTexts, [text]) && view.listedTexts.length === before.listedTexts.length - 1
-        ));
+        `the first undo empties the ${text} box`,
+        (view) => containsNone(view.listedTexts, [text]) && view.listedTexts.length === before.listedTexts.length,
+    );
+    await clickToolbarButton(page, 'Undo');
+    for (const paneId of [activePane, otherPane]) {
+        await waitForPaneView(
+            page,
+            paneId,
+            `the second undo removes the ${text} box from ${paneId}`,
+            (view) => containsNone(view.renderedTexts, [text]) && view.listedTexts.length === before.listedTexts.length - 1,
+        );
     }
 }
 
@@ -405,17 +420,26 @@ async function numberPagesWithPrefix(page: Page, paneId: string, prefix: string)
     await openDocumentSidebarTab(page, 'Pages');
     const prefixInput = `${paneSelector(paneId)} #page-label-prefix-input`;
     const disclosure = `${paneSelector(paneId)} .pdf-sidebar-pages-disclosure`;
-    if (await page.$eval(disclosure, button => button.getAttribute('aria-expanded')) !== 'true') {
+    if ((await page.$eval(disclosure, (button) => button.getAttribute('aria-expanded'))) !== 'true') {
         await clickAsUser(page, disclosure);
     }
     await clickAsUser(page, prefixInput);
-    await page.waitForFunction((selector: string) => document.activeElement === document.querySelector(selector), {timeout: SETTLE_TIMEOUT_MS}, prefixInput);
+    await page.waitForFunction(
+        (selector: string) => document.activeElement === document.querySelector(selector),
+        {timeout: SETTLE_TIMEOUT_MS},
+        prefixInput,
+    );
     // Replace whatever prefix the field still shows.
     await selectAllInFocusedField(page);
     await page.keyboard.type(prefix);
-    await page.waitForFunction((selector: string, expected: string) => document.querySelector<HTMLInputElement>(selector)?.value === expected, {timeout: SETTLE_TIMEOUT_MS}, prefixInput, prefix);
+    await page.waitForFunction(
+        (selector: string, expected: string) => document.querySelector<HTMLInputElement>(selector)?.value === expected,
+        {timeout: SETTLE_TIMEOUT_MS},
+        prefixInput,
+        prefix,
+    );
     await clickAsUser(page, `${paneSelector(paneId)} .pdf-sidebar-pages-primary-button`);
-    await waitForPaneView(page, paneId, 'numbering the pages leaves unsaved changes', view => view.tabDirty);
+    await waitForPaneView(page, paneId, 'numbering the pages leaves unsaved changes', (view) => view.tabDirty);
 }
 
 function thumbnailSelector(paneId: string, pageNumber: number) {
@@ -423,9 +447,9 @@ function thumbnailSelector(paneId: string, pageNumber: number) {
 }
 
 async function readVisibleToasts(page: Page) {
-    return page.$$eval('.app-toast', toasts => toasts
-        .filter(toast => toast.getBoundingClientRect().width > 0)
-        .map(toast => (toast as HTMLElement).innerText.trim()));
+    return page.$$eval('.app-toast', (toasts) =>
+        toasts.filter((toast) => toast.getBoundingClientRect().width > 0).map((toast) => (toast as HTMLElement).innerText.trim()),
+    );
 }
 
 function bookmarkRowsSelector(paneId: string) {
@@ -434,9 +458,9 @@ function bookmarkRowsSelector(paneId: string) {
 
 /** The bookmark titles a pane's Bookmarks panel shows, in order. */
 function readBookmarkTitles(page: Page, paneId: string) {
-    return page.$$eval(bookmarkRowsSelector(paneId), rows => rows
-        .filter(row => row.getBoundingClientRect().width > 0)
-        .map(row => row.textContent?.trim() ?? ''));
+    return page.$$eval(bookmarkRowsSelector(paneId), (rows) =>
+        rows.filter((row) => row.getBoundingClientRect().width > 0).map((row) => row.textContent?.trim() ?? ''),
+    );
 }
 
 /** Waits until the pane's Bookmarks panel lists `includes` and, if given, exactly `count` rows. */
@@ -450,12 +474,18 @@ async function waitForBookmarkTitles(
     },
 ) {
     try {
-        await page.waitForFunction((selector: string, includes: string | null, count: number | null) => {
-            const titles = Array.from(document.querySelectorAll(selector))
-                .filter(row => row.getBoundingClientRect().width > 0)
-                .map(row => row.textContent?.trim() ?? '');
-            return (includes === null || titles.includes(includes)) && (count === null || titles.length === count);
-        }, {timeout: SETTLE_TIMEOUT_MS}, bookmarkRowsSelector(paneId), expected.includes ?? null, expected.count ?? null);
+        await page.waitForFunction(
+            (selector: string, includes: string | null, count: number | null) => {
+                const titles = Array.from(document.querySelectorAll(selector))
+                    .filter((row) => row.getBoundingClientRect().width > 0)
+                    .map((row) => row.textContent?.trim() ?? '');
+                return (includes === null || titles.includes(includes)) && (count === null || titles.length === count);
+            },
+            {timeout: SETTLE_TIMEOUT_MS},
+            bookmarkRowsSelector(paneId),
+            expected.includes ?? null,
+            expected.count ?? null,
+        );
     } catch (error) {
         throw new Error(`${label}: ${JSON.stringify(await readBookmarkTitles(page, paneId))}`, {cause: error});
     }
@@ -466,7 +496,7 @@ async function waitForBookmarkTitles(
 async function renameBookmark(page: Page, paneId: string, from: string, to: string) {
     const pane = paneSelector(paneId);
     await waitForBookmarkTitles(page, paneId, `the ${paneId} panel lists ${from}`, {includes: from});
-    if (!await page.$(`${pane} .pdf-bookmarks-tree`)) {
+    if (!(await page.$(`${pane} .pdf-bookmarks-tree`))) {
         await page.waitForSelector(`${pane} .document-bookmarks-toolbar__actions button`, {
             visible: true,
             timeout: SETTLE_TIMEOUT_MS,
@@ -474,24 +504,36 @@ async function renameBookmark(page: Page, paneId: string, from: string, to: stri
         await clickAsUser(page, `${pane} .document-bookmarks-toolbar__actions button`);
         await page.waitForSelector(`${pane} .pdf-bookmarks-tree`, {timeout: SETTLE_TIMEOUT_MS});
     }
-    await clickFoundAsUser(page, ({
-        selector, title,
-    }: {
-        selector: string;
-        title: string
-    }) => Array.from(
-        document.querySelectorAll<HTMLElement>(`${selector} .pdf-bookmark-item-row`),
-    ).find(candidate => candidate.textContent?.trim() === title), {
-        selector: pane,
-        title: from,
-    }, {
-        description: `bookmark row ${from}`,
-        button: 'right',
-    });
-    await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('.bookmarks-context-menu .pdf-context-menu__action'))
-        .find(action => action.getBoundingClientRect().width > 0), null, {description: 'bookmark Rename'});
+    await clickFoundAsUser(
+        page,
+        ({selector, title}: {selector: string; title: string}) =>
+            Array.from(document.querySelectorAll<HTMLElement>(`${selector} .pdf-bookmark-item-row`)).find(
+                (candidate) => candidate.textContent?.trim() === title,
+            ),
+        {
+            selector: pane,
+            title: from,
+        },
+        {
+            description: `bookmark row ${from}`,
+            button: 'right',
+        },
+    );
+    await clickFoundAsUser(
+        page,
+        () =>
+            Array.from(document.querySelectorAll<HTMLElement>('.bookmarks-context-menu .pdf-context-menu__action')).find(
+                (action) => action.getBoundingClientRect().width > 0,
+            ),
+        null,
+        {description: 'bookmark Rename'},
+    );
     const input = `${pane} .pdf-bookmark-item-input`;
-    await page.waitForFunction((selector: string) => document.activeElement === document.querySelector(selector), {timeout: SETTLE_TIMEOUT_MS}, input);
+    await page.waitForFunction(
+        (selector: string) => document.activeElement === document.querySelector(selector),
+        {timeout: SETTLE_TIMEOUT_MS},
+        input,
+    );
     await selectAllInFocusedField(page);
     await page.keyboard.type(to);
     await page.keyboard.press('Enter');
@@ -510,17 +552,18 @@ async function saveFromToolbar(page: Page, pdfPath: string) {
 
 /** Clicks the text box showing `text` in a pane, as a person selects it. */
 async function clickTextBoxInPane(page: Page, paneId: string, text: string, count = 1) {
-    await clickFoundAsUser(page, ({
-        selector, expected,
-    }: {
-        selector: string;
-        expected: string
-    }) => Array.from(
-        document.querySelectorAll<HTMLElement>(`${selector} .pdf-annotation-editor-layer [data-annotation-kind="text-box"]`),
-    ).find(element => element.textContent?.includes(expected) && element.getBoundingClientRect().width > 0), {
-        selector: paneSelector(paneId),
-        expected: text,
-    }, {description: `text box ${text}`, count});
+    await clickFoundAsUser(
+        page,
+        ({selector, expected}: {selector: string; expected: string}) =>
+            Array.from(
+                document.querySelectorAll<HTMLElement>(`${selector} .pdf-annotation-editor-layer [data-annotation-kind="text-box"]`),
+            ).find((element) => element.textContent?.includes(expected) && element.getBoundingClientRect().width > 0),
+        {
+            selector: paneSelector(paneId),
+            expected: text,
+        },
+        {description: `text box ${text}`, count},
+    );
 }
 
 interface IDraftSaveWindow extends Window {
@@ -550,24 +593,25 @@ async function holdDraftSavePublication(page: Page) {
             path: null as string | null,
             release: () => {},
         };
-        const held = new Promise<void>(resolve => {
+        const held = new Promise<void>((resolve) => {
             publication.release = resolve;
         });
         target.__draftSavePublication = publication;
-        target.__stagedPdfNativeMutationCommitBarrierForAutomation = async artifact => {
+        target.__stagedPdfNativeMutationCommitBarrierForAutomation = async (artifact) => {
             publication.path = artifact.path;
             await held;
         };
     });
     return {
         async stagedPath() {
-            const handle = await page.waitForFunction(
-                () => (window as IDraftSaveWindow).__draftSavePublication?.path || false,
-                {timeout: SAVE_TIMEOUT_MS},
-            );
+            const handle = await page.waitForFunction(() => (window as IDraftSaveWindow).__draftSavePublication?.path || false, {
+                timeout: SAVE_TIMEOUT_MS,
+            });
             try {
                 const path = await handle.jsonValue();
-                if (!path) throw new Error('Save did not stage a PDF');
+                if (!path) {
+                    throw new Error('Save did not stage a PDF');
+                }
                 return path;
             } finally {
                 await handle.dispose();
@@ -621,15 +665,20 @@ async function typeDraft(page: Page, selector: string, text: string) {
 
 async function expectVisibleDraft(page: Page, selector: string, text: string) {
     await page.waitForSelector(selector, {visible: true, timeout: SETTLE_TIMEOUT_MS});
-    expect(await page.$eval(selector, element => element instanceof HTMLTextAreaElement
-        ? element.value
-        : element.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim()), 'visible draft').toBe(text);
+    expect(
+        await page.$eval(selector, (element) =>
+            element instanceof HTMLTextAreaElement ? element.value : element.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim(),
+        ),
+        'visible draft',
+    ).toBe(text);
 }
 
 async function expectSavedDraft(path: string, subtype: '/Text' | '/FreeText', expected: string) {
     const records = await readPdfTextAnnotationRecords(path);
-    expect(records.filter(record => record.subtype === subtype).map(record => record.contents),
-        `reopened ${subtype} Contents in ${basename(path)}`).toEqual([expected]);
+    expect(
+        records.filter((record) => record.subtype === subtype).map((record) => record.contents),
+        `reopened ${subtype} Contents in ${basename(path)}`,
+    ).toEqual([expected]);
 }
 
 async function saveDraftFromMenu(page: Page) {
@@ -645,16 +694,31 @@ async function saveDraftFromMenu(page: Page) {
 async function waitForFirstNoteSave(page: Page, path: string, afterEventId: number) {
     // A background Save has no visible toolbar. Its completion event or
     // visible failure toast tells us when to read the destination.
-    await page.waitForFunction((pdfPath: string, after: number) => {
-        const normalize = (value: string) => value.replaceAll('\\', '/').toLowerCase();
-        const saved = window.__evbTestApi?.getAutomationEvents().some(event => (
-            event.type === 'save-committed' && event.id > after && typeof event.detail.path === 'string'
-            && normalize(event.detail.path) === normalize(pdfPath)
-        ));
-        return saved || Array.from(document.querySelectorAll<HTMLElement>('.app-toast')).some(toast => (
-            toast.getBoundingClientRect().width > 0 && toast.innerText.includes('The document changed before the save finished')
-        ));
-    }, {timeout: SAVE_TIMEOUT_MS}, path, afterEventId);
+    await page.waitForFunction(
+        (pdfPath: string, after: number) => {
+            const normalize = (value: string) => value.replaceAll('\\', '/').toLowerCase();
+            const saved = window.__evbTestApi
+                ?.getAutomationEvents()
+                .some(
+                    (event) =>
+                        event.type === 'save-committed' &&
+                        event.id > after &&
+                        typeof event.detail.path === 'string' &&
+                        normalize(event.detail.path) === normalize(pdfPath),
+                );
+            return (
+                saved ||
+                Array.from(document.querySelectorAll<HTMLElement>('.app-toast')).some(
+                    (toast) =>
+                        toast.getBoundingClientRect().width > 0 &&
+                        toast.innerText.includes('The document changed before the save finished'),
+                )
+            );
+        },
+        {timeout: SAVE_TIMEOUT_MS},
+        path,
+        afterEventId,
+    );
 }
 
 async function saveNewerDraft(page: Page, path: string, subtype: '/Text' | '/FreeText') {
@@ -685,40 +749,49 @@ async function expectDraftOnReopen(page: Page, path: string, subtype: '/Text' | 
     const point = await waitForViewerDropPoint(page, viewer);
     await page.mouse.move(point.x, point.y);
     const client = await page.createCDPSession();
-    const delivery = await page.evaluateHandle((selector: string, {x, y}: IPoint) => {
-        const aimedTarget = document.elementFromPoint(x, y);
-        if (!aimedTarget?.matches('[data-pdf-page-track]') || !aimedTarget.closest(selector)) {
-            throw new Error('The PDF viewer gutter moved before the drag entered');
-        }
-        const received: Partial<Record<string, {
-            trusted: boolean;
-            aimed: boolean;
-            target: string | null;
-            types: string[];
-            files: string[];
-            consumed: boolean;
-        }>> = {};
-        const observe = (event: DragEvent) => {
-            const target = event.target;
-            received[event.type] = {
-                trusted: event.isTrusted,
-                aimed: target === aimedTarget && !!aimedTarget.closest(selector),
-                target: target instanceof Element ? target.getAttribute('class') ?? target.tagName : null,
-                types: Array.from(event.dataTransfer?.types ?? []),
-                files: Array.from(event.dataTransfer?.files ?? [], file => file.name),
-                // The shell registers its capture listener before this observer.
-                consumed: event.defaultPrevented,
+    const delivery = await page.evaluateHandle(
+        (selector: string, {x, y}: IPoint) => {
+            const aimedTarget = document.elementFromPoint(x, y);
+            if (!aimedTarget?.matches('[data-pdf-page-track]') || !aimedTarget.closest(selector)) {
+                throw new Error('The PDF viewer gutter moved before the drag entered');
+            }
+            const received: Partial<
+                Record<
+                    string,
+                    {
+                        trusted: boolean;
+                        aimed: boolean;
+                        target: string | null;
+                        types: string[];
+                        files: string[];
+                        consumed: boolean;
+                    }
+                >
+            > = {};
+            const observe = (event: DragEvent) => {
+                const target = event.target;
+                received[event.type] = {
+                    trusted: event.isTrusted,
+                    aimed: target === aimedTarget && !!aimedTarget.closest(selector),
+                    target: target instanceof Element ? (target.getAttribute('class') ?? target.tagName) : null,
+                    types: Array.from(event.dataTransfer?.types ?? []),
+                    files: Array.from(event.dataTransfer?.files ?? [], (file) => file.name),
+                    // The shell registers its capture listener before this observer.
+                    consumed: event.defaultPrevented,
+                };
             };
-        };
-        const events = ['dragenter', 'dragover', 'drop'] as const;
-        events.forEach(type => window.addEventListener(type, observe, {capture: true, passive: true}));
-        return {
-            received,
-            stop() {
-                events.forEach(type => window.removeEventListener(type, observe, true));
-            },
-        };
-    }, viewer, point);
+            const events = ['dragenter', 'dragover', 'drop'] as const;
+            events.forEach((type) => window.addEventListener(type, observe, {capture: true, passive: true}));
+            return {
+                received,
+                stop() {
+                    events.forEach((type) => window.removeEventListener(type, observe, true));
+                },
+            };
+        },
+        viewer,
+        point,
+    );
     try {
         const data = {
             items: [],
@@ -733,23 +806,30 @@ async function expectDraftOnReopen(page: Page, path: string, subtype: '/Text' | 
             types: expect.arrayContaining(['Files']),
             consumed: true,
         };
-        const {dragenter, dragover} = await delivery.evaluate(observer => observer.received);
-        expect(dragover, `the ready viewer consumed the trusted file dragover (last dragenter: ${JSON.stringify(dragenter)})`)
-            .toMatchObject(acceptedFileInput);
+        const {dragenter, dragover} = await delivery.evaluate((observer) => observer.received);
+        expect(
+            dragover,
+            `the ready viewer consumed the trusted file dragover (last dragenter: ${JSON.stringify(dragenter)})`,
+        ).toMatchObject(acceptedFileInput);
         await client.send('Input.dispatchDragEvent', {type: 'drop', ...point, data});
-        expect(await delivery.evaluate(observer => observer.received.drop),
-            'the ready viewer consumed the trusted file drop').toMatchObject({
+        expect(
+            await delivery.evaluate((observer) => observer.received.drop),
+            'the ready viewer consumed the trusted file drop',
+        ).toMatchObject({
             ...acceptedFileInput,
             files: [fileName],
         });
     } finally {
-        await delivery.evaluate(observer => observer.stop());
+        await delivery.evaluate((observer) => observer.stop());
         await delivery.dispose();
         await client.detach();
     }
-    await page.waitForFunction((selector: string, fileName: string) => (
-        document.querySelector(selector)?.textContent?.trim() === fileName
-    ), {timeout: SETTLE_TIMEOUT_MS}, `${ACTIVE_PANE} .tab.is-active .tab-label`, fileName);
+    await page.waitForFunction(
+        (selector: string, fileName: string) => document.querySelector(selector)?.textContent?.trim() === fileName,
+        {timeout: SETTLE_TIMEOUT_MS},
+        `${ACTIVE_PANE} .tab.is-active .tab-label`,
+        fileName,
+    );
     await waitForViewerInteractive(page);
     if (subtype === '/Text') {
         await openNoteDraft(page);
@@ -760,34 +840,44 @@ async function expectDraftOnReopen(page: Page, path: string, subtype: '/Text' | 
 }
 
 async function waitForViewerDropPoint(page: Page, selector: string): Promise<IPoint> {
-    const handle = await page.waitForFunction((viewerSelector: string) => {
-        const viewport = document.querySelector(viewerSelector);
-        const track = viewport?.querySelector('[data-pdf-page-track]');
-        if (!viewport || !track) return false;
-        const box = viewport.getBoundingClientRect();
-        const trackBox = track.getBoundingClientRect();
-        const {paddingLeft, paddingRight} = getComputedStyle(track);
-        const gutterPoints = [
-            trackBox.left + Number.parseFloat(paddingLeft) / 2,
-            trackBox.right - Number.parseFloat(paddingRight) / 2,
-        ];
-        // Aim beside the page. Its text and annotation layers can swap after
-        // Save, and Chromium emits dragenter instead of dragover at a new hit.
-        for (const vertical of [0.5, 0.2, 0.8]) {
-            for (const x of gutterPoints) {
-                const y = box.top + box.height * vertical;
-                if (document.elementFromPoint(x, y) === track) {
-                    return {x, y};
+    const handle = await page
+        .waitForFunction(
+            (viewerSelector: string) => {
+                const viewport = document.querySelector(viewerSelector);
+                const track = viewport?.querySelector('[data-pdf-page-track]');
+                if (!viewport || !track) {
+                    return false;
                 }
-            }
-        }
-        return false;
-    }, {timeout: DROP_INPUT_TIMEOUT_MS}, selector).catch(cause => {
-        throw new Error('No exposed drop point in the ready viewer', {cause});
-    });
+                const box = viewport.getBoundingClientRect();
+                const trackBox = track.getBoundingClientRect();
+                const {paddingLeft, paddingRight} = getComputedStyle(track);
+                const gutterPoints = [
+                    trackBox.left + Number.parseFloat(paddingLeft) / 2,
+                    trackBox.right - Number.parseFloat(paddingRight) / 2,
+                ];
+                // Aim beside the page. Its text and annotation layers can swap after
+                // Save, and Chromium emits dragenter instead of dragover at a new hit.
+                for (const vertical of [0.5, 0.2, 0.8]) {
+                    for (const x of gutterPoints) {
+                        const y = box.top + box.height * vertical;
+                        if (document.elementFromPoint(x, y) === track) {
+                            return {x, y};
+                        }
+                    }
+                }
+                return false;
+            },
+            {timeout: DROP_INPUT_TIMEOUT_MS},
+            selector,
+        )
+        .catch((cause) => {
+            throw new Error('No exposed drop point in the ready viewer', {cause});
+        });
     try {
         const point = await handle.jsonValue();
-        if (!point) throw new Error('No exposed drop point in the ready viewer');
+        if (!point) {
+            throw new Error('No exposed drop point in the ready viewer');
+        }
         return point;
     } finally {
         await handle.dispose();
@@ -798,128 +888,70 @@ describe('#1601 step 3 Save publication', () => {
     it.each([
         {scenario: 'in the same tab', switchTab: false},
         {scenario: 'across a tab switch', switchTab: true},
-    ])('keeps the newer note draft dirty $scenario', async ({switchTab}) => {
-        const fixture = await openDraftSaveFixture(switchTab ? 'switch' : 'note');
-        const {page, path} = fixture;
-        if (switchTab) {
-            await createNewWorkspaceTab(fixture);
-            await clickAsUser(page, `${ACTIVE_PANE} .tab:not(.is-active)[data-tab-id]`);
-            await waitForViewerInteractive(page);
-        }
-        const noteTab = await page.$eval(`${ACTIVE_PANE} .tab.is-active[data-tab-id]`, tab => `[data-tab-id="${(tab as HTMLElement).dataset.tabId}"]`);
-        await openNoteDraft(page);
-        await typeDraft(page, NOTE_DRAFT, DRAFT_A);
-        const saveBaseline = await getLatestAutomationEventId(page);
-        const publication = await holdDraftSavePublication(page);
-        try {
-            await saveDraftFromMenu(page);
-            await expectSavedDraft(await publication.stagedPath(), '/Text', DRAFT_A);
-            await expectSavedDraft(path, '/Text', 'Store-owned note');
-            await typeDraft(page, NOTE_DRAFT, DRAFT_B);
+    ])(
+        'keeps the newer note draft dirty $scenario',
+        async ({switchTab}) => {
+            const fixture = await openDraftSaveFixture(switchTab ? 'switch' : 'note');
+            const {page, path} = fixture;
             if (switchTab) {
-                const otherTab = `${ACTIVE_PANE} .tab[data-tab-id]:not(${noteTab})`;
-                await clickAsUser(page, otherTab);
-                await page.waitForSelector(`${otherTab}.is-active`, {visible: true, timeout: SETTLE_TIMEOUT_MS});
+                await createNewWorkspaceTab(fixture);
+                await clickAsUser(page, `${ACTIVE_PANE} .tab:not(.is-active)[data-tab-id]`);
+                await waitForViewerInteractive(page);
             }
-        } finally {
-            await publication.release();
-        }
-        await waitForFirstNoteSave(page, path, saveBaseline);
-        const firstSave = await copyDraftSave(path, 'first');
-        if (switchTab) {
-            await clickAsUser(page, `${ACTIVE_PANE} .tab${noteTab}`);
-            await page.waitForSelector(`${ACTIVE_PANE} .tab${noteTab}.is-active`, {visible: true, timeout: SETTLE_TIMEOUT_MS});
-        }
-        await expectVisibleDraft(page, NOTE_DRAFT, DRAFT_B);
-        await saveNewerDraft(page, path, '/Text');
-        const secondSave = await copyDraftSave(path, 'second');
-        await expectSavedDraft(firstSave, '/Text', DRAFT_A);
-        await expectDraftOnReopen(page, firstSave, '/Text', DRAFT_A);
-        await expectDraftOnReopen(page, secondSave, '/Text', DRAFT_B);
-    }, TIMEOUT_MS);
-
-    it('keeps the newer text box draft dirty in the second split view', async () => {
-        const {page, path} = await openDraftSaveFixture('split');
-        await splitActiveTabFromTabMenu(page, 'right');
-        const [leftPane, rightPane] = await paneIds(page);
-        await activatePaneByTab(page, rightPane!);
-        await clickTextBoxInPane(page, rightPane!, 'Store-owned text box', 2);
-        await typeDraft(page, TEXT_BOX_DRAFT, DRAFT_A);
-        const saveBaseline = await getLatestAutomationEventId(page);
-        const publication = await holdDraftSavePublication(page);
-        try {
-            await saveDraftFromMenu(page);
-            await expectSavedDraft(await publication.stagedPath(), '/FreeText', DRAFT_A);
-            await expectSavedDraft(path, '/FreeText', 'Store-owned text box');
-            await clickTextBoxInPane(page, rightPane!, DRAFT_A, 2);
-            await typeDraft(page, TEXT_BOX_DRAFT, DRAFT_B);
-        } finally {
-            await publication.release();
-        }
-        await waitForAutomationEvent(page, 'save-committed', {
-            afterEventId: saveBaseline,
-            path,
-            timeoutMs: SAVE_TIMEOUT_MS,
-        });
-        await expectSavedDraft(path, '/FreeText', DRAFT_A);
-        const firstSave = await copyDraftSave(path, 'first');
-        await expectVisibleDraft(page, `${paneSelector(rightPane!)} ${TEXT_BOX}`, DRAFT_B);
-        expect((await readPaneView(page, leftPane!)).tabDirty, 'the first view also shows the dirty dot').toBe(true);
-        await saveNewerDraft(page, path, '/FreeText');
-        const secondSave = await copyDraftSave(path, 'second');
-        await expectDraftOnReopen(page, firstSave, '/FreeText', DRAFT_A);
-        await expectDraftOnReopen(page, secondSave, '/FreeText', DRAFT_B);
-    }, TIMEOUT_MS);
-
-    it('keeps the note draft and refuses to quit when Save publication fails', async () => {
-        const {page, path} = await openDraftSaveFixture('failed');
-        await openNoteDraft(page);
-        await typeDraft(page, NOTE_DRAFT, DRAFT_A);
-        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Q'});
-        const publication = await holdDraftSavePublication(page);
-        const externalEdit = Buffer.from('\n% external edit during Save\n');
-        const original = await readFile(path);
-        try {
-            await clickFoundAsUser(page, () => Array.from(document.querySelectorAll('[role="dialog"] button'))
-                .find(button => button.textContent?.trim() === 'Save changes'), null, {description: 'Save changes before quitting'});
-            await expectSavedDraft(await publication.stagedPath(), '/Text', DRAFT_A);
-            await typeDraft(page, NOTE_DRAFT, DRAFT_B);
-            // Another writer changes the destination after staging. The real
-            // publication must refuse to overwrite these bytes.
-            await appendFile(path, externalEdit);
-        } finally {
-            await publication.release();
-        }
-        await page.waitForSelector('[aria-label="Last save failed"]', {visible: true, timeout: SAVE_TIMEOUT_MS});
-        await page.waitForSelector('button.save-split-primary[aria-busy="false"]', {
-            visible: true,
-            timeout: SETTLE_TIMEOUT_MS,
-        });
-        expect(page.isClosed(), 'failed Save refuses to quit').toBe(false);
-        expect(await readVisibleToasts(page)).toEqual(expect.arrayContaining([
-            expect.stringContaining('The file changed on disk since you opened it.'),
-        ]));
-        expect(await page.$(`${ACTIVE_PANE} .tab.is-active.is-dirty`), 'failed Save retains the dirty dot').not.toBeNull();
-        await expectVisibleDraft(page, NOTE_DRAFT, DRAFT_B);
-        await expect(readFile(path)).resolves.toEqual(Buffer.concat([original, externalEdit]));
-        await expectSavedDraft(path, '/Text', 'Store-owned note');
-    }, TIMEOUT_MS);
-
-    it('keeps the newer note draft dirty and refuses to quit after Save publishes', async () => {
-        const fixture = await openDraftSaveFixture('quit-published', NATIVE_CLOSE_OBSERVER_ENV);
-        const {page, path} = fixture;
-        await openNoteDraft(page);
-        await typeDraft(page, NOTE_DRAFT, DRAFT_A);
-        await waitForNativeCloseCancel(fixture, async () => {
+            const noteTab = await page.$eval(
+                `${ACTIVE_PANE} .tab.is-active[data-tab-id]`,
+                (tab) => `[data-tab-id="${(tab as HTMLElement).dataset.tabId}"]`,
+            );
+            await openNoteDraft(page);
+            await typeDraft(page, NOTE_DRAFT, DRAFT_A);
             const saveBaseline = await getLatestAutomationEventId(page);
             const publication = await holdDraftSavePublication(page);
             try {
-                await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Q'});
-                await clickFoundAsUser(page, () => Array.from(document.querySelectorAll('[role="dialog"] button'))
-                    .find(button => button.textContent?.trim() === 'Save changes'), null, {description: 'Save changes before quitting'});
+                await saveDraftFromMenu(page);
                 await expectSavedDraft(await publication.stagedPath(), '/Text', DRAFT_A);
                 await expectSavedDraft(path, '/Text', 'Store-owned note');
                 await typeDraft(page, NOTE_DRAFT, DRAFT_B);
+                if (switchTab) {
+                    const otherTab = `${ACTIVE_PANE} .tab[data-tab-id]:not(${noteTab})`;
+                    await clickAsUser(page, otherTab);
+                    await page.waitForSelector(`${otherTab}.is-active`, {visible: true, timeout: SETTLE_TIMEOUT_MS});
+                }
+            } finally {
+                await publication.release();
+            }
+            await waitForFirstNoteSave(page, path, saveBaseline);
+            const firstSave = await copyDraftSave(path, 'first');
+            if (switchTab) {
+                await clickAsUser(page, `${ACTIVE_PANE} .tab${noteTab}`);
+                await page.waitForSelector(`${ACTIVE_PANE} .tab${noteTab}.is-active`, {visible: true, timeout: SETTLE_TIMEOUT_MS});
+            }
+            await expectVisibleDraft(page, NOTE_DRAFT, DRAFT_B);
+            await saveNewerDraft(page, path, '/Text');
+            const secondSave = await copyDraftSave(path, 'second');
+            await expectSavedDraft(firstSave, '/Text', DRAFT_A);
+            await expectDraftOnReopen(page, firstSave, '/Text', DRAFT_A);
+            await expectDraftOnReopen(page, secondSave, '/Text', DRAFT_B);
+        },
+        TIMEOUT_MS,
+    );
+
+    it(
+        'keeps the newer text box draft dirty in the second split view',
+        async () => {
+            const {page, path} = await openDraftSaveFixture('split');
+            await splitActiveTabFromTabMenu(page, 'right');
+            const [leftPane, rightPane] = await paneIds(page);
+            await activatePaneByTab(page, rightPane!);
+            await clickTextBoxInPane(page, rightPane!, 'Store-owned text box', 2);
+            await typeDraft(page, TEXT_BOX_DRAFT, DRAFT_A);
+            const saveBaseline = await getLatestAutomationEventId(page);
+            const publication = await holdDraftSavePublication(page);
+            try {
+                await saveDraftFromMenu(page);
+                await expectSavedDraft(await publication.stagedPath(), '/FreeText', DRAFT_A);
+                await expectSavedDraft(path, '/FreeText', 'Store-owned text box');
+                await clickTextBoxInPane(page, rightPane!, DRAFT_A, 2);
+                await typeDraft(page, TEXT_BOX_DRAFT, DRAFT_B);
             } finally {
                 await publication.release();
             }
@@ -928,40 +960,145 @@ describe('#1601 step 3 Save publication', () => {
                 path,
                 timeoutMs: SAVE_TIMEOUT_MS,
             });
-            await expectSavedDraft(path, '/Text', DRAFT_A);
-            await expectVisibleDraft(page, NOTE_DRAFT, DRAFT_B);
-            await page.waitForSelector(`${ACTIVE_PANE} .tab.is-active.is-dirty`, {
+            await expectSavedDraft(path, '/FreeText', DRAFT_A);
+            const firstSave = await copyDraftSave(path, 'first');
+            await expectVisibleDraft(page, `${paneSelector(rightPane!)} ${TEXT_BOX}`, DRAFT_B);
+            expect((await readPaneView(page, leftPane!)).tabDirty, 'the first view also shows the dirty dot').toBe(true);
+            await saveNewerDraft(page, path, '/FreeText');
+            const secondSave = await copyDraftSave(path, 'second');
+            await expectDraftOnReopen(page, firstSave, '/FreeText', DRAFT_A);
+            await expectDraftOnReopen(page, secondSave, '/FreeText', DRAFT_B);
+        },
+        TIMEOUT_MS,
+    );
+
+    it(
+        'keeps the note draft and refuses to quit when Save publication fails',
+        async () => {
+            const {page, path} = await openDraftSaveFixture('failed');
+            await openNoteDraft(page);
+            await typeDraft(page, NOTE_DRAFT, DRAFT_A);
+            await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Q'});
+            const publication = await holdDraftSavePublication(page);
+            const externalEdit = Buffer.from('\n% external edit during Save\n');
+            const original = await readFile(path);
+            try {
+                await clickFoundAsUser(
+                    page,
+                    () =>
+                        Array.from(document.querySelectorAll('[role="dialog"] button')).find(
+                            (button) => button.textContent?.trim() === 'Save changes',
+                        ),
+                    null,
+                    {description: 'Save changes before quitting'},
+                );
+                await expectSavedDraft(await publication.stagedPath(), '/Text', DRAFT_A);
+                await typeDraft(page, NOTE_DRAFT, DRAFT_B);
+                // Another writer changes the destination after staging. The real
+                // publication must refuse to overwrite these bytes.
+                await appendFile(path, externalEdit);
+            } finally {
+                await publication.release();
+            }
+            await page.waitForSelector('[aria-label="Last save failed"]', {visible: true, timeout: SAVE_TIMEOUT_MS});
+            await page.waitForSelector('button.save-split-primary[aria-busy="false"]', {
                 visible: true,
                 timeout: SETTLE_TIMEOUT_MS,
             });
-        });
+            expect(page.isClosed(), 'failed Save refuses to quit').toBe(false);
+            expect(await readVisibleToasts(page)).toEqual(
+                expect.arrayContaining([expect.stringContaining('The file changed on disk since you opened it.')]),
+            );
+            expect(await page.$(`${ACTIVE_PANE} .tab.is-active.is-dirty`), 'failed Save retains the dirty dot').not.toBeNull();
+            await expectVisibleDraft(page, NOTE_DRAFT, DRAFT_B);
+            await expect(readFile(path)).resolves.toEqual(Buffer.concat([original, externalEdit]));
+            await expectSavedDraft(path, '/Text', 'Store-owned note');
+        },
+        TIMEOUT_MS,
+    );
 
-        // A second Quit must reach the dirty prompt again, proving the first
-        // close request finished and left the app open with unsaved work.
-        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Q'});
-        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll('[role="dialog"] button'))
-            .find(button => button.textContent?.trim() === 'Cancel'), null, {description: 'Cancel the second Quit prompt'});
-        await expectVisibleDraft(page, NOTE_DRAFT, DRAFT_B);
-        expect(await page.$(`${ACTIVE_PANE} .tab.is-active.is-dirty`), 'the newer draft is still dirty').not.toBeNull();
-        expect(page.isClosed(), 'Quit keeps the window open with the newer draft').toBe(false);
-    }, TIMEOUT_MS);
+    it(
+        'keeps the newer note draft dirty and refuses to quit after Save publishes',
+        async () => {
+            const fixture = await openDraftSaveFixture('quit-published', NATIVE_CLOSE_OBSERVER_ENV);
+            const {page, path} = fixture;
+            await openNoteDraft(page);
+            await typeDraft(page, NOTE_DRAFT, DRAFT_A);
+            await waitForNativeCloseCancel(fixture, async () => {
+                const saveBaseline = await getLatestAutomationEventId(page);
+                const publication = await holdDraftSavePublication(page);
+                try {
+                    await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Q'});
+                    await clickFoundAsUser(
+                        page,
+                        () =>
+                            Array.from(document.querySelectorAll('[role="dialog"] button')).find(
+                                (button) => button.textContent?.trim() === 'Save changes',
+                            ),
+                        null,
+                        {description: 'Save changes before quitting'},
+                    );
+                    await expectSavedDraft(await publication.stagedPath(), '/Text', DRAFT_A);
+                    await expectSavedDraft(path, '/Text', 'Store-owned note');
+                    await typeDraft(page, NOTE_DRAFT, DRAFT_B);
+                } finally {
+                    await publication.release();
+                }
+                await waitForAutomationEvent(page, 'save-committed', {
+                    afterEventId: saveBaseline,
+                    path,
+                    timeoutMs: SAVE_TIMEOUT_MS,
+                });
+                await expectSavedDraft(path, '/Text', DRAFT_A);
+                await expectVisibleDraft(page, NOTE_DRAFT, DRAFT_B);
+                await page.waitForSelector(`${ACTIVE_PANE} .tab.is-active.is-dirty`, {
+                    visible: true,
+                    timeout: SETTLE_TIMEOUT_MS,
+                });
+            });
+
+            // A second Quit must reach the dirty prompt again, proving the first
+            // close request finished and left the app open with unsaved work.
+            await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Q'});
+            await clickFoundAsUser(
+                page,
+                () =>
+                    Array.from(document.querySelectorAll('[role="dialog"] button')).find(
+                        (button) => button.textContent?.trim() === 'Cancel',
+                    ),
+                null,
+                {description: 'Cancel the second Quit prompt'},
+            );
+            await expectVisibleDraft(page, NOTE_DRAFT, DRAFT_B);
+            expect(await page.$(`${ACTIVE_PANE} .tab.is-active.is-dirty`), 'the newer draft is still dirty').not.toBeNull();
+            expect(page.isClosed(), 'Quit keeps the window open with the newer draft').toBe(false);
+        },
+        TIMEOUT_MS,
+    );
 });
 
 /** The texts of the text boxes a pane shows as selected. */
 function readSelectedTextBoxes(page: Page, paneId: string) {
-    return page.$$eval(`${paneSelector(paneId)} .pdf-annotation-editor-layer [data-annotation-kind="text-box"].is-selected`, boxes => boxes
-        .filter(box => box.getBoundingClientRect().width > 0)
-        .map(box => box.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() ?? ''));
+    return page.$$eval(`${paneSelector(paneId)} .pdf-annotation-editor-layer [data-annotation-kind="text-box"].is-selected`, (boxes) =>
+        boxes
+            .filter((box) => box.getBoundingClientRect().width > 0)
+            .map((box) => box.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() ?? ''),
+    );
 }
 
 async function waitForSelectedTextBoxes(page: Page, paneId: string, label: string, expected: string[]) {
     try {
-        await page.waitForFunction((selector: string, texts: string[]) => {
-            const selected = Array.from(document.querySelectorAll(selector))
-                .filter(box => box.getBoundingClientRect().width > 0)
-                .map(box => box.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() ?? '');
-            return selected.length === texts.length && texts.every(text => selected.some(candidate => candidate.includes(text)));
-        }, {timeout: SETTLE_TIMEOUT_MS}, `${paneSelector(paneId)} .pdf-annotation-editor-layer [data-annotation-kind="text-box"].is-selected`, expected);
+        await page.waitForFunction(
+            (selector: string, texts: string[]) => {
+                const selected = Array.from(document.querySelectorAll(selector))
+                    .filter((box) => box.getBoundingClientRect().width > 0)
+                    .map((box) => box.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() ?? '');
+                return selected.length === texts.length && texts.every((text) => selected.some((candidate) => candidate.includes(text)));
+            },
+            {timeout: SETTLE_TIMEOUT_MS},
+            `${paneSelector(paneId)} .pdf-annotation-editor-layer [data-annotation-kind="text-box"].is-selected`,
+            expected,
+        );
     } catch (error) {
         throw new Error(`${label}: ${JSON.stringify(await readSelectedTextBoxes(page, paneId))}`, {cause: error});
     }
@@ -969,19 +1106,26 @@ async function waitForSelectedTextBoxes(page: Page, paneId: string, label: strin
 
 /** The annotation tool a pane's annotations panel shows as pressed. */
 function readPressedTool(page: Page, paneId: string) {
-    return page.$$eval(`${paneSelector(paneId)} .tool-button[aria-pressed="true"]`, buttons => buttons
-        .filter(button => button.getBoundingClientRect().width > 0)
-        .map(button => (button as HTMLElement).dataset.tool ?? ''));
+    return page.$$eval(`${paneSelector(paneId)} .tool-button[aria-pressed="true"]`, (buttons) =>
+        buttons.filter((button) => button.getBoundingClientRect().width > 0).map((button) => (button as HTMLElement).dataset.tool ?? ''),
+    );
 }
 
 /** The pressed tool once it is `expected` (null: none pressed), or what the pane still shows when the wait ends. */
 async function settlePressedTool(page: Page, paneId: string, expected: string | null) {
-    await page.waitForFunction((selector: string, tool: string | null) => {
-        const pressed = Array.from(document.querySelectorAll<HTMLElement>(selector))
-            .filter(button => button.getBoundingClientRect().width > 0)
-            .map(button => button.dataset.tool ?? '');
-        return tool === null ? pressed.length === 0 : pressed.length === 1 && pressed[0] === tool;
-    }, {timeout: SETTLE_TIMEOUT_MS}, `${paneSelector(paneId)} .tool-button[aria-pressed="true"]`, expected).catch(() => undefined);
+    await page
+        .waitForFunction(
+            (selector: string, tool: string | null) => {
+                const pressed = Array.from(document.querySelectorAll<HTMLElement>(selector))
+                    .filter((button) => button.getBoundingClientRect().width > 0)
+                    .map((button) => button.dataset.tool ?? '');
+                return tool === null ? pressed.length === 0 : pressed.length === 1 && pressed[0] === tool;
+            },
+            {timeout: SETTLE_TIMEOUT_MS},
+            `${paneSelector(paneId)} .tool-button[aria-pressed="true"]`,
+            expected,
+        )
+        .catch(() => undefined);
     return readPressedTool(page, paneId);
 }
 
@@ -996,1121 +1140,1451 @@ async function clickPaneTool(page: Page, paneId: string, tool: string) {
 }
 
 describe('shared PDF split', () => {
-    it('paints both linked views after a held divider drag is released', async () => {
-        const stamp = Date.now();
-        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-divider-${stamp}.pdf`, 40);
-        session = await startElectronE2ESession(`e2e-rasterstall-divider-${stamp}`, {
-            clean: true,
-            initialOpenPaths: [pdfPath],
-        });
-        const {page} = session;
-        const quiet = async () => {
-            await waitForViewerInteractive(page);
-            await waitForViewportQuiet(page);
-        };
-        await waitForPdfLoaded(page);
-        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+0'});
-        await quiet();
-        await goToPageViaToolbar(page, 31);
-        await quiet();
-        const viewportBox = await page.$eval('.editor-pane.is-active #pdf-viewer', element => element.getBoundingClientRect().toJSON());
-        await page.mouse.move(viewportBox.x + viewportBox.width / 2, viewportBox.y + viewportBox.height / 2);
-        await page.mouse.wheel({deltaY: 120});
-        await quiet();
-        await clickVisibleToolbarButton(page, 'Fit Width');
-        await quiet();
-        const source = await page.$eval('.editor-pane.is-active', element => (element as HTMLElement).dataset.editorPaneId!);
-        await splitActiveTabFromTabMenu(page, 'right');
-        await quiet();
-        const other = (await paneIds(page)).find(id => id !== source)!;
-        await activatePaneByTab(page, other);
-        await goToPageViaToolbar(page, 17);
-        await quiet();
-        await activatePaneByTab(page, source);
-        await quiet();
-        for (const delta of [
-            -90,
-            180,
-            35,
-        ]) {
-            const sash = await page.$eval('.editor-sash', element => element.getBoundingClientRect().toJSON());
-            await page.mouse.move(sash.x + sash.width / 2, sash.y + sash.height / 2);
-            await page.mouse.down();
-            await page.mouse.move(sash.x + sash.width / 2 + delta, sash.y + sash.height / 2, {steps: delta === 35 ? 5 : 12});
-            if (delta === 35) await quiet();
-            await page.mouse.up();
-            await quiet();
-        }
-        for (const [
-            paneId,
-            pageNumber,
-        ] of [
-                [
-                    source,
-                    31,
-                ],
-                [
-                    other,
-                    17,
-                ],
-            ] as const) {
-            await expect.poll(() => page.$eval(`${paneSelector(paneId)} .page_container[data-page="${pageNumber}"]`, element => ({
-                painted: element.classList.contains('page_container--rendered')
-                    && [...element.querySelectorAll('canvas')].some(canvas => canvas.width > 0 && canvas.height > 0 && canvas.checkVisibility()),
-                error: Boolean(element.querySelector('.pdf-page-render-error')),
-                text: element.textContent?.includes(`Fixture ${element.getAttribute('data-page')}/40`),
-            })), {timeout: 10_000}).toEqual({
-                painted: true,
-                error: false,
-                text: true,
+    it(
+        'paints both linked views after a held divider drag is released',
+        async () => {
+            const stamp = Date.now();
+            const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-divider-${stamp}.pdf`, 40);
+            session = await startElectronE2ESession(`e2e-rasterstall-divider-${stamp}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
             });
-        }
-    }, TIMEOUT_MS);
+            const {page} = session;
+            const quiet = async () => {
+                await waitForViewerInteractive(page);
+                await waitForViewportQuiet(page);
+            };
+            await waitForPdfLoaded(page);
+            await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+0'});
+            await quiet();
+            await goToPageViaToolbar(page, 31);
+            await quiet();
+            const viewportBox = await page.$eval('.editor-pane.is-active #pdf-viewer', (element) =>
+                element.getBoundingClientRect().toJSON(),
+            );
+            await page.mouse.move(viewportBox.x + viewportBox.width / 2, viewportBox.y + viewportBox.height / 2);
+            await page.mouse.wheel({deltaY: 120});
+            await quiet();
+            await clickVisibleToolbarButton(page, 'Fit Width');
+            await quiet();
+            const source = await page.$eval('.editor-pane.is-active', (element) => (element as HTMLElement).dataset.editorPaneId!);
+            await splitActiveTabFromTabMenu(page, 'right');
+            await quiet();
+            const other = (await paneIds(page)).find((id) => id !== source)!;
+            await activatePaneByTab(page, other);
+            await goToPageViaToolbar(page, 17);
+            await quiet();
+            await activatePaneByTab(page, source);
+            await quiet();
+            for (const delta of [-90, 180, 35]) {
+                const sash = await page.$eval('.editor-sash', (element) => element.getBoundingClientRect().toJSON());
+                await page.mouse.move(sash.x + sash.width / 2, sash.y + sash.height / 2);
+                await page.mouse.down();
+                await page.mouse.move(sash.x + sash.width / 2 + delta, sash.y + sash.height / 2, {steps: delta === 35 ? 5 : 12});
+                if (delta === 35) {
+                    await quiet();
+                }
+                await page.mouse.up();
+                await quiet();
+            }
+            for (const [paneId, pageNumber] of [
+                [source, 31],
+                [other, 17],
+            ] as const) {
+                await expect
+                    .poll(
+                        () =>
+                            page.$eval(`${paneSelector(paneId)} .page_container[data-page="${pageNumber}"]`, (element) => ({
+                                painted:
+                                    element.classList.contains('page_container--rendered') &&
+                                    [...element.querySelectorAll('canvas')].some(
+                                        (canvas) => canvas.width > 0 && canvas.height > 0 && canvas.checkVisibility(),
+                                    ),
+                                error: Boolean(element.querySelector('.pdf-page-render-error')),
+                                text: element.textContent?.includes(`Fixture ${element.getAttribute('data-page')}/40`),
+                            })),
+                        {timeout: 10_000},
+                    )
+                    .toEqual({
+                        painted: true,
+                        error: false,
+                        text: true,
+                    });
+            }
+        },
+        TIMEOUT_MS,
+    );
 
     // Issue #942, behavior contract I1: a window resize while the tab menu is
     // open used to close the menu and forget its tab, yet the closing menu still
     // took clicks, so Split Right did nothing. The click is raw trusted input on
     // purpose: clickAsUser waits until its target stops moving, which would let
     // the closing animation finish and hide the drop.
-    it('performs Split Right when a window resize arrives while the tab menu is open', async () => {
-        const stamp = Date.now();
-        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-resize-${stamp}.pdf`, 6);
-        session = await startElectronE2ESession(`e2e-shared-pdf-split-resize-${stamp}`, {
-            clean: true,
-            initialOpenPaths: [pdfPath],
-        });
-        const {page} = session;
-        await waitForPdfLoaded(page);
-        await waitForViewerInteractive(page);
-        await clickAsUser(page, '.editor-pane.is-active .tab.is-active[data-tab-id]', {button: 'right'});
-        await page.waitForFunction(() => {
-            const menu = document.querySelector('.tab-context-menu');
-            return menu !== null && menu.getBoundingClientRect().width > 0 && menu.getAnimations({subtree: true}).length === 0;
-        }, {timeout: SETTLE_TIMEOUT_MS});
-        const resizeWatch = await page.evaluateHandle(() => ({seen: new Promise<void>(resolve => window.addEventListener('resize', () => resolve(), {once: true}))}));
-        const {
-            width, height,
-        } = await page.evaluate(() => ({
-            width: window.innerWidth,
-            height: window.innerHeight,
-        }));
-        const resizing = session.command('windowResize', [
-            width - 60,
-            height,
-        ]);
-        const pointReady = page.evaluate(async (watch) => {
-            await watch.seen;
-            await new Promise(requestAnimationFrame);
-            const item = Array.from(document.querySelectorAll<HTMLElement>('.tab-context-menu [role="menuitem"]'))
-                .find(element => element.textContent?.trim() === 'Split Right');
-            if (!item) throw new Error('Split Right disappeared before selection');
-            const rect = item.getBoundingClientRect();
-            const x = rect.left + rect.width / 2;
-            const y = rect.top + rect.height / 2;
-            if (item.getAttribute('aria-disabled') === 'true' || !item.contains(document.elementFromPoint(x, y))) {
-                throw new Error('Split Right is not enabled and hit-testable');
-            }
-            return {
-                x,
-                y,
-            };
-        }, resizeWatch);
-        // A failed resize never fires the event, so its error ends the wait.
-        const point = await Promise.race([
-            pointReady,
-            resizing.then(() => pointReady),
-        ]);
-        await page.mouse.click(point.x, point.y);
-        await resizing;
-        await resizeWatch.dispose();
-        const split = await page.waitForFunction(() => document.querySelectorAll('.editor-pane').length === 2,
-            {timeout: 1_000}).then(async handle => {await handle.dispose(); return true;}, () => false);
-        expect(split, 'Split Right opens a second pane within 1 s').toBe(true);
-    }, TIMEOUT_MS);
+    it(
+        'performs Split Right when a window resize arrives while the tab menu is open',
+        async () => {
+            const stamp = Date.now();
+            const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-resize-${stamp}.pdf`, 6);
+            session = await startElectronE2ESession(`e2e-shared-pdf-split-resize-${stamp}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            const {page} = session;
+            await waitForPdfLoaded(page);
+            await waitForViewerInteractive(page);
+            await clickAsUser(page, '.editor-pane.is-active .tab.is-active[data-tab-id]', {button: 'right'});
+            await page.waitForFunction(
+                () => {
+                    const menu = document.querySelector('.tab-context-menu');
+                    return menu !== null && menu.getBoundingClientRect().width > 0 && menu.getAnimations({subtree: true}).length === 0;
+                },
+                {timeout: SETTLE_TIMEOUT_MS},
+            );
+            const resizeWatch = await page.evaluateHandle(() => ({
+                seen: new Promise<void>((resolve) => window.addEventListener('resize', () => resolve(), {once: true})),
+            }));
+            const {width, height} = await page.evaluate(() => ({
+                width: window.innerWidth,
+                height: window.innerHeight,
+            }));
+            const resizing = session.command('windowResize', [width - 60, height]);
+            const pointReady = page.evaluate(async (watch) => {
+                await watch.seen;
+                await new Promise(requestAnimationFrame);
+                const item = Array.from(document.querySelectorAll<HTMLElement>('.tab-context-menu [role="menuitem"]')).find(
+                    (element) => element.textContent?.trim() === 'Split Right',
+                );
+                if (!item) {
+                    throw new Error('Split Right disappeared before selection');
+                }
+                const rect = item.getBoundingClientRect();
+                const x = rect.left + rect.width / 2;
+                const y = rect.top + rect.height / 2;
+                if (item.getAttribute('aria-disabled') === 'true' || !item.contains(document.elementFromPoint(x, y))) {
+                    throw new Error('Split Right is not enabled and hit-testable');
+                }
+                return {
+                    x,
+                    y,
+                };
+            }, resizeWatch);
+            // A failed resize never fires the event, so its error ends the wait.
+            const point = await Promise.race([pointReady, resizing.then(() => pointReady)]);
+            await page.mouse.click(point.x, point.y);
+            await resizing;
+            await resizeWatch.dispose();
+            const split = await page
+                .waitForFunction(() => document.querySelectorAll('.editor-pane').length === 2, {timeout: 1_000})
+                .then(
+                    async (handle) => {
+                        await handle.dispose();
+                        return true;
+                    },
+                    () => false,
+                );
+            expect(split, 'Split Right opens a second pane within 1 s').toBe(true);
+        },
+        TIMEOUT_MS,
+    );
 
     // Issue #947: when the tab menu finished closing, focus went back to the
     // invisible anchor at the right-click point. The page field a person had
     // clicked meanwhile lost focus and, since it commits on blur, vanished
     // before they could type. The click on the field is raw trusted input on
     // purpose, as above: it has to land during the menu's closing animation.
-    it('keeps focus where a person moves it while the tab menu closes, and returns Escape to the tab', async () => {
-        const stamp = Date.now();
-        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-menu-focus-${stamp}.pdf`, 6);
-        session = await startElectronE2ESession(`e2e-shared-pdf-split-menu-focus-${stamp}`, {
-            clean: true,
-            initialOpenPaths: [pdfPath],
-        });
-        const {page} = session;
-        await waitForPdfLoaded(page);
-        await waitForViewerInteractive(page);
-        const tabSelector = '.editor-pane.is-active .tab.is-active[data-tab-id]';
-        const tabId = await page.$eval(tabSelector, tab => (tab as HTMLElement).dataset.tabId ?? '');
-        const pageField = await revealForPointer(page, '#editor-global-toolbar-host .page-controls-display');
-        const openTabMenu = async () => {
-            await clickAsUser(page, tabSelector, {button: 'right'});
-            await page.waitForFunction(() => {
-                const menu = document.querySelector('.tab-context-menu');
-                return menu !== null && menu.getBoundingClientRect().width > 0 && menu.getAnimations({subtree: true}).length === 0;
-            }, {timeout: SETTLE_TIMEOUT_MS});
-        };
-        // What has focus once no tab menu is open and the task that restored
-        // focus when one unmounted has run.
-        const settledFocus = async () => {
-            await page.waitForFunction(() => document.querySelector('.tab-context-menu') === null, {timeout: SETTLE_TIMEOUT_MS});
-            return page.evaluate(() => new Promise<string>(resolve => setTimeout(() => {
-                const focused = document.activeElement as HTMLElement | null;
-                resolve(focused?.dataset.tabId
-                    ? `tab ${focused.dataset.tabId}`
-                    : focused?.className || focused?.tagName || 'none');
-            })));
-        };
+    it(
+        'keeps focus where a person moves it while the tab menu closes, and returns Escape to the tab',
+        async () => {
+            const stamp = Date.now();
+            const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-menu-focus-${stamp}.pdf`, 6);
+            session = await startElectronE2ESession(`e2e-shared-pdf-split-menu-focus-${stamp}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            const {page} = session;
+            await waitForPdfLoaded(page);
+            await waitForViewerInteractive(page);
+            const tabSelector = '.editor-pane.is-active .tab.is-active[data-tab-id]';
+            const tabId = await page.$eval(tabSelector, (tab) => (tab as HTMLElement).dataset.tabId ?? '');
+            const pageField = await revealForPointer(page, '#editor-global-toolbar-host .page-controls-display');
+            const openTabMenu = async () => {
+                await clickAsUser(page, tabSelector, {button: 'right'});
+                await page.waitForFunction(
+                    () => {
+                        const menu = document.querySelector('.tab-context-menu');
+                        return menu !== null && menu.getBoundingClientRect().width > 0 && menu.getAnimations({subtree: true}).length === 0;
+                    },
+                    {timeout: SETTLE_TIMEOUT_MS},
+                );
+            };
+            // What has focus once no tab menu is open and the task that restored
+            // focus when one unmounted has run.
+            const settledFocus = async () => {
+                await page.waitForFunction(() => document.querySelector('.tab-context-menu') === null, {timeout: SETTLE_TIMEOUT_MS});
+                return page.evaluate(
+                    () =>
+                        new Promise<string>((resolve) =>
+                            setTimeout(() => {
+                                const focused = document.activeElement as HTMLElement | null;
+                                resolve(
+                                    focused?.dataset.tabId
+                                        ? `tab ${focused.dataset.tabId}`
+                                        : focused?.className || focused?.tagName || 'none',
+                                );
+                            }),
+                        ),
+                );
+            };
 
-        await openTabMenu();
-        await page.keyboard.press('Escape');
-        const afterEscape = await settledFocus();
+            await openTabMenu();
+            await page.keyboard.press('Escape');
+            const afterEscape = await settledFocus();
 
-        await openTabMenu();
-        // The scenario only covers the bug when the click lands while the menu
-        // is still closing, so record whether it did.
-        const clickWatch = await page.evaluateHandle(() => ({landed: new Promise<boolean>(resolve => document.addEventListener(
-            'pointerdown',
-            () => resolve(document.querySelector('.tab-context-menu') !== null),
-            {
-                capture: true,
-                once: true,
-            },
-        ))}));
-        await page.keyboard.press('Escape');
-        await page.mouse.click(pageField.x, pageField.y);
-        const clickLandedWhileMenuClosing = await page.evaluate(watch => watch.landed, clickWatch);
-        await clickWatch.dispose();
-        const afterPageFieldClick = await settledFocus();
+            await openTabMenu();
+            // The scenario only covers the bug when the click lands while the menu
+            // is still closing, so record whether it did.
+            const clickWatch = await page.evaluateHandle(() => ({
+                landed: new Promise<boolean>((resolve) =>
+                    document.addEventListener('pointerdown', () => resolve(document.querySelector('.tab-context-menu') !== null), {
+                        capture: true,
+                        once: true,
+                    }),
+                ),
+            }));
+            await page.keyboard.press('Escape');
+            await page.mouse.click(pageField.x, pageField.y);
+            const clickLandedWhileMenuClosing = await page.evaluate((watch) => watch.landed, clickWatch);
+            await clickWatch.dispose();
+            const afterPageFieldClick = await settledFocus();
 
-        // Close Tab from the menu removes the menu's own tab; focus goes to the
-        // tab that takes its place.
-        await openPdfInApp(page, await createMultiPageTextFixturePdf(`shared-pdf-split-menu-focus-second-${stamp}.pdf`, 2));
-        const closingTabId = await page.$eval(tabSelector, tab => (tab as HTMLElement).dataset.tabId ?? '');
-        await openTabMenu();
-        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('.tab-context-menu [role="menuitem"]'))
-            .find(element => element.textContent?.trim() === 'Close Tab'), undefined, {description: 'tab menu Close Tab'});
-        await page.waitForFunction(closedTabId => !Array.from(document.querySelectorAll<HTMLElement>('.tab[data-tab-id]'))
-            .some(tab => tab.dataset.tabId === closedTabId), {timeout: SETTLE_TIMEOUT_MS}, closingTabId);
-        const afterCloseTab = await settledFocus();
+            // Close Tab from the menu removes the menu's own tab; focus goes to the
+            // tab that takes its place.
+            await openPdfInApp(page, await createMultiPageTextFixturePdf(`shared-pdf-split-menu-focus-second-${stamp}.pdf`, 2));
+            const closingTabId = await page.$eval(tabSelector, (tab) => (tab as HTMLElement).dataset.tabId ?? '');
+            await openTabMenu();
+            await clickFoundAsUser(
+                page,
+                () =>
+                    Array.from(document.querySelectorAll<HTMLElement>('.tab-context-menu [role="menuitem"]')).find(
+                        (element) => element.textContent?.trim() === 'Close Tab',
+                    ),
+                undefined,
+                {description: 'tab menu Close Tab'},
+            );
+            await page.waitForFunction(
+                (closedTabId) =>
+                    !Array.from(document.querySelectorAll<HTMLElement>('.tab[data-tab-id]')).some(
+                        (tab) => tab.dataset.tabId === closedTabId,
+                    ),
+                {timeout: SETTLE_TIMEOUT_MS},
+                closingTabId,
+            );
+            const afterCloseTab = await settledFocus();
 
-        // A close that finishes while focus is still inside the closing tab,
-        // here on its own close button clicked directly, also hands focus to
-        // the tab that takes its place.
-        await openPdfInApp(page, await createMultiPageTextFixturePdf(`shared-pdf-split-menu-focus-third-${stamp}.pdf`, 2));
-        await clickAsUser(page, '.editor-pane.is-active .tab.is-active[data-tab-id] .tab-close');
-        await page.waitForFunction(() => document.querySelectorAll('.editor-pane.is-active .tab[data-tab-id]').length === 1, {timeout: SETTLE_TIMEOUT_MS});
-        const afterCloseButton = await settledFocus();
+            // A close that finishes while focus is still inside the closing tab,
+            // here on its own close button clicked directly, also hands focus to
+            // the tab that takes its place.
+            await openPdfInApp(page, await createMultiPageTextFixturePdf(`shared-pdf-split-menu-focus-third-${stamp}.pdf`, 2));
+            await clickAsUser(page, '.editor-pane.is-active .tab.is-active[data-tab-id] .tab-close');
+            await page.waitForFunction(() => document.querySelectorAll('.editor-pane.is-active .tab[data-tab-id]').length === 1, {
+                timeout: SETTLE_TIMEOUT_MS,
+            });
+            const afterCloseButton = await settledFocus();
 
-        expect({
-            afterEscape,
-            clickLandedWhileMenuClosing,
-            afterPageFieldClick,
-            afterCloseTab,
-            afterCloseButton,
-        }).toEqual({
-            afterEscape: `tab ${tabId}`,
-            clickLandedWhileMenuClosing: true,
-            afterPageFieldClick: 'page-controls-inline-input',
-            afterCloseTab: `tab ${tabId}`,
-            afterCloseButton: `tab ${tabId}`,
-        });
-    }, TIMEOUT_MS);
+            expect({
+                afterEscape,
+                clickLandedWhileMenuClosing,
+                afterPageFieldClick,
+                afterCloseTab,
+                afterCloseButton,
+            }).toEqual({
+                afterEscape: `tab ${tabId}`,
+                clickLandedWhileMenuClosing: true,
+                afterPageFieldClick: 'page-controls-inline-input',
+                afterCloseTab: `tab ${tabId}`,
+                afterCloseButton: `tab ${tabId}`,
+            });
+        },
+        TIMEOUT_MS,
+    );
 
-    it('shows one document in two views with shared edits, undo, dirty state and save, and separate placement', async () => {
-        const stamp = Date.now();
-        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-${stamp}.pdf`, 6);
-        session = await startElectronE2ESession(`e2e-shared-pdf-split-${stamp}`, {
-            clean: true,
-            initialOpenPaths: [pdfPath],
-        });
-        const {page} = session;
-        await waitForPdfLoaded(page);
-        await waitForViewerInteractive(page);
+    it(
+        'shows one document in two views with shared edits, undo, dirty state and save, and separate placement',
+        async () => {
+            const stamp = Date.now();
+            const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-${stamp}.pdf`, 6);
+            session = await startElectronE2ESession(`e2e-shared-pdf-split-${stamp}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            const {page} = session;
+            await waitForPdfLoaded(page);
+            await waitForViewerInteractive(page);
 
-        // The source view reads page 2, zoomed in until a page is taller than
-        // the viewport so the page at the viewport center is unambiguous.
-        const [sourcePane] = await paneIds(page);
-        await zoomInUntilPageFillsViewport(page, sourcePane!);
-        await goToPageViaToolbar(page, 2);
-        const atPageTop = await waitForSteadyPaneView(page, sourcePane!, 'source view reads page 2', view => view.centerPage === 2);
-        // It reads partway down that page: Split keeps the reading point, not only the page (T4).
-        const sourceViewport = await centerOf(page, `${paneSelector(sourcePane!)} #pdf-viewer`);
-        await page.mouse.move(sourceViewport.x, sourceViewport.y);
-        await page.mouse.wheel({deltaY: 120});
-        const sourceView = await waitForSteadyPaneView(page, sourcePane!, 'source view reads further down page 2', view => (
-            view.centerPage === 2
-            && (view.centerOffsetPx ?? 0) > (atPageTop.centerOffsetPx ?? 0) + 40
-        ));
+            // The source view reads page 2, zoomed in until a page is taller than
+            // the viewport so the page at the viewport center is unambiguous.
+            const [sourcePane] = await paneIds(page);
+            await zoomInUntilPageFillsViewport(page, sourcePane!);
+            await goToPageViaToolbar(page, 2);
+            const atPageTop = await waitForSteadyPaneView(page, sourcePane!, 'source view reads page 2', (view) => view.centerPage === 2);
+            // It reads partway down that page: Split keeps the reading point, not only the page (T4).
+            const sourceViewport = await centerOf(page, `${paneSelector(sourcePane!)} #pdf-viewer`);
+            await page.mouse.move(sourceViewport.x, sourceViewport.y);
+            await page.mouse.wheel({deltaY: 120});
+            const sourceView = await waitForSteadyPaneView(
+                page,
+                sourcePane!,
+                'source view reads further down page 2',
+                (view) => view.centerPage === 2 && (view.centerOffsetPx ?? 0) > (atPageTop.centerOffsetPx ?? 0) + 40,
+            );
 
-        // Split Right shows the same document at the source's page and zoom.
-        await splitActiveTabFromTabMenu(page, 'right');
-        const [
-            leftPane,
-            rightPane,
-        ] = await paneIds(page);
-        expect(leftPane).toBe(sourcePane);
-        const sourcePlacement = placementOf(await waitForPaneView(page, leftPane!, 'the source view keeps page 2 through the split', view => (
-            view.centerPage === 2 && sameWidth(view.pageWidthPx, sourceView.pageWidthPx)
-        )));
-        const splitView = await waitForPaneView(page, rightPane!, `Split Right must show the source document at its reading point (source center ${String(sourceView.centerOffsetPx)}px into page 2)`, view => (
-            !view.showsStart
-            && view.statusPath === sourceView.statusPath
-            && view.tabLabel === sourceView.tabLabel
-            && view.centerPage === 2
-            && view.centerOffsetPx !== null
-            && sourceView.centerOffsetPx !== null
-            && Math.abs(view.centerOffsetPx - sourceView.centerOffsetPx) <= ANCHOR_TOLERANCE_PX
-        ));
-        expect(sameWidth(splitView.pageWidthPx, sourcePlacement.pageWidthPx), `split page width ${String(splitView.pageWidthPx)} vs source ${String(sourcePlacement.pageWidthPx)}`).toBe(true);
+            // Split Right shows the same document at the source's page and zoom.
+            await splitActiveTabFromTabMenu(page, 'right');
+            const [leftPane, rightPane] = await paneIds(page);
+            expect(leftPane).toBe(sourcePane);
+            const sourcePlacement = placementOf(
+                await waitForPaneView(
+                    page,
+                    leftPane!,
+                    'the source view keeps page 2 through the split',
+                    (view) => view.centerPage === 2 && sameWidth(view.pageWidthPx, sourceView.pageWidthPx),
+                ),
+            );
+            const splitView = await waitForPaneView(
+                page,
+                rightPane!,
+                `Split Right must show the source document at its reading point (source center ${String(sourceView.centerOffsetPx)}px into page 2)`,
+                (view) =>
+                    !view.showsStart &&
+                    view.statusPath === sourceView.statusPath &&
+                    view.tabLabel === sourceView.tabLabel &&
+                    view.centerPage === 2 &&
+                    view.centerOffsetPx !== null &&
+                    sourceView.centerOffsetPx !== null &&
+                    Math.abs(view.centerOffsetPx - sourceView.centerOffsetPx) <= ANCHOR_TOLERANCE_PX,
+            );
+            expect(
+                sameWidth(splitView.pageWidthPx, sourcePlacement.pageWidthPx),
+                `split page width ${String(splitView.pageWidthPx)} vs source ${String(sourcePlacement.pageWidthPx)}`,
+            ).toBe(true);
 
-        // An edit made in either view appears in both, and both views are dirty.
-        const rightText = `SPLIT-RIGHT-${stamp}`;
-        const leftText = `SPLIT-LEFT-${stamp}`;
-        await createCanonicalTextBoxWithPointer(page, rightText, {
-            x: 0.3,
-            y: 0.3,
-        }, 2);
-        await waitForPaneView(page, leftPane!, 'right edit renders in the left view', view => (
-            containsAll(view.renderedTexts, [rightText]) && view.tabDirty
-        ));
-        await waitForPaneView(page, rightPane!, 'right view is dirty after its edit', view => (
-            view.tabDirty && view.saveDotLabel === 'Save changes'
-        ));
-        await activatePaneByTab(page, leftPane!);
-        await createCanonicalTextBoxWithPointer(page, leftText, {
-            x: 0.6,
-            y: 0.6,
-        }, 2);
-        await waitForPaneView(page, rightPane!, 'left edit renders in the right view', view => (
-            containsAll(view.renderedTexts, [
+            // An edit made in either view appears in both, and both views are dirty.
+            const rightText = `SPLIT-RIGHT-${stamp}`;
+            const leftText = `SPLIT-LEFT-${stamp}`;
+            await createCanonicalTextBoxWithPointer(
+                page,
                 rightText,
+                {
+                    x: 0.3,
+                    y: 0.3,
+                },
+                2,
+            );
+            await waitForPaneView(
+                page,
+                leftPane!,
+                'right edit renders in the left view',
+                (view) => containsAll(view.renderedTexts, [rightText]) && view.tabDirty,
+            );
+            await waitForPaneView(
+                page,
+                rightPane!,
+                'right view is dirty after its edit',
+                (view) => view.tabDirty && view.saveDotLabel === 'Save changes',
+            );
+            await activatePaneByTab(page, leftPane!);
+            await createCanonicalTextBoxWithPointer(
+                page,
                 leftText,
-            ])
-        ));
-        // Placing the text box scrolled the left view to its page; from here
-        // on that is the placement it must keep.
-        const leftPlacement = placementOf(await readPaneView(page, leftPane!));
-        expect(leftPlacement.centerPage).toBe(2);
+                {
+                    x: 0.6,
+                    y: 0.6,
+                },
+                2,
+            );
+            await waitForPaneView(page, rightPane!, 'left edit renders in the right view', (view) =>
+                containsAll(view.renderedTexts, [rightText, leftText]),
+            );
+            // Placing the text box scrolled the left view to its page; from here
+            // on that is the placement it must keep.
+            const leftPlacement = placementOf(await readPaneView(page, leftPane!));
+            expect(leftPlacement.centerPage).toBe(2);
 
-        // The views diverge: the right view moves to page 4 and zooms in again.
-        await activatePaneByTab(page, rightPane!);
-        await openAnnotationsTab(page);
-        await goToPageViaToolbar(page, 4);
-        const rightBeforeZoom = await readPaneView(page, rightPane!);
-        await clickToolbarButton(page, 'Zoom In');
-        const rightView = await waitForPaneView(page, rightPane!, 'right view zooms on its own', view => (
-            view.centerPage === 4 && (view.pageWidthPx ?? 0) > (rightBeforeZoom.pageWidthPx ?? Infinity) + ANCHOR_TOLERANCE_PX
-        ));
-        const rightPlacement = placementOf(rightView);
-        expect(sameWidth(rightPlacement.pageWidthPx, leftPlacement.pageWidthPx)).toBe(false);
-        await waitForPaneView(page, leftPane!, 'left view keeps its page and zoom while the right view moves', view => (
-            keepsPlacement(view, leftPlacement)
-        ));
+            // The views diverge: the right view moves to page 4 and zooms in again.
+            await activatePaneByTab(page, rightPane!);
+            await openAnnotationsTab(page);
+            await goToPageViaToolbar(page, 4);
+            const rightBeforeZoom = await readPaneView(page, rightPane!);
+            await clickToolbarButton(page, 'Zoom In');
+            const rightView = await waitForPaneView(
+                page,
+                rightPane!,
+                'right view zooms on its own',
+                (view) =>
+                    view.centerPage === 4 && (view.pageWidthPx ?? 0) > (rightBeforeZoom.pageWidthPx ?? Infinity) + ANCHOR_TOLERANCE_PX,
+            );
+            const rightPlacement = placementOf(rightView);
+            expect(sameWidth(rightPlacement.pageWidthPx, leftPlacement.pageWidthPx)).toBe(false);
+            await waitForPaneView(page, leftPane!, 'left view keeps its page and zoom while the right view moves', (view) =>
+                keepsPlacement(view, leftPlacement),
+            );
 
-        // Undo in the right view removes the left view's edit from both.
-        await undoTextBoxEdit(page, rightPane!, leftPane!, leftText);
-        await waitForPaneView(page, leftPane!, 'undo from the right view keeps the right edit on the left', view => (
-            containsAll(view.renderedTexts, [rightText]) && containsAll(view.listedTexts, [rightText])
-        ));
-        await waitForPaneView(page, rightPane!, 'undo from the right view keeps the right view in place', view => (
-            containsAll(view.listedTexts, [rightText]) && keepsPlacement(view, rightPlacement)
-        ));
+            // Undo in the right view removes the left view's edit from both.
+            await undoTextBoxEdit(page, rightPane!, leftPane!, leftText);
+            await waitForPaneView(
+                page,
+                leftPane!,
+                'undo from the right view keeps the right edit on the left',
+                (view) => containsAll(view.renderedTexts, [rightText]) && containsAll(view.listedTexts, [rightText]),
+            );
+            await waitForPaneView(
+                page,
+                rightPane!,
+                'undo from the right view keeps the right view in place',
+                (view) => containsAll(view.listedTexts, [rightText]) && keepsPlacement(view, rightPlacement),
+            );
 
-        // Undo in the left view removes the right view's edit from both.
-        await activatePaneByTab(page, leftPane!);
-        await undoTextBoxEdit(page, leftPane!, rightPane!, rightText);
-        await waitForPaneView(page, rightPane!, 'undo from the left view leaves the right list empty in place', view => (
-            view.listedTexts.length === 0 && keepsPlacement(view, rightPlacement)
-        ));
-        const afterUndo = await waitForPaneView(page, leftPane!, 'undo from the left view leaves the left view empty in place', view => (
-            view.renderedTexts.length === 0 && view.listedTexts.length === 0 && keepsPlacement(view, leftPlacement)
-        ));
-        expect((await readPaneView(page, rightPane!)).tabDirty).toBe(afterUndo.tabDirty);
+            // Undo in the left view removes the right view's edit from both.
+            await activatePaneByTab(page, leftPane!);
+            await undoTextBoxEdit(page, leftPane!, rightPane!, rightText);
+            await waitForPaneView(
+                page,
+                rightPane!,
+                'undo from the left view leaves the right list empty in place',
+                (view) => view.listedTexts.length === 0 && keepsPlacement(view, rightPlacement),
+            );
+            const afterUndo = await waitForPaneView(
+                page,
+                leftPane!,
+                'undo from the left view leaves the left view empty in place',
+                (view) => view.renderedTexts.length === 0 && view.listedTexts.length === 0 && keepsPlacement(view, leftPlacement),
+            );
+            expect((await readPaneView(page, rightPane!)).tabDirty).toBe(afterUndo.tabDirty);
 
-        // New edits from both views, then Save from the right view writes once.
-        const savedLeftText = `SAVED-LEFT-${stamp}`;
-        const savedRightText = `SAVED-RIGHT-${stamp}`;
-        await createCanonicalTextBoxWithPointer(page, savedLeftText, {
-            x: 0.4,
-            y: 0.4,
-        }, 2);
-        await activatePaneByTab(page, rightPane!);
-        await createCanonicalTextBoxWithPointer(page, savedRightText, {
-            x: 0.4,
-            y: 0.4,
-        }, 4);
-        await waitForPaneView(page, leftPane!, 'left view lists the right view edit on page 4', view => (
-            view.tabDirty && containsAll(view.renderedTexts, [savedLeftText]) && containsAll(view.listedTexts, [savedRightText])
-        ));
-        const leftBeforeSave = placementOf(await readPaneView(page, leftPane!));
-        const rightBeforeSave = placementOf(await readPaneView(page, rightPane!));
-
-        const saveBaseline = await getLatestAutomationEventId(page);
-        await clickToolbarButton(page, 'Save');
-        await waitForAutomationEvent(page, 'save-committed', {
-            afterEventId: saveBaseline,
-            path: pdfPath,
-            timeoutMs: 60_000,
-        });
-        for (const paneId of [
-            leftPane!,
-            rightPane!,
-        ]) {
-            await waitForPaneView(page, paneId, 'both views are saved', view => (
-                !view.tabDirty && (!view.active || view.saveDotLabel === 'All changes saved')
-            ));
-        }
-        await waitForPaneView(page, leftPane!, 'left view keeps its place through Save', view => keepsPlacement(view, leftBeforeSave));
-        await waitForPaneView(page, rightPane!, 'right view keeps its place through Save', view => keepsPlacement(view, rightBeforeSave));
-        expect(await readVisibleToasts(page)).toEqual([]);
-        expect(await countSaveEvents(page, saveBaseline), 'one Save writes the file once').toBe(1);
-
-        const savedBytes = await readFile(pdfPath);
-        const savedTexts = (await readPdfTextAnnotationRecords(pdfPath)).map(record => record.contents);
-        expect(savedTexts).toEqual(expect.arrayContaining([
-            savedLeftText,
-            savedRightText,
-        ]));
-        expect(savedTexts).not.toEqual(expect.arrayContaining([leftText]));
-        expect(savedTexts).not.toEqual(expect.arrayContaining([rightText]));
-        await readPdfMetadataWithQpdf(pdfPath);
-
-        // Closing one view keeps the document, with its unsaved edit, in the other.
-        const unsavedText = `UNSAVED-${stamp}`;
-        await activatePaneByTab(page, leftPane!);
-        await createCanonicalTextBoxWithPointer(page, unsavedText, {
-            x: 0.7,
-            y: 0.25,
-        }, 2);
-        await waitForPaneView(page, rightPane!, 'right view is dirty after the left edit', view => view.tabDirty);
-        const listedBeforeClose = [
-            savedLeftText,
-            savedRightText,
-            unsavedText,
-        ];
-        await waitForPaneView(page, leftPane!, 'the left comments list shows every comment before the right view closes', view => (
-            containsAll(view.listedTexts, listedBeforeClose)
-        ));
-        await clickAsUser(page, `${paneSelector(rightPane!)} .tab.is-active[data-tab-id] .tab-close`);
-        await page.waitForFunction(() => document.querySelectorAll('.editor-pane').length === 1, {timeout: SETTLE_TIMEOUT_MS});
-        expect(await page.$$eval('[role="dialog"]', dialogs => dialogs.length), 'closing one view asks nothing').toBe(0);
-        await waitForPaneView(page, leftPane!, 'the remaining view keeps the document and its unsaved edit', view => (
-            !view.showsStart
-            && view.statusPath === sourceView.statusPath
-            && view.tabDirty
-            && containsAll(view.renderedTexts, [
+            // New edits from both views, then Save from the right view writes once.
+            const savedLeftText = `SAVED-LEFT-${stamp}`;
+            const savedRightText = `SAVED-RIGHT-${stamp}`;
+            await createCanonicalTextBoxWithPointer(
+                page,
                 savedLeftText,
+                {
+                    x: 0.4,
+                    y: 0.4,
+                },
+                2,
+            );
+            await activatePaneByTab(page, rightPane!);
+            await createCanonicalTextBoxWithPointer(
+                page,
+                savedRightText,
+                {
+                    x: 0.4,
+                    y: 0.4,
+                },
+                4,
+            );
+            await waitForPaneView(
+                page,
+                leftPane!,
+                'left view lists the right view edit on page 4',
+                (view) =>
+                    view.tabDirty && containsAll(view.renderedTexts, [savedLeftText]) && containsAll(view.listedTexts, [savedRightText]),
+            );
+            const leftBeforeSave = placementOf(await readPaneView(page, leftPane!));
+            const rightBeforeSave = placementOf(await readPaneView(page, rightPane!));
+
+            const saveBaseline = await getLatestAutomationEventId(page);
+            await clickToolbarButton(page, 'Save');
+            await waitForAutomationEvent(page, 'save-committed', {
+                afterEventId: saveBaseline,
+                path: pdfPath,
+                timeoutMs: 60_000,
+            });
+            for (const paneId of [leftPane!, rightPane!]) {
+                await waitForPaneView(
+                    page,
+                    paneId,
+                    'both views are saved',
+                    (view) => !view.tabDirty && (!view.active || view.saveDotLabel === 'All changes saved'),
+                );
+            }
+            await waitForPaneView(page, leftPane!, 'left view keeps its place through Save', (view) =>
+                keepsPlacement(view, leftBeforeSave),
+            );
+            await waitForPaneView(page, rightPane!, 'right view keeps its place through Save', (view) =>
+                keepsPlacement(view, rightBeforeSave),
+            );
+            expect(await readVisibleToasts(page)).toEqual([]);
+            expect(await countSaveEvents(page, saveBaseline), 'one Save writes the file once').toBe(1);
+
+            const savedBytes = await readFile(pdfPath);
+            const savedTexts = (await readPdfTextAnnotationRecords(pdfPath)).map((record) => record.contents);
+            expect(savedTexts).toEqual(expect.arrayContaining([savedLeftText, savedRightText]));
+            expect(savedTexts).not.toEqual(expect.arrayContaining([leftText]));
+            expect(savedTexts).not.toEqual(expect.arrayContaining([rightText]));
+            await readPdfMetadataWithQpdf(pdfPath);
+
+            // Closing one view keeps the document, with its unsaved edit, in the other.
+            const unsavedText = `UNSAVED-${stamp}`;
+            await activatePaneByTab(page, leftPane!);
+            await createCanonicalTextBoxWithPointer(
+                page,
                 unsavedText,
-            ])
-            // Sweep #845 item 5: its comments list keeps every comment too.
-            && containsAll(view.listedTexts, listedBeforeClose)
-            && view.centerPage === leftPlacement.centerPage
-            && sameWidth(view.pageWidthPx, leftPlacement.pageWidthPx)
-        ));
+                {
+                    x: 0.7,
+                    y: 0.25,
+                },
+                2,
+            );
+            await waitForPaneView(page, rightPane!, 'right view is dirty after the left edit', (view) => view.tabDirty);
+            const listedBeforeClose = [savedLeftText, savedRightText, unsavedText];
+            await waitForPaneView(page, leftPane!, 'the left comments list shows every comment before the right view closes', (view) =>
+                containsAll(view.listedTexts, listedBeforeClose),
+            );
+            await clickAsUser(page, `${paneSelector(rightPane!)} .tab.is-active[data-tab-id] .tab-close`);
+            await page.waitForFunction(() => document.querySelectorAll('.editor-pane').length === 1, {timeout: SETTLE_TIMEOUT_MS});
+            expect(await page.$$eval('[role="dialog"]', (dialogs) => dialogs.length), 'closing one view asks nothing').toBe(0);
+            await waitForPaneView(
+                page,
+                leftPane!,
+                'the remaining view keeps the document and its unsaved edit',
+                (view) =>
+                    !view.showsStart &&
+                    view.statusPath === sourceView.statusPath &&
+                    view.tabDirty &&
+                    containsAll(view.renderedTexts, [savedLeftText, unsavedText]) &&
+                    // Sweep #845 item 5: its comments list keeps every comment too.
+                    containsAll(view.listedTexts, listedBeforeClose) &&
+                    view.centerPage === leftPlacement.centerPage &&
+                    sameWidth(view.pageWidthPx, leftPlacement.pageWidthPx),
+            );
 
-        // Closing the last view asks the normal unsaved-changes question.
-        await clickAsUser(page, `${paneSelector(leftPane!)} .tab.is-active[data-tab-id] .tab-close`);
-        await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
-            .some(dialog => dialog.textContent?.includes('Close tab with unsaved changes?')), {timeout: SETTLE_TIMEOUT_MS});
-        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] button'))
-            .find(button => button.textContent?.trim() === 'Discard changes'), null, {description: 'Discard changes'});
-        await waitForPaneView(page, leftPane!, 'discarding the last view closes the document', view => view.showsStart);
-        expect(await readFile(pdfPath)).toEqual(savedBytes);
-    }, TIMEOUT_MS);
+            // Closing the last view asks the normal unsaved-changes question.
+            await clickAsUser(page, `${paneSelector(leftPane!)} .tab.is-active[data-tab-id] .tab-close`);
+            await page.waitForFunction(
+                () =>
+                    Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]')).some((dialog) =>
+                        dialog.textContent?.includes('Close tab with unsaved changes?'),
+                    ),
+                {timeout: SETTLE_TIMEOUT_MS},
+            );
+            await clickFoundAsUser(
+                page,
+                () =>
+                    Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] button')).find(
+                        (button) => button.textContent?.trim() === 'Discard changes',
+                    ),
+                null,
+                {description: 'Discard changes'},
+            );
+            await waitForPaneView(page, leftPane!, 'discarding the last view closes the document', (view) => view.showsStart);
+            expect(await readFile(pdfPath)).toEqual(savedBytes);
+        },
+        TIMEOUT_MS,
+    );
 
-    it('saves page labels numbered in one view from the other view', async () => {
-        const stamp = Date.now();
-        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-labels-${stamp}.pdf`, 6);
-        session = await startElectronE2ESession(`e2e-shared-pdf-split-labels-${stamp}`, {
-            clean: true,
-            initialOpenPaths: [pdfPath],
-        });
-        const {page} = session;
-        await waitForPdfLoaded(page);
-        await waitForViewerInteractive(page);
-        await splitActiveTabFromTabMenu(page, 'right');
-        const [
-            leftPane,
-            rightPane,
-        ] = await paneIds(page);
-        await waitForPaneView(page, rightPane!, 'Split Right shows the document', view => !view.showsStart && view.centerPage !== null);
+    it(
+        'saves page labels numbered in one view from the other view',
+        async () => {
+            const stamp = Date.now();
+            const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-labels-${stamp}.pdf`, 6);
+            session = await startElectronE2ESession(`e2e-shared-pdf-split-labels-${stamp}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            const {page} = session;
+            await waitForPdfLoaded(page);
+            await waitForViewerInteractive(page);
+            await splitActiveTabFromTabMenu(page, 'right');
+            const [leftPane, rightPane] = await paneIds(page);
+            await waitForPaneView(
+                page,
+                rightPane!,
+                'Split Right shows the document',
+                (view) => !view.showsStart && view.centerPage !== null,
+            );
 
-        // The left view numbers every page P-1, P-2, ...
-        await activatePaneByTab(page, leftPane!);
-        await numberPagesWithPrefix(page, leftPane!, 'P-');
+            // The left view numbers every page P-1, P-2, ...
+            await activatePaneByTab(page, leftPane!);
+            await numberPagesWithPrefix(page, leftPane!, 'P-');
 
-        // Using the right view keeps the numbering, and its Save writes it.
-        await activatePaneByTab(page, rightPane!);
-        await waitForPaneView(page, rightPane!, 'the right view in use still has the unsaved numbering', view => (
-            view.active && view.tabDirty && view.saveDotLabel === 'Save changes'
-        ));
-        const saveBaseline = await getLatestAutomationEventId(page);
-        await clickToolbarButton(page, 'Save');
-        await waitForAutomationEvent(page, 'save-committed', {
-            afterEventId: saveBaseline,
-            path: pdfPath,
-            timeoutMs: 60_000,
-        });
-        const metadata = await readPdfMetadataWithQpdf(pdfPath);
-        expect(metadata.pagelabels.map(label => label.label?.['/P'])).toContain('u:P-');
-    }, TIMEOUT_MS);
+            // Using the right view keeps the numbering, and its Save writes it.
+            await activatePaneByTab(page, rightPane!);
+            await waitForPaneView(
+                page,
+                rightPane!,
+                'the right view in use still has the unsaved numbering',
+                (view) => view.active && view.tabDirty && view.saveDotLabel === 'Save changes',
+            );
+            const saveBaseline = await getLatestAutomationEventId(page);
+            await clickToolbarButton(page, 'Save');
+            await waitForAutomationEvent(page, 'save-committed', {
+                afterEventId: saveBaseline,
+                path: pdfPath,
+                timeoutMs: 60_000,
+            });
+            const metadata = await readPdfMetadataWithQpdf(pdfPath);
+            expect(metadata.pagelabels.map((label) => label.label?.['/P'])).toContain('u:P-');
+        },
+        TIMEOUT_MS,
+    );
 
-    it('saves from the new view page labels numbered before the split', async () => {
-        const stamp = Date.now();
-        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-labels-before-${stamp}.pdf`, 6);
-        session = await startElectronE2ESession(`e2e-shared-pdf-split-labels-before-${stamp}`, {
-            clean: true,
-            initialOpenPaths: [pdfPath],
-        });
-        const {page} = session;
-        await waitForPdfLoaded(page);
-        await waitForViewerInteractive(page);
-        const [sourcePane] = await paneIds(page);
-        await numberPagesWithPrefix(page, sourcePane!, 'Q-');
+    it(
+        'saves from the new view page labels numbered before the split',
+        async () => {
+            const stamp = Date.now();
+            const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-labels-before-${stamp}.pdf`, 6);
+            session = await startElectronE2ESession(`e2e-shared-pdf-split-labels-before-${stamp}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            const {page} = session;
+            await waitForPdfLoaded(page);
+            await waitForViewerInteractive(page);
+            const [sourcePane] = await paneIds(page);
+            await numberPagesWithPrefix(page, sourcePane!, 'Q-');
 
-        // The new view is in use before it has presented the document.
-        await splitActiveTabFromTabMenu(page, 'right');
-        const [
-            , rightPane,
-        ] = await paneIds(page);
-        await waitForPaneView(page, rightPane!, 'the new view shows the document with the unsaved numbering', view => (
-            !view.showsStart && view.centerPage !== null && view.active && view.tabDirty && view.saveDotLabel === 'Save changes'
-        ));
-        // Issue #946: Fit Width settling in the new pane discarded its first raster, and the
-        // view showed "Unable to render this page" with Save disabled.
-        const firstPage = `${paneSelector(rightPane!)} #pdf-viewer .page_container[data-page="1"]`;
-        await page.waitForFunction((selector: string) => {
-            const container = document.querySelector(selector);
-            const canvas = container?.querySelector('canvas')?.getBoundingClientRect();
-            return !container?.querySelector('.pdf-page-render-error') && (canvas?.width ?? 0) > 0 && (canvas?.height ?? 0) > 0;
-        }, {timeout: SETTLE_TIMEOUT_MS}, firstPage).catch(async (error: unknown) => {
-            const state = await page.$eval(firstPage, element => (
-                element.querySelector('.pdf-page-render-error')?.textContent?.trim() ?? 'no painted canvas'
-            )).catch(() => 'page element unavailable');
-            throw new Error(`the new view does not show its first page: ${state}; ${String(error)}`);
-        });
-        const saveBaseline = await getLatestAutomationEventId(page);
-        await clickToolbarButton(page, 'Save');
-        await waitForAutomationEvent(page, 'save-committed', {
-            afterEventId: saveBaseline,
-            path: pdfPath,
-            timeoutMs: 60_000,
-        });
-        const metadata = await readPdfMetadataWithQpdf(pdfPath);
-        expect(metadata.pagelabels.map(label => label.label?.['/P'])).toContain('u:Q-');
-    }, TIMEOUT_MS);
+            // The new view is in use before it has presented the document.
+            await splitActiveTabFromTabMenu(page, 'right');
+            const [, rightPane] = await paneIds(page);
+            await waitForPaneView(
+                page,
+                rightPane!,
+                'the new view shows the document with the unsaved numbering',
+                (view) =>
+                    !view.showsStart && view.centerPage !== null && view.active && view.tabDirty && view.saveDotLabel === 'Save changes',
+            );
+            // Issue #946: Fit Width settling in the new pane discarded its first raster, and the
+            // view showed "Unable to render this page" with Save disabled.
+            const firstPage = `${paneSelector(rightPane!)} #pdf-viewer .page_container[data-page="1"]`;
+            await page
+                .waitForFunction(
+                    (selector: string) => {
+                        const container = document.querySelector(selector);
+                        const canvas = container?.querySelector('canvas')?.getBoundingClientRect();
+                        return !container?.querySelector('.pdf-page-render-error') && (canvas?.width ?? 0) > 0 && (canvas?.height ?? 0) > 0;
+                    },
+                    {timeout: SETTLE_TIMEOUT_MS},
+                    firstPage,
+                )
+                .catch(async (error: unknown) => {
+                    const state = await page
+                        .$eval(
+                            firstPage,
+                            (element) => element.querySelector('.pdf-page-render-error')?.textContent?.trim() ?? 'no painted canvas',
+                        )
+                        .catch(() => 'page element unavailable');
+                    throw new Error(`the new view does not show its first page: ${state}; ${String(error)}`);
+                });
+            const saveBaseline = await getLatestAutomationEventId(page);
+            await clickToolbarButton(page, 'Save');
+            await waitForAutomationEvent(page, 'save-committed', {
+                afterEventId: saveBaseline,
+                path: pdfPath,
+                timeoutMs: 60_000,
+            });
+            const metadata = await readPdfMetadataWithQpdf(pdfPath);
+            expect(metadata.pagelabels.map((label) => label.label?.['/P'])).toContain('u:Q-');
+        },
+        TIMEOUT_MS,
+    );
 
-    it('keeps page labels edited after a save when the other view is used, with their undo', async () => {
-        const stamp = Date.now();
-        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-labels-after-save-${stamp}.pdf`, 6);
-        session = await startElectronE2ESession(`e2e-shared-pdf-split-labels-after-save-${stamp}`, {
-            clean: true,
-            initialOpenPaths: [pdfPath],
-        });
-        const {page} = session;
-        await waitForPdfLoaded(page);
-        await waitForViewerInteractive(page);
-        await splitActiveTabFromTabMenu(page, 'right');
-        const [
-            leftPane,
-            rightPane,
-        ] = await paneIds(page);
-        await waitForPaneView(page, rightPane!, 'Split Right shows the document', view => !view.showsStart && view.centerPage !== null);
+    it(
+        'keeps page labels edited after a save when the other view is used, with their undo',
+        async () => {
+            const stamp = Date.now();
+            const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-labels-after-save-${stamp}.pdf`, 6);
+            session = await startElectronE2ESession(`e2e-shared-pdf-split-labels-after-save-${stamp}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            const {page} = session;
+            await waitForPdfLoaded(page);
+            await waitForViewerInteractive(page);
+            await splitActiveTabFromTabMenu(page, 'right');
+            const [leftPane, rightPane] = await paneIds(page);
+            await waitForPaneView(
+                page,
+                rightPane!,
+                'Split Right shows the document',
+                (view) => !view.showsStart && view.centerPage !== null,
+            );
 
-        // Number the pages and save: the save writes them without reloading either view.
-        await activatePaneByTab(page, leftPane!);
-        await numberPagesWithPrefix(page, leftPane!, 'P-');
-        let saveBaseline = await getLatestAutomationEventId(page);
-        await clickToolbarButton(page, 'Save');
-        await waitForAutomationEvent(page, 'save-committed', {
-            afterEventId: saveBaseline,
-            path: pdfPath,
-            timeoutMs: 60_000,
-        });
-        await waitForPaneView(page, leftPane!, 'the save leaves the document clean', view => !view.tabDirty);
+            // Number the pages and save: the save writes them without reloading either view.
+            await activatePaneByTab(page, leftPane!);
+            await numberPagesWithPrefix(page, leftPane!, 'P-');
+            let saveBaseline = await getLatestAutomationEventId(page);
+            await clickToolbarButton(page, 'Save');
+            await waitForAutomationEvent(page, 'save-committed', {
+                afterEventId: saveBaseline,
+                path: pdfPath,
+                timeoutMs: 60_000,
+            });
+            await waitForPaneView(page, leftPane!, 'the save leaves the document clean', (view) => !view.tabDirty);
 
-        // Number them again, then use the other view.
-        await numberPagesWithPrefix(page, leftPane!, 'R-');
-        await activatePaneByTab(page, rightPane!);
-        await waitForPaneView(page, rightPane!, 'the other view in use keeps the unsaved numbering', view => (
-            view.active && view.tabDirty && view.saveDotLabel === 'Save changes'
-        ));
+            // Number them again, then use the other view.
+            await numberPagesWithPrefix(page, leftPane!, 'R-');
+            await activatePaneByTab(page, rightPane!);
+            await waitForPaneView(
+                page,
+                rightPane!,
+                'the other view in use keeps the unsaved numbering',
+                (view) => view.active && view.tabDirty && view.saveDotLabel === 'Save changes',
+            );
 
-        // Its undo goes back to the saved numbering and its redo forward again.
-        await clickToolbarButton(page, 'Undo');
-        await waitForPaneView(page, rightPane!, 'undo returns to the saved numbering', view => !view.tabDirty);
-        await clickToolbarButton(page, 'Redo');
-        await waitForPaneView(page, rightPane!, 'redo brings the new numbering back', view => view.tabDirty);
+            // Its undo goes back to the saved numbering and its redo forward again.
+            await clickToolbarButton(page, 'Undo');
+            await waitForPaneView(page, rightPane!, 'undo returns to the saved numbering', (view) => !view.tabDirty);
+            await clickToolbarButton(page, 'Redo');
+            await waitForPaneView(page, rightPane!, 'redo brings the new numbering back', (view) => view.tabDirty);
 
-        saveBaseline = await getLatestAutomationEventId(page);
-        await clickToolbarButton(page, 'Save');
-        await waitForAutomationEvent(page, 'save-committed', {
-            afterEventId: saveBaseline,
-            path: pdfPath,
-            timeoutMs: 60_000,
-        });
-        const metadata = await readPdfMetadataWithQpdf(pdfPath);
-        expect(metadata.pagelabels.map(label => label.label?.['/P'])).toContain('u:R-');
-    }, TIMEOUT_MS);
+            saveBaseline = await getLatestAutomationEventId(page);
+            await clickToolbarButton(page, 'Save');
+            await waitForAutomationEvent(page, 'save-committed', {
+                afterEventId: saveBaseline,
+                path: pdfPath,
+                timeoutMs: 60_000,
+            });
+            const metadata = await readPdfMetadataWithQpdf(pdfPath);
+            expect(metadata.pagelabels.map((label) => label.label?.['/P'])).toContain('u:R-');
+        },
+        TIMEOUT_MS,
+    );
 
-    it('opens one editor for a note, in the view that opened it', async () => {
-        const stamp = Date.now();
-        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-note-${stamp}.pdf`, 3);
-        session = await startElectronE2ESession(`e2e-shared-pdf-split-note-${stamp}`, {
-            clean: true,
-            initialOpenPaths: [pdfPath],
-        });
-        const {page} = session;
-        await waitForPdfLoaded(page);
-        await waitForViewerInteractive(page);
-        await splitActiveTabFromTabMenu(page, 'right');
-        const [
-            leftPane,
-            rightPane,
-        ] = await paneIds(page);
-        await waitForPaneView(page, rightPane!, 'Split Right shows the document', view => !view.showsStart && view.centerPage !== null);
-        await activatePaneByTab(page, leftPane!);
+    it(
+        'opens one editor for a note, in the view that opened it',
+        async () => {
+            const stamp = Date.now();
+            const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-note-${stamp}.pdf`, 3);
+            session = await startElectronE2ESession(`e2e-shared-pdf-split-note-${stamp}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            const {page} = session;
+            await waitForPdfLoaded(page);
+            await waitForViewerInteractive(page);
+            await splitActiveTabFromTabMenu(page, 'right');
+            const [leftPane, rightPane] = await paneIds(page);
+            await waitForPaneView(
+                page,
+                rightPane!,
+                'Split Right shows the document',
+                (view) => !view.showsStart && view.centerPage !== null,
+            );
+            await activatePaneByTab(page, leftPane!);
 
-        const noteText = `SPLIT-NOTE-${stamp}`;
-        await createStickyNoteWithPointer(page, noteText, {
-            x: 0.4,
-            y: 0.3,
-        }, 1);
-        const readNoteWindows = () => page.evaluate((left: string, right: string) => ({
-            left: document.querySelectorAll(`.editor-pane[data-editor-pane-id="${left}"] .note-window`).length,
-            right: document.querySelectorAll(`.editor-pane[data-editor-pane-id="${right}"] .note-window`).length,
-            focusedInLeft: Boolean(document.activeElement?.closest(`.editor-pane[data-editor-pane-id="${left}"]`)),
-        }), leftPane!, rightPane!);
-        await page.waitForSelector(`${paneSelector(leftPane!)} .note-window`, {timeout: SETTLE_TIMEOUT_MS});
-        expect(await readNoteWindows()).toMatchObject({
-            left: 1,
-            right: 0,
-        });
+            const noteText = `SPLIT-NOTE-${stamp}`;
+            await createStickyNoteWithPointer(
+                page,
+                noteText,
+                {
+                    x: 0.4,
+                    y: 0.3,
+                },
+                1,
+            );
+            const readNoteWindows = () =>
+                page.evaluate(
+                    (left: string, right: string) => ({
+                        left: document.querySelectorAll(`.editor-pane[data-editor-pane-id="${left}"] .note-window`).length,
+                        right: document.querySelectorAll(`.editor-pane[data-editor-pane-id="${right}"] .note-window`).length,
+                        focusedInLeft: Boolean(document.activeElement?.closest(`.editor-pane[data-editor-pane-id="${left}"]`)),
+                    }),
+                    leftPane!,
+                    rightPane!,
+                );
+            await page.waitForSelector(`${paneSelector(leftPane!)} .note-window`, {timeout: SETTLE_TIMEOUT_MS});
+            expect(await readNoteWindows()).toMatchObject({
+                left: 1,
+                right: 0,
+            });
 
-        // Typing more keeps the focus in the left view's editor.
-        await clickAsUser(page, `${paneSelector(leftPane!)} .note-window textarea.note-window__textarea`);
-        await page.keyboard.type(' more');
-        expect(await readNoteWindows()).toEqual({
-            left: 1,
-            right: 0,
-            focusedInLeft: true,
-        });
+            // Typing more keeps the focus in the left view's editor.
+            await clickAsUser(page, `${paneSelector(leftPane!)} .note-window textarea.note-window__textarea`);
+            await page.keyboard.type(' more');
+            expect(await readNoteWindows()).toEqual({
+                left: 1,
+                right: 0,
+                focusedInLeft: true,
+            });
 
-        // Dragging the window moves the one editor there is, within its pane.
-        const titleSelector = `${paneSelector(leftPane!)} .note-window .note-window__title-main`;
-        const before = await centerOf(page, titleSelector);
-        await page.mouse.move(before.x, before.y);
-        await page.mouse.down();
-        await page.mouse.move(before.x - 20, before.y + 60, {steps: 6});
-        await page.mouse.up();
-        await page.waitForFunction((selector: string, y: number) => {
-            const rect = document.querySelector(selector)?.getBoundingClientRect();
-            return Boolean(rect && rect.top + rect.height / 2 > y + 20);
-        }, {timeout: SETTLE_TIMEOUT_MS}, titleSelector, before.y);
-        expect(await readNoteWindows()).toMatchObject({
-            left: 1,
-            right: 0,
-        });
-    }, TIMEOUT_MS);
+            // Dragging the window moves the one editor there is, within its pane.
+            const titleSelector = `${paneSelector(leftPane!)} .note-window .note-window__title-main`;
+            const before = await centerOf(page, titleSelector);
+            await page.mouse.move(before.x, before.y);
+            await page.mouse.down();
+            await page.mouse.move(before.x - 20, before.y + 60, {steps: 6});
+            await page.mouse.up();
+            await page.waitForFunction(
+                (selector: string, y: number) => {
+                    const rect = document.querySelector(selector)?.getBoundingClientRect();
+                    return Boolean(rect && rect.top + rect.height / 2 > y + 20);
+                },
+                {timeout: SETTLE_TIMEOUT_MS},
+                titleSelector,
+                before.y,
+            );
+            expect(await readNoteWindows()).toMatchObject({
+                left: 1,
+                right: 0,
+            });
+        },
+        TIMEOUT_MS,
+    );
 
-    it('prints from one dialog that offers the invoking view\'s current page', async () => {
-        const stamp = Date.now();
-        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-print-${stamp}.pdf`, 6);
-        session = await startElectronE2ESession(`e2e-shared-pdf-split-print-${stamp}`, {
-            clean: true,
-            initialOpenPaths: [pdfPath],
-        });
-        const {page} = session;
-        await waitForPdfLoaded(page);
-        await waitForViewerInteractive(page);
-        await splitActiveTabFromTabMenu(page, 'right');
-        const [
-            leftPane,
-            rightPane,
-        ] = await paneIds(page);
-        await waitForPaneView(page, rightPane!, 'Split Right shows the document', view => !view.showsStart && view.centerPage !== null);
-        await goToPageViaToolbar(page, 5);
-        await waitForPaneView(page, rightPane!, 'the right view reads page 5', view => view.centerPage === 5);
-        await activatePaneByTab(page, leftPane!);
-        await goToPageViaToolbar(page, 2);
-        await waitForPaneView(page, leftPane!, 'the left view reads page 2', view => view.centerPage === 2);
+    it(
+        "prints from one dialog that offers the invoking view's current page",
+        async () => {
+            const stamp = Date.now();
+            const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-print-${stamp}.pdf`, 6);
+            session = await startElectronE2ESession(`e2e-shared-pdf-split-print-${stamp}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            const {page} = session;
+            await waitForPdfLoaded(page);
+            await waitForViewerInteractive(page);
+            await splitActiveTabFromTabMenu(page, 'right');
+            const [leftPane, rightPane] = await paneIds(page);
+            await waitForPaneView(
+                page,
+                rightPane!,
+                'Split Right shows the document',
+                (view) => !view.showsStart && view.centerPage !== null,
+            );
+            await goToPageViaToolbar(page, 5);
+            await waitForPaneView(page, rightPane!, 'the right view reads page 5', (view) => view.centerPage === 5);
+            await activatePaneByTab(page, leftPane!);
+            await goToPageViaToolbar(page, 2);
+            await waitForPaneView(page, leftPane!, 'the left view reads page 2', (view) => view.centerPage === 2);
 
-        await clickToolbarButton(page, 'Print');
-        await page.waitForSelector('[role="dialog"] [role="radio"][value="current"]', {
-            timeout: SETTLE_TIMEOUT_MS,
-            visible: true,
-        });
-        const dialogs = await page.$$eval('[role="dialog"]', elements => elements
-            .filter(element => element.getBoundingClientRect().width > 0)
-            .map(element => (element.textContent ?? '').replace(/\s+/gu, ' ')));
-        expect(dialogs).toHaveLength(1);
-        expect(dialogs[0]).toContain('Current page (2)');
-    }, TIMEOUT_MS);
+            await clickToolbarButton(page, 'Print');
+            await page.waitForSelector('[role="dialog"] [role="radio"][value="current"]', {
+                timeout: SETTLE_TIMEOUT_MS,
+                visible: true,
+            });
+            const dialogs = await page.$$eval('[role="dialog"]', (elements) =>
+                elements
+                    .filter((element) => element.getBoundingClientRect().width > 0)
+                    .map((element) => (element.textContent ?? '').replace(/\s+/gu, ' ')),
+            );
+            expect(dialogs).toHaveLength(1);
+            expect(dialogs[0]).toContain('Current page (2)');
+        },
+        TIMEOUT_MS,
+    );
 
     // Sweep #845 item 2: a right-click in one view opens one annotation menu,
     // and keyboard focus lands in it.
-    it('opens one annotation context menu for a right-click in one of two linked views', async () => {
-        const stamp = Date.now();
-        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-menu-${stamp}.pdf`, 3);
-        session = await startElectronE2ESession(`e2e-shared-pdf-split-menu-${stamp}`, {
-            clean: true,
-            initialOpenPaths: [pdfPath],
-        });
-        const {page} = session;
-        await waitForPdfLoaded(page);
-        await waitForViewerInteractive(page);
-        await splitActiveTabFromTabMenu(page, 'right');
-        const [
-            leftPane,
-            rightPane,
-        ] = await paneIds(page);
-        await waitForPaneView(page, rightPane!, 'Split Right shows the document', view => !view.showsStart && view.centerPage !== null);
+    it(
+        'opens one annotation context menu for a right-click in one of two linked views',
+        async () => {
+            const stamp = Date.now();
+            const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-menu-${stamp}.pdf`, 3);
+            session = await startElectronE2ESession(`e2e-shared-pdf-split-menu-${stamp}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            const {page} = session;
+            await waitForPdfLoaded(page);
+            await waitForViewerInteractive(page);
+            await splitActiveTabFromTabMenu(page, 'right');
+            const [leftPane, rightPane] = await paneIds(page);
+            await waitForPaneView(
+                page,
+                rightPane!,
+                'Split Right shows the document',
+                (view) => !view.showsStart && view.centerPage !== null,
+            );
 
-        const text = `MENU-${stamp}`;
-        await activatePaneByTab(page, leftPane!);
-        await createCanonicalTextBoxWithPointer(page, text, {
-            x: 0.3,
-            y: 0.3,
-        }, 1);
-        for (const paneId of [
-            leftPane!,
-            rightPane!,
-        ]) {
-            await waitForPaneView(page, paneId, `${paneId} renders the text box`, view => containsAll(view.renderedTexts, [text]));
-        }
+            const text = `MENU-${stamp}`;
+            await activatePaneByTab(page, leftPane!);
+            await createCanonicalTextBoxWithPointer(
+                page,
+                text,
+                {
+                    x: 0.3,
+                    y: 0.3,
+                },
+                1,
+            );
+            for (const paneId of [leftPane!, rightPane!]) {
+                await waitForPaneView(page, paneId, `${paneId} renders the text box`, (view) => containsAll(view.renderedTexts, [text]));
+            }
 
-        await clickFoundAsUser(page, ({
-            selector, expected,
-        }: {
-            selector: string;
-            expected: string
-        }) => Array.from(
-            document.querySelectorAll<HTMLElement>(`${selector} .pdf-annotation-editor-layer [data-annotation-kind="text-box"]`),
-        ).find(element => element.textContent?.includes(expected) && element.getBoundingClientRect().width > 0), {
-            selector: paneSelector(leftPane!),
-            expected: text,
-        }, {
-            description: `text box ${text}`,
-            button: 'right',
-        });
-        await page.waitForSelector('.annotation-context-menu', {
-            visible: true,
-            timeout: SETTLE_TIMEOUT_MS,
-        });
-        await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-        const menus = await page.$$eval('.annotation-context-menu', (elements) => {
-            const panes = elements.map(element => (element.closest('.editor-pane') as HTMLElement | null)?.dataset.editorPaneId ?? null);
-            const visible = elements.filter(element => element.getBoundingClientRect().width > 0);
-            return {
-                visibleCount: visible.length,
-                panes: visible.map(element => panes[elements.indexOf(element)]),
-                focusInVisibleMenu: visible.some(element => element.contains(document.activeElement)),
-            };
-        });
-        expect(menus).toEqual({
-            visibleCount: 1,
-            panes: [leftPane],
-            focusInVisibleMenu: true,
-        });
-    }, TIMEOUT_MS);
+            await clickFoundAsUser(
+                page,
+                ({selector, expected}: {selector: string; expected: string}) =>
+                    Array.from(
+                        document.querySelectorAll<HTMLElement>(
+                            `${selector} .pdf-annotation-editor-layer [data-annotation-kind="text-box"]`,
+                        ),
+                    ).find((element) => element.textContent?.includes(expected) && element.getBoundingClientRect().width > 0),
+                {
+                    selector: paneSelector(leftPane!),
+                    expected: text,
+                },
+                {
+                    description: `text box ${text}`,
+                    button: 'right',
+                },
+            );
+            await page.waitForSelector('.annotation-context-menu', {
+                visible: true,
+                timeout: SETTLE_TIMEOUT_MS,
+            });
+            await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+            const menus = await page.$$eval('.annotation-context-menu', (elements) => {
+                const panes = elements.map(
+                    (element) => (element.closest('.editor-pane') as HTMLElement | null)?.dataset.editorPaneId ?? null,
+                );
+                const visible = elements.filter((element) => element.getBoundingClientRect().width > 0);
+                return {
+                    visibleCount: visible.length,
+                    panes: visible.map((element) => panes[elements.indexOf(element)]),
+                    focusInVisibleMenu: visible.some((element) => element.contains(document.activeElement)),
+                };
+            });
+            expect(menus).toEqual({
+                visibleCount: 1,
+                panes: [leftPane],
+                focusInVisibleMenu: true,
+            });
+        },
+        TIMEOUT_MS,
+    );
 
     // Sweep #845 item 1: the second view's Bookmarks panel, first opened after
     // a saved rename in the first view, must not bring back the old outline.
-    it('keeps a bookmark renamed and saved in one view when the other view opens its bookmarks and saves', async () => {
-        const stamp = Date.now();
-        const pdfPath = await createOutlinePageLabelFixturePdf(`shared-pdf-split-bookmarks-${stamp}.pdf`, [
-            fixtureBookmark('First', 0),
-            fixtureBookmark('Middle', 2),
-            fixtureBookmark('Last', 3),
-        ]);
-        session = await startElectronE2ESession(`e2e-shared-pdf-split-bookmarks-${stamp}`, {
-            clean: true,
-            initialOpenPaths: [pdfPath],
-        });
-        const {page} = session;
-        await waitForPdfLoaded(page);
-        await waitForViewerInteractive(page);
-        await splitActiveTabFromTabMenu(page, 'right');
-        const [
-            leftPane,
-            rightPane,
-        ] = await paneIds(page);
-        await waitForPaneView(page, rightPane!, 'Split Right shows the document', view => !view.showsStart && view.centerPage !== null);
+    it(
+        'keeps a bookmark renamed and saved in one view when the other view opens its bookmarks and saves',
+        async () => {
+            const stamp = Date.now();
+            const pdfPath = await createOutlinePageLabelFixturePdf(`shared-pdf-split-bookmarks-${stamp}.pdf`, [
+                fixtureBookmark('First', 0),
+                fixtureBookmark('Middle', 2),
+                fixtureBookmark('Last', 3),
+            ]);
+            session = await startElectronE2ESession(`e2e-shared-pdf-split-bookmarks-${stamp}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            const {page} = session;
+            await waitForPdfLoaded(page);
+            await waitForViewerInteractive(page);
+            await splitActiveTabFromTabMenu(page, 'right');
+            const [leftPane, rightPane] = await paneIds(page);
+            await waitForPaneView(
+                page,
+                rightPane!,
+                'Split Right shows the document',
+                (view) => !view.showsStart && view.centerPage !== null,
+            );
 
-        // The left view renames Middle and saves.
-        await activatePaneByTab(page, leftPane!);
-        await openDocumentSidebarTab(page, 'Bookmarks');
-        await renameBookmark(page, leftPane!, 'Middle', 'Middle from left');
-        await saveFromToolbar(page, pdfPath);
-        await waitForPaneView(page, leftPane!, 'the left view is saved', view => !view.tabDirty);
-        const titlesAfterLeftSave = (await readPdfMetadataWithQpdf(pdfPath)).outlines.map(item => item.title);
+            // The left view renames Middle and saves.
+            await activatePaneByTab(page, leftPane!);
+            await openDocumentSidebarTab(page, 'Bookmarks');
+            await renameBookmark(page, leftPane!, 'Middle', 'Middle from left');
+            await saveFromToolbar(page, pdfPath);
+            await waitForPaneView(page, leftPane!, 'the left view is saved', (view) => !view.tabDirty);
+            const titlesAfterLeftSave = (await readPdfMetadataWithQpdf(pdfPath)).outlines.map((item) => item.title);
 
-        // The right view opens its Bookmarks panel for the first time, renames Last and saves.
-        await activatePaneByTab(page, rightPane!);
-        await openDocumentSidebarTab(page, 'Bookmarks');
-        const rightOpenedTitles = await waitForBookmarkTitles(page, rightPane!, 'the right panel lists the outline', {count: 3});
-        await renameBookmark(page, rightPane!, 'Last', 'Last from right');
-        await saveFromToolbar(page, pdfPath);
+            // The right view opens its Bookmarks panel for the first time, renames Last and saves.
+            await activatePaneByTab(page, rightPane!);
+            await openDocumentSidebarTab(page, 'Bookmarks');
+            const rightOpenedTitles = await waitForBookmarkTitles(page, rightPane!, 'the right panel lists the outline', {count: 3});
+            await renameBookmark(page, rightPane!, 'Last', 'Last from right');
+            await saveFromToolbar(page, pdfPath);
 
-        const savedTitles = (await readPdfMetadataWithQpdf(pdfPath)).outlines.map(item => item.title);
-        expect({
-            titlesAfterLeftSave,
-            rightOpenedTitles,
-            savedTitles,
-        }).toEqual({
-            titlesAfterLeftSave: [
-                'First',
-                'Middle from left',
-                'Last',
-            ],
-            rightOpenedTitles: [
-                'First',
-                'Middle from left',
-                'Last',
-            ],
-            savedTitles: [
-                'First',
-                'Middle from left',
-                'Last from right',
-            ],
-        });
-    }, TIMEOUT_MS);
+            const savedTitles = (await readPdfMetadataWithQpdf(pdfPath)).outlines.map((item) => item.title);
+            expect({
+                titlesAfterLeftSave,
+                rightOpenedTitles,
+                savedTitles,
+            }).toEqual({
+                titlesAfterLeftSave: ['First', 'Middle from left', 'Last'],
+                rightOpenedTitles: ['First', 'Middle from left', 'Last'],
+                savedTitles: ['First', 'Middle from left', 'Last from right'],
+            });
+        },
+        TIMEOUT_MS,
+    );
 
     // Sweep #845 item 3: each view keeps the annotation it selected, as it
     // keeps its own page and zoom.
-    it('keeps the annotation selected in one linked view when the other view selects another', async () => {
-        const stamp = Date.now();
-        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-selection-${stamp}.pdf`, 3);
-        session = await startElectronE2ESession(`e2e-shared-pdf-split-selection-${stamp}`, {
-            clean: true,
-            initialOpenPaths: [pdfPath],
-        });
-        const {page} = session;
-        await waitForPdfLoaded(page);
-        await waitForViewerInteractive(page);
-        await splitActiveTabFromTabMenu(page, 'right');
-        const [
-            leftPane,
-            rightPane,
-        ] = await paneIds(page);
-        await waitForPaneView(page, rightPane!, 'Split Right shows the document', view => !view.showsStart && view.centerPage !== null);
+    it(
+        'keeps the annotation selected in one linked view when the other view selects another',
+        async () => {
+            const stamp = Date.now();
+            const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-selection-${stamp}.pdf`, 3);
+            session = await startElectronE2ESession(`e2e-shared-pdf-split-selection-${stamp}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            const {page} = session;
+            await waitForPdfLoaded(page);
+            await waitForViewerInteractive(page);
+            await splitActiveTabFromTabMenu(page, 'right');
+            const [leftPane, rightPane] = await paneIds(page);
+            await waitForPaneView(
+                page,
+                rightPane!,
+                'Split Right shows the document',
+                (view) => !view.showsStart && view.centerPage !== null,
+            );
 
-        const first = `SELECT-X-${stamp}`;
-        const second = `SELECT-Y-${stamp}`;
-        await activatePaneByTab(page, leftPane!);
-        await createCanonicalTextBoxWithPointer(page, first, {
-            x: 0.3,
-            y: 0.25,
-        }, 1);
-        await createCanonicalTextBoxWithPointer(page, second, {
-            x: 0.3,
-            y: 0.6,
-        }, 1);
-        for (const paneId of [
-            leftPane!,
-            rightPane!,
-        ]) {
-            await waitForPaneView(page, paneId, `${paneId} renders both text boxes`, view => containsAll(view.renderedTexts, [
+            const first = `SELECT-X-${stamp}`;
+            const second = `SELECT-Y-${stamp}`;
+            await activatePaneByTab(page, leftPane!);
+            await createCanonicalTextBoxWithPointer(
+                page,
                 first,
+                {
+                    x: 0.3,
+                    y: 0.25,
+                },
+                1,
+            );
+            await createCanonicalTextBoxWithPointer(
+                page,
                 second,
-            ]));
-        }
+                {
+                    x: 0.3,
+                    y: 0.6,
+                },
+                1,
+            );
+            for (const paneId of [leftPane!, rightPane!]) {
+                await waitForPaneView(page, paneId, `${paneId} renders both text boxes`, (view) =>
+                    containsAll(view.renderedTexts, [first, second]),
+                );
+            }
 
-        // The left view selects X; the right view selects Y.
-        await clickTextBoxInPane(page, leftPane!, first);
-        await waitForSelectedTextBoxes(page, leftPane!, 'the left view selects X', [first]);
-        await activatePaneByTab(page, rightPane!);
-        await clickTextBoxInPane(page, rightPane!, second);
-        await waitForSelectedTextBoxes(page, rightPane!, 'the right view selects Y', [second]);
+            // The left view selects X; the right view selects Y.
+            await clickTextBoxInPane(page, leftPane!, first);
+            await waitForSelectedTextBoxes(page, leftPane!, 'the left view selects X', [first]);
+            await activatePaneByTab(page, rightPane!);
+            await clickTextBoxInPane(page, rightPane!, second);
+            await waitForSelectedTextBoxes(page, rightPane!, 'the right view selects Y', [second]);
 
-        // Back in the left view through its tab, X is still its selection.
-        await activatePaneByTab(page, leftPane!);
-        await waitForSelectedTextBoxes(page, leftPane!, 'the left view, back in use, shows X selected', [first]);
-        await waitForSelectedTextBoxes(page, rightPane!, 'the right view keeps Y selected', [second]);
-    }, TIMEOUT_MS);
+            // Back in the left view through its tab, X is still its selection.
+            await activatePaneByTab(page, leftPane!);
+            await waitForSelectedTextBoxes(page, leftPane!, 'the left view, back in use, shows X selected', [first]);
+            await waitForSelectedTextBoxes(page, rightPane!, 'the right view keeps Y selected', [second]);
+        },
+        TIMEOUT_MS,
+    );
 
     // Sweep #845 item 10: the drawing tool belongs to the view that picked it.
-    it('keeps the drawing tool picked in one linked view when the other view cancels its tool', async () => {
-        const stamp = Date.now();
-        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-tool-${stamp}.pdf`, 3);
-        session = await startElectronE2ESession(`e2e-shared-pdf-split-tool-${stamp}`, {
-            clean: true,
-            initialOpenPaths: [pdfPath],
-        });
-        const {page} = session;
-        await waitForPdfLoaded(page);
-        await waitForViewerInteractive(page);
-        await splitActiveTabFromTabMenu(page, 'right');
-        const [
-            leftPane,
-            rightPane,
-        ] = await paneIds(page);
-        await waitForPaneView(page, rightPane!, 'Split Right shows the document', view => !view.showsStart && view.centerPage !== null);
+    it(
+        'keeps the drawing tool picked in one linked view when the other view cancels its tool',
+        async () => {
+            const stamp = Date.now();
+            const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-tool-${stamp}.pdf`, 3);
+            session = await startElectronE2ESession(`e2e-shared-pdf-split-tool-${stamp}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            const {page} = session;
+            await waitForPdfLoaded(page);
+            await waitForViewerInteractive(page);
+            await splitActiveTabFromTabMenu(page, 'right');
+            const [leftPane, rightPane] = await paneIds(page);
+            await waitForPaneView(
+                page,
+                rightPane!,
+                'Split Right shows the document',
+                (view) => !view.showsStart && view.centerPage !== null,
+            );
 
-        // The left view picks Ink.
-        await activatePaneByTab(page, leftPane!);
-        await openAnnotationsTab(page);
-        await clickPaneTool(page, leftPane!, 'draw');
+            // The left view picks Ink.
+            await activatePaneByTab(page, leftPane!);
+            await openAnnotationsTab(page);
+            await clickPaneTool(page, leftPane!, 'draw');
 
-        // The right view, taken into use, has not picked a tool, like a
-        // freshly opened document; it then picks Select.
-        await activatePaneByTab(page, rightPane!);
-        await openAnnotationsTab(page);
-        const rightToolInUse = await settlePressedTool(page, rightPane!, null);
-        await clickPaneTool(page, rightPane!, 'select');
-        const leftToolAfterRightCancel = await settlePressedTool(page, leftPane!, 'draw');
+            // The right view, taken into use, has not picked a tool, like a
+            // freshly opened document; it then picks Select.
+            await activatePaneByTab(page, rightPane!);
+            await openAnnotationsTab(page);
+            const rightToolInUse = await settlePressedTool(page, rightPane!, null);
+            await clickPaneTool(page, rightPane!, 'select');
+            const leftToolAfterRightCancel = await settlePressedTool(page, leftPane!, 'draw');
 
-        expect({
-            rightToolInUse,
-            leftToolAfterRightCancel,
-        }).toEqual({
-            rightToolInUse: [],
-            leftToolAfterRightCancel: ['draw'],
-        });
-    }, TIMEOUT_MS);
+            expect({
+                rightToolInUse,
+                leftToolAfterRightCancel,
+            }).toEqual({
+                rightToolInUse: [],
+                leftToolAfterRightCancel: ['draw'],
+            });
+        },
+        TIMEOUT_MS,
+    );
 
-    it('keeps the other view on the page it reads when one view deletes an earlier page', async () => {
-        const stamp = Date.now();
-        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-delete-${stamp}.pdf`, 6);
-        session = await startElectronE2ESession(`e2e-shared-pdf-split-delete-${stamp}`, {
-            clean: true,
-            initialOpenPaths: [pdfPath],
-        });
-        const {page} = session;
-        await waitForPdfLoaded(page);
-        await waitForViewerInteractive(page);
-        await splitActiveTabFromTabMenu(page, 'right');
-        const [
-            leftPane,
-            rightPane,
-        ] = await paneIds(page);
+    it(
+        'keeps the other view on the page it reads when one view deletes an earlier page',
+        async () => {
+            const stamp = Date.now();
+            const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-delete-${stamp}.pdf`, 6);
+            session = await startElectronE2ESession(`e2e-shared-pdf-split-delete-${stamp}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            const {page} = session;
+            await waitForPdfLoaded(page);
+            await waitForViewerInteractive(page);
+            await splitActiveTabFromTabMenu(page, 'right');
+            const [leftPane, rightPane] = await paneIds(page);
 
-        // The right view reads page 4.
-        await waitForPaneView(page, rightPane!, 'Split Right shows the document', view => !view.showsStart && view.centerPage !== null);
-        await goToPageViaToolbar(page, 4);
-        await zoomInUntilPageFillsViewport(page, rightPane!);
-        const originalRight = await waitForSteadyPaneView(page, rightPane!, 'the right view reads page 4', view => (
-            view.centerPage === 4 && view.centerText?.includes('Fixture 4/6') === true
-        ));
+            // The right view reads page 4.
+            await waitForPaneView(
+                page,
+                rightPane!,
+                'Split Right shows the document',
+                (view) => !view.showsStart && view.centerPage !== null,
+            );
+            await goToPageViaToolbar(page, 4);
+            await zoomInUntilPageFillsViewport(page, rightPane!);
+            const originalRight = await waitForSteadyPaneView(
+                page,
+                rightPane!,
+                'the right view reads page 4',
+                (view) => view.centerPage === 4 && view.centerText?.includes('Fixture 4/6') === true,
+            );
 
-        // The left view deletes page 1 from its Pages panel at its own zoom.
-        await activatePaneByTab(page, leftPane!);
-        await zoomInUntilPageFillsViewport(page, leftPane!);
-        await clickToolbarButton(page, 'Zoom In');
-        await openDocumentSidebarTab(page, 'Pages');
-        await clickAsUser(page, thumbnailSelector(leftPane!, 1));
-        await waitForSteadyPaneView(page, leftPane!, 'the left view reads the page it will delete', view => (
-            view.centerPage === 1 && view.centerText?.includes('Fixture 1/6') === true
-        ));
-        await clickAsUser(page, thumbnailSelector(leftPane!, 1), {button: 'right'});
-        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-            .find(item => item.textContent?.trim() === 'Delete Pages' && item.getBoundingClientRect().width > 0), null, {description: 'Delete Pages'});
-        await waitForPaneView(page, leftPane!, 'the left view has five pages', view => view.pageCount === 5);
+            // The left view deletes page 1 from its Pages panel at its own zoom.
+            await activatePaneByTab(page, leftPane!);
+            await zoomInUntilPageFillsViewport(page, leftPane!);
+            await clickToolbarButton(page, 'Zoom In');
+            await openDocumentSidebarTab(page, 'Pages');
+            await clickAsUser(page, thumbnailSelector(leftPane!, 1));
+            await waitForSteadyPaneView(
+                page,
+                leftPane!,
+                'the left view reads the page it will delete',
+                (view) => view.centerPage === 1 && view.centerText?.includes('Fixture 1/6') === true,
+            );
+            await clickAsUser(page, thumbnailSelector(leftPane!, 1), {button: 'right'});
+            await clickFoundAsUser(
+                page,
+                () =>
+                    Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+                        (item) => item.textContent?.trim() === 'Delete Pages' && item.getBoundingClientRect().width > 0,
+                    ),
+                null,
+                {description: 'Delete Pages'},
+            );
+            await waitForPaneView(page, leftPane!, 'the left view has five pages', (view) => view.pageCount === 5);
 
-        // The right view still shows what it was reading, now as page 3. The
-        // reload briefly keeps the old picture, so wait for the settled text.
-        const rightView = await waitForPaneView(page, rightPane!, 'the right view must keep showing original page 4, now page 3', view => (
-            view.pageCount === 5 && view.centerPage === 3 && view.centerText?.includes('Fixture 4/6') === true
-        ));
-        expect(rightView.centerPage).toBe(3);
-        expect(sameWidth(rightView.pageWidthPx, originalRight.pageWidthPx)).toBe(true);
-        const leftAfterDelete = await waitForSteadyPaneView(page, leftPane!, 'the left view reads its deletion fallback', view => view.pageCount === 5 && view.centerText?.includes('Fixture 2/6') === true);
+            // The right view still shows what it was reading, now as page 3. The
+            // reload briefly keeps the old picture, so wait for the settled text.
+            const rightView = await waitForPaneView(
+                page,
+                rightPane!,
+                'the right view must keep showing original page 4, now page 3',
+                (view) => view.pageCount === 5 && view.centerPage === 3 && view.centerText?.includes('Fixture 4/6') === true,
+            );
+            expect(rightView.centerPage).toBe(3);
+            expect(sameWidth(rightView.pageWidthPx, originalRight.pageWidthPx)).toBe(true);
+            const leftAfterDelete = await waitForSteadyPaneView(
+                page,
+                leftPane!,
+                'the left view reads its deletion fallback',
+                (view) => view.pageCount === 5 && view.centerText?.includes('Fixture 2/6') === true,
+            );
 
-        await clickToolbarButton(page, 'Undo');
-        const rightAfterUndo = await waitForSteadyPaneView(page, rightPane!, 'undo keeps original page 4 in the right view', view => (
-            view.pageCount === 6 && view.centerPage === 4 && view.centerText?.includes('Fixture 4/6') === true
-        ));
-        expect(sameWidth(rightAfterUndo.pageWidthPx, originalRight.pageWidthPx)).toBe(true);
-        expect(Math.abs((rightAfterUndo.centerOffsetPx ?? 0) / (rightAfterUndo.pageWidthPx ?? 1)
-            - (originalRight.centerOffsetPx ?? 0) / (originalRight.pageWidthPx ?? 1))).toBeLessThan(0.05);
-        await waitForSteadyPaneView(page, leftPane!, 'undo keeps original page 2 in the left view', view => (
-            view.pageCount === 6 && view.centerPage === 2 && view.centerText?.includes('Fixture 2/6') === true
-            && sameWidth(view.pageWidthPx, leftAfterDelete.pageWidthPx)
-        ));
+            await clickToolbarButton(page, 'Undo');
+            const rightAfterUndo = await waitForSteadyPaneView(
+                page,
+                rightPane!,
+                'undo keeps original page 4 in the right view',
+                (view) => view.pageCount === 6 && view.centerPage === 4 && view.centerText?.includes('Fixture 4/6') === true,
+            );
+            expect(sameWidth(rightAfterUndo.pageWidthPx, originalRight.pageWidthPx)).toBe(true);
+            expect(
+                Math.abs(
+                    (rightAfterUndo.centerOffsetPx ?? 0) / (rightAfterUndo.pageWidthPx ?? 1) -
+                        (originalRight.centerOffsetPx ?? 0) / (originalRight.pageWidthPx ?? 1),
+                ),
+            ).toBeLessThan(0.05);
+            await waitForSteadyPaneView(
+                page,
+                leftPane!,
+                'undo keeps original page 2 in the left view',
+                (view) =>
+                    view.pageCount === 6 &&
+                    view.centerPage === 2 &&
+                    view.centerText?.includes('Fixture 2/6') === true &&
+                    sameWidth(view.pageWidthPx, leftAfterDelete.pageWidthPx),
+            );
 
-        await page.screenshot({path: join(sessionDir(session.name), 'history-after-undo.png')});
-        await activatePaneByTab(page, rightPane!);
-        await goToPageViaToolbar(page, 5);
-        const rightBeforeRedo = await waitForSteadyPaneView(page, rightPane!, 'the right view now reads original page 5', view => (
-            view.centerPage === 5 && view.centerText?.includes('Fixture 5/6') === true
-        ));
-        await clickToolbarButton(page, 'Redo');
-        const rightAfterRedo = await waitForSteadyPaneView(page, rightPane!, 'redo maps the page read now to original page 5', view => (
-            view.pageCount === 5 && view.centerPage === 4 && view.centerText?.includes('Fixture 5/6') === true
-        ));
-        expect(sameWidth(rightAfterRedo.pageWidthPx, originalRight.pageWidthPx)).toBe(true);
-        expect(Math.abs((rightAfterRedo.centerOffsetPx ?? 0) / (rightAfterRedo.pageWidthPx ?? 1)
-            - (rightBeforeRedo.centerOffsetPx ?? 0) / (rightBeforeRedo.pageWidthPx ?? 1))).toBeLessThan(0.05);
-        await waitForSteadyPaneView(page, leftPane!, 'redo independently keeps original page 2 in the left view', view => (
-            view.pageCount === 5 && view.centerPage === 1 && view.centerText?.includes('Fixture 2/6') === true
-            && sameWidth(view.pageWidthPx, leftAfterDelete.pageWidthPx)
-        ));
-        await page.screenshot({path: join(sessionDir(session.name), 'history-after-redo.png')});
-    }, TIMEOUT_MS);
+            await page.screenshot({path: join(sessionDir(session.name), 'history-after-undo.png')});
+            await activatePaneByTab(page, rightPane!);
+            await goToPageViaToolbar(page, 5);
+            const rightBeforeRedo = await waitForSteadyPaneView(
+                page,
+                rightPane!,
+                'the right view now reads original page 5',
+                (view) => view.centerPage === 5 && view.centerText?.includes('Fixture 5/6') === true,
+            );
+            await clickToolbarButton(page, 'Redo');
+            const rightAfterRedo = await waitForSteadyPaneView(
+                page,
+                rightPane!,
+                'redo maps the page read now to original page 5',
+                (view) => view.pageCount === 5 && view.centerPage === 4 && view.centerText?.includes('Fixture 5/6') === true,
+            );
+            expect(sameWidth(rightAfterRedo.pageWidthPx, originalRight.pageWidthPx)).toBe(true);
+            expect(
+                Math.abs(
+                    (rightAfterRedo.centerOffsetPx ?? 0) / (rightAfterRedo.pageWidthPx ?? 1) -
+                        (rightBeforeRedo.centerOffsetPx ?? 0) / (rightBeforeRedo.pageWidthPx ?? 1),
+                ),
+            ).toBeLessThan(0.05);
+            await waitForSteadyPaneView(
+                page,
+                leftPane!,
+                'redo independently keeps original page 2 in the left view',
+                (view) =>
+                    view.pageCount === 5 &&
+                    view.centerPage === 1 &&
+                    view.centerText?.includes('Fixture 2/6') === true &&
+                    sameWidth(view.pageWidthPx, leftAfterDelete.pageWidthPx),
+            );
+            await page.screenshot({path: join(sessionDir(session.name), 'history-after-redo.png')});
+        },
+        TIMEOUT_MS,
+    );
 
     // T4 and R3: rotating the page a view reads keeps that view on it, through
     // undo, redo and save, and the other view on its own page.
-    it('keeps each view on its page when one view rotates the page it reads', async () => {
-        const stamp = Date.now();
-        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-rotate-${stamp}.pdf`, 40);
-        session = await startElectronE2ESession(`e2e-shared-pdf-split-rotate-${stamp}`, {
-            clean: true,
-            initialOpenPaths: [pdfPath],
-        });
-        const {page} = session;
-        await waitForPdfLoaded(page);
-        await waitForViewerInteractive(page);
-        await session.command('windowResize', [
-            1440,
-            900,
-        ]);
-        await goToPageViaToolbar(page, 3);
-        await splitActiveTabFromTabMenu(page, 'right');
-        const [
-            leftPane,
-            rightPane,
-        ] = await paneIds(page);
-        await waitForPaneView(page, rightPane!, 'Split Right shows the document', view => !view.showsStart && view.centerPage !== null);
-        await goToPageViaToolbar(page, 15);
-        await activatePaneByTab(page, leftPane!);
-        await openDocumentSidebarTab(page, 'Pages');
-        await waitForSteadyPaneView(page, leftPane!, 'the left view reads page 3', view => view.centerPage === 3);
-        await waitForSteadyPaneView(page, rightPane!, 'the right view reads page 15', view => view.centerPage === 15);
+    it(
+        'keeps each view on its page when one view rotates the page it reads',
+        async () => {
+            const stamp = Date.now();
+            const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-rotate-${stamp}.pdf`, 40);
+            session = await startElectronE2ESession(`e2e-shared-pdf-split-rotate-${stamp}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            const {page} = session;
+            await waitForPdfLoaded(page);
+            await waitForViewerInteractive(page);
+            await session.command('windowResize', [1440, 900]);
+            await goToPageViaToolbar(page, 3);
+            await splitActiveTabFromTabMenu(page, 'right');
+            const [leftPane, rightPane] = await paneIds(page);
+            await waitForPaneView(
+                page,
+                rightPane!,
+                'Split Right shows the document',
+                (view) => !view.showsStart && view.centerPage !== null,
+            );
+            await goToPageViaToolbar(page, 15);
+            await activatePaneByTab(page, leftPane!);
+            await openDocumentSidebarTab(page, 'Pages');
+            await waitForSteadyPaneView(page, leftPane!, 'the left view reads page 3', (view) => view.centerPage === 3);
+            await waitForSteadyPaneView(page, rightPane!, 'the right view reads page 15', (view) => view.centerPage === 15);
 
-        await clickAsUser(page, thumbnailSelector(leftPane!, 3), {button: 'right'});
-        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-            .find(item => item.textContent?.trim() === 'Rotate Clockwise' && item.getBoundingClientRect().width > 0), null, {description: 'Rotate Clockwise'});
-        // Each step settles once page 3 shows the shape it gives that page in both views.
-        const expectPages = async (step: string, landscape: boolean) => {
-            await page.waitForFunction((wide: boolean) => {
-                const pages = Array.from(document.querySelectorAll<HTMLElement>('.editor-pane #pdf-viewer .page_container[data-page="3"]'));
-                return pages.length > 0 && pages.every((container) => {
-                    const rect = container.getBoundingClientRect();
-                    return rect.height > 0 && (rect.width > rect.height) === wide;
-                });
-            }, {timeout: SETTLE_TIMEOUT_MS}, landscape);
-            await waitForViewportQuiet(page);
-            await waitForSteadyPaneView(page, leftPane!, `${step}: the left view must stay on page 3`, view => view.centerPage === 3);
-            await waitForSteadyPaneView(page, rightPane!, `${step}: the right view must stay on page 15`, view => view.centerPage === 15);
-            expect(await getToolbarCurrentPage(page), `${step}: the left view's toolbar`).toBe(3);
-            await page.screenshot({path: join(sessionDir(session!.name), `rotate-${step}.png`)});
-        };
-        await expectPages('rotate', true);
-        await clickToolbarButton(page, 'Undo');
-        await expectPages('undo', false);
-        await clickToolbarButton(page, 'Redo');
-        await expectPages('redo', true);
-        await saveFromToolbar(page, pdfPath);
-        await expectPages('save', true);
-        expect((await readPdfPageSnapshots(pdfPath))[2]?.rotation).toBe(90);
-    }, TIMEOUT_MS);
+            await clickAsUser(page, thumbnailSelector(leftPane!, 3), {button: 'right'});
+            await clickFoundAsUser(
+                page,
+                () =>
+                    Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+                        (item) => item.textContent?.trim() === 'Rotate Clockwise' && item.getBoundingClientRect().width > 0,
+                    ),
+                null,
+                {description: 'Rotate Clockwise'},
+            );
+            // Each step settles once page 3 shows the shape it gives that page in both views.
+            const expectPages = async (step: string, landscape: boolean) => {
+                await page.waitForFunction(
+                    (wide: boolean) => {
+                        const pages = Array.from(
+                            document.querySelectorAll<HTMLElement>('.editor-pane #pdf-viewer .page_container[data-page="3"]'),
+                        );
+                        return (
+                            pages.length > 0 &&
+                            pages.every((container) => {
+                                const rect = container.getBoundingClientRect();
+                                return rect.height > 0 && rect.width > rect.height === wide;
+                            })
+                        );
+                    },
+                    {timeout: SETTLE_TIMEOUT_MS},
+                    landscape,
+                );
+                await waitForViewportQuiet(page);
+                await waitForSteadyPaneView(page, leftPane!, `${step}: the left view must stay on page 3`, (view) => view.centerPage === 3);
+                await waitForSteadyPaneView(
+                    page,
+                    rightPane!,
+                    `${step}: the right view must stay on page 15`,
+                    (view) => view.centerPage === 15,
+                );
+                expect(await getToolbarCurrentPage(page), `${step}: the left view's toolbar`).toBe(3);
+                await page.screenshot({path: join(sessionDir(session!.name), `rotate-${step}.png`)});
+            };
+            await expectPages('rotate', true);
+            await clickToolbarButton(page, 'Undo');
+            await expectPages('undo', false);
+            await clickToolbarButton(page, 'Redo');
+            await expectPages('redo', true);
+            await saveFromToolbar(page, pdfPath);
+            await expectPages('save', true);
+            expect((await readPdfPageSnapshots(pdfPath))[2]?.rotation).toBe(90);
+        },
+        TIMEOUT_MS,
+    );
 
     // Sweep #845: opening the same file again from a view (Recent Files, a drop)
     // goes through openFileDirect and must not reload the shared, edited document.
-    it('keeps the unsaved edits in the other view when one view opens the same file again', async () => {
-        const stamp = Date.now();
-        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-reopen-${stamp}.pdf`, 3);
-        session = await startElectronE2ESession(`e2e-shared-pdf-split-reopen-${stamp}`, {
-            clean: true,
-            initialOpenPaths: [pdfPath],
-        });
-        const {page} = session;
-        await waitForPdfLoaded(page);
-        await waitForViewerInteractive(page);
-        await splitActiveTabFromTabMenu(page, 'right');
-        const [
-            leftPane,
-            rightPane,
-        ] = await paneIds(page);
-        await waitForPaneView(page, rightPane!, 'Split Right shows the document', view => !view.showsStart && view.centerPage !== null);
+    it(
+        'keeps the unsaved edits in the other view when one view opens the same file again',
+        async () => {
+            const stamp = Date.now();
+            const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-reopen-${stamp}.pdf`, 3);
+            session = await startElectronE2ESession(`e2e-shared-pdf-split-reopen-${stamp}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            const {page} = session;
+            await waitForPdfLoaded(page);
+            await waitForViewerInteractive(page);
+            await splitActiveTabFromTabMenu(page, 'right');
+            const [leftPane, rightPane] = await paneIds(page);
+            await waitForPaneView(
+                page,
+                rightPane!,
+                'Split Right shows the document',
+                (view) => !view.showsStart && view.centerPage !== null,
+            );
 
-        const edit = `REOPEN-${stamp}`;
-        await createCanonicalTextBoxWithPointer(page, edit, {
-            x: 0.3,
-            y: 0.3,
-        }, 1);
-        await waitForPaneView(page, leftPane!, 'the edit renders in the left view and the tab is dirty', view => (
-            containsAll(view.renderedTexts, [edit]) && view.tabDirty
-        ));
+            const edit = `REOPEN-${stamp}`;
+            await createCanonicalTextBoxWithPointer(
+                page,
+                edit,
+                {
+                    x: 0.3,
+                    y: 0.3,
+                },
+                1,
+            );
+            await waitForPaneView(
+                page,
+                leftPane!,
+                'the edit renders in the left view and the tab is dirty',
+                (view) => containsAll(view.renderedTexts, [edit]) && view.tabDirty,
+            );
 
-        // The right view, in use, opens the same path again. The open has taken
-        // effect once that view shows its own clean document without the edit.
-        await activatePaneByTab(page, rightPane!);
-        await requireWorkspaceCommand(page, 'handleOpenFileDirectWithPersist', [pdfPath]);
-        await waitForPaneView(page, rightPane!, 'the right view settles on its own document', view => (
-            !view.showsStart && view.centerPage !== null && !view.tabDirty && !containsAll(view.renderedTexts, [edit])
-        ));
+            // The right view, in use, opens the same path again. The open has taken
+            // effect once that view shows its own clean document without the edit.
+            await activatePaneByTab(page, rightPane!);
+            await requireWorkspaceCommand(page, 'handleOpenFileDirectWithPersist', [pdfPath]);
+            await waitForPaneView(
+                page,
+                rightPane!,
+                'the right view settles on its own document',
+                (view) => !view.showsStart && view.centerPage !== null && !view.tabDirty && !containsAll(view.renderedTexts, [edit]),
+            );
 
-        await waitForPaneView(page, leftPane!, 'the left view keeps the edit and stays dirty', view => (
-            containsAll(view.renderedTexts, [edit]) && view.tabDirty
-        ));
-    }, TIMEOUT_MS);
+            await waitForPaneView(
+                page,
+                leftPane!,
+                'the left view keeps the edit and stays dirty',
+                (view) => containsAll(view.renderedTexts, [edit]) && view.tabDirty,
+            );
+        },
+        TIMEOUT_MS,
+    );
 
     // Issue #932: Split from the tab menu while the tab's PDF is still opening
     // shows that PDF in the new pane once it opens, not an empty New Tab.
-    it('links the new view to a PDF that is still opening when the tab is split', async () => {
-        const stamp = Date.now();
-        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-opening-${stamp}.pdf`, 3);
-        const documentRef = requireDocumentRef(pdfPath);
-        const fileName = basename(pdfPath);
-        session = await startElectronE2ESession(`e2e-shared-pdf-split-opening-${stamp}`, {clean: true});
-        const {page} = session;
-        await page.waitForFunction(() => typeof window.__deferDocumentOpenForAutomation === 'function', {timeout: 60_000});
-        // The open is held before the working copy exists, as a slow disk holds
-        // it, so the tab stays in its opening state until the split is made.
-        expect(await page.evaluate(path => window.__deferDocumentOpenForAutomation?.(path) ?? false, documentRef)).toBe(true);
-        const opened = page.evaluate(async (path: string) => {
-            const target = window as typeof globalThis & IE2EWindow & {
-                __allowRendererFileOpenForAutomation?: (value: string) => Promise<boolean>;
-                __openFileDirect?: (value: string) => Promise<boolean>;
-            };
-            return await target.__allowRendererFileOpenForAutomation?.(path) === true
-                && await target.__openFileDirect?.(path) === true;
-        }, pdfPath);
-        // The new source has no remembered geometry. It must claim the file
-        // while showing bare viewer background, and remain unresolved until
-        // the split is made and the working-copy hold is released.
-        const heldOpen = await Promise.race([
-            page.waitForFunction((name: string) => {
-                const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
-                const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis');
-                const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]');
-                const rect = viewport?.getBoundingClientRect();
-                const visibleSurface = Array.from(host?.querySelectorAll<HTMLElement>(
-                    '.start-open-panel, .document-page-skeleton, .document-viewer-chassis__opening-page, .page_canvas, canvas',
-                ) ?? []).some(node => {
-                    const box = node.getBoundingClientRect();
-                    return box.width > 0 && box.height > 0 && getComputedStyle(node).visibility !== 'hidden';
-                });
-                return document.querySelector('.editor-pane.is-active .tab.is-active[data-tab-id] .tab-label')?.textContent?.trim() === name
-                    && viewport?.dataset.openSurfacePhase === 'pending'
-                    && chassis?.dataset.openSurfaceHasOpeningGeometry === 'false'
-                    && Boolean(rect && rect.width > 0 && rect.height > 0)
-                    && !visibleSurface;
-            }, {timeout: SETTLE_TIMEOUT_MS}, fileName).then(() => 'held', (error: unknown) => `no claimed bare opening: ${String(error)}`),
-            opened.then(result => `open settled while held: ${String(result)}`, (error: unknown) => `open failed: ${String(error)}`),
-        ]);
-        expect(heldOpen).toBe('held');
+    it(
+        'links the new view to a PDF that is still opening when the tab is split',
+        async () => {
+            const stamp = Date.now();
+            const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-opening-${stamp}.pdf`, 3);
+            const documentRef = requireDocumentRef(pdfPath);
+            const fileName = basename(pdfPath);
+            session = await startElectronE2ESession(`e2e-shared-pdf-split-opening-${stamp}`, {clean: true});
+            const {page} = session;
+            await page.waitForFunction(() => typeof window.__deferDocumentOpenForAutomation === 'function', {timeout: 60_000});
+            // The open is held before the working copy exists, as a slow disk holds
+            // it, so the tab stays in its opening state until the split is made.
+            expect(await page.evaluate((path) => window.__deferDocumentOpenForAutomation?.(path) ?? false, documentRef)).toBe(true);
+            const opened = page.evaluate(async (path: string) => {
+                const target = window as typeof globalThis &
+                    IE2EWindow & {
+                        __allowRendererFileOpenForAutomation?: (value: string) => Promise<boolean>;
+                        __openFileDirect?: (value: string) => Promise<boolean>;
+                    };
+                return (
+                    (await target.__allowRendererFileOpenForAutomation?.(path)) === true && (await target.__openFileDirect?.(path)) === true
+                );
+            }, pdfPath);
+            // The new source has no remembered geometry. It must claim the file
+            // while showing bare viewer background, and remain unresolved until
+            // the split is made and the working-copy hold is released.
+            const heldOpen = await Promise.race([
+                page
+                    .waitForFunction(
+                        (name: string) => {
+                            const host = document.querySelector<HTMLElement>(
+                                '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+                            );
+                            const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis');
+                            const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]');
+                            const rect = viewport?.getBoundingClientRect();
+                            const visibleSurface = Array.from(
+                                host?.querySelectorAll<HTMLElement>(
+                                    '.start-open-panel, .document-page-skeleton, .document-viewer-chassis__opening-page, .page_canvas, canvas',
+                                ) ?? [],
+                            ).some((node) => {
+                                const box = node.getBoundingClientRect();
+                                return box.width > 0 && box.height > 0 && getComputedStyle(node).visibility !== 'hidden';
+                            });
+                            return (
+                                document
+                                    .querySelector('.editor-pane.is-active .tab.is-active[data-tab-id] .tab-label')
+                                    ?.textContent?.trim() === name &&
+                                viewport?.dataset.openSurfacePhase === 'pending' &&
+                                chassis?.dataset.openSurfaceHasOpeningGeometry === 'false' &&
+                                Boolean(rect && rect.width > 0 && rect.height > 0) &&
+                                !visibleSurface
+                            );
+                        },
+                        {timeout: SETTLE_TIMEOUT_MS},
+                        fileName,
+                    )
+                    .then(
+                        () => 'held',
+                        (error: unknown) => `no claimed bare opening: ${String(error)}`,
+                    ),
+                opened.then(
+                    (result) => `open settled while held: ${String(result)}`,
+                    (error: unknown) => `open failed: ${String(error)}`,
+                ),
+            ]);
+            expect(heldOpen).toBe('held');
 
-        await splitActiveTabFromTabMenu(page, 'right', SETTLE_TIMEOUT_MS);
-        // The split was chosen before the source view painted a page.
-        expect(await page.$$eval(PAINTED_FIRST_PAGE, canvases => canvases.length)).toBe(0);
-        expect(await page.evaluate(path => window.__releaseDocumentOpenForAutomation?.(path) ?? false, documentRef)).toBe(true);
-        expect(await opened).toBe(true);
+            await splitActiveTabFromTabMenu(page, 'right', SETTLE_TIMEOUT_MS);
+            // The split was chosen before the source view painted a page.
+            expect(await page.$$eval(PAINTED_FIRST_PAGE, (canvases) => canvases.length)).toBe(0);
+            expect(await page.evaluate((path) => window.__releaseDocumentOpenForAutomation?.(path) ?? false, documentRef)).toBe(true);
+            expect(await opened).toBe(true);
 
-        const [
-            leftPane,
-            rightPane,
-        ] = await paneIds(page);
-        const paintedPageSelector = (paneId: string) => `${paneSelector(paneId)} ${PAINTED_FIRST_PAGE}`;
-        await page.waitForSelector(paintedPageSelector(leftPane!), {timeout: 60_000});
-        await waitForPaneView(page, rightPane!, 'Split Right must show the PDF that was opening', view => (
-            !view.showsStart && view.tabLabel === fileName && view.centerPage === 1
-        ));
-        await page.waitForSelector(paintedPageSelector(rightPane!), {timeout: SETTLE_TIMEOUT_MS});
-    }, TIMEOUT_MS);
+            const [leftPane, rightPane] = await paneIds(page);
+            const paintedPageSelector = (paneId: string) => `${paneSelector(paneId)} ${PAINTED_FIRST_PAGE}`;
+            await page.waitForSelector(paintedPageSelector(leftPane!), {timeout: 60_000});
+            await waitForPaneView(
+                page,
+                rightPane!,
+                'Split Right must show the PDF that was opening',
+                (view) => !view.showsStart && view.tabLabel === fileName && view.centerPage === 1,
+            );
+            await page.waitForSelector(paintedPageSelector(rightPane!), {timeout: SETTLE_TIMEOUT_MS});
+        },
+        TIMEOUT_MS,
+    );
 });

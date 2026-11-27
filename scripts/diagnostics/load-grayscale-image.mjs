@@ -1,7 +1,4 @@
-import {
-    createCanvas,
-    loadImage,
-} from '@napi-rs/canvas';
+import {createCanvas, loadImage} from '@napi-rs/canvas';
 
 /**
  * Decode an image through the diagnostic canvas path and expose one grayscale
@@ -18,11 +15,7 @@ export async function loadGrayscaleImage(path) {
     const rgba = context.getImageData(0, 0, image.width, image.height).data;
     const data = new Uint8Array(image.width * image.height);
     for (let index = 0, pixel = 0; index < rgba.length; index += 4, pixel += 1) {
-        data[pixel] = Math.round(
-            rgba[index] * 0.2126
-            + rgba[index + 1] * 0.7152
-            + rgba[index + 2] * 0.0722,
-        );
+        data[pixel] = Math.round(rgba[index] * 0.2126 + rgba[index + 1] * 0.7152 + rgba[index + 2] * 0.0722);
     }
     return {
         data,

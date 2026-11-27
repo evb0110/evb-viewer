@@ -2,8 +2,8 @@ import type {
     TAnnotationCreationFailureReason,
     TAnnotationCreationOutcome,
 } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
-import { describeAnnotationCreationFailure } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/describeAnnotationCreationFailure';
-import { didCreateAnnotation } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/didCreateAnnotation';
+import {describeAnnotationCreationFailure} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/describeAnnotationCreationFailure';
+import {didCreateAnnotation} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/didCreateAnnotation';
 
 export interface IAnnotationCreationOutcomeProjection {
     created: boolean;

@@ -64,9 +64,9 @@
                     :key="swatch"
                     type="button"
                     class="settings-swatch"
-                    :class="{ 'is-active': settings.defaultAnnotationColor === swatch }"
-                    :style="{ '--swatch-color': swatch }"
-                    :aria-label="t('settings.annotationColorLabel', { color: swatch })"
+                    :class="{'is-active': settings.defaultAnnotationColor === swatch}"
+                    :style="{'--swatch-color': swatch}"
+                    :aria-label="t('settings.annotationColorLabel', {color: swatch})"
                     :aria-checked="settings.defaultAnnotationColor === swatch"
                     role="radio"
                     @click="emit('update:annotation-color', swatch)"
@@ -104,12 +104,7 @@
 </template>
 
 <script setup lang="ts">
-import type {
-    ISettingsData,
-    TDefaultZoomPreset,
-    TTabMemoryPolicy,
-    TPdfViewMode,
-} from '@contracts/shared';
+import type {ISettingsData, TDefaultZoomPreset, TTabMemoryPolicy, TPdfViewMode} from '@contracts/shared';
 
 interface ISelectItem<T> {
     value: T;
@@ -126,23 +121,22 @@ defineProps<{
 }>();
 
 const emit = defineEmits<{
-    'update:zoom-preset': [value: string | { value: string }];
-    'update:view-mode': [value: string | { value: string }];
-    'update:scroll-mode': [value: boolean | { value: boolean }];
+    'update:zoom-preset': [value: string | {value: string}];
+    'update:view-mode': [value: string | {value: string}];
+    'update:scroll-mode': [value: boolean | {value: boolean}];
     'update:remember-document-view': [value: boolean];
-    'update:tab-memory-policy': [value: string | { value: string }];
+    'update:tab-memory-policy': [value: string | {value: string}];
     'update:annotation-color': [value: string];
     'update:optimize-pdf-on-save-as': [value: boolean];
 }>();
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 
 const settingsFormFieldUi = {
     label: 'settings-field-label',
     help: 'settings-field-hint mt-1',
 };
-const settingsControlUi = { label: 'settings-control-label' };
-
+const settingsControlUi = {label: 'settings-control-label'};
 </script>
 
 <style lang="scss" scoped>
@@ -154,7 +148,9 @@ const settingsControlUi = { label: 'settings-control-label' };
     background: var(--swatch-color);
     cursor: pointer;
     box-shadow: 0 0 0 0 transparent;
-    transition: transform $ease-quick, box-shadow $ease-quick;
+    transition:
+        transform $ease-quick,
+        box-shadow $ease-quick;
 }
 
 .settings-swatch:hover {

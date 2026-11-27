@@ -1,15 +1,9 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { createDocumentViewportWritePort } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
-import { WHEEL_GESTURE_IDLE_MS } from '@app/modules/document-viewer/input/createWheelGestureStream';
-import { createTestPdfViewportWritePort } from '@tests/helpers/createTestPdfViewportWritePort';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {createDocumentViewportWritePort} from '@app/modules/document-viewer/runtime/documentViewportWritePort';
+import {WHEEL_GESTURE_IDLE_MS} from '@app/modules/document-viewer/input/createWheelGestureStream';
+import {createTestPdfViewportWritePort} from '@tests/helpers/createTestPdfViewportWritePort';
 
 describe('PDF viewport write port ownership tags', () => {
     it('fences a synchronous scroll event raised by the DOM setter', () => {
@@ -32,20 +26,24 @@ describe('PDF viewport write port ownership tags', () => {
         } as HTMLElement;
         const intent = port.beginIntent('synchronous-navigation');
 
-        expect(port.apply(container, {
-            intent,
-            reason: 'test',
-            top: 120,
-        })).toBe(true);
+        expect(
+            port.apply(container, {
+                intent,
+                reason: 'test',
+                top: 120,
+            }),
+        ).toBe(true);
         expect(consumedDuringSetter).toBe(true);
         expect(port.consumeAuthorityScroll(container)).toBe(true);
 
         const clampedIntent = port.beginIntent('clamped-navigation');
-        expect(port.apply(container, {
-            intent: clampedIntent,
-            reason: 'test-clamped',
-            top: 2_000,
-        })).toBe(true);
+        expect(
+            port.apply(container, {
+                intent: clampedIntent,
+                reason: 'test-clamped',
+                top: 2_000,
+            }),
+        ).toBe(true);
         expect(scrollTop).toBe(900);
         expect(consumedDuringSetter).toBe(true);
         expect(port.consumeAuthorityScroll(container)).toBe(true);
@@ -82,11 +80,13 @@ describe('PDF viewport write port ownership tags', () => {
         port.observeUserInteraction(container);
         expect(port.getInteractionEpoch()).toBe(2);
         expect(port.consumeAuthorityScroll(container)).toBe(false);
-        expect(port.apply(container, {
-            intent: preWheelIntent,
-            reason: 'stale-after-wheel',
-            top: 220,
-        })).toBe(false);
+        expect(
+            port.apply(container, {
+                intent: preWheelIntent,
+                reason: 'stale-after-wheel',
+                top: 220,
+            }),
+        ).toBe(false);
     });
 });
 
@@ -163,26 +163,32 @@ describe('PDF viewport write port retirement', () => {
         const port = createDocumentViewportWritePort();
         const container = createScrollContainer();
         const pending = port.beginIntent('navigate:3');
-        expect(port.apply(container, {
-            intent: pending,
-            reason: 'navigation',
-            top: 100,
-        })).toBe(true);
+        expect(
+            port.apply(container, {
+                intent: pending,
+                reason: 'navigation',
+                top: 100,
+            }),
+        ).toBe(true);
 
         port.retire();
 
         expect(port.consumeAuthorityScroll(container)).toBe(false);
-        expect(port.apply(container, {
-            intent: pending,
-            reason: 'late-navigation',
-            top: 200,
-        })).toBe(false);
+        expect(
+            port.apply(container, {
+                intent: pending,
+                reason: 'late-navigation',
+                top: 200,
+            }),
+        ).toBe(false);
         const late = port.beginIntent('late-restore');
-        expect(port.apply(container, {
-            intent: late,
-            reason: 'late-restore',
-            top: 300,
-        })).toBe(false);
+        expect(
+            port.apply(container, {
+                intent: late,
+                reason: 'late-restore',
+                top: 300,
+            }),
+        ).toBe(false);
         expect(container.scrollTop).toBe(100);
 
         const epoch = port.getInteractionEpoch();
@@ -207,17 +213,21 @@ describe('PDF viewport write port source identity', () => {
 
         source = {name: 'second'};
 
-        expect(port.apply(container, {
-            intent: beforeSwap,
-            reason: 'restore-before-swap',
-            top: 100,
-        })).toBe(false);
+        expect(
+            port.apply(container, {
+                intent: beforeSwap,
+                reason: 'restore-before-swap',
+                top: 100,
+            }),
+        ).toBe(false);
         expect(container.scrollTop).toBe(0);
-        expect(port.apply(container, {
-            intent: port.beginIntent('restore-after-swap'),
-            reason: 'restore-after-swap',
-            top: 120,
-        })).toBe(true);
+        expect(
+            port.apply(container, {
+                intent: port.beginIntent('restore-after-swap'),
+                reason: 'restore-after-swap',
+                top: 120,
+            }),
+        ).toBe(true);
         expect(container.scrollTop).toBe(120);
     });
 
@@ -227,11 +237,13 @@ describe('PDF viewport write port source identity', () => {
         const intent = port.beginIntent('thumbnail-press');
 
         expect(intent.source).toBeNull();
-        expect(port.apply(container, {
-            intent,
-            reason: 'thumbnail-press',
-            top: 40,
-        })).toBe(true);
+        expect(
+            port.apply(container, {
+                intent,
+                reason: 'thumbnail-press',
+                top: 40,
+            }),
+        ).toBe(true);
     });
 });
 

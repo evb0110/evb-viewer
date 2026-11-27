@@ -17,11 +17,7 @@ export type TIpcCodecMap<TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec}
     [TChannel in keyof TMap]: IIpcCodec<TMap[TChannel]>;
 };
 
-export type TIpcMainInvokeHandler<
-    TArgs extends unknown[] = unknown[],
-    TResult = unknown,
-    TEvent = unknown,
-> = (
+export type TIpcMainInvokeHandler<TArgs extends unknown[] = unknown[], TResult = unknown, TEvent = unknown> = (
     event: TEvent,
     ...args: TArgs
 ) => TResult | Promise<TResult>;
@@ -31,15 +27,13 @@ export type TUntypedIpcMainHandle<TEvent = unknown> = <TArgs extends unknown[], 
     handler: TIpcMainInvokeHandler<TArgs, TResult, TEvent>,
 ) => void;
 
-export type TTypedIpcMainHandle<
-    TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec},
-    TEvent = unknown,
-> = <TChannel extends Extract<keyof TMap, string>>(
+export type TTypedIpcMainHandle<TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec}, TEvent = unknown> = <
+    TChannel extends Extract<keyof TMap, string>,
+>(
     channel: TChannel,
     handler: TIpcMainInvokeHandler<TMap[TChannel]['args'], TMap[TChannel]['result'], TEvent>,
 ) => void;
 
-export interface IIpcMainRegistrar<
-    TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec} = never,
-    TEvent = unknown,
-> {handle: [TMap] extends [never] ? TUntypedIpcMainHandle<TEvent> : TTypedIpcMainHandle<TMap, TEvent>;}
+export interface IIpcMainRegistrar<TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec} = never, TEvent = unknown> {
+    handle: [TMap] extends [never] ? TUntypedIpcMainHandle<TEvent> : TTypedIpcMainHandle<TMap, TEvent>;
+}

@@ -11,13 +11,8 @@ export interface IViewportLifecycleContract {
     startAtOpenSurfaceClaim?: boolean;
 }
 
-function getCheckpointFrames(
-    trace: ICommittedSurfaceTrace,
-    contract: IViewportLifecycleContract,
-) {
-    const checkpointFrames = trace.frames.filter(
-        frame => frame.interactionCheckpoint === contract.interactionCheckpoint,
-    );
+function getCheckpointFrames(trace: ICommittedSurfaceTrace, contract: IViewportLifecycleContract) {
+    const checkpointFrames = trace.frames.filter((frame) => frame.interactionCheckpoint === contract.interactionCheckpoint);
     if (!contract.startAtOpenSurfaceClaim) {
         return checkpointFrames;
     }
@@ -26,18 +21,17 @@ function getCheckpointFrames(
     // Retain those raw-click frames in the trace for diagnostics, but begin
     // the viewport-ownership contract only once the open transaction
     // positively claims its surface.
-    const firstClaimedFrameIndex = checkpointFrames.findIndex(frame => (
-        Boolean(frame.openSurfacePhase && frame.openSurfacePhase !== 'idle')
-        || Boolean(frame.openSurfacePresentation && frame.openSurfacePresentation !== 'idle')
-        || frame.kind === 'page-shell'
-    ));
-    return firstClaimedFrameIndex >= 0
-        ? checkpointFrames.slice(firstClaimedFrameIndex)
-        : [];
+    const firstClaimedFrameIndex = checkpointFrames.findIndex(
+        (frame) =>
+            Boolean(frame.openSurfacePhase && frame.openSurfacePhase !== 'idle') ||
+            Boolean(frame.openSurfacePresentation && frame.openSurfacePresentation !== 'idle') ||
+            frame.kind === 'page-shell',
+    );
+    return firstClaimedFrameIndex >= 0 ? checkpointFrames.slice(firstClaimedFrameIndex) : [];
 }
 
 function findVisibleOwnerViolation(frame: ICommittedSurfaceFrame) {
-    if (frame.kind === 'blank' && !isOpeningBeforePageGeometry(frame) || frame.kind === 'loader') {
+    if ((frame.kind === 'blank' && !isOpeningBeforePageGeometry(frame)) || frame.kind === 'loader') {
         return `frame ${String(frame.frame)} exposed ${frame.kind} instead of one viewport owner: ${JSON.stringify({
             navigation: frame.pdfNavigationDiagnostic,
             openSurface: frame.openSurfaceDiagnostic,
@@ -56,19 +50,12 @@ function findVisibleOwnerViolation(frame: ICommittedSurfaceFrame) {
         })}`;
     }
     if (
-        frame.kind === 'page-shell'
-        && (
-            frame.skeletonCount > 1
-            || frame.skeletonCount === 1 && !frame.skeletonSharesShell
-            || frame.shellId === null
-        )
+        frame.kind === 'page-shell' &&
+        (frame.skeletonCount > 1 || (frame.skeletonCount === 1 && !frame.skeletonSharesShell) || frame.shellId === null)
     ) {
         return `frame ${String(frame.frame)} did not keep its skeleton inside the sole page-shell owner`;
     }
-    if (
-        frame.kind !== 'page-shell'
-        && frame.skeletonCount > 0
-    ) {
+    if (frame.kind !== 'page-shell' && frame.skeletonCount > 0) {
         return `frame ${String(frame.frame)} duplicated ${frame.kind} with a skeleton owner`;
     }
     return null;
@@ -79,10 +66,7 @@ function findVisibleOwnerViolation(frame: ICommittedSurfaceFrame) {
  * consumes RAF evidence rather than internal renderer state so stale commits,
  * blank frames, and skeleton ownership bugs remain observable end to end.
  */
-export function findViewportLifecycleViolations(
-    trace: ICommittedSurfaceTrace,
-    contract: IViewportLifecycleContract,
-) {
+export function findViewportLifecycleViolations(trace: ICommittedSurfaceTrace, contract: IViewportLifecycleContract) {
     const violations: string[] = [];
     const frames = getCheckpointFrames(trace, contract);
     if (frames.length < 2) {
@@ -98,11 +82,11 @@ export function findViewportLifecycleViolations(
             violations.push(`frame ${String(frame.frame)} retained the Recent surface after navigation was requested`);
         }
         if (
-            frame.kind === 'page-shell'
-            && frame.pageNumber === contract.expectedFinalPage
-            && frame.openSurfacePresentation !== 'opening'
-            && frame.pageVisualState !== 'ready'
-            && frame.skeletonCount === 0
+            frame.kind === 'page-shell' &&
+            frame.pageNumber === contract.expectedFinalPage &&
+            frame.openSurfacePresentation !== 'opening' &&
+            frame.pageVisualState !== 'ready' &&
+            frame.skeletonCount === 0
         ) {
             violations.push(`frame ${String(frame.frame)} exposed a bare pending target page`);
         }
@@ -110,33 +94,24 @@ export function findViewportLifecycleViolations(
 
     if (contract.rejectUnexpectedCanvasPages) {
         for (const frame of frames) {
-            if (
-                frame.kind === 'committed-canvas'
-                && frame.pageNumber !== contract.expectedFinalPage
-            ) {
+            if (frame.kind === 'committed-canvas' && frame.pageNumber !== contract.expectedFinalPage) {
                 violations.push(
                     `superseded page ${String(frame.pageNumber)} committed instead of page ${String(contract.expectedFinalPage)}`,
                 );
             }
         }
     }
-    const finalTargetFrameIndex = frames.findIndex(frame => (
-        frame.kind === 'committed-canvas'
-        && frame.pageNumber === contract.expectedFinalPage
-    ));
+    const finalTargetFrameIndex = frames.findIndex(
+        (frame) => frame.kind === 'committed-canvas' && frame.pageNumber === contract.expectedFinalPage,
+    );
     if (finalTargetFrameIndex < 0) {
         violations.push(`page ${String(contract.expectedFinalPage)} never committed a canvas`);
         return violations;
     }
 
     for (const frame of frames.slice(finalTargetFrameIndex + 1)) {
-        if (
-            frame.kind === 'committed-canvas'
-            && frame.pageNumber !== contract.expectedFinalPage
-        ) {
-            violations.push(
-                `stale page ${String(frame.pageNumber)} committed after page ${String(contract.expectedFinalPage)}`,
-            );
+        if (frame.kind === 'committed-canvas' && frame.pageNumber !== contract.expectedFinalPage) {
+            violations.push(`stale page ${String(frame.pageNumber)} committed after page ${String(contract.expectedFinalPage)}`);
         }
     }
 

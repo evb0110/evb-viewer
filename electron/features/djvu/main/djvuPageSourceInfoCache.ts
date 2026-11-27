@@ -1,15 +1,9 @@
-import { stat } from 'fs/promises';
-import { resolve } from 'path';
-import type {
-    IDjvuPageSize,
-    IDjvuPageSourceInfo,
-} from '@contracts/electronApiDjvu';
-import {
-    parseEpochMs,
-    type TEpochMs,
-} from '@contracts/timestamps';
-import { getErrorMessage } from '@electron/utils/error';
-import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
+import {stat} from 'fs/promises';
+import {resolve} from 'path';
+import type {IDjvuPageSize, IDjvuPageSourceInfo} from '@contracts/electronApiDjvu';
+import {parseEpochMs, type TEpochMs} from '@contracts/timestamps';
+import {getErrorMessage} from '@electron/utils/error';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 
 export type TDjvuSourceRevisionKey = `${number}:${number}`;
 
@@ -58,11 +52,7 @@ function discardPendingProbes(djvuPath: string) {
     }
 }
 
-function storeInfo(
-    djvuPath: string,
-    revision: TDjvuSourceRevisionKey,
-    infos: IDjvuPageSourceInfo[],
-) {
+function storeInfo(djvuPath: string, revision: TDjvuSourceRevisionKey, infos: IDjvuPageSourceInfo[]) {
     const existingEntry = cacheByDjvuPath.get(djvuPath);
     if (!existingEntry || existingEntry.revision !== revision) {
         return;
@@ -108,11 +98,7 @@ export async function readDjvuSourceRevision(djvuPath: string): Promise<IDjvuSou
     };
 }
 
-function getCachedDjvuPageSourceInfo(
-    djvuPath: string,
-    revision: TDjvuSourceRevisionKey,
-    pageNumber: number,
-) {
+function getCachedDjvuPageSourceInfo(djvuPath: string, revision: TDjvuSourceRevisionKey, pageNumber: number) {
     const normalizedPath = normalizeDjvuPath(djvuPath);
     const entry = cacheByDjvuPath.get(normalizedPath);
     if (!entry || entry.revision !== revision) {
@@ -122,11 +108,7 @@ function getCachedDjvuPageSourceInfo(
     return entry.infoByPage.get(pageNumber) ?? null;
 }
 
-export function getCachedDjvuPageSizes(
-    djvuPath: string,
-    revision: TDjvuSourceRevisionKey,
-    pageCount: number,
-): IDjvuPageSize[] | null {
+export function getCachedDjvuPageSizes(djvuPath: string, revision: TDjvuSourceRevisionKey, pageCount: number): IDjvuPageSize[] | null {
     const normalizedPath = normalizeDjvuPath(djvuPath);
     const entry = cacheByDjvuPath.get(normalizedPath);
     if (!entry || entry.revision !== revision || entry.infoByPage.size < pageCount) {
@@ -144,36 +126,35 @@ export function getCachedDjvuPageSizes(
     return sizes;
 }
 
-export function storeDjvuPageSourceInfos(
-    djvuPath: string,
-    revision: TDjvuSourceRevisionKey,
-    infos: IDjvuPageSourceInfo[],
-) {
+export function storeDjvuPageSourceInfos(djvuPath: string, revision: TDjvuSourceRevisionKey, infos: IDjvuPageSourceInfo[]) {
     storeInfo(normalizeDjvuPath(djvuPath), revision, infos);
 }
 
 // Every page record of one source revision carries the same document page
 // count and first-page DPI, so any cached record answers them for a page miss.
-function getCachedDjvuDocumentInfo(
-    djvuPath: string,
-    revision: TDjvuSourceRevisionKey,
-) {
+function getCachedDjvuDocumentInfo(djvuPath: string, revision: TDjvuSourceRevisionKey) {
     const entry = cacheByDjvuPath.get(djvuPath);
     const info = entry?.revision === revision ? entry.infoByPage.values().next().value : undefined;
-    return info && {
-        dpi: info.pageSize.dpi,
-        pageCount: info.pageCount,
-    };
+    return (
+        info && {
+            dpi: info.pageSize.dpi,
+            pageCount: info.pageCount,
+        }
+    );
 }
 
 export function getOrProbeDjvuPageSourceInfo(
     djvuPath: string,
     revision: TDjvuSourceRevisionKey,
     pageNumber: number,
-    probe: (documentInfo: {
-        dpi: number;
-        pageCount: number;
-    } | undefined) => Promise<IDjvuPageSourceInfo>,
+    probe: (
+        documentInfo:
+            | {
+                  dpi: number;
+                  pageCount: number;
+              }
+            | undefined,
+    ) => Promise<IDjvuPageSourceInfo>,
 ) {
     const normalizedPath = normalizeDjvuPath(djvuPath);
     const cached = getCachedDjvuPageSourceInfo(normalizedPath, revision, pageNumber);
@@ -193,12 +174,14 @@ export function getOrProbeDjvuPageSourceInfo(
             throw error;
         });
     }
-    const nextProbe = probe(getCachedDjvuDocumentInfo(normalizedPath, revision)).then((info) => {
-        storeInfo(normalizedPath, revision, [info]);
-        return info;
-    }).finally(() => {
-        pendingProbes.delete(probeKey);
-    });
+    const nextProbe = probe(getCachedDjvuDocumentInfo(normalizedPath, revision))
+        .then((info) => {
+            storeInfo(normalizedPath, revision, [info]);
+            return info;
+        })
+        .finally(() => {
+            pendingProbes.delete(probeKey);
+        });
     pendingProbes.set(probeKey, nextProbe);
     return nextProbe;
 }

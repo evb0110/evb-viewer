@@ -1,25 +1,16 @@
-import type { Ref } from 'vue';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import { parseDocumentInstanceId } from '@contracts/documentInstanceId';
-import type {
-    IWorkspaceCheckpoint,
-    IWorkspaceCheckpointTab,
-} from '@contracts/workspaceCheckpoint';
-import type {
-    IWorkspaceExpose,
-    IWorkspaceToolbarSnapshot,
-} from '@app/types/workspaceExpose';
-import type { IWorkspaceDocumentViewSeed } from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentView';
-import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
-import { reportStartupFirstView } from '@app/modules/workspace-shell/composables/useWorkspaceStartupReadiness';
-import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import type { TWorkspaceDocumentSessions } from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
+import type {Ref} from 'vue';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TOpenFileResult} from '@contracts/electronApiDocuments';
+import {parseDocumentInstanceId} from '@contracts/documentInstanceId';
+import type {IWorkspaceCheckpoint, IWorkspaceCheckpointTab} from '@contracts/workspaceCheckpoint';
+import type {IWorkspaceExpose, IWorkspaceToolbarSnapshot} from '@app/types/workspaceExpose';
+import type {IWorkspaceDocumentViewSeed} from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentView';
+import {createTabViewSessionState} from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
+import {reportStartupFirstView} from '@app/modules/workspace-shell/composables/useWorkspaceStartupReadiness';
+import type {IWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import type {TWorkspaceDocumentSessions} from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
 import {getWorkspaceViewerAdapterForDocumentType} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
-import type {
-    TWorkspaceViewerDocumentType,
-    IWorkspaceViewerAdapter,
-} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
+import type {TWorkspaceViewerDocumentType, IWorkspaceViewerAdapter} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 
 interface IRestoreWorkspaceCheckpointOptions {
     activeTabId: Readonly<Ref<string | null>>;
@@ -34,7 +25,7 @@ export function getRegisteredPdfOpenKind(
     adapter: Pick<IWorkspaceViewerAdapter, 'documentTypes' | 'capabilities'> = getWorkspaceViewerAdapterForDocumentType('pdf'),
 ) {
     const kind = adapter.documentTypes.find((documentType): documentType is 'pdf' => documentType === PDF_DOCUMENT_TYPE);
-    return adapter.capabilities.pdfDocument ? kind ?? null : null;
+    return adapter.capabilities.pdfDocument ? (kind ?? null) : null;
 }
 
 // Unsaved work reopens from its working copy. A hard restart loses the main
@@ -43,13 +34,13 @@ function getRecoveryTarget(tab: IWorkspaceCheckpointTab): TOpenFileResult | null
     const pdfKind = getRegisteredPdfOpenKind();
     return tab.isDirty && tab.workingCopyRef && tab.sourceRef && pdfKind
         ? {
-            kind: pdfKind,
-            workingPath: tab.workingCopyRef,
-            originalPath: tab.sourceRef,
-            recoveryDirtyBaseline: true,
-            ...(tab.requiresSaveAsOnFirstSave ? {isGenerated: true} : {}),
-            ...(tab.keptOriginalPath ? {keptOriginalPath: tab.keptOriginalPath} : {}),
-        }
+              kind: pdfKind,
+              workingPath: tab.workingCopyRef,
+              originalPath: tab.sourceRef,
+              recoveryDirtyBaseline: true,
+              ...(tab.requiresSaveAsOnFirstSave ? {isGenerated: true} : {}),
+              ...(tab.keptOriginalPath ? {keptOriginalPath: tab.keptOriginalPath} : {}),
+          }
         : null;
 }
 
@@ -71,9 +62,9 @@ async function applyAnnotationRecovery(
     }
     const state = workspace.getAutomationStateSnapshot();
     if (
-        state.workingCopyPath !== recovery.workingCopyRef
-        || state.documentIdentity?.token !== recovery.workingByteRevision
-        || session.snapshot.value.identity.documentInstanceId !== recovery.documentInstanceId
+        state.workingCopyPath !== recovery.workingCopyRef ||
+        state.documentIdentity?.token !== recovery.workingByteRevision ||
+        session.snapshot.value.identity.documentInstanceId !== recovery.documentInstanceId
     ) {
         return false;
     }
@@ -83,11 +74,7 @@ async function applyAnnotationRecovery(
     return true;
 }
 
-async function restoreTab(
-    checkpointTab: IWorkspaceCheckpointTab,
-    session: IWorkspaceDocumentController,
-    shown: boolean,
-) {
+async function restoreTab(checkpointTab: IWorkspaceCheckpointTab, session: IWorkspaceDocumentController, shown: boolean) {
     const recoveryTarget = getRecoveryTarget(checkpointTab);
     // A tab that is not shown opens its document when it is, at the place it
     // was checkpointed at. Shown tabs and tabs with unsaved work (kept
@@ -97,17 +84,18 @@ async function restoreTab(
         view?.restoreView(createCheckpointViewSeed(checkpointTab, view.toolbarSnapshot.value));
         return true;
     }
-    const workspace = await session.getView(checkpointTab.tabId)?.whenMounted() ?? null;
+    const workspace = (await session.getView(checkpointTab.tabId)?.whenMounted()) ?? null;
     if (!workspace) {
         return false;
     }
     // Nothing replaces the stored drafts before they are applied; drafts that are not applied stay as stored.
-    const settleDrafts = (checkpointTab.annotationRecovery?.payload === undefined && !checkpointTab.annotationRecoveryInvalid)
-        ? undefined
-        : workspace.holdDocumentDrafts?.();
+    const settleDrafts =
+        checkpointTab.annotationRecovery?.payload === undefined && !checkpointTab.annotationRecoveryInvalid
+            ? undefined
+            : workspace.holdDocumentDrafts?.();
     let recoveryApplied = false;
     try {
-        if (recoveryTarget && !await workspace.handleOpenFileWithResult(recoveryTarget)) {
+        if (recoveryTarget && !(await workspace.handleOpenFileWithResult(recoveryTarget))) {
             return false;
         }
         // Only the shown tab waits for its pixels; a hidden one paints when selected.
@@ -159,7 +147,7 @@ async function restoreLinkedTab(
         view?.restoreView(createCheckpointViewSeed(checkpointTab, view.toolbarSnapshot.value));
         return true;
     }
-    const workspace = await view?.whenMounted() ?? null;
+    const workspace = (await view?.whenMounted()) ?? null;
     if (!workspace) {
         return false;
     }
@@ -174,10 +162,7 @@ async function restoreLinkedTab(
  * its working copy, and the others open when their tab is shown. Returns the
  * paths whose state could not be restored.
  */
-export async function restoreWorkspaceCheckpoint(
-    checkpoint: IWorkspaceCheckpoint,
-    options: IRestoreWorkspaceCheckpointOptions,
-) {
+export async function restoreWorkspaceCheckpoint(checkpoint: IWorkspaceCheckpoint, options: IRestoreWorkspaceCheckpointOptions) {
     options.restoreGraph(checkpoint);
     // Tabs that viewed one PDF come back as views of one document again: a
     // later view names the first, and older checkpoints share its working
@@ -187,7 +172,9 @@ export async function restoreWorkspaceCheckpoint(
     const firstTabIds = new Set<string>();
     for (const tab of checkpoint.tabs) {
         const named = tab.linkedToTabId && firstTabIds.has(tab.linkedToTabId) ? tab.linkedToTabId : undefined;
-        const firstTabId = tab.isDjvu ? undefined : named ?? (tab.workingCopyRef ? firstTabByWorkingCopy.get(tab.workingCopyRef) : undefined);
+        const firstTabId = tab.isDjvu
+            ? undefined
+            : (named ?? (tab.workingCopyRef ? firstTabByWorkingCopy.get(tab.workingCopyRef) : undefined));
         if (firstTabId) {
             linkedToTabId.set(tab.tabId, firstTabId);
             continue;
@@ -207,26 +194,33 @@ export async function restoreWorkspaceCheckpoint(
     }
     const graphActiveTabId = options.activeTabId.value;
     const restoredByTabId = new Map<string, Promise<boolean>>();
-    const results = await Promise.all(checkpoint.tabs.map(async (tab) => {
-        const shown = checkpoint.panes.some(pane => pane.activeTabId === tab.tabId);
-        const firstTabId = linkedToTabId.get(tab.tabId);
-        const restored = (async () => {
-            if (firstTabId) {
-                const documentToolbar = await restoredByTabId.get(firstTabId) === true
-                    ? options.documentSessions.getView(firstTabId)?.toolbarSnapshot.value
-                    : undefined;
-                return documentToolbar !== undefined
-                    && options.documentSessions.linkView(firstTabId, tab.tabId, createCheckpointViewSeed(tab, documentToolbar))
-                    && await restoreLinkedTab(tab, options, shown);
+    const results = await Promise.all(
+        checkpoint.tabs.map(async (tab) => {
+            const shown = checkpoint.panes.some((pane) => pane.activeTabId === tab.tabId);
+            const firstTabId = linkedToTabId.get(tab.tabId);
+            const restored = (async () => {
+                if (firstTabId) {
+                    const documentToolbar =
+                        (await restoredByTabId.get(firstTabId)) === true
+                            ? options.documentSessions.getView(firstTabId)?.toolbarSnapshot.value
+                            : undefined;
+                    return (
+                        documentToolbar !== undefined &&
+                        options.documentSessions.linkView(firstTabId, tab.tabId, createCheckpointViewSeed(tab, documentToolbar)) &&
+                        (await restoreLinkedTab(tab, options, shown))
+                    );
+                }
+                const session = options.documentSessions.getSession(tab.tabId);
+                return session !== null && (await restoreTab(tab, session, shown));
+            })().catch(() => false);
+            restoredByTabId.set(tab.tabId, restored);
+            // The window's shown tab ends the startup overlay once its view presents.
+            if (shown && tab.tabId === checkpoint.activeTabId) {
+                void reportStartupFirstView(restored);
             }
-            const session = options.documentSessions.getSession(tab.tabId);
-            return session !== null && await restoreTab(tab, session, shown);
-        })().catch(() => false);
-        restoredByTabId.set(tab.tabId, restored);
-        // The window's shown tab ends the startup overlay once its view presents.
-        if (shown && tab.tabId === checkpoint.activeTabId) void reportStartupFirstView(restored);
-        return restored;
-    }));
+            return restored;
+        }),
+    );
     const failedPaths = checkpoint.tabs.flatMap((tab, index): TDocumentRef[] => {
         const failedPath = tab.sourceRef ?? tab.workingCopyRef;
         return !results[index] && failedPath ? [failedPath] : [];

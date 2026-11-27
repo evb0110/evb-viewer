@@ -4,12 +4,7 @@ export function resolveVisiblePageLabelsDuringMetadataRefresh(options: {
     isSaving: boolean;
     totalPages: number;
 }) {
-    const {
-        pageLabels,
-        pageLabelsResolved,
-        isSaving,
-        totalPages,
-    } = options;
+    const {pageLabels, pageLabelsResolved, isSaving, totalPages} = options;
 
     if (pageLabelsResolved || isSaving) {
         return pageLabels;

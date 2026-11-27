@@ -1,20 +1,9 @@
-import {
-    EventEmitter, on,
-} from 'node:events';
-import {
-    mkdtemp, readFile, rm, writeFile,
-} from 'node:fs/promises';
+import {EventEmitter, on} from 'node:events';
+import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {PassThrough} from 'node:stream';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     createInterface: vi.fn(),
@@ -43,7 +32,9 @@ class MockLineReader extends EventEmitter {
     readonly close = vi.fn(() => this.emit('close'));
 
     async *[Symbol.asyncIterator]() {
-        for await (const [line] of on(this, 'line', {close: ['close']})) yield String(line);
+        for await (const [line] of on(this, 'line', {close: ['close']})) {
+            yield String(line);
+        }
     }
 }
 
@@ -80,18 +71,10 @@ describe('scan cleanup sidecar protocol failures', () => {
         const lines = new MockLineReader();
         mocks.spawn.mockReturnValue(child);
         mocks.createInterface.mockReturnValue(lines);
-        const {runScanCleanupSidecar} = await import(
-            '@electron/features/scan-cleanup/worker/runScanCleanupSidecar'
-        );
+        const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
         const controller = new AbortController();
-        const run = runScanCleanupSidecar(
-            '/native/evb-scan-cleanup',
-            '/scratch/manifest.json',
-            controller.signal,
-            vi.fn(),
-            () => {},
-        );
-        const rejection = run.catch(error => error);
+        const run = runScanCleanupSidecar('/native/evb-scan-cleanup', '/scratch/manifest.json', controller.signal, vi.fn(), () => {});
+        const rejection = run.catch((error) => error);
         await vi.advanceTimersByTimeAsync(0);
         lines.emit('line', '{');
         controller.abort(new DOMException('Canceled scan cleanup detection', 'AbortError'));
@@ -102,11 +85,7 @@ describe('scan cleanup sidecar protocol failures', () => {
     });
 
     it.each([
-        [
-            'malformed NDJSON',
-            '{',
-            undefined,
-        ],
+        ['malformed NDJSON', '{', undefined],
         [
             'schema-invalid NDJSON',
             JSON.stringify({
@@ -116,33 +95,25 @@ describe('scan cleanup sidecar protocol failures', () => {
             }),
             undefined,
         ],
-        [
-            'progress callback failure',
-            progressLine(),
-            new Error('Progress consumer failed'),
-        ],
-    ] as const)('closes stdout and terminates immediately on %s', async (
-        _label,
-        line,
-        progressError,
-    ) => {
+        ['progress callback failure', progressLine(), new Error('Progress consumer failed')],
+    ] as const)('closes stdout and terminates immediately on %s', async (_label, line, progressError) => {
         const child = new MockSidecarProcess();
         const lines = new MockLineReader();
         mocks.spawn.mockReturnValue(child);
         mocks.createInterface.mockReturnValue(lines);
-        const {runScanCleanupSidecar} = await import(
-            '@electron/features/scan-cleanup/worker/runScanCleanupSidecar'
-        );
+        const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
         const run = runScanCleanupSidecar(
             '/native/evb-scan-cleanup',
             '/scratch/manifest.json',
             new AbortController().signal,
             vi.fn(),
             () => {
-                if (progressError !== undefined) throw progressError;
+                if (progressError !== undefined) {
+                    throw progressError;
+                }
             },
         );
-        const rejection = run.catch(error => error);
+        const rejection = run.catch((error) => error);
 
         await vi.waitFor(() => expect(mocks.createInterface).toHaveBeenCalledOnce());
         lines.emit('line', line);
@@ -163,9 +134,7 @@ describe('scan cleanup sidecar protocol failures', () => {
         const lines = new MockLineReader();
         const onProtocolError = vi.fn();
         mocks.createInterface.mockReturnValue(lines);
-        const {createScanCleanupSidecarProtocolHandler} = await import(
-            '@evb/scan-cleanup/core/createScanCleanupSidecarProtocolHandler'
-        );
+        const {createScanCleanupSidecarProtocolHandler} = await import('@evb/scan-cleanup/core/createScanCleanupSidecarProtocolHandler');
         createScanCleanupSidecarProtocolHandler({
             stdout: child.stdout,
             stderr: child.stderr,
@@ -185,9 +154,7 @@ describe('scan cleanup sidecar protocol failures', () => {
         const child = new MockSidecarProcess();
         const lines = new MockLineReader();
         mocks.createInterface.mockReturnValue(lines);
-        const {createScanCleanupSidecarProtocolHandler} = await import(
-            '@evb/scan-cleanup/core/createScanCleanupSidecarProtocolHandler'
-        );
+        const {createScanCleanupSidecarProtocolHandler} = await import('@evb/scan-cleanup/core/createScanCleanupSidecarProtocolHandler');
         const protocol = createScanCleanupSidecarProtocolHandler({
             stdout: child.stdout,
             stderr: child.stderr,
@@ -205,9 +172,7 @@ describe('scan cleanup sidecar protocol failures', () => {
         const lines = new MockLineReader();
         mocks.spawn.mockReturnValue(child);
         mocks.createInterface.mockReturnValue(lines);
-        const {runScanCleanupSidecar} = await import(
-            '@electron/features/scan-cleanup/worker/runScanCleanupSidecar'
-        );
+        const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
         const onResultError = new Error('Late onResult failure after clean exit');
         const releaseOnResult = Promise.withResolvers<void>();
         let onResultEntered = false;
@@ -225,18 +190,21 @@ describe('scan cleanup sidecar protocol failures', () => {
                 },
             },
         );
-        const rejection = run.catch(error => error);
+        const rejection = run.catch((error) => error);
 
         await vi.waitFor(() => expect(mocks.createInterface).toHaveBeenCalledOnce());
-        lines.emit('line', JSON.stringify({
-            version: 3,
-            type: 'result',
-            result: {
-                status: 'success',
-                completedPages: 1,
-                totalPages: 1,
-            },
-        }));
+        lines.emit(
+            'line',
+            JSON.stringify({
+                version: 3,
+                type: 'result',
+                result: {
+                    status: 'success',
+                    completedPages: 1,
+                    totalPages: 1,
+                },
+            }),
+        );
         await vi.waitFor(() => expect(onResultEntered).toBe(true));
 
         // Sidecar closes with exit code 0 before onResult settles so runNativeToolCommand resolves cleanly.
@@ -253,9 +221,7 @@ describe('scan cleanup sidecar protocol failures', () => {
         const lines = new MockLineReader();
         mocks.spawn.mockReturnValue(child);
         mocks.createInterface.mockReturnValue(lines);
-        const {runScanCleanupSidecar} = await import(
-            '@electron/features/scan-cleanup/worker/runScanCleanupSidecar'
-        );
+        const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
         const run = runScanCleanupSidecar(
             '/native/evb-scan-cleanup',
             '/scratch/manifest.json',
@@ -279,9 +245,7 @@ describe('scan cleanup sidecar protocol failures', () => {
     it('prefers caller abort over wall-clock timeout and marks unproven timeout terminations', async () => {
         vi.useFakeTimers();
         mocks.terminateDetachedChildProcess.mockImplementation(() => new Promise(() => {}));
-        const {runScanCleanupSidecar} = await import(
-            '@electron/features/scan-cleanup/worker/runScanCleanupSidecar'
-        );
+        const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
         const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
 
         // 1. Caller abort wins over wall-clock timeout when both race before settlement.
@@ -298,7 +262,7 @@ describe('scan cleanup sidecar protocol failures', () => {
             abortLog,
             () => {},
             {timeoutMs: 10},
-        ).catch(error => error);
+        ).catch((error) => error);
         await vi.advanceTimersByTimeAsync(10);
         controller.abort(abortError);
         await vi.advanceTimersByTimeAsync(3_000);
@@ -321,11 +285,14 @@ describe('scan cleanup sidecar protocol failures', () => {
         let deferredRecovery: Promise<boolean> | undefined;
         try {
             await writeFile(backup, 'previous destination');
-            await writeFile(journalPath, JSON.stringify({
-                version: 1,
-                manifestPath,
-                entries: [{original, backup}],
-            }));
+            await writeFile(
+                journalPath,
+                JSON.stringify({
+                    version: 1,
+                    manifestPath,
+                    entries: [{original, backup}],
+                }),
+            );
             const timeoutRun = runScanCleanupSidecar(
                 '/native/evb-scan-cleanup',
                 manifestPath,
@@ -334,9 +301,11 @@ describe('scan cleanup sidecar protocol failures', () => {
                 () => {},
                 {
                     timeoutMs: 10,
-                    onRecoveryPending: recovery => { deferredRecovery = recovery; },
+                    onRecoveryPending: (recovery) => {
+                        deferredRecovery = recovery;
+                    },
                 },
-            ).catch(error => error);
+            ).catch((error) => error);
             await vi.advanceTimersByTimeAsync(3_010);
             const timeoutResult = await timeoutRun;
             expect(timeoutResult).toMatchObject({
@@ -374,7 +343,7 @@ describe('scan cleanup sidecar protocol failures', () => {
                     throw new Error('Sync recovery owner failure');
                 },
             },
-        ).catch(error => error);
+        ).catch((error) => error);
         await vi.advanceTimersByTimeAsync(3_010);
         const syncThrowResult = await syncThrowRun;
         expect(syncThrowResult).toMatchObject({
@@ -404,7 +373,7 @@ describe('scan cleanup sidecar protocol failures', () => {
                 timeoutMs: 10,
                 onRecoveryPending: preSpawnRecovery,
             },
-        ).catch(error => error);
+        ).catch((error) => error);
         expect(preSpawnResult).toMatchObject({
             name: 'NativeScanCleanupError',
             code: 'native-failure',

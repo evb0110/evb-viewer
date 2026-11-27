@@ -1,13 +1,8 @@
-import { requirePageIndex } from '@contracts/pageNumbers';
-import type { TPageIndex } from '@contracts/pageNumbers';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { navigateToBookmarkDestination } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/navigateToBookmarkDestination';
-import type { IBookmarkItem } from '@app/types/pdfOutline';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import type {TPageIndex} from '@contracts/pageNumbers';
+import {describe, expect, it, vi} from 'vitest';
+import {navigateToBookmarkDestination} from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/navigateToBookmarkDestination';
+import type {IBookmarkItem} from '@app/types/pdfOutline';
 
 function createBookmark(overrides: Partial<IBookmarkItem>): IBookmarkItem {
     return {
@@ -34,16 +29,18 @@ describe('navigateToBookmarkDestination', () => {
             emitGoToPage,
         });
         expect(emitGoToPage).toHaveBeenCalledOnce();
-        expect(emitGoToPage).toHaveBeenCalledWith(5, {navigationRequest: {
-            target: {
-                kind: 'named-dest',
-                destination: 'chapter',
+        expect(emitGoToPage).toHaveBeenCalledWith(5, {
+            navigationRequest: {
+                target: {
+                    kind: 'named-dest',
+                    destination: 'chapter',
+                },
+                alignment: 'page-top',
+                readiness: 'page-canvas',
+                source: 'bookmark',
+                supersession: 'latest-wins',
             },
-            alignment: 'page-top',
-            readiness: 'page-canvas',
-            source: 'bookmark',
-            supersession: 'latest-wins',
-        }});
+        });
     });
 
     it('emits a page target when the bookmark has no named destination', () => {
@@ -52,13 +49,15 @@ describe('navigateToBookmarkDestination', () => {
             item: createBookmark({pageIndex: requirePageIndex(6)}),
             emitGoToPage,
         });
-        expect(emitGoToPage).toHaveBeenCalledWith(7, {navigationRequest: expect.objectContaining({
-            target: {
-                kind: 'page',
-                page: 7,
-            },
-            source: 'bookmark',
-        })});
+        expect(emitGoToPage).toHaveBeenCalledWith(7, {
+            navigationRequest: expect.objectContaining({
+                target: {
+                    kind: 'page',
+                    page: 7,
+                },
+                source: 'bookmark',
+            }),
+        });
     });
 
     it('keeps the vertical position of a bookmark that has only a page ratio', () => {
@@ -70,20 +69,22 @@ describe('navigateToBookmarkDestination', () => {
             }),
             emitGoToPage,
         });
-        expect(emitGoToPage).toHaveBeenCalledWith(1, {navigationRequest: expect.objectContaining({
-            target: {
-                kind: 'rect',
-                page: 1,
-                rect: {
-                    left: 0.5,
-                    top: 0.25,
-                    width: 0,
-                    height: 0,
+        expect(emitGoToPage).toHaveBeenCalledWith(1, {
+            navigationRequest: expect.objectContaining({
+                target: {
+                    kind: 'rect',
+                    page: 1,
+                    rect: {
+                        left: 0.5,
+                        top: 0.25,
+                        width: 0,
+                        height: 0,
+                    },
                 },
-            },
-            alignment: 'page-top',
-            source: 'bookmark',
-        })});
+                alignment: 'page-top',
+                source: 'bookmark',
+            }),
+        });
     });
 
     it('does not emit invalid requests', () => {

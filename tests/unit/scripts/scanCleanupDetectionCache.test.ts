@@ -1,33 +1,18 @@
-import {
-    copyFile,
-    mkdtemp,
-    readFile,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
+import {copyFile, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {
-    dirname, join,
-} from 'node:path';
-import type {
-    IScanCleanupDetectionResult,
-    IScanCleanupOptions,
-} from '@contracts/scan-cleanup/electronApiScanCleanup';
-import { requirePageNumber } from '@contracts/pageNumbers';
+import {dirname, join} from 'node:path';
+import type {IScanCleanupDetectionResult, IScanCleanupOptions} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {createFileBackedScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
 import {readDetectionResultsForPageNumbers} from '@evb/scan-cleanup/core/scanCleanupConversionPlan';
 import {buildScanCleanupPlacementAnchorSummary} from '@evb/scan-cleanup/core/placementAnchors';
-import {
-    PDFDocument, PDFHexString, PDFName,
-} from 'pdf-lib';
+import {PDFDocument, PDFHexString, PDFName} from 'pdf-lib';
 import * as cliAdapters from '@scripts/scanCleanupCliAdapters';
 import * as detectionCache from '@scripts/scanCleanupDetectionCache';
 import * as conversion from '@evb/scan-cleanup/core/runScanCleanupConversion';
 import {ScanCleanupPdfValidationError} from '@evb/scan-cleanup/core/errors';
 import {assembleWithCompactSourcePages} from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
-import {
-    main, buildScanCleanupCliDetectionRequestFields,
-} from '@scripts/scan-cleanup-convert';
+import {main, buildScanCleanupCliDetectionRequestFields} from '@scripts/scan-cleanup-convert';
 import {
     createScanCleanupDetectionCacheKey,
     openScanCleanupDetectionCacheStore,
@@ -36,13 +21,7 @@ import {
     writeScanCleanupDetectionCache,
 } from '@scripts/scanCleanupDetectionCache';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 
 const temporaryDirectories: string[] = [];
 
@@ -106,7 +85,7 @@ async function runCliRegression(converter: typeof conversion.runScanCleanupConve
             '--no-crop-content',
             '--no-match-page-size',
         ];
-        vi.spyOn(cliAdapters, 'resolveCliNativeToolPath').mockImplementation(binary => `/native/${binary}`);
+        vi.spyOn(cliAdapters, 'resolveCliNativeToolPath').mockImplementation((binary) => `/native/${binary}`);
         vi.spyOn(cliAdapters, 'runCliNativeToolCommand').mockResolvedValue({
             exitCode: 0,
             stdout: '1',
@@ -126,33 +105,41 @@ async function runCliRegression(converter: typeof conversion.runScanCleanupConve
 }
 
 afterEach(async () => {
-    await Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, {
-        force: true,
-        recursive: true,
-    })));
+    await Promise.all(
+        temporaryDirectories.splice(0).map((directory) =>
+            rm(directory, {
+                force: true,
+                recursive: true,
+            }),
+        ),
+    );
 });
 
 describe('scan-cleanup detection cache', () => {
     it('keeps the invalid staged PDF named by a core validation failure after CLI settlement', async () => {
         let failure: ScanCleanupPdfValidationError | undefined;
         try {
-            await expect(runCliRegression(async (_request, paths) => {
-                const scratch = await mkdtemp(join(paths.tempDir, 'evb-scan-cleanup-'));
-                const stagedPdfPath = join(scratch, 'cleaned.pdf');
-                await writeFile(stagedPdfPath, '%PDF-invalid-xref-diagnostic');
-                failure = new ScanCleanupPdfValidationError(stagedPdfPath, 'malformed xref');
-                throw failure;
-            })).rejects.toMatchObject({code: 'SCAN_CLEANUP_PDF_VALIDATION_FAILED'});
+            await expect(
+                runCliRegression(async (_request, paths) => {
+                    const scratch = await mkdtemp(join(paths.tempDir, 'evb-scan-cleanup-'));
+                    const stagedPdfPath = join(scratch, 'cleaned.pdf');
+                    await writeFile(stagedPdfPath, '%PDF-invalid-xref-diagnostic');
+                    failure = new ScanCleanupPdfValidationError(stagedPdfPath, 'malformed xref');
+                    throw failure;
+                }),
+            ).rejects.toMatchObject({code: 'SCAN_CLEANUP_PDF_VALIDATION_FAILED'});
 
             expect(failure).toBeDefined();
             // The core error's path is the diagnostic contract supplied to the
             // outer owner. It must still be readable once that owner settles.
             await expect(readFile(failure!.stagedPdfPath, 'utf8')).resolves.toBe('%PDF-invalid-xref-diagnostic');
         } finally {
-            if (failure !== undefined) await rm(dirname(dirname(failure.stagedPdfPath)), {
-                recursive: true,
-                force: true,
-            });
+            if (failure !== undefined) {
+                await rm(dirname(dirname(failure.stagedPdfPath)), {
+                    recursive: true,
+                    force: true,
+                });
+            }
         }
     });
 
@@ -178,22 +165,28 @@ describe('scan-cleanup detection cache', () => {
             const pagesSidecarPath = join(evidence, 'pages.jsonl');
             await writeFile(outputMappingsSidecarPath, `${JSON.stringify(mapping)}\n`);
             await writeFile(pagesSidecarPath, `${JSON.stringify(page)}\n`);
-            await writeFile(join(evidence, 'scan-cleanup-representation-report.json'), JSON.stringify({
-                schemaVersion: 1,
-                outputBytes: 11,
-                outputToSourceByteRatio: 1,
-                pages: [],
-                outputMappings: [],
-                outputMappingsSidecarPath,
-                pagesSidecarPath,
-            }));
-            await writeFile(join(evidence, 'scan-cleanup-provenance-stamp.json'), JSON.stringify({
-                buildIds: {
-                    assemblerBackend: 'native',
-                    transportMode: 'path',
-                },
-                resolvedPlanSha256: 'a'.repeat(64),
-            }));
+            await writeFile(
+                join(evidence, 'scan-cleanup-representation-report.json'),
+                JSON.stringify({
+                    schemaVersion: 1,
+                    outputBytes: 11,
+                    outputToSourceByteRatio: 1,
+                    pages: [],
+                    outputMappings: [],
+                    outputMappingsSidecarPath,
+                    pagesSidecarPath,
+                }),
+            );
+            await writeFile(
+                join(evidence, 'scan-cleanup-provenance-stamp.json'),
+                JSON.stringify({
+                    buildIds: {
+                        assemblerBackend: 'native',
+                        transportMode: 'path',
+                    },
+                    resolvedPlanSha256: 'a'.repeat(64),
+                }),
+            );
             return {
                 inputPages: 1,
                 outputPages: 1,
@@ -207,39 +200,35 @@ describe('scan-cleanup detection cache', () => {
             };
         });
         const summary = JSON.parse(await readFile(`${fixture.output}.summary.json`, 'utf8'));
-        expect(summary.sourcePageToOutputPages).toEqual([{
-            sourcePage: 1,
-            outputPages: [1],
-        }]);
+        expect(summary.sourcePageToOutputPages).toEqual([
+            {
+                sourcePage: 1,
+                outputPages: [1],
+            },
+        ]);
         expect(summary.perPageStreamSizes).toEqual([page]);
         expect(summary.representation.outputMappings).toEqual([mapping]);
     });
 
-    it.each([
-        false,
-        true,
-    ])('assembles a non-parity affine CLI output (annotated: %s)', async (annotated) => {
+    it.each([false, true])('assembles a non-parity affine CLI output (annotated: %s)', async (annotated) => {
         const directory = await mkdtemp(join(tmpdir(), 'evb-cli-affine-'));
         temporaryDirectories.push(directory);
         const source = join(directory, 'source.pdf');
         const output = join(directory, 'output.pdf');
         const document = await PDFDocument.create();
-        const page = document.addPage([
-            200,
-            200,
-        ]);
+        const page = document.addPage([200, 200]);
         if (annotated) {
-            page.node.set(PDFName.of('Annots'), document.context.obj([{
-                Type: 'Annot',
-                Subtype: 'Text',
-                Rect: [
-                    20,
-                    20,
-                    40,
-                    40,
-                ],
-                Contents: PDFHexString.fromText('Retained note'),
-            }]));
+            page.node.set(
+                PDFName.of('Annots'),
+                document.context.obj([
+                    {
+                        Type: 'Annot',
+                        Subtype: 'Text',
+                        Rect: [20, 20, 40, 40],
+                        Contents: PDFHexString.fromText('Retained note'),
+                    },
+                ]),
+            );
         }
         await writeFile(source, await document.save());
         const argv = process.argv;
@@ -254,7 +243,7 @@ describe('scan-cleanup detection cache', () => {
                 '--no-crop-content',
                 '--no-match-page-size',
             ];
-            vi.spyOn(cliAdapters, 'resolveCliNativeToolPath').mockImplementation(binary => `/native/${binary}`);
+            vi.spyOn(cliAdapters, 'resolveCliNativeToolPath').mockImplementation((binary) => `/native/${binary}`);
             vi.spyOn(cliAdapters, 'runCliNativeToolCommand').mockImplementation(async (_command, args) => {
                 if (args[0] === 'overlay-text') {
                     await copyFile(args[args.indexOf('--source') + 1]!, args[args.indexOf('--output') + 1]!);
@@ -266,49 +255,62 @@ describe('scan-cleanup detection cache', () => {
                 };
             });
             vi.spyOn(detectionCache, 'runScanCleanupDetectionWithCache').mockResolvedValue({results: [result]});
-            vi.spyOn(conversion, 'runScanCleanupConversion').mockImplementation(async (request, paths, signal,
-                _progress, _policy, log, dependencies) => {
-                const raster = join(paths.tempDir, 'raster.pdf');
-                await copyFile(source, raster);
-                await assembleWithCompactSourcePages([], paths, source, raster, request.outputPdfPath,
-                    paths.tempDir, signal, log ?? vi.fn(), dependencies, undefined, {
-                        pages: [{
-                            sourcePageIndex: 0,
-                            outputPageIndex: 0,
-                            matrix: [
-                                1,
-                                0,
-                                0,
-                                1,
-                                5,
-                                5,
+            vi.spyOn(conversion, 'runScanCleanupConversion').mockImplementation(
+                async (request, paths, signal, _progress, _policy, log, dependencies) => {
+                    const raster = join(paths.tempDir, 'raster.pdf');
+                    await copyFile(source, raster);
+                    await assembleWithCompactSourcePages(
+                        [],
+                        paths,
+                        source,
+                        raster,
+                        request.outputPdfPath,
+                        paths.tempDir,
+                        signal,
+                        log ?? vi.fn(),
+                        dependencies,
+                        undefined,
+                        {
+                            pages: [
+                                {
+                                    sourcePageIndex: 0,
+                                    outputPageIndex: 0,
+                                    matrix: [1, 0, 0, 1, 5, 5],
+                                },
                             ],
-                        }],
-                        alreadyPreserved: [],
-                        skippedNonAffine: [],
-                    });
-                await writeFile(join(dependencies.evidenceDirectory!, 'scan-cleanup-representation-report.json'),
-                    JSON.stringify({
-                        pages: [],
-                        outputMappings: [],
-                    }));
-                await writeFile(join(dependencies.evidenceDirectory!, 'scan-cleanup-provenance-stamp.json'),
-                    JSON.stringify({buildIds: {
-                        assemblerBackend: 'native',
-                        transportMode: 'path',
-                    }}));
-                return {
-                    inputPages: 1,
-                    outputPages: 1,
-                    spreadsSplit: 0,
-                    offcutsDiscarded: 0,
-                    deskewSkipped: 0,
-                    cropSkipped: 0,
-                    excludedPages: 0,
-                    blankPagesSkipped: 0,
-                    warnings: [],
-                };
-            });
+                            alreadyPreserved: [],
+                            skippedNonAffine: [],
+                        },
+                    );
+                    await writeFile(
+                        join(dependencies.evidenceDirectory!, 'scan-cleanup-representation-report.json'),
+                        JSON.stringify({
+                            pages: [],
+                            outputMappings: [],
+                        }),
+                    );
+                    await writeFile(
+                        join(dependencies.evidenceDirectory!, 'scan-cleanup-provenance-stamp.json'),
+                        JSON.stringify({
+                            buildIds: {
+                                assemblerBackend: 'native',
+                                transportMode: 'path',
+                            },
+                        }),
+                    );
+                    return {
+                        inputPages: 1,
+                        outputPages: 1,
+                        spreadsSplit: 0,
+                        offcutsDiscarded: 0,
+                        deskewSkipped: 0,
+                        cropSkipped: 0,
+                        excludedPages: 0,
+                        blankPagesSkipped: 0,
+                        warnings: [],
+                    };
+                },
+            );
             await main();
             const saved = await PDFDocument.load(await readFile(output));
             expect(saved.getPageCount()).toBe(1);
@@ -326,11 +328,7 @@ describe('scan-cleanup detection cache', () => {
             ...options,
             pageAlignment: 'ink',
         };
-        const records: IScanCleanupDetectionResult[] = [
-            0.1,
-            0.1,
-            0.5,
-        ].map((yNormalized, index) => {
+        const records: IScanCleanupDetectionResult[] = [0.1, 0.1, 0.5].map((yNormalized, index) => {
             const pageNumber = requirePageNumber(index + 1);
             return {
                 ...result,
@@ -348,13 +346,17 @@ describe('scan-cleanup detection cache', () => {
                     pageNumber,
                     rotationDegrees: 0,
                     layoutClassification: 'single-uncut-page',
-                    outputs: {full: {contentBox: {
-                        xNormalized: 0.1,
-                        yNormalized,
-                        widthNormalized: 0.8,
-                        heightNormalized: 0.2,
-                        rotationDegrees: 0,
-                    }}},
+                    outputs: {
+                        full: {
+                            contentBox: {
+                                xNormalized: 0.1,
+                                yNormalized,
+                                widthNormalized: 0.8,
+                                heightNormalized: 0.2,
+                                rotationDegrees: 0,
+                            },
+                        },
+                    },
                 },
             };
         });
@@ -363,7 +365,9 @@ describe('scan-cleanup detection cache', () => {
             pageCount: records.length,
         });
         try {
-            for (const record of records) await store.append(record);
+            for (const record of records) {
+                await store.append(record);
+            }
             const placementAnchorSummary = await buildScanCleanupPlacementAnchorSummary({
                 options: inkOptions,
                 resultStore: store,
@@ -374,11 +378,14 @@ describe('scan-cleanup detection cache', () => {
                     calibrationSignature: 'calibration',
                 },
             });
-            const fields = buildScanCleanupCliDetectionRequestFields({
-                results: records,
-                resultStore: store,
-                placementAnchorSummary,
-            }, inkOptions);
+            const fields = buildScanCleanupCliDetectionRequestFields(
+                {
+                    results: records,
+                    resultStore: store,
+                    placementAnchorSummary,
+                },
+                inkOptions,
+            );
             expect(fields.placementAnchorsByPage).toEqual({
                 '1': {full: {yNormalized: 0}},
                 '2': {full: {yNormalized: 0}},
@@ -399,7 +406,7 @@ describe('scan-cleanup detection cache', () => {
         // The bounded calibration keeps 256 evenly spaced outputs; the 44 it
         // skips start higher and, among all 300, hold enough pages to be the
         // book's top edge. A run measures from them, so the CLI must too.
-        const calibrated = new Set(Array.from({length: 256}, (_, index) => Math.floor(index * 299 / 255)));
+        const calibrated = new Set(Array.from({length: 256}, (_, index) => Math.floor((index * 299) / 255)));
         const records: IScanCleanupDetectionResult[] = Array.from({length: 300}, (_, index) => {
             const pageNumber = requirePageNumber(index + 1);
             return {
@@ -418,13 +425,17 @@ describe('scan-cleanup detection cache', () => {
                     pageNumber,
                     rotationDegrees: 0,
                     layoutClassification: 'single-uncut-page',
-                    outputs: {full: {contentBox: {
-                        xNormalized: 0.1,
-                        yNormalized: calibrated.has(index) ? 0.2 : 0.05,
-                        widthNormalized: 0.8,
-                        heightNormalized: 0.2,
-                        rotationDegrees: 0,
-                    }}},
+                    outputs: {
+                        full: {
+                            contentBox: {
+                                xNormalized: 0.1,
+                                yNormalized: calibrated.has(index) ? 0.2 : 0.05,
+                                widthNormalized: 0.8,
+                                heightNormalized: 0.2,
+                                rotationDegrees: 0,
+                            },
+                        },
+                    },
                 },
             };
         });
@@ -433,7 +444,9 @@ describe('scan-cleanup detection cache', () => {
             pageCount: records.length,
         });
         try {
-            for (const record of records) await store.append(record);
+            for (const record of records) {
+                await store.append(record);
+            }
             const placementAnchorSummary = await buildScanCleanupPlacementAnchorSummary({
                 options: inkOptions,
                 resultStore: store,
@@ -444,13 +457,16 @@ describe('scan-cleanup detection cache', () => {
                     calibrationSignature: 'calibration',
                 },
             });
-            const fields = buildScanCleanupCliDetectionRequestFields({
-                results: records,
-                resultStore: store,
-                placementAnchorSummary,
-            }, inkOptions);
+            const fields = buildScanCleanupCliDetectionRequestFields(
+                {
+                    results: records,
+                    resultStore: store,
+                    placementAnchorSummary,
+                },
+                inkOptions,
+            );
             expect(fields.placementAnchorsByPage?.['1']).toEqual({full: {yNormalized: expect.closeTo(0.15, 10)}});
-            const skippedPage = Array.from({length: 300}, (_, index) => index).find(index => !calibrated.has(index))! + 1;
+            const skippedPage = Array.from({length: 300}, (_, index) => index).find((index) => !calibrated.has(index))! + 1;
             expect(fields.placementAnchorsByPage?.[String(skippedPage)]).toEqual({full: {yNormalized: 0}});
         } finally {
             await store.close();
@@ -465,39 +481,31 @@ describe('scan-cleanup detection cache', () => {
         await writeFile(sourcePath, 'source-a', 'utf8');
         await writeFile(scanCleanupBinaryPath, 'detector-a', 'utf8');
 
-        const initial = await createScanCleanupDetectionCacheKey(
-            sourcePath,
-            options,
-            detectorPaths(scanCleanupBinaryPath),
-        );
+        const initial = await createScanCleanupDetectionCacheKey(sourcePath, options, detectorPaths(scanCleanupBinaryPath));
         const reorderedOptions = {
             ...options,
             pageOverrides: {},
         };
-        expect(await createScanCleanupDetectionCacheKey(
-            sourcePath,
-            reorderedOptions,
-            detectorPaths(scanCleanupBinaryPath),
-        )).toEqual(initial);
-        expect(await createScanCleanupDetectionCacheKey(sourcePath, {
-            ...options,
-            matchPageSize: false,
-        }, detectorPaths(scanCleanupBinaryPath))).not.toEqual(initial);
+        expect(await createScanCleanupDetectionCacheKey(sourcePath, reorderedOptions, detectorPaths(scanCleanupBinaryPath))).toEqual(
+            initial,
+        );
+        expect(
+            await createScanCleanupDetectionCacheKey(
+                sourcePath,
+                {
+                    ...options,
+                    matchPageSize: false,
+                },
+                detectorPaths(scanCleanupBinaryPath),
+            ),
+        ).not.toEqual(initial);
 
         await writeFile(sourcePath, 'source-b', 'utf8');
-        expect(await createScanCleanupDetectionCacheKey(
-            sourcePath,
-            options,
-            detectorPaths(scanCleanupBinaryPath),
-        )).not.toEqual(initial);
+        expect(await createScanCleanupDetectionCacheKey(sourcePath, options, detectorPaths(scanCleanupBinaryPath))).not.toEqual(initial);
 
         await writeFile(sourcePath, 'source-a', 'utf8');
         await writeFile(scanCleanupBinaryPath, 'detector-b-with-changed-bytes', 'utf8');
-        expect(await createScanCleanupDetectionCacheKey(
-            sourcePath,
-            options,
-            detectorPaths(scanCleanupBinaryPath),
-        )).not.toEqual(initial);
+        expect(await createScanCleanupDetectionCacheKey(sourcePath, options, detectorPaths(scanCleanupBinaryPath))).not.toEqual(initial);
     });
 
     it('round-trips results and rejects a cache entry for another key', async () => {
@@ -508,11 +516,7 @@ describe('scan-cleanup detection cache', () => {
         const cachePath = join(directory, 'cache');
         await writeFile(sourcePath, 'source', 'utf8');
         await writeFile(scanCleanupBinaryPath, 'detector', 'utf8');
-        const key = await createScanCleanupDetectionCacheKey(
-            sourcePath,
-            options,
-            detectorPaths(scanCleanupBinaryPath),
-        );
+        const key = await createScanCleanupDetectionCacheKey(sourcePath, options, detectorPaths(scanCleanupBinaryPath));
 
         await writeScanCleanupDetectionCache(cachePath, key, [result]);
         expect(await readScanCleanupDetectionCache(cachePath, key)).toEqual([result]);
@@ -526,10 +530,12 @@ describe('scan-cleanup detection cache', () => {
 
     it('hands a million-page CLI detection store through and reads only bounded ranges', async () => {
         const pageCount = 1_000_000;
-        const readRange = vi.fn(async (firstPageNumber: number, _lastPageNumberExclusive: number) => [{
-            ...result,
-            pageNumber: requirePageNumber(firstPageNumber),
-        }]);
+        const readRange = vi.fn(async (firstPageNumber: number, _lastPageNumberExclusive: number) => [
+            {
+                ...result,
+                pageNumber: requirePageNumber(firstPageNumber),
+            },
+        ]);
         const store: IScanCleanupDetectionResultStore = {
             append: vi.fn(async () => undefined),
             close: vi.fn(async () => undefined),
@@ -542,16 +548,19 @@ describe('scan-cleanup detection cache', () => {
         };
         const fromEntries = vi.spyOn(Object, 'fromEntries');
         try {
-            const fields = buildScanCleanupCliDetectionRequestFields({
-                resultStore: store,
-                results: [],
-            }, options);
+            const fields = buildScanCleanupCliDetectionRequestFields(
+                {
+                    resultStore: store,
+                    results: [],
+                },
+                options,
+            );
             expect(fields).toEqual({detectionResultStore: store});
             expect(fromEntries).not.toHaveBeenCalled();
 
             const pageNumbers = Array.from({length: 2_049}, (_, index) => index + 1);
             await readDetectionResultsForPageNumbers(store, pageNumbers, new AbortController().signal);
-            const calls = readRange.mock.calls.map(call => ({
+            const calls = readRange.mock.calls.map((call) => ({
                 firstPageNumber: call[0],
                 pageCount: call[1] - call[0],
             }));
@@ -569,25 +578,16 @@ describe('scan-cleanup detection cache', () => {
                     pageCount: 1,
                 },
             ]);
-            expect(Math.max(...calls.map(call => call.pageCount))).toBeLessThanOrEqual(1_024);
+            expect(Math.max(...calls.map((call) => call.pageCount))).toBeLessThanOrEqual(1_024);
         } finally {
             fromEntries.mockRestore();
         }
     });
 
     it.each([
-        [
-            1_024,
-            false,
-        ],
-        [
-            1_025,
-            true,
-        ],
-        [
-            2_646,
-            true,
-        ],
+        [1_024, false],
+        [1_025, true],
+        [2_646, true],
     ])('uses the bounded result-store seam above the %s-page compatibility boundary', (pageCount, expectsStore) => {
         const store: IScanCleanupDetectionResultStore = {
             append: vi.fn(async () => undefined),
@@ -599,13 +599,16 @@ describe('scan-cleanup detection cache', () => {
             replace: vi.fn(async () => undefined),
             resultCount: pageCount,
         };
-        const fields = buildScanCleanupCliDetectionRequestFields({
-            resultStore: store,
-            // A real small run has a compatibility snapshot. The xlarge
-            // result store remains authoritative even if a caller supplies a
-            // partial snapshot while migrating an older detector.
-            results: [result],
-        }, options);
+        const fields = buildScanCleanupCliDetectionRequestFields(
+            {
+                resultStore: store,
+                // A real small run has a compatibility snapshot. The xlarge
+                // result store remains authoritative even if a caller supplies a
+                // partial snapshot while migrating an older detector.
+                results: [result],
+            },
+            options,
+        );
         expect('detectionResultStore' in fields).toBe(expectsStore);
         if (expectsStore) {
             expect(fields).toEqual({detectionResultStore: store});

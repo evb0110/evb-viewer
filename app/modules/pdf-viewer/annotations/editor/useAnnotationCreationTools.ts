@@ -5,23 +5,16 @@ import type {
     ITextBoxEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import type { IAnnotationEditorSurface } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
-import type {
-    IAnnotationMarkerRect,
-    IShapeAnnotation,
-    TAnnotationTool,
-    TDrawableShapeType,
-} from '@app/types/annotations';
+import type {IAnnotationEditorSurface} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
+import type {IAnnotationMarkerRect, IShapeAnnotation, TAnnotationTool, TDrawableShapeType} from '@app/types/annotations';
 import {DEFAULT_ANNOTATION_SETTINGS} from '@app/constants/annotationDefaults';
 import {requirePageIndex} from '@contracts/pageNumbers';
-import {
-    createDrawingShape,
-    finishDrawingShape,
-    updateDrawingShapeForPoint,
-} from '@app/modules/pdf-viewer/tools/annotationShapeDrawing';
+import {createDrawingShape, finishDrawingShape, updateDrawingShapeForPoint} from '@app/modules/pdf-viewer/tools/annotationShapeDrawing';
 import {toCanonicalShapeEntity} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 
-interface IUseAnnotationCreationToolsOptions {surface: IAnnotationEditorSurface;}
+interface IUseAnnotationCreationToolsOptions {
+    surface: IAnnotationEditorSurface;
+}
 
 export interface IAnnotationCreationTools {
     create(
@@ -31,35 +24,45 @@ export interface IAnnotationCreationTools {
         stampImage?: IPlacedImageEntity['image'],
         rotation?: ITextBoxEntity['rotation'],
     ): ITextBoxEntity | INoteEntity | IPlacedImageEntity | null;
-    beginShape(pageIndex: number, tool: TDrawableShapeType, point: {
-        x: number;
-        y: number
-    }): IShapeAnnotation | null;
-    updateShape(draft: IShapeAnnotation, point: {
-        x: number;
-        y: number
-    }, origin: {
+    beginShape(
+        pageIndex: number,
+        tool: TDrawableShapeType,
+        point: {
             x: number;
-            y: number
-        }): IShapeAnnotation;
+            y: number;
+        },
+    ): IShapeAnnotation | null;
+    updateShape(
+        draft: IShapeAnnotation,
+        point: {
+            x: number;
+            y: number;
+        },
+        origin: {
+            x: number;
+            y: number;
+        },
+    ): IShapeAnnotation;
     finishShape(draft: IShapeAnnotation): IShapeEntity | null;
 }
 
-export const useAnnotationCreationTools = (
-    options: IUseAnnotationCreationToolsOptions,
-): IAnnotationCreationTools => {
+export const useAnnotationCreationTools = (options: IUseAnnotationCreationToolsOptions): IAnnotationCreationTools => {
     // The unclamped pointer position each draft last took. A freehand stroke
     // needs it to find where the pointer crossed the page edge.
-    const lastPointerPoints = new WeakMap<IShapeAnnotation, {
-        x: number;
-        y: number
-    }>();
+    const lastPointerPoints = new WeakMap<
+        IShapeAnnotation,
+        {
+            x: number;
+            y: number;
+        }
+    >();
     return {
         create(tool, pageIndex, rect, stampImage, rotation) {
             if (tool === 'text') {
-                const entity = rotation === undefined || rotation === 0
-                    ? options.surface.createTextBoxAt(pageIndex, rect)
-                    : options.surface.createTextBoxAt(pageIndex, rect, {rotation});
+                const entity =
+                    rotation === undefined || rotation === 0
+                        ? options.surface.createTextBoxAt(pageIndex, rect)
+                        : options.surface.createTextBoxAt(pageIndex, rect, {rotation});
                 options.surface.select([entity.identity.id]);
                 return entity;
             }

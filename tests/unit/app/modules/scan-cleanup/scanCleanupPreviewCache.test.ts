@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
@@ -83,7 +79,7 @@ function result(raw: Uint8Array, outputs: Uint8Array[]): IScanCleanupPreviewResu
             reconciled: false,
             clusterAgreement: 0,
         },
-        outputs: outputs.map(imageData => ({
+        outputs: outputs.map((imageData) => ({
             imageData,
             metadata: {
                 half: 'full',
@@ -152,188 +148,238 @@ describe('scan cleanup renderer preview cache', () => {
             xNormalized: 0.25,
         };
 
-        expect(createScanCleanupDetailTileCacheKey('page-1:bw', {
-            left: firstPan,
-            right: secondPan,
-        })).toBe(createScanCleanupDetailTileCacheKey('page-1:bw', {
-            right: {...secondPan},
-            left: {...firstPan},
-        }));
-        expect(createScanCleanupDetailTileCacheKey('page-1:bw', {left: firstPan}))
-            .not.toBe(createScanCleanupDetailTileCacheKey('page-1:bw', {left: secondPan}));
-        expect(createScanCleanupDetailTileCacheKey('page-1:bw', {full: firstPan}))
-            .not.toBe(createScanCleanupDetailTileCacheKey('page-1:bw', {left: firstPan}));
+        expect(
+            createScanCleanupDetailTileCacheKey('page-1:bw', {
+                left: firstPan,
+                right: secondPan,
+            }),
+        ).toBe(
+            createScanCleanupDetailTileCacheKey('page-1:bw', {
+                right: {...secondPan},
+                left: {...firstPan},
+            }),
+        );
+        expect(createScanCleanupDetailTileCacheKey('page-1:bw', {left: firstPan})).not.toBe(
+            createScanCleanupDetailTileCacheKey('page-1:bw', {left: secondPan}),
+        );
+        expect(createScanCleanupDetailTileCacheKey('page-1:bw', {full: firstPan})).not.toBe(
+            createScanCleanupDetailTileCacheKey('page-1:bw', {left: firstPan}),
+        );
     });
 
     it('keys every alignment that can change native Y along with sidecar-rendered options', () => {
         const base = createScanCleanupPreviewCacheKey(1, previewOptions, SOURCE_PATH);
-        const withAlignment = createScanCleanupPreviewCacheKey(1, {
-            ...previewOptions,
-            pageAlignment: 'bottom-right',
-        }, SOURCE_PATH);
-        const withReadingOrder = createScanCleanupPreviewCacheKey(1, {
-            ...previewOptions,
-            readingOrder: 'rtl',
-        }, SOURCE_PATH);
-        const withPlacementOverride = createScanCleanupPreviewCacheKey(1, {
-            ...previewOptions,
-            pageOverrides: {1: {
-                rotationDegrees: 0,
-                layoutOverride: 'auto',
-                excluded: false,
-                manualSplit: null,
-                placementOverrides: {left: 'center-left'},
-            }},
-        }, SOURCE_PATH);
-        const withBinarization = createScanCleanupPreviewCacheKey(1, {
-            ...previewOptions,
-            binarization: 'sauvola',
-        }, SOURCE_PATH);
-        const withoutIlluminationNormalization = createScanCleanupPreviewCacheKey(1, {
-            ...previewOptions,
-            normalizeIllumination: false,
-        }, SOURCE_PATH);
-        const withCautiousDespeckle = createScanCleanupPreviewCacheKey(1, {
-            ...previewOptions,
-            despeckleLevel: 'cautious',
-        }, SOURCE_PATH);
-        const withAutoDewarp = createScanCleanupPreviewCacheKey(1, {
-            ...previewOptions,
-            autoDewarp: true,
-        }, SOURCE_PATH);
-        const withFixedDewarpDepth = createScanCleanupPreviewCacheKey(1, {
-            ...previewOptions,
-            autoDewarp: true,
-            autoDewarpDepth: 1.8,
-        }, SOURCE_PATH);
-        const withManualSkew = createScanCleanupPreviewCacheKey(1, {
-            ...previewOptions,
-            pageOverrides: {1: {
-                rotationDegrees: 0,
-                layoutOverride: 'auto',
-                excluded: false,
-                manualSplit: null,
-                manualSkewDegrees: -2.3,
-            }},
-        }, SOURCE_PATH);
-        const withManualZones = createScanCleanupPreviewCacheKey(1, {
-            ...previewOptions,
-            pageOverrides: {1: {
-                rotationDegrees: 0,
-                layoutOverride: 'auto',
-                excluded: false,
-                manualSplit: null,
-                manualZones: {
-                    picture: [{
-                        layer: 'painter2',
-                        polygon: {
-                            points: [
+        const withAlignment = createScanCleanupPreviewCacheKey(
+            1,
+            {
+                ...previewOptions,
+                pageAlignment: 'bottom-right',
+            },
+            SOURCE_PATH,
+        );
+        const withReadingOrder = createScanCleanupPreviewCacheKey(
+            1,
+            {
+                ...previewOptions,
+                readingOrder: 'rtl',
+            },
+            SOURCE_PATH,
+        );
+        const withPlacementOverride = createScanCleanupPreviewCacheKey(
+            1,
+            {
+                ...previewOptions,
+                pageOverrides: {
+                    1: {
+                        rotationDegrees: 0,
+                        layoutOverride: 'auto',
+                        excluded: false,
+                        manualSplit: null,
+                        placementOverrides: {left: 'center-left'},
+                    },
+                },
+            },
+            SOURCE_PATH,
+        );
+        const withBinarization = createScanCleanupPreviewCacheKey(
+            1,
+            {
+                ...previewOptions,
+                binarization: 'sauvola',
+            },
+            SOURCE_PATH,
+        );
+        const withoutIlluminationNormalization = createScanCleanupPreviewCacheKey(
+            1,
+            {
+                ...previewOptions,
+                normalizeIllumination: false,
+            },
+            SOURCE_PATH,
+        );
+        const withCautiousDespeckle = createScanCleanupPreviewCacheKey(
+            1,
+            {
+                ...previewOptions,
+                despeckleLevel: 'cautious',
+            },
+            SOURCE_PATH,
+        );
+        const withAutoDewarp = createScanCleanupPreviewCacheKey(
+            1,
+            {
+                ...previewOptions,
+                autoDewarp: true,
+            },
+            SOURCE_PATH,
+        );
+        const withFixedDewarpDepth = createScanCleanupPreviewCacheKey(
+            1,
+            {
+                ...previewOptions,
+                autoDewarp: true,
+                autoDewarpDepth: 1.8,
+            },
+            SOURCE_PATH,
+        );
+        const withManualSkew = createScanCleanupPreviewCacheKey(
+            1,
+            {
+                ...previewOptions,
+                pageOverrides: {
+                    1: {
+                        rotationDegrees: 0,
+                        layoutOverride: 'auto',
+                        excluded: false,
+                        manualSplit: null,
+                        manualSkewDegrees: -2.3,
+                    },
+                },
+            },
+            SOURCE_PATH,
+        );
+        const withManualZones = createScanCleanupPreviewCacheKey(
+            1,
+            {
+                ...previewOptions,
+                pageOverrides: {
+                    1: {
+                        rotationDegrees: 0,
+                        layoutOverride: 'auto',
+                        excluded: false,
+                        manualSplit: null,
+                        manualZones: {
+                            picture: [
                                 {
-                                    xNormalized: 0.1,
-                                    yNormalized: 0.1,
-                                },
-                                {
-                                    xNormalized: 0.4,
-                                    yNormalized: 0.1,
-                                },
-                                {
-                                    xNormalized: 0.4,
-                                    yNormalized: 0.4,
-                                },
-                                {
-                                    xNormalized: 0.1,
-                                    yNormalized: 0.4,
+                                    layer: 'painter2',
+                                    polygon: {
+                                        points: [
+                                            {
+                                                xNormalized: 0.1,
+                                                yNormalized: 0.1,
+                                            },
+                                            {
+                                                xNormalized: 0.4,
+                                                yNormalized: 0.1,
+                                            },
+                                            {
+                                                xNormalized: 0.4,
+                                                yNormalized: 0.4,
+                                            },
+                                            {
+                                                xNormalized: 0.1,
+                                                yNormalized: 0.4,
+                                            },
+                                        ],
+                                        rotationDegrees: 0,
+                                    },
                                 },
                             ],
-                            rotationDegrees: 0,
+                            fill: [],
                         },
-                    }],
-                    fill: [],
+                    },
                 },
-            }},
-        }, SOURCE_PATH);
+            },
+            SOURCE_PATH,
+        );
 
-        expect(new Set([
-            base,
-            withAlignment,
-            withReadingOrder,
-            withBinarization,
-            withoutIlluminationNormalization,
-            withCautiousDespeckle,
-            withAutoDewarp,
-            withFixedDewarpDepth,
-            withManualSkew,
-            withManualZones,
-            withPlacementOverride,
-        ])).toHaveLength(11);
+        expect(
+            new Set([
+                base,
+                withAlignment,
+                withReadingOrder,
+                withBinarization,
+                withoutIlluminationNormalization,
+                withCautiousDespeckle,
+                withAutoDewarp,
+                withFixedDewarpDepth,
+                withManualSkew,
+                withManualZones,
+                withPlacementOverride,
+            ]),
+        ).toHaveLength(11);
         expect(withPlacementOverride).not.toBe(base);
     });
 
     it('changes preview validity when layout detection becomes complete', () => {
-        const keyFor = (layoutDetectionComplete: boolean) => createScanCleanupPreviewCacheKey(
-            1,
-            previewOptions,
-            SOURCE_PATH,
-            'rev',
-            null,
-            '',
-            '',
-            null,
-            null,
-            null,
-            null,
-            layoutDetectionComplete,
-        );
+        const keyFor = (layoutDetectionComplete: boolean) =>
+            createScanCleanupPreviewCacheKey(
+                1,
+                previewOptions,
+                SOURCE_PATH,
+                'rev',
+                null,
+                '',
+                '',
+                null,
+                null,
+                null,
+                null,
+                layoutDetectionComplete,
+            );
 
         expect(keyFor(true)).not.toBe(keyFor(false));
     });
 
     it('invalidates a page when its output-mode override changes', () => {
-        const base = createScanCleanupPreviewCacheKey(1, {
-            ...previewOptions,
-            outputMode: 'auto',
-        }, SOURCE_PATH);
-        const withOutputModeOverride = createScanCleanupPreviewCacheKey(1, {
-            ...previewOptions,
-            outputMode: 'auto',
-            pageOverrides: {'1': {
-                rotationDegrees: 0,
-                layoutOverride: 'auto',
-                excluded: false,
-                manualSplit: null,
-                outputModeOverride: 'color',
-            }},
-        }, SOURCE_PATH);
+        const base = createScanCleanupPreviewCacheKey(
+            1,
+            {
+                ...previewOptions,
+                outputMode: 'auto',
+            },
+            SOURCE_PATH,
+        );
+        const withOutputModeOverride = createScanCleanupPreviewCacheKey(
+            1,
+            {
+                ...previewOptions,
+                outputMode: 'auto',
+                pageOverrides: {
+                    '1': {
+                        rotationDegrees: 0,
+                        layoutOverride: 'auto',
+                        excluded: false,
+                        manualSplit: null,
+                        outputModeOverride: 'color',
+                    },
+                },
+            },
+            SOURCE_PATH,
+        );
         expect(withOutputModeOverride).not.toBe(base);
     });
 
     it('invalidates an automatic preview when detection resolves its output mode', () => {
-        const keyFor = (recommendation: 'bw' | 'color' | null) => createScanCleanupPreviewCacheKey(
-            1,
-            previewOptions,
-            SOURCE_PATH,
-            'rev',
-            null,
-            '',
-            '',
-            recommendation,
-        );
+        const keyFor = (recommendation: 'bw' | 'color' | null) =>
+            createScanCleanupPreviewCacheKey(1, previewOptions, SOURCE_PATH, 'rev', null, '', '', recommendation);
 
         expect(keyFor('color')).not.toBe(keyFor(null));
         expect(keyFor('color')).not.toBe(keyFor('bw'));
     });
 
     it('revalidates every cached page across the detection-completed transition instead of orphaning it', () => {
-        const pages = [
-            200,
-            201,
-            202,
-            203,
-            204,
-            205,
-            206,
-            207,
-        ];
+        const pages = [200, 201, 202, 203, 204, 205, 206, 207];
         const prior = {
             dominantLayout: 'single-uncut-page' as const,
             cutterRatioMedian: null,
@@ -343,16 +389,13 @@ describe('scan cleanup renderer preview cache', () => {
             },
             agreementStrength: 0.74,
         };
-        const keyFor = (pageNumber: number, detected: boolean) => createScanCleanupPreviewCacheKey(
-            pageNumber,
-            previewOptions,
-            SOURCE_PATH,
-            'rev',
-            detected ? prior : null,
-        );
+        const keyFor = (pageNumber: number, detected: boolean) =>
+            createScanCleanupPreviewCacheKey(pageNumber, previewOptions, SOURCE_PATH, 'rev', detected ? prior : null);
 
         const cache = createScanCleanupPreviewCache();
-        for (const pageNumber of pages) cache.set(keyFor(pageNumber, false), result(new Uint8Array(1024), []));
+        for (const pageNumber of pages) {
+            cache.set(keyFor(pageNumber, false), result(new Uint8Array(1024), []));
+        }
         expect(cache.size).toBe(pages.length);
         const bytesBeforeDetection = cache.byteLength;
 
@@ -368,7 +411,9 @@ describe('scan cleanup renderer preview cache', () => {
         // second generation beside it.
         expect(cache.get(keyFor(pages[0]!, true))).toBeUndefined();
         expect(cache.size).toBe(pages.length - 1);
-        for (const pageNumber of pages) cache.set(keyFor(pageNumber, true), result(new Uint8Array(1024), []));
+        for (const pageNumber of pages) {
+            cache.set(keyFor(pageNumber, true), result(new Uint8Array(1024), []));
+        }
         expect(cache.size).toBe(pages.length);
         expect(cache.byteLength).toBe(bytesBeforeDetection);
         for (const pageNumber of pages) {
@@ -385,14 +430,7 @@ describe('scan cleanup renderer preview cache', () => {
             heightPx: 1667,
         });
         const unclassified = createScanCleanupPreviewCacheKey(1, previewOptions, SOURCE_PATH, 'rev', null);
-        const classified = createScanCleanupPreviewCacheKey(
-            1,
-            previewOptions,
-            SOURCE_PATH,
-            'rev',
-            null,
-            changedCanvas,
-        );
+        const classified = createScanCleanupPreviewCacheKey(1, previewOptions, SOURCE_PATH, 'rev', null, changedCanvas);
         const separator = SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR;
 
         // Learning that the document is spreads halves the sheet every page is
@@ -400,21 +438,15 @@ describe('scan cleanup renderer preview cache', () => {
         // but it is the same page, so it is revalidated rather than orphaned.
         expect(classified).not.toBe(unclassified);
         expect(classified.split(separator)[0]).toBe(unclassified.split(separator)[0]);
-        expect(createScanCleanupPreviewCacheKey(
-            1,
-            previewOptions,
-            SOURCE_PATH,
-            'rev',
-            null,
-            changedCanvas,
-        )).toBe(classified);
+        expect(createScanCleanupPreviewCacheKey(1, previewOptions, SOURCE_PATH, 'rev', null, changedCanvas)).toBe(classified);
         // Without matching there is no canvas for a layout to move.
         const unmatched = {
             ...previewOptions,
             matchPageSize: false,
         };
-        expect(createScanCleanupPreviewCacheKey(1, unmatched, SOURCE_PATH, 'rev', null, changedCanvas))
-            .toBe(createScanCleanupPreviewCacheKey(1, unmatched, SOURCE_PATH, 'rev', null));
+        expect(createScanCleanupPreviewCacheKey(1, unmatched, SOURCE_PATH, 'rev', null, changedCanvas)).toBe(
+            createScanCleanupPreviewCacheKey(1, unmatched, SOURCE_PATH, 'rev', null),
+        );
     });
 
     it('keeps the dominant provisional canvas stable through an interim layout outlier', () => {
@@ -427,105 +459,100 @@ describe('scan cleanup renderer preview cache', () => {
             rotation: 0,
         }));
         const baselinePlanSignature = scanCleanupDocumentCanvasSignature(null);
-        const signatureFor = (
-            layouts: TScanCleanupLayoutByPage,
-            layoutEvidenceComplete = false,
-        ) => {
+        const signatureFor = (layouts: TScanCleanupLayoutByPage, layoutEvidenceComplete = false) => {
             const signature = scanCleanupDocumentCanvasSignature(
-                resolveScanCleanupProvisionalDocumentCanvas(
-                    pages,
-                    150,
-                    previewOptions,
-                    layouts,
-                    layoutEvidenceComplete,
-                ),
+                resolveScanCleanupProvisionalDocumentCanvas(pages, 150, previewOptions, layouts, layoutEvidenceComplete),
             );
             return signature === baselinePlanSignature ? '' : signature;
         };
-        const keyFor = (
-            layouts: TScanCleanupLayoutByPage,
-            layoutEvidenceComplete = false,
-        ) => createScanCleanupPreviewCacheKey(
-            1,
-            previewOptions,
-            SOURCE_PATH,
-            'rev',
-            null,
-            signatureFor(layouts, layoutEvidenceComplete),
-            '',
-            null,
-            null,
-            'two-page-spread',
-        );
+        const keyFor = (layouts: TScanCleanupLayoutByPage, layoutEvidenceComplete = false) =>
+            createScanCleanupPreviewCacheKey(
+                1,
+                previewOptions,
+                SOURCE_PATH,
+                'rev',
+                null,
+                signatureFor(layouts, layoutEvidenceComplete),
+                '',
+                null,
+                null,
+                'two-page-spread',
+            );
 
         const provisional = keyFor({'1': 'two-page-spread'});
-        expect(keyFor({
-            '1': 'two-page-spread',
-            '2': 'two-page-spread',
-        })).toBe(provisional);
-        expect(keyFor({
-            '1': 'two-page-spread',
-            '2': 'two-page-spread',
-            '3': 'single-uncut-page',
-        })).toBe(provisional);
-        expect(keyFor({
-            '1': 'two-page-spread',
-            '2': 'two-page-spread',
-            '3': 'two-page-spread',
-            '4': 'two-page-spread',
-        }, true)).toBe(provisional);
+        expect(
+            keyFor({
+                '1': 'two-page-spread',
+                '2': 'two-page-spread',
+            }),
+        ).toBe(provisional);
+        expect(
+            keyFor({
+                '1': 'two-page-spread',
+                '2': 'two-page-spread',
+                '3': 'single-uncut-page',
+            }),
+        ).toBe(provisional);
+        expect(
+            keyFor(
+                {
+                    '1': 'two-page-spread',
+                    '2': 'two-page-spread',
+                    '3': 'two-page-spread',
+                    '4': 'two-page-spread',
+                },
+                true,
+            ),
+        ).toBe(provisional);
         // Three of four outputs are spread leaves, so the settled canvas is
         // still the leaf and the lone landscape page is fitted onto it.
-        expect(keyFor({
-            '1': 'two-page-spread',
-            '2': 'two-page-spread',
-            '3': 'single-uncut-page',
-            '4': 'two-page-spread',
-        }, true)).toBe(provisional);
+        expect(
+            keyFor(
+                {
+                    '1': 'two-page-spread',
+                    '2': 'two-page-spread',
+                    '3': 'single-uncut-page',
+                    '4': 'two-page-spread',
+                },
+                true,
+            ),
+        ).toBe(provisional);
         // Half leaves and half whole sheets is a genuinely mixed document,
         // whose settled canvas grows to the largest sheet.
-        expect(keyFor({
-            '1': 'two-page-spread',
-            '2': 'two-page-spread',
-            '3': 'single-uncut-page',
-            '4': 'single-uncut-page',
-        }, true)).not.toBe(provisional);
+        expect(
+            keyFor(
+                {
+                    '1': 'two-page-spread',
+                    '2': 'two-page-spread',
+                    '3': 'single-uncut-page',
+                    '4': 'single-uncut-page',
+                },
+                true,
+            ),
+        ).not.toBe(provisional);
     });
 
     it('revalidates when the visible page itself is newly reclassified', () => {
-        const keyFor = (classification: 'two-page-spread' | null) => createScanCleanupPreviewCacheKey(
-            1,
-            previewOptions,
-            SOURCE_PATH,
-            'rev',
-            null,
-            '',
-            '',
-            null,
-            null,
-            classification,
-        );
+        const keyFor = (classification: 'two-page-spread' | null) =>
+            createScanCleanupPreviewCacheKey(1, previewOptions, SOURCE_PATH, 'rev', null, '', '', null, null, classification);
         expect(keyFor('two-page-spread')).not.toBe(keyFor(null));
     });
 
-    it('revalidates a matched preview against every page\'s canvas inputs, not just its own', () => {
+    it("revalidates a matched preview against every page's canvas inputs, not just its own", () => {
         // The canvas is one rectangle measured over the whole document, so an
         // edit on page 40 changes the sheet page 1 was drawn on. Page 1's own
         // key carries page 1's override alone, which is why the document-wide
         // inputs are reduced separately and folded in here.
-        const keyFor = (overrides: TScanCleanupPageOverrides) => createScanCleanupPreviewCacheKey(
-            1,
-            previewOptions,
-            SOURCE_PATH,
-            'rev',
-            null,
-            '',
-            scanCleanupMatchedCanvasOverridesSignature(
-                overrides,
-                previewOptions.pageOverrideDefaults,
-                previewOptions.marginsMm,
-            ),
-        );
+        const keyFor = (overrides: TScanCleanupPageOverrides) =>
+            createScanCleanupPreviewCacheKey(
+                1,
+                previewOptions,
+                SOURCE_PATH,
+                'rev',
+                null,
+                '',
+                scanCleanupMatchedCanvasOverridesSignature(overrides, previewOptions.pageOverrideDefaults, previewOptions.marginsMm),
+            );
         const untouched = keyFor({});
         const separator = SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR;
 
@@ -543,10 +570,12 @@ describe('scan cleanup renderer preview cache', () => {
             {layoutOverride: 'keep-left' as const},
             {layoutOverride: 'keep-right' as const},
             {layoutOverride: 'single' as const},
-            {manualSplit: {
-                xNormalized: 0.5,
-                rotationDegrees: 0 as const,
-            }},
+            {
+                manualSplit: {
+                    xNormalized: 0.5,
+                    rotationDegrees: 0 as const,
+                },
+            },
             {outputModeOverride: 'color' as const},
         ]) {
             expect(keyFor({'40': override(canvasInput)})).not.toBe(untouched);
@@ -554,52 +583,68 @@ describe('scan cleanup renderer preview cache', () => {
         // Every distinct layout choice is a distinct canvas: keeping the left
         // half and forcing a spread cut the same sheet, but declaring the sheet
         // a single page does not.
-        expect(keyFor({'40': override({layoutOverride: 'keep-left'})}))
-            .not.toBe(keyFor({'40': override({layoutOverride: 'single'})}));
+        expect(keyFor({'40': override({layoutOverride: 'keep-left'})})).not.toBe(keyFor({'40': override({layoutOverride: 'single'})}));
 
         // What the canvas cannot read stays cached: where a split falls, an
         // output mode that is still bilevel, and everything that is not a
         // canvas input at all.
-        expect(keyFor({'40': override({manualSplit: {
-            xNormalized: 0.5,
-            rotationDegrees: 0,
-        }})})).toBe(keyFor({'40': override({manualSplit: {
-            xNormalized: 0.31,
-            rotationDegrees: 0,
-        }})}));
+        expect(
+            keyFor({
+                '40': override({
+                    manualSplit: {
+                        xNormalized: 0.5,
+                        rotationDegrees: 0,
+                    },
+                }),
+            }),
+        ).toBe(
+            keyFor({
+                '40': override({
+                    manualSplit: {
+                        xNormalized: 0.31,
+                        rotationDegrees: 0,
+                    },
+                }),
+            }),
+        );
         expect(keyFor({'40': override({outputModeOverride: 'bw'})})).not.toBe(untouched);
-        expect(keyFor({'40': override({outputModeOverride: 'color'})}))
-            .toBe(keyFor({'40': override({outputModeOverride: 'grayscale'})}));
+        expect(keyFor({'40': override({outputModeOverride: 'color'})})).toBe(keyFor({'40': override({outputModeOverride: 'grayscale'})}));
         expect(keyFor({'40': override({rotationDegrees: 90})})).toBe(untouched);
 
         // The same document answers the same key whatever order its overrides
         // were recorded in.
-        expect(keyFor({
-            '40': override({excluded: true}),
-            '7': override({layoutOverride: 'spread'}),
-        })).toBe(keyFor({
-            '7': override({layoutOverride: 'spread'}),
-            '40': override({excluded: true}),
-        }));
+        expect(
+            keyFor({
+                '40': override({excluded: true}),
+                '7': override({layoutOverride: 'spread'}),
+            }),
+        ).toBe(
+            keyFor({
+                '7': override({layoutOverride: 'spread'}),
+                '40': override({excluded: true}),
+            }),
+        );
 
         // And without matching there is no shared canvas for any of it to move.
         const unmatched = {
             ...previewOptions,
             matchPageSize: false,
         };
-        expect(createScanCleanupPreviewCacheKey(
-            1,
-            unmatched,
-            SOURCE_PATH,
-            'rev',
-            null,
-            '',
-            scanCleanupMatchedCanvasOverridesSignature(
-                {'40': override({excluded: true})},
-                unmatched.pageOverrideDefaults,
-                unmatched.marginsMm,
+        expect(
+            createScanCleanupPreviewCacheKey(
+                1,
+                unmatched,
+                SOURCE_PATH,
+                'rev',
+                null,
+                '',
+                scanCleanupMatchedCanvasOverridesSignature(
+                    {'40': override({excluded: true})},
+                    unmatched.pageOverrideDefaults,
+                    unmatched.marginsMm,
+                ),
             ),
-        )).toBe(createScanCleanupPreviewCacheKey(1, unmatched, SOURCE_PATH, 'rev', null));
+        ).toBe(createScanCleanupPreviewCacheKey(1, unmatched, SOURCE_PATH, 'rev', null));
     });
 
     it('reads a partially written override the way the canvas reads it', () => {
@@ -608,27 +653,31 @@ describe('scan cleanup renderer preview cache', () => {
         // those in from the defaults, so a signature that read the raw entry
         // would answer a different key for a document the canvas measures
         // identically — and throw away every cached page of it.
-        expect(scanCleanupMatchedCanvasOverridesSignature(
-            {'40': sparse({excluded: true})},
-            previewOptions.pageOverrideDefaults,
-            previewOptions.marginsMm,
-        )).toBe(scanCleanupMatchedCanvasOverridesSignature(
-            {'40': override({excluded: true})},
-            previewOptions.pageOverrideDefaults,
-            previewOptions.marginsMm,
-        ));
+        expect(
+            scanCleanupMatchedCanvasOverridesSignature(
+                {'40': sparse({excluded: true})},
+                previewOptions.pageOverrideDefaults,
+                previewOptions.marginsMm,
+            ),
+        ).toBe(
+            scanCleanupMatchedCanvasOverridesSignature(
+                {'40': override({excluded: true})},
+                previewOptions.pageOverrideDefaults,
+                previewOptions.marginsMm,
+            ),
+        );
         // An entry with nothing the canvas reads still reduces away entirely,
         // whether it is written whole or not at all.
-        expect(scanCleanupMatchedCanvasOverridesSignature(
-            {'40': sparse({rotationDegrees: 90})},
-            previewOptions.pageOverrideDefaults,
-            previewOptions.marginsMm,
-        )).toBe('');
-        expect(scanCleanupMatchedCanvasOverridesSignature(
-            {'40': sparse({})},
-            previewOptions.pageOverrideDefaults,
-            previewOptions.marginsMm,
-        )).toBe('');
+        expect(
+            scanCleanupMatchedCanvasOverridesSignature(
+                {'40': sparse({rotationDegrees: 90})},
+                previewOptions.pageOverrideDefaults,
+                previewOptions.marginsMm,
+            ),
+        ).toBe('');
+        expect(
+            scanCleanupMatchedCanvasOverridesSignature({'40': sparse({})}, previewOptions.pageOverrideDefaults, previewOptions.marginsMm),
+        ).toBe('');
     });
 
     it('lets the byte budget bind before the entry count', () => {
@@ -639,7 +688,7 @@ describe('scan cleanup renderer preview cache', () => {
             cache.set(`page-${pageNumber}`, result(new Uint8Array(pageBytes), []));
         }
         expect(cache.byteLength).toBeLessThanOrEqual(96 * 1024 * 1024);
-        expect(cache.size).toBe(Math.floor(96 * 1024 * 1024 / pageBytes));
+        expect(cache.size).toBe(Math.floor((96 * 1024 * 1024) / pageBytes));
         expect(cache.size).toBeGreaterThan(10);
     });
 

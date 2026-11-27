@@ -1,29 +1,20 @@
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { ref } from 'vue';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
-import { requireDocumentRef } from '@contracts/documentRef';
-import { requireEpochMs } from '@contracts/timestamps';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
-import type { TTranslateFn } from '@i18n-app';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {ref} from 'vue';
+import type {TOpenFileResult} from '@contracts/electronApiDocuments';
+import {IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES} from '@contracts/electronApiDocuments';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireEpochMs} from '@contracts/timestamps';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import type {TTranslateFn} from '@i18n-app';
 import {
     clearRegisteredPdfRasterDisplayProfilesForTests,
     getRegisteredPdfRasterDisplayProfileCountForTests,
     registerPdfRasterDisplayProfile,
 } from '@app/types/pdfRasterDisplayProfile';
-import {
-    createDocumentSessionState,
-} from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
-import { createDocumentOpenFlow } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
-import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import {createDocumentSessionState} from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
+import {createDocumentOpenFlow} from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
+import {createDocumentOpenSurfaceSession} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import {
     beginOpenSurfaceWithPageShape,
     readPdfPageShape,
@@ -31,13 +22,13 @@ import {
 import {BrowserFilePickerSetupDeniedError} from '@app/platform/browser-api/browserFilePickerAdapter';
 import {clearPdfValidationRevisionCacheForTests} from '@app/modules/workspace-shell/composables/document-session/pdfValidationRevisionCache';
 import {useDocumentPasswordPrompt} from '@app/modules/workspace-shell/composables/useDocumentPasswordPrompt';
-import { BrowserLogger } from '@app/utils/browserLogger';
+import {BrowserLogger} from '@app/utils/browserLogger';
 import type * as FailureToastModule from '@app/composables/useFailureToast';
 import {formatTranslationLeaf} from '@i18n-core';
 import {LOCALE_MESSAGES} from '@i18n-app';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
-import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { createPdfSourceJob } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
+import {createWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {createPdfSourceJob} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
 
 const mocks = vi.hoisted(() => ({
     toasts: [] as Array<Record<string, unknown>>,
@@ -56,11 +47,13 @@ const mocks = vi.hoisted(() => ({
         forgetKeptOriginal: vi.fn(async () => undefined),
     },
     documentPdf: {validatePdfPath: vi.fn()},
-    documentPicker: { openDocumentDialog: vi.fn() },
-    documentRecentFiles: {recentFiles: {
-        get: vi.fn(),
-        readingView: vi.fn(),
-    }},
+    documentPicker: {openDocumentDialog: vi.fn()},
+    documentRecentFiles: {
+        recentFiles: {
+            get: vi.fn(),
+            readingView: vi.fn(),
+        },
+    },
     performanceProfile: {
         tier: 'medium',
         lowCpu: false,
@@ -79,10 +72,12 @@ const platformApi = createElectronPlatformApiFixture({
 // Notices go through the real presenter to a toaster that keeps what it was given to show.
 vi.mock('@app/composables/useFailureToast', async (importOriginal) => {
     const {createNoticeToastPresenter} = await importOriginal<typeof FailureToastModule>();
-    return {useFailureToast: () => ({
-        presentNoticeToast: createNoticeToastPresenter({add: options => mocks.toasts.push({...options})}),
-        presentFailureToast: vi.fn(),
-    })};
+    return {
+        useFailureToast: () => ({
+            presentNoticeToast: createNoticeToastPresenter({add: (options) => mocks.toasts.push({...options})}),
+            presentFailureToast: vi.fn(),
+        }),
+    };
 });
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock('@app/utils/performanceProfile', () => ({
@@ -90,12 +85,7 @@ vi.mock('@app/utils/performanceProfile', () => ({
     resolvePerformanceProfile: () => mocks.performanceProfile,
 }));
 
-const PDF_BYTES = Uint8Array.from([
-    37,
-    80,
-    68,
-    70,
-]);
+const PDF_BYTES = Uint8Array.from([37, 80, 68, 70]);
 
 /** Every open the shell starts runs under its own controller claim; a newer claim makes the older open stale. */
 function claimEachOpen(
@@ -119,10 +109,10 @@ interface IResetHistoryTestOptions {
 function createOpenFlowHarness() {
     const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
     const state = createDocumentSessionState({
-            isDesktopRuntime: ref(true),
-            document: controller,
-            admitPdfSource: intent => createPdfSourceJob(intent, {}),
-        });
+        isDesktopRuntime: ref(true),
+        document: controller,
+        admitPdfSource: (intent) => createPdfSourceJob(intent, {}),
+    });
     const deps = {
         cleanupAbandonedWorkingCopy: vi.fn(async () => undefined),
         clearPdfConformanceProfile: vi.fn(),
@@ -150,7 +140,7 @@ describe('createDocumentOpenFlow', () => {
         const state = createDocumentSessionState({
             isDesktopRuntime: ref(true),
             document: createWorkspaceDocumentController({tabId: 'tab-1'}),
-            admitPdfSource: intent => createPdfSourceJob(intent, {}),
+            admitPdfSource: (intent) => createPdfSourceJob(intent, {}),
         });
         state.wasEncrypted.value = true;
 
@@ -167,7 +157,7 @@ describe('createDocumentOpenFlow', () => {
         vi.clearAllMocks();
         clearPdfValidationRevisionCacheForTests();
         clearRegisteredPdfRasterDisplayProfilesForTests();
-        mocks.documentFiles.statFile.mockResolvedValue({ size: PDF_BYTES.byteLength });
+        mocks.documentFiles.statFile.mockResolvedValue({size: PDF_BYTES.byteLength});
         mocks.documentFiles.readFile.mockResolvedValue(PDF_BYTES);
         mocks.documentFiles.readFileRange.mockResolvedValue(new Uint8Array());
         mocks.documentFiles.writeFile.mockResolvedValue(true);
@@ -203,12 +193,14 @@ describe('createDocumentOpenFlow', () => {
             workingPath: requireDocumentRef('/tmp/reopened-working.pdf'),
         };
         let sourceModifiedAt = 100;
-        mocks.documentFiles.statFile.mockImplementation(async (path: string) => path === result.originalPath
-            ? {
-                size: PDF_BYTES.byteLength,
-                modifiedAt: requireEpochMs(sourceModifiedAt),
-            }
-            : {size: PDF_BYTES.byteLength});
+        mocks.documentFiles.statFile.mockImplementation(async (path: string) =>
+            path === result.originalPath
+                ? {
+                      size: PDF_BYTES.byteLength,
+                      modifiedAt: requireEpochMs(sourceModifiedAt),
+                  }
+                : {size: PDF_BYTES.byteLength},
+        );
 
         await expect(openFlow.openFile(result)).resolves.toMatchObject({status: 'opened'});
         await expect(openFlow.openFile(result)).resolves.toMatchObject({status: 'opened'});
@@ -219,7 +211,7 @@ describe('createDocumentOpenFlow', () => {
     });
 
     it('reads PDF state with the split document files stat capability', async () => {
-        const { openFlow } = createOpenFlowHarness();
+        const {openFlow} = createOpenFlowHarness();
 
         const nextState = await openFlow.readPdfStateFromPath(requireDocumentRef('/tmp/work.pdf'));
 
@@ -236,13 +228,8 @@ describe('createDocumentOpenFlow', () => {
             severity: 'error',
         } as FailureReceipt;
         const capture = vi.spyOn(BrowserLogger, 'error').mockReturnValue(receipt);
-        mocks.documentPicker.openDocumentDialog.mockRejectedValueOnce(
-            new BrowserFilePickerSetupDeniedError(),
-        );
-        const {
-            openFlow,
-            state,
-        } = createOpenFlowHarness();
+        mocks.documentPicker.openDocumentDialog.mockRejectedValueOnce(new BrowserFilePickerSetupDeniedError());
+        const {openFlow, state} = createOpenFlowHarness();
 
         await expect(openFlow.openFile()).resolves.toEqual({
             status: 'failed',
@@ -254,10 +241,7 @@ describe('createDocumentOpenFlow', () => {
     });
 
     it('retries typed password failures until the writer-backed open succeeds', async () => {
-        const {
-            openFlow,
-            state,
-        } = createOpenFlowHarness();
+        const {openFlow, state} = createOpenFlowHarness();
         const prompt = useDocumentPasswordPrompt();
         const protectedPath = requireDocumentRef('/documents/protected.pdf');
         const needsPassword: TOpenFileResult = {
@@ -293,20 +277,9 @@ describe('createDocumentOpenFlow', () => {
             result: openedPdf,
         });
         expect(prompt.open.value).toBe(false);
-        expect(mocks.documentOpen.openDocumentDirect).toHaveBeenNthCalledWith(
-            1,
-            protectedPath,
-        );
-        expect(mocks.documentOpen.openDocumentDirect).toHaveBeenNthCalledWith(
-            2,
-            protectedPath,
-            {password: 'wrong-password'},
-        );
-        expect(mocks.documentOpen.openDocumentDirect).toHaveBeenNthCalledWith(
-            3,
-            protectedPath,
-            {password: 'correct-password'},
-        );
+        expect(mocks.documentOpen.openDocumentDirect).toHaveBeenNthCalledWith(1, protectedPath);
+        expect(mocks.documentOpen.openDocumentDirect).toHaveBeenNthCalledWith(2, protectedPath, {password: 'wrong-password'});
+        expect(mocks.documentOpen.openDocumentDirect).toHaveBeenNthCalledWith(3, protectedPath, {password: 'correct-password'});
         expect(state.originalPath.value).toBe(protectedPath);
         expect(state.wasEncrypted.value).toBe(true);
     });
@@ -341,10 +314,7 @@ describe('createDocumentOpenFlow', () => {
     });
 
     it('cancels a password open without retaining or persisting the password', async () => {
-        const {
-            openFlow,
-            state,
-        } = createOpenFlowHarness();
+        const {openFlow, state} = createOpenFlowHarness();
         const prompt = useDocumentPasswordPrompt();
         const protectedPath = requireDocumentRef('/documents/protected.pdf');
         mocks.documentOpen.openDocumentDirect.mockResolvedValueOnce({
@@ -376,14 +346,14 @@ describe('createDocumentOpenFlow', () => {
             originalPath: secondPath,
             workingPath: requireDocumentRef('/tmp/second-working.pdf'),
         };
-        mocks.documentOpen.openDocumentDirect.mockImplementation(async (path: string) => (
+        mocks.documentOpen.openDocumentDirect.mockImplementation(async (path: string) =>
             path === firstPath
                 ? {
-                    kind: 'pdf-needs-password',
-                    originalPath: firstPath,
-                }
-                : secondResult
-        ));
+                      kind: 'pdf-needs-password',
+                      originalPath: firstPath,
+                  }
+                : secondResult,
+        );
 
         const firstOpening = openFlow.openFileDirect(firstPath);
         await vi.waitFor(() => {
@@ -399,10 +369,7 @@ describe('createDocumentOpenFlow', () => {
     });
 
     it('reports unsupported encryption without opening a password prompt', async () => {
-        const {
-            openFlow,
-            state,
-        } = createOpenFlowHarness();
+        const {openFlow, state} = createOpenFlowHarness();
         const prompt = useDocumentPasswordPrompt();
         const protectedPath = requireDocumentRef('/documents/unsupported.pdf');
         mocks.documentOpen.openDocumentDirect.mockResolvedValueOnce({
@@ -419,11 +386,7 @@ describe('createDocumentOpenFlow', () => {
     });
 
     it('retains the active PDF when a staged replacement fails parser validation', async () => {
-        const {
-            deps,
-            openFlow,
-            state,
-        } = createOpenFlowHarness();
+        const {deps, openFlow, state} = createOpenFlowHarness();
         const activeData = Uint8Array.of(1, 2, 3);
         const activeSource = new Blob([activeData], {type: 'application/pdf'});
         state.originalPath.value = requireDocumentRef('/documents/active.pdf');
@@ -449,10 +412,7 @@ describe('createDocumentOpenFlow', () => {
             error: 'errors.file.invalid',
         });
 
-        expect(mocks.documentPdf.validatePdfPath).toHaveBeenCalledWith(
-            '/tmp/corrupt-working.pdf',
-            {purpose: 'opening'},
-        );
+        expect(mocks.documentPdf.validatePdfPath).toHaveBeenCalledWith('/tmp/corrupt-working.pdf', {purpose: 'opening'});
         expect(state.originalPath.value).toBe('/documents/active.pdf');
         expect(state.workingCopyPath.value).toBe('/tmp/active-working.pdf');
         expect(state.pdfData.value).toBe(activeData);
@@ -464,29 +424,26 @@ describe('createDocumentOpenFlow', () => {
         expect(deps.cleanupAbandonedWorkingCopy).toHaveBeenCalledWith('/tmp/corrupt-working.pdf');
     });
 
-    it('keeps the opened document\'s source through a history step that moves to a new copy', async () => {
-        const {
-            openFlow,
-            state,
-        } = createOpenFlowHarness();
+    it("keeps the opened document's source through a history step that moves to a new copy", async () => {
+        const {openFlow, state} = createOpenFlowHarness();
         // The document as an open left it.
         state.openedWorkingCopyPath.value = requireDocumentRef('/tmp/edited-working.pdf');
 
-        await openFlow.applyLoadedPdfState(requireDocumentRef('/tmp/edited-history-copy.pdf'), {
-            pdfData: null,
-            pdfSrc: new Blob([], {type: 'application/pdf'}),
-        }, {preserveHistory: true});
+        await openFlow.applyLoadedPdfState(
+            requireDocumentRef('/tmp/edited-history-copy.pdf'),
+            {
+                pdfData: null,
+                pdfSrc: new Blob([], {type: 'application/pdf'}),
+            },
+            {preserveHistory: true},
+        );
 
         expect(state.workingCopyPath.value).toBe('/tmp/edited-history-copy.pdf');
         expect(state.openedWorkingCopyPath.value).toBe('/tmp/edited-working.pdf');
     });
 
     it('keeps a recovered ordinary PDF dirty without requiring Save As', async () => {
-        const {
-            deps,
-            openFlow,
-            state,
-        } = createOpenFlowHarness();
+        const {deps, openFlow, state} = createOpenFlowHarness();
         const recoveryBaselineDuringHistoryReset: boolean[] = [];
         deps.resetHistory.mockImplementation(async (options?: IResetHistoryTestOptions) => {
             recoveryBaselineDuringHistoryReset.push(state.recoveryDirtyBaseline.value);
@@ -508,10 +465,7 @@ describe('createDocumentOpenFlow', () => {
     });
 
     it('says where a save kept the version from before it and what to do, until the person dismisses it', async () => {
-        const {
-            deps,
-            openFlow,
-        } = createOpenFlowHarness();
+        const {deps, openFlow} = createOpenFlowHarness();
         const english = LOCALE_MESSAGES.en.errors.file;
         deps.t = ((key: string, params?: Record<string, string>) =>
             formatTranslationLeaf(english[key.replace('errors.file.', '') as keyof typeof english], params ?? {}, 'en')) as TTranslateFn;
@@ -528,10 +482,12 @@ describe('createDocumentOpenFlow', () => {
         expect(mocks.toasts).toHaveLength(1);
         const notice = mocks.toasts[0]!;
         expect(notice.title).toBe('A version was kept beside this PDF');
-        expect(notice.description).toBe('Another program changed this PDF after EVB Viewer began saving it, during the save or later, so the version from just '
-            + 'before that save was kept next to it as /documents/book (original).pdf. Compare the two files and keep the one you '
-            + 'want: if this PDF is right, delete /documents/book (original).pdf. This notice comes back each time you open this '
-            + 'PDF until you dismiss it.');
+        expect(notice.description).toBe(
+            'Another program changed this PDF after EVB Viewer began saving it, during the save or later, so the version from just ' +
+                'before that save was kept next to it as /documents/book (original).pdf. Compare the two files and keep the one you ' +
+                'want: if this PDF is right, delete /documents/book (original).pdf. This notice comes back each time you open this ' +
+                'PDF until you dismiss it.',
+        );
         expect(notice.duration).toBe(Number.POSITIVE_INFINITY);
         // Reopening the PDF before dismissing it shows the same notice again rather than a second one.
         expect(notice.id).toBe('kept-original:/documents/book.pdf');
@@ -547,22 +503,22 @@ describe('createDocumentOpenFlow', () => {
         mocks.documentOpen.forgetKeptOriginal.mockRejectedValueOnce(new Error('EACCES injected dismissal IPC'));
         mocks.toasts.length = 0;
         await openFlow.openFile({
-            kind: 'pdf', originalPath: requireDocumentRef('/documents/dismissal.pdf'),
+            kind: 'pdf',
+            originalPath: requireDocumentRef('/documents/dismissal.pdf'),
             workingPath: requireDocumentRef('/tmp/dismissal-working.pdf'),
             keptOriginalPath: requireDocumentRef('/documents/dismissal (original).pdf'),
         });
         (mocks.toasts[0]!['onUpdate:open'] as (open: boolean) => void)(false);
-        await new Promise<void>(resolve => queueMicrotask(resolve));
-        const diagnostics = [...warn.mock.calls, ...error.mock.calls].map(args => JSON.stringify(args, (_key, value: unknown) => value instanceof Error ? value.message : value)).join('\n');
+        await new Promise<void>((resolve) => queueMicrotask(resolve));
+        const diagnostics = [...warn.mock.calls, ...error.mock.calls]
+            .map((args) => JSON.stringify(args, (_key, value: unknown) => (value instanceof Error ? value.message : value)))
+            .join('\n');
         expect.soft(diagnostics).toContain('/documents/dismissal.pdf');
         expect(diagnostics).toContain('EACCES injected dismissal IPC');
     });
 
     it('does not request cleanup when a recovered PDF fails before adoption', async () => {
-        const {
-            deps,
-            openFlow,
-        } = createOpenFlowHarness();
+        const {deps, openFlow} = createOpenFlowHarness();
         deps.resetHistory.mockRejectedValue(new Error('injected recovered read failure'));
         const recoveredResult: TOpenFileResult = {
             kind: 'pdf',
@@ -576,10 +532,7 @@ describe('createDocumentOpenFlow', () => {
     });
 
     it('keeps a normal source reopen clean after a recovered dirty PDF', async () => {
-        const {
-            openFlow,
-            state,
-        } = createOpenFlowHarness();
+        const {openFlow, state} = createOpenFlowHarness();
         await openFlow.openFile({
             kind: 'pdf',
             originalPath: requireDocumentRef('/documents/recovered.pdf'),
@@ -600,10 +553,7 @@ describe('createDocumentOpenFlow', () => {
     });
 
     it('keeps generated PDFs dirty and requires their first Save As', async () => {
-        const {
-            openFlow,
-            state,
-        } = createOpenFlowHarness();
+        const {openFlow, state} = createOpenFlowHarness();
         const generatedResult: TOpenFileResult = {
             kind: 'pdf',
             originalPath: requireDocumentRef('/documents/generated.pdf'),
@@ -619,9 +569,9 @@ describe('createDocumentOpenFlow', () => {
     });
 
     it('keeps PDFs above the direct IPC ceiling path-backed', async () => {
-        const { openFlow } = createOpenFlowHarness();
+        const {openFlow} = createOpenFlowHarness();
         const size = IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES + 1;
-        mocks.documentFiles.statFile.mockResolvedValue({ size });
+        mocks.documentFiles.statFile.mockResolvedValue({size});
 
         const nextState = await openFlow.readPdfStateFromPath(requireDocumentRef('/tmp/large-work.pdf'));
 
@@ -654,7 +604,7 @@ describe('createDocumentOpenFlow', () => {
 
     it('keeps a low-memory PDF one byte above 4 MiB path-backed', async () => {
         mocks.performanceProfile.lowMemory = true;
-        const size = (4 * 1024 * 1024) + 1;
+        const size = 4 * 1024 * 1024 + 1;
         mocks.documentFiles.statFile.mockResolvedValue({size});
         const {openFlow} = createOpenFlowHarness();
 
@@ -672,18 +622,17 @@ describe('createDocumentOpenFlow', () => {
 
     it('opens an 8 MiB plus one low-memory PDF without reading it, with clean file history', async () => {
         mocks.performanceProfile.lowMemory = true;
-        const size = (8 * 1024 * 1024) + 1;
+        const size = 8 * 1024 * 1024 + 1;
         mocks.documentFiles.statFile.mockResolvedValue({size});
-        const {
-            deps,
-            openFlow,
-        } = createOpenFlowHarness();
+        const {deps, openFlow} = createOpenFlowHarness();
 
-        await expect(openFlow.openFile({
-            kind: 'pdf',
-            originalPath: requireDocumentRef('/tmp/medium.pdf'),
-            workingPath: requireDocumentRef('/tmp/medium-working.pdf'),
-        })).resolves.toMatchObject({status: 'opened'});
+        await expect(
+            openFlow.openFile({
+                kind: 'pdf',
+                originalPath: requireDocumentRef('/tmp/medium.pdf'),
+                workingPath: requireDocumentRef('/tmp/medium-working.pdf'),
+            }),
+        ).resolves.toMatchObject({status: 'opened'});
 
         expect(deps.resetHistory).toHaveBeenCalledWith({isCurrent: expect.any(Function)});
         expect(mocks.documentFiles.readFile).not.toHaveBeenCalled();
@@ -691,11 +640,7 @@ describe('createDocumentOpenFlow', () => {
     });
 
     it('cleans up a stale direct PDF working copy that was superseded before adoption', async () => {
-        const {
-            deps,
-            openFlow,
-            state,
-        } = createOpenFlowHarness();
+        const {deps, openFlow, state} = createOpenFlowHarness();
         const staleResult: TOpenFileResult = {
             kind: 'pdf',
             originalPath: requireDocumentRef('/stale.pdf'),
@@ -716,7 +661,7 @@ describe('createDocumentOpenFlow', () => {
             }
             return freshResult;
         });
-        mocks.documentFiles.statFile.mockResolvedValue({ size: PDF_BYTES.byteLength });
+        mocks.documentFiles.statFile.mockResolvedValue({size: PDF_BYTES.byteLength});
         mocks.documentFiles.readFile.mockResolvedValue(PDF_BYTES);
 
         const staleOpen = openFlow.openFileDirect(requireDocumentRef('/stale.pdf'));
@@ -738,16 +683,15 @@ describe('createDocumentOpenFlow', () => {
     });
 
     it('adopts direct-open raster display profiles for the opened PDF only', async () => {
-        const {
-            openFlow,
-            state,
-        } = createOpenFlowHarness();
+        const {openFlow, state} = createOpenFlowHarness();
         const profile = {
             kind: 'trusted-raster-djvu' as const,
-            sourcePagePixels: [{
-                width: 1293,
-                height: 1966,
-            }],
+            sourcePagePixels: [
+                {
+                    width: 1293,
+                    height: 1966,
+                },
+            ],
         };
         mocks.documentOpen.openDocumentDirect.mockImplementation(async (path: string) => ({
             kind: 'pdf',
@@ -755,7 +699,9 @@ describe('createDocumentOpenFlow', () => {
             workingPath: `/tmp/${path.replaceAll('/', '')}`,
         }));
 
-        await expect(openFlow.openFileDirect(requireDocumentRef('/scan.pdf'), {rasterDisplayProfile: profile})).resolves.toMatchObject({status: 'opened'});
+        await expect(openFlow.openFileDirect(requireDocumentRef('/scan.pdf'), {rasterDisplayProfile: profile})).resolves.toMatchObject({
+            status: 'opened',
+        });
 
         expect(state.pdfRasterDisplayProfile.value).toStrictEqual(profile);
 
@@ -765,16 +711,15 @@ describe('createDocumentOpenFlow', () => {
     });
 
     it('adopts registered raster display profiles when reopening a generated PDF path', async () => {
-        const {
-            openFlow,
-            state,
-        } = createOpenFlowHarness();
+        const {openFlow, state} = createOpenFlowHarness();
         const profile = {
             kind: 'trusted-raster-djvu' as const,
-            sourcePagePixels: [{
-                width: 1293,
-                height: 1966,
-            }],
+            sourcePagePixels: [
+                {
+                    width: 1293,
+                    height: 1966,
+                },
+            ],
         };
         registerPdfRasterDisplayProfile(requireDocumentRef('/tmp/generated.pdf'), profile);
         mocks.documentOpen.openDocumentDirect.mockResolvedValue({
@@ -798,10 +743,12 @@ describe('createDocumentOpenFlow', () => {
     it('bounds pending raster display profile handoffs', () => {
         const profile = {
             kind: 'trusted-raster-djvu' as const,
-            sourcePagePixels: [{
-                width: 100,
-                height: 200,
-            }],
+            sourcePagePixels: [
+                {
+                    width: 100,
+                    height: 200,
+                },
+            ],
         };
 
         for (let index = 0; index < 100; index += 1) {
@@ -813,10 +760,7 @@ describe('createDocumentOpenFlow', () => {
 
     it('consumes a raster display profile handoff even when the target open fails', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
-        const {
-            openFlow,
-            state,
-        } = createOpenFlowHarness();
+        const {openFlow, state} = createOpenFlowHarness();
         const result: TOpenFileResult = {
             kind: 'pdf',
             originalPath: requireDocumentRef('/tmp/reused.pdf'),
@@ -825,14 +769,14 @@ describe('createDocumentOpenFlow', () => {
         mocks.documentOpen.openDocumentDirect.mockResolvedValue(result);
         registerPdfRasterDisplayProfile(requireDocumentRef('/tmp/reused.pdf'), {
             kind: 'trusted-raster-djvu',
-            sourcePagePixels: [{
-                width: 100,
-                height: 200,
-            }],
+            sourcePagePixels: [
+                {
+                    width: 100,
+                    height: 200,
+                },
+            ],
         });
-        mocks.documentFiles.readFile
-            .mockRejectedValueOnce(new Error('load failed'))
-            .mockResolvedValue(PDF_BYTES);
+        mocks.documentFiles.readFile.mockRejectedValueOnce(new Error('load failed')).mockResolvedValue(PDF_BYTES);
 
         await expect(openFlow.openFileDirect(requireDocumentRef('/tmp/reused.pdf'))).resolves.toMatchObject({status: 'failed'});
         expect(getRegisteredPdfRasterDisplayProfileCountForTests()).toBe(0);
@@ -842,11 +786,7 @@ describe('createDocumentOpenFlow', () => {
     });
 
     it('does not let a stale PDF open clobber dirty state or conformance after history reset', async () => {
-        const {
-            deps,
-            openFlow,
-            state,
-        } = createOpenFlowHarness();
+        const {deps, openFlow, state} = createOpenFlowHarness();
         const firstResult: TOpenFileResult = {
             kind: 'pdf',
             originalPath: requireDocumentRef('/first.pdf'),
@@ -868,7 +808,7 @@ describe('createDocumentOpenFlow', () => {
             }
             return options?.isCurrent?.() !== false;
         });
-        mocks.documentFiles.statFile.mockResolvedValue({ size: PDF_BYTES.byteLength });
+        mocks.documentFiles.statFile.mockResolvedValue({size: PDF_BYTES.byteLength});
         mocks.documentFiles.readFile.mockResolvedValue(PDF_BYTES);
 
         const firstOpen = openFlow.openFile(firstResult);
@@ -891,10 +831,9 @@ describe('createDocumentOpenFlow', () => {
         expect(state.originalPath.value).toBe('/second.pdf');
         expect(state.isDirty.value).toBe(false);
         expect(deps.deferPdfConformanceProfile).toHaveBeenCalledTimes(1);
-        expect(deps.deferPdfConformanceProfile).toHaveBeenCalledWith('/tmp/second-working.pdf', { fileSize: PDF_BYTES.byteLength });
+        expect(deps.deferPdfConformanceProfile).toHaveBeenCalledWith('/tmp/second-working.pdf', {fileSize: PDF_BYTES.byteLength});
         expect(deps.cleanupPreviousWorkingCopy).toHaveBeenCalledWith('/tmp/first-working.pdf', '/tmp/second-working.pdf');
     });
-
 });
 
 const shapedPath = requireDocumentRef('/books/grammar.pdf');
@@ -925,7 +864,7 @@ describe('the opening surface takes the page shape at its claim', () => {
         await read?.answer;
         const openSurface = createDocumentOpenSurfaceSession();
 
-        beginOpenSurfaceWithPageShape(openSurface, claim('1'), 1, await read?.answer ?? null);
+        beginOpenSurfaceWithPageShape(openSurface, claim('1'), 1, (await read?.answer) ?? null);
 
         expect(openSurface.snapshot.value.openingPageGeometry).toMatchObject({
             documentId: shapedPath,
@@ -949,7 +888,7 @@ describe('the opening surface takes the page shape at its claim', () => {
         await read?.answer;
         const openSurface = createDocumentOpenSurfaceSession();
 
-        beginOpenSurfaceWithPageShape(openSurface, claim('1'), 5, await read?.answer ?? null);
+        beginOpenSurfaceWithPageShape(openSurface, claim('1'), 5, (await read?.answer) ?? null);
 
         expect(openSurface.snapshot.value.openingPageGeometry).toBeNull();
     });

@@ -4,20 +4,11 @@ import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 import {REQUEST_HEADER} from '@contracts/browserPageOpsWasm.generated';
 import * as v from 'valibot';
 import {decodePdfPageSizeRecord} from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';
-import {
-    reduceScanCleanupRasterRows,
-    type IScanCleanupRasterRow,
-} from '@evb/scan-cleanup/core/sourceRasterFacts';
+import {reduceScanCleanupRasterRows, type IScanCleanupRasterRow} from '@evb/scan-cleanup/core/sourceRasterFacts';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
-import {
-    BROWSER_DOCUMENT_FULL_READ_TOO_LARGE,
-    BrowserDocumentReadError,
-} from '@app/platform/browser/browserDocumentReadError';
+import {BROWSER_DOCUMENT_FULL_READ_TOO_LARGE, BrowserDocumentReadError} from '@app/platform/browser/browserDocumentReadError';
 import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdfjsDocument';
-import {
-    evictBrowserPageOpsDocumentCache,
-    runBrowserPageOpsWorkerRequest,
-} from '@app/platform/browser-api/browserPageOpsWorkerClient';
+import {evictBrowserPageOpsDocumentCache, runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
 import type {IBrowserScanCleanupSource} from '@app/platform/browser-api/browserScanCleanupJob';
 
 interface ISourceEntry {
@@ -28,40 +19,35 @@ interface ISourceEntry {
 
 const sources = new Map<string, ISourceEntry>();
 const retire = (key: string, entry: ISourceEntry) => {
-    if (sources.get(key) === entry) sources.delete(key);
+    if (sources.get(key) === entry) {
+        sources.delete(key);
+    }
 };
 
 const count = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
 /** What browser inspection adds to a page record: the facts desktop reads from pdfimages and the annotation index. */
 const INSPECTED_PAGE_FACTS_SCHEMA = v.object({
-    rasterUses: v.array(v.object({
-        kind: v.picklist([
-            'image',
-            'stencil',
-            'mask',
-            'smask',
-        ]),
-        widthPx: count,
-        heightPx: count,
-        bitsPerComponent: count,
-        objectNumber: count,
-        xPpi: count,
-        yPpi: count,
-    })),
+    rasterUses: v.array(
+        v.object({
+            kind: v.picklist(['image', 'stencil', 'mask', 'smask']),
+            widthPx: count,
+            heightPx: count,
+            bitsPerComponent: count,
+            objectNumber: count,
+            xPpi: count,
+            yPpi: count,
+        }),
+    ),
     rasterInventoryComplete: v.boolean(),
     hasAnnotations: v.boolean(),
 });
 
-export async function readBoundedRevisionBlobBytes(
-    blob: Blob,
-    maxBytes: number,
-    ref: string,
-): Promise<Uint8Array> {
+export async function readBoundedRevisionBlobBytes(blob: Blob, maxBytes: number, ref: string): Promise<Uint8Array> {
     if (blob.size > maxBytes) {
         throw new BrowserDocumentReadError(
             BROWSER_DOCUMENT_FULL_READ_TOO_LARGE,
-            `Browser document is too large to load fully into memory (${ref}: `
-            + `${Math.floor(blob.size / (1024 * 1024))}MB > ${Math.round(maxBytes / (1024 * 1024))}MB limit)`,
+            `Browser document is too large to load fully into memory (${ref}: ` +
+                `${Math.floor(blob.size / (1024 * 1024))}MB > ${Math.round(maxBytes / (1024 * 1024))}MB limit)`,
             {maxBytes},
         );
     }
@@ -74,30 +60,31 @@ export async function readBoundedRevisionBlobBytes(
  */
 async function openSource(ref: string, revision: string, signal: AbortSignal): Promise<IBrowserScanCleanupSource> {
     const token = requireDocumentRevisionToken(revision);
-    const {
-        blob: source,
-        instance,
-        byteRevision,
-    } = await browserDocumentStore.readableRevision(ref, {token});
-    const assertCurrent = () => browserDocumentStore.assertDocumentRevisionCurrent(ref, token, {
-        strict: true,
-        expectedInstance: instance,
-        ...(byteRevision === undefined ? {} : {expectedByteRevision: byteRevision}),
-    });
+    const {blob: source, instance, byteRevision} = await browserDocumentStore.readableRevision(ref, {token});
+    const assertCurrent = () =>
+        browserDocumentStore.assertDocumentRevisionCurrent(ref, token, {
+            strict: true,
+            expectedInstance: instance,
+            ...(byteRevision === undefined ? {} : {expectedByteRevision: byteRevision}),
+        });
     const data = await readBoundedRevisionBlobBytes(source, BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - REQUEST_HEADER.bytes, ref);
     await assertCurrent();
     let pageOpsEngineSha256: string | null = null;
-    const inspected = await runBrowserPageOpsWorkerRequest('inspectScanCleanupPdf', {
-        data,
-        pages: [],
-    }, {
-        dedicated: true,
-        transferInput: true,
-        signal,
-        onEngineIdentity: sha256 => {
-            pageOpsEngineSha256 = sha256;
+    const inspected = await runBrowserPageOpsWorkerRequest(
+        'inspectScanCleanupPdf',
+        {
+            data,
+            pages: [],
         },
-    });
+        {
+            dedicated: true,
+            transferInput: true,
+            signal,
+            onEngineIdentity: (sha256) => {
+                pageOpsEngineSha256 = sha256;
+            },
+        },
+    );
     if (isBrowserPageOpsWasmFailure(inspected)) {
         throw new Error(`Scan cleanup could not read the page geometry: ${inspected.error.message}`);
     }
@@ -108,14 +95,15 @@ async function openSource(ref: string, revision: string, signal: AbortSignal): P
     const rasterRows: IScanCleanupRasterRow[] = [];
     const annotatedPages = new Set<number>();
     const incompleteRasterPages = new Set<number>();
-    for (const [
-        index,
-        record,
-    ] of inspected.pages.entries()) {
+    for (const [index, record] of inspected.pages.entries()) {
         const facts = v.parse(INSPECTED_PAGE_FACTS_SCHEMA, record);
         const pageNumber = index + 1;
-        if (!facts.rasterInventoryComplete) incompleteRasterPages.add(pageNumber);
-        if (facts.hasAnnotations) annotatedPages.add(pageNumber);
+        if (!facts.rasterInventoryComplete) {
+            incompleteRasterPages.add(pageNumber);
+        }
+        if (facts.hasAnnotations) {
+            annotatedPages.add(pageNumber);
+        }
         for (const use of facts.rasterUses) {
             rasterRows.push({
                 pageNumber,
@@ -154,10 +142,7 @@ async function openSource(ref: string, revision: string, signal: AbortSignal): P
         },
         async refreshSource() {
             const refreshed = await browserDocumentStore.readableRevision(ref, {token});
-            if (
-                refreshed.instance !== instance
-                || (byteRevision !== undefined && refreshed.byteRevision !== byteRevision)
-            ) {
+            if (refreshed.instance !== instance || (byteRevision !== undefined && refreshed.byteRevision !== byteRevision)) {
                 await assertCurrent();
             }
             currentSource = refreshed.blob;
@@ -206,14 +191,18 @@ export function borrowBrowserScanCleanupSource(ref: string, revision: string) {
         /** Lends no new borrower this snapshot. */
         retire: () => retire(key, borrowed),
         release() {
-            if (released) return;
+            if (released) {
+                return;
+            }
             released = true;
             borrowed.borrowers -= 1;
-            if (borrowed.borrowers > 0) return;
+            if (borrowed.borrowers > 0) {
+                return;
+            }
             retire(key, borrowed);
             evictBrowserPageOpsDocumentCache(key);
             borrowed.controller.abort(new DOMException('Scan cleanup source was released.', 'AbortError'));
-            void borrowed.promise.then(opened => opened.pdf.loadingTask.destroy()).catch(() => undefined);
+            void borrowed.promise.then((opened) => opened.pdf.loadingTask.destroy()).catch(() => undefined);
         },
     };
 }
@@ -221,14 +210,14 @@ export function borrowBrowserScanCleanupSource(ref: string, revision: string) {
 export type TBrowserScanCleanupSourceBorrow = ReturnType<typeof borrowBrowserScanCleanupSource>;
 
 function abortReason(signal: AbortSignal) {
-    return signal.reason instanceof Error
-        ? signal.reason
-        : new DOMException('Scan cleanup was canceled.', 'AbortError');
+    return signal.reason instanceof Error ? signal.reason : new DOMException('Scan cleanup was canceled.', 'AbortError');
 }
 
 /** Waits for a shared promise on behalf of one caller, who may stop waiting without canceling it. */
 export function awaitScanCleanupSource<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-    if (signal.aborted) return Promise.reject(abortReason(signal));
+    if (signal.aborted) {
+        return Promise.reject(abortReason(signal));
+    }
     return new Promise<T>((resolve, reject) => {
         const abort = () => reject(abortReason(signal));
         signal.addEventListener('abort', abort, {once: true});

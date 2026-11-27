@@ -1,17 +1,10 @@
-import {
-    closeSync,
-    mkdirSync,
-    openSync,
-} from 'node:fs';
-import { join } from 'node:path';
-import {
-    spawn,
-    type ChildProcess,
-} from 'node:child_process';
-import type { Socket } from 'node:net';
-import { delay } from 'es-toolkit/promise';
-import { projectRoot } from '@scripts/electron-run/projectRoot';
-import { DEV_OUTPUT_TEE_STABLE_LOG_DISABLED_ENV } from '@scripts/electron-run/devServerOutputTee';
+import {closeSync, mkdirSync, openSync} from 'node:fs';
+import {join} from 'node:path';
+import {spawn, type ChildProcess} from 'node:child_process';
+import type {Socket} from 'node:net';
+import {delay} from 'es-toolkit/promise';
+import {projectRoot} from '@scripts/electron-run/projectRoot';
+import {DEV_OUTPUT_TEE_STABLE_LOG_DISABLED_ENV} from '@scripts/electron-run/devServerOutputTee';
 import {
     cleanupStaleSessionArtifacts,
     cleanupSessionStartingAttempt,
@@ -21,59 +14,29 @@ import {
     readSessionLogTail,
     waitForSessionReady,
 } from '@scripts/electron-run/electronRunSessionArtifacts';
-import {
-    cleanupSessionAppTempIfUnowned,
-    hasWorkspaceRecoveryEvidence,
-} from '@scripts/electron-run/electronRunSessionCleanup';
-import {
-    getCurrentSessionName,
-    sessionDir,
-    sessionLogFilePath,
-} from '@scripts/electron-run/electronRunSessionPaths';
-import {
-    isProcessAlive,
-    killProcessTree,
-} from '@scripts/electron-run/electronRunProcessTree';
-import {
-    INITIAL_OPEN_PATHS_ENV,
-    normalizeInitialOpenPaths,
-} from '@scripts/electron-run/electronLaunch';
+import {cleanupSessionAppTempIfUnowned, hasWorkspaceRecoveryEvidence} from '@scripts/electron-run/electronRunSessionCleanup';
+import {getCurrentSessionName, sessionDir, sessionLogFilePath} from '@scripts/electron-run/electronRunSessionPaths';
+import {isProcessAlive, killProcessTree} from '@scripts/electron-run/electronRunProcessTree';
+import {INITIAL_OPEN_PATHS_ENV, normalizeInitialOpenPaths} from '@scripts/electron-run/electronLaunch';
 
 const DEV_DETACHED_SESSION_READY_TIMEOUT_MS = 120_000;
 const E2E_DETACHED_SESSION_READY_TIMEOUT_MS = 65_000;
 export const E2E_SESSION_START_TIMEOUT_MS = 75_000;
 
 export function resolveDetachedSessionReadyTimeoutMs(owner: 'dev' | 'e2e') {
-    return owner === 'e2e'
-        ? E2E_DETACHED_SESSION_READY_TIMEOUT_MS
-        : DEV_DETACHED_SESSION_READY_TIMEOUT_MS;
+    return owner === 'e2e' ? E2E_DETACHED_SESSION_READY_TIMEOUT_MS : DEV_DETACHED_SESSION_READY_TIMEOUT_MS;
 }
 
-export function resolveDetachedSessionLaunch(
-    owner: 'dev' | 'e2e',
-    sessionName: string,
-    execPath = process.execPath,
-) {
+export function resolveDetachedSessionLaunch(owner: 'dev' | 'e2e', sessionName: string, execPath = process.execPath) {
     return owner === 'e2e'
         ? {
-            args: [
-                '--import',
-                'tsx',
-                join(projectRoot, 'scripts', 'electron-run', 'ephemeralSessionEntry.ts'),
-                sessionName,
-            ],
-            command: execPath,
-        }
+              args: ['--import', 'tsx', join(projectRoot, 'scripts', 'electron-run', 'ephemeralSessionEntry.ts'), sessionName],
+              command: execPath,
+          }
         : {
-            args: [
-                '--import',
-                'tsx',
-                join(projectRoot, 'scripts', 'electronRun.ts'),
-                `--session=${sessionName}`,
-                'start',
-            ],
-            command: execPath,
-        };
+              args: ['--import', 'tsx', join(projectRoot, 'scripts', 'electronRun.ts'), `--session=${sessionName}`, 'start'],
+              command: execPath,
+          };
 }
 
 export function waitForDetachedChildSpawn(child: ChildProcess) {
@@ -96,27 +59,18 @@ export function waitForDetachedChildSpawn(child: ChildProcess) {
     });
 }
 
-export function createDetachedSessionReadinessFailure(
-    message: string,
-    cleanupErrors: unknown[],
-) {
+export function createDetachedSessionReadinessFailure(message: string, cleanupErrors: unknown[]) {
     const readinessFailure = new Error(message);
-    return cleanupErrors.length === 0
-        ? readinessFailure
-        : new AggregateError(
-            [
-                readinessFailure,
-                ...cleanupErrors,
-            ],
-            message,
-        );
+    return cleanupErrors.length === 0 ? readinessFailure : new AggregateError([readinessFailure, ...cleanupErrors], message);
 }
 
-export async function startSessionDetached(options: {
-    env?: NodeJS.ProcessEnv;
-    owner?: 'dev' | 'e2e';
-    initialOpenPaths?: string[];
-} = {}) {
+export async function startSessionDetached(
+    options: {
+        env?: NodeJS.ProcessEnv;
+        owner?: 'dev' | 'e2e';
+        initialOpenPaths?: string[];
+    } = {},
+) {
     const owner = options.owner ?? 'dev';
     const readyTimeoutMs = resolveDetachedSessionReadyTimeoutMs(owner);
     const cleanupResult = await cleanupStaleSessionArtifacts();
@@ -138,15 +92,9 @@ export async function startSessionDetached(options: {
         return;
     }
 
-    mkdirSync(sessionDir(), { recursive: true });
+    mkdirSync(sessionDir(), {recursive: true});
     const logFd = openSync(sessionLogFilePath(), 'w');
-    const {
-        args,
-        command,
-    } = resolveDetachedSessionLaunch(
-        owner,
-        getCurrentSessionName(),
-    );
+    const {args, command} = resolveDetachedSessionLaunch(owner, getCurrentSessionName());
     let child: ChildProcess;
     try {
         child = spawn(command, args, {
@@ -156,11 +104,7 @@ export async function startSessionDetached(options: {
             // An E2E session lives only as long as this process: its entry
             // shuts down when this stdin pipe reaches EOF, which the OS
             // guarantees once this process exits, even by SIGKILL.
-            stdio: [
-                owner === 'e2e' ? 'pipe' : 'ignore',
-                logFd,
-                logFd,
-            ],
+            stdio: [owner === 'e2e' ? 'pipe' : 'ignore', logFd, logFd],
             env: {
                 ...process.env,
                 ...options.env,
@@ -170,7 +114,7 @@ export async function startSessionDetached(options: {
                 // must not append the same lines to session.log a second time.
                 [DEV_OUTPUT_TEE_STABLE_LOG_DISABLED_ENV]: '1',
                 ...(options.initialOpenPaths
-                    ? { [INITIAL_OPEN_PATHS_ENV]: JSON.stringify(normalizeInitialOpenPaths(options.initialOpenPaths)) }
+                    ? {[INITIAL_OPEN_PATHS_ENV]: JSON.stringify(normalizeInitialOpenPaths(options.initialOpenPaths))}
                     : {}),
             },
         });

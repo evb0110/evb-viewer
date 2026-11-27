@@ -8,11 +8,9 @@ import {
 export function isScanCleanupOutputMode(
     value: unknown,
 ): value is NonNullable<IScanCleanupPreviewResult['pageMetadata']['recommendedOutputMode']> {
-    return SCAN_CLEANUP_OUTPUT_MODES.some(mode => mode === value);
+    return SCAN_CLEANUP_OUTPUT_MODES.some((mode) => mode === value);
 }
 
-export function isScanCleanupOutputModeRecommendationReason(
-    value: unknown,
-): value is TScanCleanupOutputModeRecommendationReason {
-    return SCAN_CLEANUP_OUTPUT_MODE_RECOMMENDATION_REASONS.some(reason => reason === value);
+export function isScanCleanupOutputModeRecommendationReason(value: unknown): value is TScanCleanupOutputModeRecommendationReason {
+    return SCAN_CLEANUP_OUTPUT_MODE_RECOMMENDATION_REASONS.some((reason) => reason === value);
 }

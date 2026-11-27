@@ -1,19 +1,7 @@
-import {
-    mkdtemp,
-    rm,
-    stat,
-    writeFile,
-} from 'node:fs/promises';
+import {mkdtemp, rm, stat, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {requireRequestId} from '@contracts/shared';
 import {parseDocumentRef} from '@contracts/documentRef';
@@ -35,15 +23,17 @@ const mocks = vi.hoisted(() => ({
 vi.mock('electron', () => ({BrowserWindow: {getAllWindows: () => [{webContents: {id: 7}}]}}));
 vi.mock('@electron/utils/sendPlatformEvent', () => ({sendPlatformEvent: mocks.sendPlatformEvent}));
 vi.mock('@electron/features/ocr/pipeline/runOcrJob', () => ({runOcrJob: mocks.runOcrJob}));
-vi.mock('@electron/features/ocr/main/prepareLanguageModelsForJob.modelPrep', () => ({prepareLanguageModelsForJob: mocks.prepareLanguageModelsForJob}));
+vi.mock('@electron/features/ocr/main/prepareLanguageModelsForJob.modelPrep', () => ({
+    prepareLanguageModelsForJob: mocks.prepareLanguageModelsForJob,
+}));
 vi.mock('@electron/features/ocr/main/paths', () => ({resolveOcrPipelinePaths: () => ({})}));
 vi.mock('@electron/features/ocr/languageModels', () => ({
     ensureRuntimeTessdataSeeded: mocks.ensureRuntimeTessdataSeeded,
     ensureTessdataLanguages: mocks.ensureTessdataLanguages,
     getRuntimeTessdataDir: () => root,
 }));
-vi.mock('@electron/file-access/documentStore', async importOriginal => ({
-    ...await importOriginal<Record<string, unknown>>(),
+vi.mock('@electron/file-access/documentStore', async (importOriginal) => ({
+    ...(await importOriginal<Record<string, unknown>>()),
     getWorkingCopyRevision: mocks.getWorkingCopyRevision,
 }));
 
@@ -68,12 +58,8 @@ function createContext() {
 
 function completionEvents() {
     return mocks.sendPlatformEvent.mock.calls
-        .filter(([
-            , channel,
-        ]) => channel === OCR_COMPLETE_EVENT_CHANNEL)
-        .map(([
-            , , payload,
-        ]) => payload as Record<string, unknown>);
+        .filter(([, channel]) => channel === OCR_COMPLETE_EVENT_CHANNEL)
+        .map(([, , payload]) => payload as Record<string, unknown>);
 }
 
 async function waitForCompletion(count = 1) {
@@ -85,10 +71,12 @@ function startJob(requestId: string) {
     return jobManager.handleOcrCreateSearchablePdfAsync(
         createContext() as never,
         documentPath,
-        [{
-            pageNumber: requirePageNumber(1),
-            languages: ['eng'],
-        }],
+        [
+            {
+                pageNumber: requirePageNumber(1),
+                languages: ['eng'],
+            },
+        ],
         requireRequestId(requestId),
     );
 }
@@ -142,26 +130,25 @@ describe('OCR job manager on the main job registry', () => {
             pdfPath: result.success ? result.pdfPath : '',
         });
         const documentRef = parseDocumentRef(documentPath)!;
-        expect(jobManager.findOcrResultForDocument(join(root, 'ocr-1-merged.pdf'), documentRef, revisionToken))
-            .toEqual({
-                requestId: 'ocr-1',
-                resultSha256: 'sha',
-            });
-        expect(jobManager.findOcrResultForDocument(
-            join(root, 'ocr-1-merged.pdf'),
-            documentRef,
-            parseDocumentRevisionToken('revision-2')!,
-        )).toBeNull();
+        expect(jobManager.findOcrResultForDocument(join(root, 'ocr-1-merged.pdf'), documentRef, revisionToken)).toEqual({
+            requestId: 'ocr-1',
+            resultSha256: 'sha',
+        });
+        expect(
+            jobManager.findOcrResultForDocument(join(root, 'ocr-1-merged.pdf'), documentRef, parseDocumentRevisionToken('revision-2')!),
+        ).toBeNull();
 
-        await expect(jobManager.handleOcrAcknowledgeResultFile(createContext() as never, 'ocr-1'))
-            .resolves.toEqual({cleaned: true});
+        await expect(jobManager.handleOcrAcknowledgeResultFile(createContext() as never, 'ocr-1')).resolves.toEqual({cleaned: true});
         await expect(stat(join(root, 'ocr-1-merged.pdf'))).rejects.toMatchObject({code: 'ENOENT'});
     });
 
     it('reports a cancelled run as a cancelled completion', async () => {
-        mocks.runOcrJob.mockImplementationOnce((job: IOcrJob) => new Promise((_resolve, reject) => {
-            job.signal.addEventListener('abort', () => reject(job.signal.reason));
-        }));
+        mocks.runOcrJob.mockImplementationOnce(
+            (job: IOcrJob) =>
+                new Promise((_resolve, reject) => {
+                    job.signal.addEventListener('abort', () => reject(job.signal.reason));
+                }),
+        );
 
         await expect(startJob('ocr-2')).resolves.toMatchObject({started: true});
         await vi.waitFor(() => expect(mocks.runOcrJob).toHaveBeenCalled());
@@ -170,23 +157,27 @@ describe('OCR job manager on the main job registry', () => {
             requestId: 'ocr-2',
             success: false,
             errors: ['OCR job was cancelled'],
-            errorEnvelope: {details: {
-                details: 'explicit cancel request',
-                timestamp: expect.any(Number),
-            }},
+            errorEnvelope: {
+                details: {
+                    details: 'explicit cancel request',
+                    timestamp: expect.any(Number),
+                },
+            },
         });
     });
 
     it('removes a staged PDF when cancellation wins after the pipeline returns it', async () => {
         const result = await stageResult('ocr-late-merged.pdf');
-        mocks.runOcrJob.mockImplementationOnce((job: IOcrJob) => new Promise((resolve) => {
-            job.signal.addEventListener('abort', () => resolve(result), {once: true});
-        }));
+        mocks.runOcrJob.mockImplementationOnce(
+            (job: IOcrJob) =>
+                new Promise((resolve) => {
+                    job.signal.addEventListener('abort', () => resolve(result), {once: true});
+                }),
+        );
 
         await expect(startJob('ocr-late')).resolves.toMatchObject({started: true});
         await vi.waitFor(() => expect(mocks.runOcrJob).toHaveBeenCalled());
-        expect(jobManager.handleOcrCancel(createContext() as never, requireRequestId('ocr-late')))
-            .toEqual({canceled: true});
+        expect(jobManager.handleOcrCancel(createContext() as never, requireRequestId('ocr-late'))).toEqual({canceled: true});
         expect(await waitForCompletion()).toMatchObject({
             requestId: 'ocr-late',
             success: false,
@@ -198,18 +189,12 @@ describe('OCR job manager on the main job registry', () => {
     it('keeps every recognition error of a failed run and passes a no-pages outcome through', async () => {
         mocks.runOcrJob.mockResolvedValueOnce({
             success: false,
-            errors: [
-                'Page 1: engine failed',
-                'Page 2: engine failed',
-            ],
+            errors: ['Page 1: engine failed', 'Page 2: engine failed'],
         });
         await startJob('ocr-3');
         expect(await waitForCompletion()).toMatchObject({
             success: false,
-            errors: [
-                'Page 1: engine failed',
-                'Page 2: engine failed',
-            ],
+            errors: ['Page 1: engine failed', 'Page 2: engine failed'],
             errorEnvelope: {message: 'Page 1: engine failed'},
         });
 
@@ -269,10 +254,12 @@ describe('OCR job manager on the main job registry', () => {
             downloaded.resolve(undefined);
 
             await expect(started).resolves.toMatchObject({started: true});
-            expect(completionEvents()).toEqual([expect.objectContaining({
-                requestId: 'ocr-model-retry',
-                outcome: 'no-pages-to-process',
-            })]);
+            expect(completionEvents()).toEqual([
+                expect.objectContaining({
+                    requestId: 'ocr-model-retry',
+                    outcome: 'no-pages-to-process',
+                }),
+            ]);
         } finally {
             timeout.mockRestore();
             vi.useRealTimers();
@@ -294,8 +281,7 @@ describe('OCR job manager on the main job registry', () => {
 
         const started = startJob('ocr-model-cancel');
         await preparing.promise;
-        expect(jobManager.handleOcrCancel(createContext() as never, requireRequestId('ocr-model-cancel')))
-            .toEqual({canceled: true});
+        expect(jobManager.handleOcrCancel(createContext() as never, requireRequestId('ocr-model-cancel'))).toEqual({canceled: true});
         await expect(started).resolves.toMatchObject({
             started: false,
             error: 'OCR job was cancelled before it started',

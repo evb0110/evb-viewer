@@ -1,5 +1,5 @@
-import type { Ref } from 'vue';
-import type { TTranslateFn } from '@i18n-app';
+import type {Ref} from 'vue';
+import type {TTranslateFn} from '@i18n-app';
 import {
     ASSISTANT_IMAGE_SIZE_LIMIT_LABEL,
     buildComposerImageAttachments,
@@ -34,17 +34,17 @@ export const useAssistantImageComposer = (options: {
         return preview.images.length <= 1
             ? item.name
             : options.t('assistant.imagePreviewPosition', {
-                name: item.name,
-                current: preview.index + 1,
-                total: preview.images.length,
-            });
+                  name: item.name,
+                  current: preview.index + 1,
+                  total: preview.images.length,
+              });
     });
     const formatError = (error: TAssistantComposerImageError | null) => {
         if (!error) {
             return '';
         }
         if (error.type === 'unsupported') {
-            return options.t('assistant.imageUnsupported', { name: error.name });
+            return options.t('assistant.imageUnsupported', {name: error.name});
         }
         if (error.type === 'too-large') {
             return options.t('assistant.imageTooLarge', {
@@ -53,16 +53,16 @@ export const useAssistantImageComposer = (options: {
             });
         }
         if (error.type === 'limit') {
-            return options.t('assistant.imageAttachmentLimit', { count: error.count });
+            return options.t('assistant.imageAttachmentLimit', {count: error.count});
         }
-        return options.t('assistant.imageReadFailed', { name: error.name });
+        return options.t('assistant.imageReadFailed', {name: error.name});
     };
     const invalidatePendingImageIngestion = () => {
         imageIngestionGeneration += 1;
     };
     const replaceComposerImages = (images: readonly TAssistantComposerImage[]) => {
         invalidatePendingImageIngestion();
-        options.composerImages.value = images.map(image => ({...image}));
+        options.composerImages.value = images.map((image) => ({...image}));
     };
     const clearComposerImages = () => {
         replaceComposerImages([]);
@@ -81,20 +81,17 @@ export const useAssistantImageComposer = (options: {
                     return;
                 }
                 const existingImages = options.composerImages.value;
-                const existingImageIds = new Set(existingImages.map(image => image.id));
+                const existingImageIds = new Set(existingImages.map((image) => image.id));
                 const result = await buildComposerImageAttachments({
                     files,
                     existingImages,
-                    fallbackName: index => options.t('assistant.imageAttachmentFallbackName', { count: index + 1 }),
+                    fallbackName: (index) => options.t('assistant.imageAttachmentFallbackName', {count: index + 1}),
                 });
                 if (generation !== imageIngestionGeneration) {
                     return;
                 }
-                const ingestedImages = result.images.filter(image => !existingImageIds.has(image.id));
-                options.composerImages.value = [
-                    ...options.composerImages.value,
-                    ...ingestedImages,
-                ];
+                const ingestedImages = result.images.filter((image) => !existingImageIds.has(image.id));
+                options.composerImages.value = [...options.composerImages.value, ...ingestedImages];
                 options.composerError.value = formatError(result.error);
             })
             .catch(() => {
@@ -116,7 +113,7 @@ export const useAssistantImageComposer = (options: {
         void addImages(imageFiles);
     };
     const removeComposerImage = (imageId: string) => {
-        options.composerImages.value = options.composerImages.value.filter(image => image.id !== imageId);
+        options.composerImages.value = options.composerImages.value.filter((image) => image.id !== imageId);
         options.composerError.value = '';
     };
     const expandImage = (images: readonly TAssistantComposerImage[] | undefined, selectedImageId: string) => {

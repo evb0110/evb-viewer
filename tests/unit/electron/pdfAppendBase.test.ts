@@ -1,23 +1,13 @@
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    existsSync,
-    mkdtempSync,
-    rmSync,
-    writeFileSync,
-} from 'node:fs';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {existsSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 
 const runNativeToolCommandMock = vi.hoisted(() => vi.fn());
 
-vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => runNativeToolCommandMock(...args)}));
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({
+    runNativeToolCommand: (...args: unknown[]) => runNativeToolCommandMock(...args),
+}));
 vi.mock('@electron/features/page-ops/public/nativePageOpsPath', () => ({resolveNativePageOpsPath: () => '/native/evb-pdf-page-ops'}));
 vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({qpdf: '/native/qpdf'})}));
 
@@ -59,8 +49,7 @@ describe('normalizePdfAppendBase rewrite failures', () => {
             throw new Error('qpdf: unable to recover');
         });
 
-        await expect(normalizePdfAppendBase(sourcePath, workingPath))
-            .rejects.toMatchObject({code: 'invalid-pdf'});
+        await expect(normalizePdfAppendBase(sourcePath, workingPath)).rejects.toMatchObject({code: 'invalid-pdf'});
         expect(existsSync(rewrittenPath)).toBe(false);
         expect(existsSync(workingPath)).toBe(false);
     });
@@ -74,8 +63,7 @@ describe('normalizePdfAppendBase rewrite failures', () => {
             return {stdout: ''};
         });
 
-        await expect(normalizePdfAppendBase(sourcePath, workingPath))
-            .rejects.toMatchObject({code: 'invalid-pdf'});
+        await expect(normalizePdfAppendBase(sourcePath, workingPath)).rejects.toMatchObject({code: 'invalid-pdf'});
         expect(existsSync(rewrittenPath)).toBe(false);
         expect(existsSync(workingPath)).toBe(false);
     });

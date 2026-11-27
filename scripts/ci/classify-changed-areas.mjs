@@ -1,18 +1,13 @@
 #!/usr/bin/env node
 
-import { appendFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import {appendFileSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
 import path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath } from 'node:url';
-import { listRequiredElectronE2ELanes } from '../electron-e2e-lanes.mjs';
+import {fileURLToPath} from 'node:url';
+import {listRequiredElectronE2ELanes} from '../electron-e2e-lanes.mjs';
 
-const diffNameOnlyArguments = [
-    '--no-renames',
-    '--name-only',
-    '--diff-filter=ACDMRT',
-    '-z',
-];
+const diffNameOnlyArguments = ['--no-renames', '--name-only', '--diff-filter=ACDMRT', '-z'];
 
 export const ALL_GATED_JOBS = Object.freeze([
     'lint',
@@ -28,10 +23,7 @@ export const ALL_GATED_JOBS = Object.freeze([
     'electron_e2e',
 ]);
 
-const CANONICAL_JOB_ORDER = Object.freeze([
-    'publication_policy',
-    ...ALL_GATED_JOBS,
-]);
+const CANONICAL_JOB_ORDER = Object.freeze(['publication_policy', ...ALL_GATED_JOBS]);
 
 const PRODUCT_JOBS = Object.freeze([
     'build_wasm',
@@ -42,32 +34,13 @@ const PRODUCT_JOBS = Object.freeze([
     'browser_integration',
 ]);
 
-const STRICT_BUILD_CONSUMERS = Object.freeze([
-    'electron_e2e',
-    'native_pdf_integration',
-    'scan_cleanup_oracles',
-]);
+const STRICT_BUILD_CONSUMERS = Object.freeze(['electron_e2e', 'native_pdf_integration', 'scan_cleanup_oracles']);
 
-const WASM_CONSUMERS = Object.freeze([
-    'unit',
-    'strict_build',
-    'browser_integration',
-    'native_pdf_integration',
-    'scan_cleanup_oracles',
-]);
+const WASM_CONSUMERS = Object.freeze(['unit', 'strict_build', 'browser_integration', 'native_pdf_integration', 'scan_cleanup_oracles']);
 
-const DOCS_PATTERNS = Object.freeze([
-    'docs/**',
-    '**/*.md',
-    '.husky/**',
-]);
+const DOCS_PATTERNS = Object.freeze(['docs/**', '**/*.md', '.husky/**']);
 
-const LANDING_PATTERNS = Object.freeze([
-    'landing/**',
-    'packages/contracts/**',
-    'packages/i18n-core/**',
-    'packages/release-selection/**',
-]);
+const LANDING_PATTERNS = Object.freeze(['landing/**', 'packages/contracts/**', 'packages/i18n-core/**', 'packages/release-selection/**']);
 
 const PRODUCT_PATTERNS = Object.freeze([
     'app/**',
@@ -109,10 +82,7 @@ const SCAN_CLEANUP_PATTERNS = Object.freeze([
     'tests/fixtures/electron/test-scanned.pdf',
 ]);
 
-const SCOPED_UNIT_AND_NIGHTLY_PATTERNS = Object.freeze([
-    'tests/e2e/electron/nightly/**',
-    'tests/unit/**',
-]);
+const SCOPED_UNIT_AND_NIGHTLY_PATTERNS = Object.freeze(['tests/e2e/electron/nightly/**', 'tests/unit/**']);
 
 const SCOPED_BROWSER_TEST_PATTERNS = Object.freeze(['tests/integration/browser/**']);
 
@@ -154,7 +124,7 @@ export function matchesChangedAreaPattern(filePath, pattern) {
 
 /** @param {string} file @param {readonly string[]} patterns @returns {boolean} */
 function matchesAny(file, patterns) {
-    return patterns.some(pattern => matchesChangedAreaPattern(file, pattern));
+    return patterns.some((pattern) => matchesChangedAreaPattern(file, pattern));
 }
 
 /** @param {string} file @returns {boolean} */
@@ -174,20 +144,20 @@ function addJobs(selected, jobs) {
 
 /** @param {Set<string>} selected @returns {string[]} */
 function finalizeSelectedJobs(selected) {
-    if (STRICT_BUILD_CONSUMERS.some(job => selected.has(job))) {
+    if (STRICT_BUILD_CONSUMERS.some((job) => selected.has(job))) {
         selected.add('strict_build');
     }
-    if (WASM_CONSUMERS.some(job => selected.has(job))) {
+    if (WASM_CONSUMERS.some((job) => selected.has(job))) {
         selected.add('build_wasm');
     }
-    return CANONICAL_JOB_ORDER.filter(job => selected.has(job));
+    return CANONICAL_JOB_ORDER.filter((job) => selected.has(job));
 }
 
 /** @param {string[] | null} files @param {IClassifyOptions} [options] @returns {IChangedAreaSelection} */
 export function classifyChangedFiles(files, options = {}) {
     const event = options.event ?? '';
     const availableLanes = options.lanes ?? listRequiredElectronE2ELanes();
-    const allLaneNames = availableLanes.map(lane => lane.name).sort();
+    const allLaneNames = availableLanes.map((lane) => lane.name).sort();
     const includePublicationPolicy = event === 'pull_request' || event === 'push';
 
     if (event === 'workflow_dispatch') {
@@ -199,10 +169,7 @@ export function classifyChangedFiles(files, options = {}) {
     }
 
     if (options.verifiedTree === true) {
-        const selected = new Set([
-            'strict_build',
-            'electron_e2e',
-        ]);
+        const selected = new Set(['strict_build', 'electron_e2e']);
         if (includePublicationPolicy) {
             selected.add('publication_policy');
         }
@@ -230,10 +197,7 @@ export function classifyChangedFiles(files, options = {}) {
     }
 
     const normalizedFiles = files.map(normalizePath).filter(Boolean);
-    const selected = new Set([
-        'lint',
-        'unit',
-    ]);
+    const selected = new Set(['lint', 'unit']);
     if (includePublicationPolicy) {
         selected.add('publication_policy');
     }
@@ -248,10 +212,7 @@ export function classifyChangedFiles(files, options = {}) {
         let matched = false;
 
         if (matchesAny(file, LANDING_PATTERNS)) {
-            addJobs(selected, [
-                'landing',
-                'browser_integration',
-            ]);
+            addJobs(selected, ['landing', 'browser_integration']);
             matched = true;
         }
 
@@ -264,11 +225,7 @@ export function classifyChangedFiles(files, options = {}) {
         }
 
         if (matchesAny(file, NATIVE_PATTERNS)) {
-            addJobs(selected, [
-                'rust',
-                ...PRODUCT_JOBS,
-                'scan_cleanup_oracles',
-            ]);
+            addJobs(selected, ['rust', ...PRODUCT_JOBS, 'scan_cleanup_oracles']);
             for (const laneName of allLaneNames) {
                 selectedLanes.add(laneName);
             }
@@ -285,31 +242,18 @@ export function classifyChangedFiles(files, options = {}) {
         }
 
         if (matchesAny(file, SCOPED_BROWSER_TEST_PATTERNS)) {
-            addJobs(selected, [
-                'build_wasm',
-                'browser_integration',
-            ]);
+            addJobs(selected, ['build_wasm', 'browser_integration']);
             matched = true;
         }
 
         if (matchesAny(file, SCOPED_NATIVE_TEST_PATTERNS)) {
-            addJobs(selected, [
-                'build_wasm',
-                'strict_build',
-                'native_pdf_integration',
-                'windows_atomic_pdf_replacement',
-            ]);
+            addJobs(selected, ['build_wasm', 'strict_build', 'native_pdf_integration', 'windows_atomic_pdf_replacement']);
             matched = true;
         }
 
-        const matchedLane = availableLanes.find(lane => (
-            matchesChangedAreaPattern(file, `${lane.directory}/**`)
-        ));
+        const matchedLane = availableLanes.find((lane) => matchesChangedAreaPattern(file, `${lane.directory}/**`));
         if (matchedLane) {
-            addJobs(selected, [
-                'strict_build',
-                'electron_e2e',
-            ]);
+            addJobs(selected, ['strict_build', 'electron_e2e']);
             selectedLanes.add(matchedLane.name);
             matched = true;
         }
@@ -329,7 +273,7 @@ export function classifyChangedFiles(files, options = {}) {
 /** @param {string[]} argv @param {string} name @returns {string[]} */
 function readArgValues(argv, name) {
     const prefix = `--${name}=`;
-    return argv.filter(arg => arg.startsWith(prefix)).map(arg => arg.slice(prefix.length));
+    return argv.filter((arg) => arg.startsWith(prefix)).map((arg) => arg.slice(prefix.length));
 }
 
 /** @param {string[]} argv @param {string} name @returns {string | undefined} */
@@ -339,43 +283,20 @@ function readSingleArg(argv, name) {
 
 /** @param {string[]} arguments_ @returns {string[]} */
 function readNullDelimitedGitOutput(arguments_) {
-    return execFileSync('git', arguments_, { encoding: 'utf8' })
-        .split('\0')
-        .filter(Boolean);
+    return execFileSync('git', arguments_, {encoding: 'utf8'}).split('\0').filter(Boolean);
 }
 
 /** @param {{base?: string | undefined, head?: string | undefined, includeWorktree?: boolean}} options @returns {string[] | null} */
-export function getChangedFiles({
-    base,
-    head,
-    includeWorktree = false,
-}) {
+export function getChangedFiles({base, head, includeWorktree = false}) {
     if (!base || !head) {
         throw new Error('Both --base=<sha> and --head=<sha> are required when --file is not provided.');
     }
     try {
-        const files = readNullDelimitedGitOutput([
-            'diff',
-            ...diffNameOnlyArguments,
-            `${base}...${head}`,
-        ]);
+        const files = readNullDelimitedGitOutput(['diff', ...diffNameOnlyArguments, `${base}...${head}`]);
         if (includeWorktree) {
-            files.push(...readNullDelimitedGitOutput([
-                'diff',
-                ...diffNameOnlyArguments,
-                'HEAD',
-            ]));
-            files.push(...readNullDelimitedGitOutput([
-                'diff',
-                '--cached',
-                ...diffNameOnlyArguments,
-            ]));
-            files.push(...readNullDelimitedGitOutput([
-                'ls-files',
-                '--others',
-                '--exclude-standard',
-                '-z',
-            ]));
+            files.push(...readNullDelimitedGitOutput(['diff', ...diffNameOnlyArguments, 'HEAD']));
+            files.push(...readNullDelimitedGitOutput(['diff', '--cached', ...diffNameOnlyArguments]));
+            files.push(...readNullDelimitedGitOutput(['ls-files', '--others', '--exclude-standard', '-z']));
         }
         return [...new Set(files)];
     } catch {
@@ -386,58 +307,59 @@ export function getChangedFiles({
 }
 
 /** @param {{argv?: string[], outputFile?: string | undefined}} options @returns {IChangedAreaSelection} */
-export function runChangedAreaClassifier({
-    argv = process.argv.slice(2),
-    outputFile = process.env.GITHUB_OUTPUT,
-} = {}) {
+export function runChangedAreaClassifier({argv = process.argv.slice(2), outputFile = process.env.GITHUB_OUTPUT} = {}) {
     const event = readSingleArg(argv, 'event') ?? '';
     const base = readSingleArg(argv, 'base');
     const head = readSingleArg(argv, 'head');
     const includeWorktree = argv.includes('--include-worktree');
     const explicitFiles = readArgValues(argv, 'file');
-    const isVerifiedTree = event === 'push'
-        && !includeWorktree
-        && explicitFiles.length === 0
-        && Boolean(base)
-        && base === head
-        && base !== 'unavailable-push-base';
+    const isVerifiedTree =
+        event === 'push' &&
+        !includeWorktree &&
+        explicitFiles.length === 0 &&
+        Boolean(base) &&
+        base === head &&
+        base !== 'unavailable-push-base';
 
     /** @type {string[] | null} */
     let files = null;
     if (event !== 'workflow_dispatch' && !isVerifiedTree) {
-        files = explicitFiles.length > 0
-            ? explicitFiles
-            : getChangedFiles({
-                base,
-                head,
-                includeWorktree,
-            });
+        files =
+            explicitFiles.length > 0
+                ? explicitFiles
+                : getChangedFiles({
+                      base,
+                      head,
+                      includeWorktree,
+                  });
     }
 
     const selection = classifyChangedFiles(files, {
         event,
         verifiedTree: isVerifiedTree,
     });
-    const outputLines = [
-        `selected=${JSON.stringify(selection.selected)}`,
-        `lanes=${JSON.stringify(selection.lanes)}`,
-    ];
+    const outputLines = [`selected=${JSON.stringify(selection.selected)}`, `lanes=${JSON.stringify(selection.lanes)}`];
 
     if (outputFile) {
         appendFileSync(outputFile, `${outputLines.join('\n')}\n`);
     }
-    process.stdout.write(`${JSON.stringify({
-        event: event || undefined,
-        files,
-        lanes: selection.lanes,
-        selected: selection.selected,
-        verifiedTree: selection.verifiedTree,
-    }, null, 2)}\n`);
+    process.stdout.write(
+        `${JSON.stringify(
+            {
+                event: event || undefined,
+                files,
+                lanes: selection.lanes,
+                selected: selection.selected,
+                verifiedTree: selection.verifiedTree,
+            },
+            null,
+            2,
+        )}\n`,
+    );
     return selection;
 }
 
-const isDirectRun = process.argv[1] !== undefined
-    && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+const isDirectRun = process.argv[1] !== undefined && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
 if (isDirectRun) {
     runChangedAreaClassifier();

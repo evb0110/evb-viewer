@@ -1,20 +1,16 @@
 import type * as PdfjsLibNamespace from 'pdfjs-dist';
-import pdfjsLib, {
-    createPdfjsDocumentOptions,
-    preparePdfjsBrowserRuntime,
-} from '@app/services/pdfjs/runtimeLib';
-import {
-    BROWSER_DOCUMENT_CHUNK_SIZE,
-    browserDocumentStore,
-} from '@app/platform/browserDocumentStore';
-import { toUint8Array } from '@app/platform/browser-api/browserBytes';
+import pdfjsLib, {createPdfjsDocumentOptions, preparePdfjsBrowserRuntime} from '@app/services/pdfjs/runtimeLib';
+import {BROWSER_DOCUMENT_CHUNK_SIZE, browserDocumentStore} from '@app/platform/browserDocumentStore';
+import {toUint8Array} from '@app/platform/browser-api/browserBytes';
 
 const PDFJS_RANGE_CHUNK_SIZE = Math.min(1024 * 1024, Math.max(512 * 1024, BROWSER_DOCUMENT_CHUNK_SIZE));
 
 type TPdfjsLib = typeof PdfjsLibNamespace;
 type TPdfjsDocumentInit = Parameters<TPdfjsLib['getDocument']>[0];
 
-interface ICreateBrowserPdfjsDocumentInitOptions { onRangeReadFailure?: (error: Error) => void; }
+interface ICreateBrowserPdfjsDocumentInitOptions {
+    onRangeReadFailure?: (error: Error) => void;
+}
 
 async function getPdfjsLib() {
     await preparePdfjsBrowserRuntime(pdfjsLib);
@@ -38,10 +34,12 @@ interface IBrowserPdfjsRangeSource {
 }
 
 function isStaleFileBlobError(error: unknown) {
-    if (!(error instanceof Error)) return false;
-    return error.name === 'NotReadableError'
-        || Reflect.get(error, 'code') === 'NotReadableError'
-        || error.message.includes('NotReadableError');
+    if (!(error instanceof Error)) {
+        return false;
+    }
+    return (
+        error.name === 'NotReadableError' || Reflect.get(error, 'code') === 'NotReadableError' || error.message.includes('NotReadableError')
+    );
 }
 
 /**
@@ -50,21 +48,17 @@ function isStaleFileBlobError(error: unknown) {
  */
 async function storedDocumentRanges(path: string): Promise<IBrowserPdfjsRangeSource> {
     if (
-        typeof browserDocumentStore.readableRevision === 'function'
-        && typeof browserDocumentStore.assertDocumentRevisionCurrent === 'function'
+        typeof browserDocumentStore.readableRevision === 'function' &&
+        typeof browserDocumentStore.assertDocumentRevisionCurrent === 'function'
     ) {
-        const {
-            blob,
-            token,
-            byteRevision,
-            instance,
-        } = await browserDocumentStore.readableRevision(path);
+        const {blob, token, byteRevision, instance} = await browserDocumentStore.readableRevision(path);
         let currentBlob = blob;
-        const assertCurrent = () => browserDocumentStore.assertDocumentRevisionCurrent(path, token, {
-            strict: true,
-            expectedInstance: instance,
-            ...(byteRevision === undefined ? {} : {expectedByteRevision: byteRevision}),
-        });
+        const assertCurrent = () =>
+            browserDocumentStore.assertDocumentRevisionCurrent(path, token, {
+                strict: true,
+                expectedInstance: instance,
+                ...(byteRevision === undefined ? {} : {expectedByteRevision: byteRevision}),
+            });
         return {
             size: blob.size,
             assertCurrent,
@@ -74,13 +68,15 @@ async function storedDocumentRanges(path: string): Promise<IBrowserPdfjsRangeSou
                 try {
                     bytes = new Uint8Array(await currentBlob.slice(begin, end).arrayBuffer());
                 } catch (error) {
-                    if (!isStaleFileBlobError(error)) throw error;
+                    if (!isStaleFileBlobError(error)) {
+                        throw error;
+                    }
                     await assertCurrent();
                     const refreshed = await browserDocumentStore.readableRevision(path, {token});
                     if (
-                        refreshed.instance !== instance
-                        || (byteRevision !== undefined && refreshed.byteRevision !== byteRevision)
-                        || refreshed.blob.size !== blob.size
+                        refreshed.instance !== instance ||
+                        (byteRevision !== undefined && refreshed.byteRevision !== byteRevision) ||
+                        refreshed.blob.size !== blob.size
                     ) {
                         await assertCurrent();
                         throw error;
@@ -93,10 +89,7 @@ async function storedDocumentRanges(path: string): Promise<IBrowserPdfjsRangeSou
             },
         };
     }
-    const {
-        size,
-        contentSignature,
-    } = await browserDocumentStore.getContentSnapshot(path);
+    const {size, contentSignature} = await browserDocumentStore.getContentSnapshot(path);
     const assertCurrent = () => assertBrowserDocumentUnchanged(path, size, contentSignature);
     return {
         size,
@@ -141,13 +134,7 @@ async function createPdfjsDocumentInitFromBrowserDocument(
 
     const tailStart = Math.max(initialLength, size - PDFJS_RANGE_CHUNK_SIZE);
     const tailLength = size - tailStart;
-    const [
-        initialData,
-        initialTailData,
-    ] = await Promise.all([
-        source.read(0, initialLength),
-        source.read(tailStart, size),
-    ]);
+    const [initialData, initialTailData] = await Promise.all([source.read(0, initialLength), source.read(tailStart, size)]);
     if (initialData.byteLength !== initialLength) {
         throw new Error(`Browser PDF source returned ${initialData.byteLength} bytes for initial ${initialLength} byte range`);
     }
@@ -233,25 +220,14 @@ async function createPdfjsDocumentInitFromBrowserDocument(
     return init;
 }
 
-async function assertBrowserDocumentUnchanged(
-    path: string,
-    expectedSize: number,
-    expectedContentSignature: string,
-) {
-    const {
-        size,
-        contentSignature,
-    } = await browserDocumentStore.getContentSnapshot(path);
+async function assertBrowserDocumentUnchanged(path: string, expectedSize: number, expectedContentSignature: string) {
+    const {size, contentSignature} = await browserDocumentStore.getContentSnapshot(path);
     if (size !== expectedSize || contentSignature !== expectedContentSignature) {
         throw new Error('Browser PDF source changed while PDF.js range transport was active');
     }
 }
 
-async function readCompleteBrowserDocumentRange(
-    path: string,
-    begin: number,
-    end: number,
-) {
+async function readCompleteBrowserDocumentRange(path: string, begin: number, end: number) {
     const length = end - begin;
     if (length === 0) {
         return new Uint8Array(0);
@@ -269,7 +245,9 @@ async function readCompleteBrowserDocumentRange(
         }
         output ??= new Uint8Array(length);
         if (chunk.byteLength > output.byteLength - outputOffset) {
-            throw new Error(`Browser PDF range read returned ${chunk.byteLength} bytes for ${output.byteLength - outputOffset} remaining bytes`);
+            throw new Error(
+                `Browser PDF range read returned ${chunk.byteLength} bytes for ${output.byteLength - outputOffset} remaining bytes`,
+            );
         }
         output.set(chunk, outputOffset);
         outputOffset += chunk.byteLength;
@@ -282,8 +260,4 @@ async function readCompleteBrowserDocumentRange(
     return output;
 }
 
-export {
-    createPdfjsDocumentInit,
-    createPdfjsDocumentInitFromBrowserDocument,
-    getPdfjsLib,
-};
+export {createPdfjsDocumentInit, createPdfjsDocumentInitFromBrowserDocument, getPdfjsLib};

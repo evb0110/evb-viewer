@@ -1,6 +1,8 @@
-import { BrowserLogger } from '@app/utils/browserLogger';
+import {BrowserLogger} from '@app/utils/browserLogger';
 
-interface IDevPerfDetails { [key: string]: unknown; }
+interface IDevPerfDetails {
+    [key: string]: unknown;
+}
 
 // A synchronous measurement this long drops frames; it is worth a warning in
 // the dev terminal rather than a debug record.

@@ -8,7 +8,10 @@
         data-pdf-page-track
         v-bind="viewportAttributes"
     >
-        <template v-for="item in renderedVirtualItems" :key="item.key">
+        <template
+            v-for="item in renderedVirtualItems"
+            :key="item.key"
+        >
             <div
                 v-if="item.kind === 'spacer'"
                 class="pdf-viewer-virtual-spacer"
@@ -17,7 +20,7 @@
             <div
                 v-else-if="item.kind === 'row'"
                 class="pdf-viewer-page-row"
-                :class="{ 'pdf-viewer-page-row--buffered': item.buffered }"
+                :class="{'pdf-viewer-page-row--buffered': item.buffered}"
             >
                 <PdfViewerPage
                     v-for="pageItem in item.pages"
@@ -41,14 +44,8 @@
 </template>
 
 <script setup lang="ts">
-import type {
-    ComponentPublicInstance,
-    StyleValue,
-} from 'vue';
-import {
-    requirePageNumber,
-    type TPageNumber,
-} from '@contracts/pageNumbers';
+import type {ComponentPublicInstance, StyleValue} from 'vue';
+import {requirePageNumber, type TPageNumber} from '@contracts/pageNumbers';
 import PdfViewerPage from '@app/modules/pdf-viewer/components/PdfViewerPage.vue';
 import {
     flattenPdfVirtualPageSegments,
@@ -61,12 +58,9 @@ import {
     type IDocumentViewportFlingBackdrop,
     type IDocumentWheelInteraction,
 } from '@app/modules/document-viewer/public';
-import type {
-    IPdfImagePlacementDraft,
-    IPdfImagePlacementRectUpdate,
-} from '@app/types/pdfImagePlacement';
-import type { IPdfVirtualPageSegment } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
-import type { IPdfPageScale } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
+import type {IPdfImagePlacementDraft, IPdfImagePlacementRectUpdate} from '@app/types/pdfImagePlacement';
+import type {IPdfVirtualPageSegment} from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
+import type {IPdfPageScale} from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
 
 interface IProps {
     setViewerContainer: (element: HTMLElement | null) => void;
@@ -157,39 +151,39 @@ interface IPdfViewerPageBindings {
 
 type TRenderedVirtualItem =
     | {
-        kind: 'spacer';
-        key: string;
-        style: Record<string, string>;
-    }
+          kind: 'spacer';
+          key: string;
+          style: Record<string, string>;
+      }
     | {
-        kind: 'row';
-        key: string;
-        buffered: boolean;
-        pages: Array<{
-            key: string;
-            pageProps: IPdfViewerPageBindings;
-        }>;
-    }
+          kind: 'row';
+          key: string;
+          buffered: boolean;
+          pages: Array<{
+              key: string;
+              pageProps: IPdfViewerPageBindings;
+          }>;
+      }
     | {
-        kind: 'page';
-        key: string;
-        pageProps: IPdfViewerPageBindings;
-    };
+          kind: 'page';
+          key: string;
+          pageProps: IPdfViewerPageBindings;
+      };
 
 const standaloneListeners = chassisAuthority
     ? {}
     : {
-        onScrollPassive: (event: Event) => emit('scroll', event),
-        onWheel: handleStandaloneWheel,
-        onMousedown: (event: MouseEvent) => emit('mousedown', event),
-        onMousemove: (event: MouseEvent) => emit('mousemove', event),
-        onMouseup: (event: MouseEvent) => emit('mouseup', event),
-        onMouseleave: () => emit('mouseleave'),
-        onClick: (event: MouseEvent) => emit('click', event),
-        onDblclick: (event: MouseEvent) => emit('dblclick', event),
-        onContextmenu: (event: MouseEvent) => emit('contextmenu', event),
-        onSelectstart: (event: Event) => emit('selectstart', event),
-    };
+          onScrollPassive: (event: Event) => emit('scroll', event),
+          onWheel: handleStandaloneWheel,
+          onMousedown: (event: MouseEvent) => emit('mousedown', event),
+          onMousemove: (event: MouseEvent) => emit('mousemove', event),
+          onMouseup: (event: MouseEvent) => emit('mouseup', event),
+          onMouseleave: () => emit('mouseleave'),
+          onClick: (event: MouseEvent) => emit('click', event),
+          onDblclick: (event: MouseEvent) => emit('dblclick', event),
+          onContextmenu: (event: MouseEvent) => emit('contextmenu', event),
+          onSelectstart: (event: Event) => emit('selectstart', event),
+      };
 
 const pageListeners = {
     'page-container-mounted': (page: TPageNumber) => emit('page-container-mounted', page),
@@ -211,34 +205,33 @@ const virtualPageItems = computed(() => {
 // the view model stays the single owner of the state itself.
 const viewportAttributes = computed(() => ({
     'data-pdf-continuous-scroll': viewerClass['pdfViewer--single-page'] === true ? 'false' : 'true',
-    'data-pdf-view-mode': viewerClass['pdfViewer--mode-facing'] === true
-        ? 'facing'
-        : viewerClass['pdfViewer--mode-facing-first-single'] === true
-            ? 'facing-first-single'
-            : 'single',
-    'data-pdf-zoom-mode': viewerClass['pdfViewer--fit-width'] === true
-        ? 'fit-width'
-        : viewerClass['pdfViewer--fit-height'] === true
-            ? 'fit-height'
-            : 'custom',
+    'data-pdf-view-mode':
+        viewerClass['pdfViewer--mode-facing'] === true
+            ? 'facing'
+            : viewerClass['pdfViewer--mode-facing-first-single'] === true
+              ? 'facing-first-single'
+              : 'single',
+    'data-pdf-zoom-mode':
+        viewerClass['pdfViewer--fit-width'] === true
+            ? 'fit-width'
+            : viewerClass['pdfViewer--fit-height'] === true
+              ? 'fit-height'
+              : 'custom',
     ...standaloneListeners,
 }));
 
-const groupedVirtualPageItems = computed(() => groupPdfVirtualPageItems(
-    virtualPageItems.value,
-    {
-        isFacingMode: viewerClass['pdfViewer--mode-facing'] === true
-            || viewerClass['pdfViewer--mode-facing-first-single'] === true,
+const groupedVirtualPageItems = computed(() =>
+    groupPdfVirtualPageItems(virtualPageItems.value, {
+        isFacingMode: viewerClass['pdfViewer--mode-facing'] === true || viewerClass['pdfViewer--mode-facing-first-single'] === true,
         isSpreadSingle,
-    },
-));
+    }),
+);
 
 // The navigation ticket owns the reveal for every destination-visible page,
 // including neighbours still painting after the target canvas commits.
 const deferPageSkeleton = computed(() => {
     const visual = chassisAuthority?.openSurface.viewportSession.value.visual;
-    return chassisAuthority?.navigationTicket.value !== null
-        && visual?.kind === 'page' && visual.deferSkeleton === true;
+    return chassisAuthority?.navigationTicket.value !== null && visual?.kind === 'page' && visual.deferSkeleton === true;
 });
 
 const pagePaintMode = computed<'normal' | 'hidden' | 'shell-owned'>(() => {
@@ -253,9 +246,7 @@ const pagePaintMode = computed<'normal' | 'hidden' | 'shell-owned'>(() => {
 });
 
 function getEffectivePagePlaceholderStyle(page: TPageNumber) {
-    return page === openingPageFramePage && openingPageFrameStyle
-        ? openingPageFrameStyle
-        : getPagePlaceholderStyle(page);
+    return page === openingPageFramePage && openingPageFrameStyle ? openingPageFrameStyle : getPagePlaceholderStyle(page);
 }
 
 function buildPageProps(page: TPageNumber): IPdfViewerPageBindings {
@@ -277,32 +268,33 @@ function buildPageProps(page: TPageNumber): IPdfViewerPageBindings {
     };
 }
 
-const renderedVirtualItems = computed<TRenderedVirtualItem[]>(() => groupedVirtualPageItems.value.map((item) => {
-    if (item.kind === 'spacer') {
-        return item;
-    }
-    if (item.kind === 'row') {
-        const pages = item.pages.map(pageItem => ({
-            key: pageItem.key,
-            pageProps: buildPageProps(pageItem.page),
-        }));
+const renderedVirtualItems = computed<TRenderedVirtualItem[]>(() =>
+    groupedVirtualPageItems.value.map((item) => {
+        if (item.kind === 'spacer') {
+            return item;
+        }
+        if (item.kind === 'row') {
+            const pages = item.pages.map((pageItem) => ({
+                key: pageItem.key,
+                pageProps: buildPageProps(pageItem.page),
+            }));
+            return {
+                kind: 'row',
+                key: item.key,
+                buffered: pages.every((entry) => entry.pageProps.buffered),
+                pages,
+            };
+        }
         return {
-            kind: 'row',
+            kind: 'page',
             key: item.key,
-            buffered: pages.every(entry => entry.pageProps.buffered),
-            pages,
+            pageProps: buildPageProps(item.page),
         };
-    }
-    return {
-        kind: 'page',
-        key: item.key,
-        pageProps: buildPageProps(item.page),
-    };
-}));
+    }),
+);
 
 function setViewerContainerElement(element: Element | ComponentPublicInstance | null) {
-    setViewerContainer(chassisAuthority?.viewportElement.value
-        ?? (element instanceof HTMLElement ? element : null));
+    setViewerContainer(chassisAuthority?.viewportElement.value ?? (element instanceof HTMLElement ? element : null));
 }
 
 function handleStandaloneWheel(event: WheelEvent) {
@@ -319,29 +311,25 @@ onMounted(() => {
     }
     setViewerContainer(chassisAuthority.viewportElement.value);
     releaseViewportFeature = chassisAuthority.bindViewportFeature({
-        getClass: () => [
-            'document-viewer-viewport pdfViewer app-scrollbar',
-            viewerClass,
-        ],
+        getClass: () => ['document-viewer-viewport pdfViewer app-scrollbar', viewerClass],
         // The chassis owns scrolling only. Page spacing and viewer-specific
         // inherited variables belong to the physical page track above.
         getStyle: () => ({}),
         getFlingBackdrop: () => flingBackdrop,
         events: {
-            scroll: event => emit('scroll', event as Event),
-            mousedown: event => emit('mousedown', event as MouseEvent),
-            mousemove: event => emit('mousemove', event as MouseEvent),
-            mouseup: event => emit('mouseup', event as MouseEvent),
+            scroll: (event) => emit('scroll', event as Event),
+            mousedown: (event) => emit('mousedown', event as MouseEvent),
+            mousemove: (event) => emit('mousemove', event as MouseEvent),
+            mouseup: (event) => emit('mouseup', event as MouseEvent),
             mouseleave: () => emit('mouseleave'),
-            click: event => emit('click', event as MouseEvent),
-            dblclick: event => emit('dblclick', event as MouseEvent),
-            contextmenu: event => emit('contextmenu', event as MouseEvent),
-            selectstart: event => emit('selectstart', event as Event),
+            click: (event) => emit('click', event as MouseEvent),
+            dblclick: (event) => emit('dblclick', event as MouseEvent),
+            contextmenu: (event) => emit('contextmenu', event as MouseEvent),
+            selectstart: (event) => emit('selectstart', event as Event),
         },
-        wheel: interaction => emit('wheel', interaction),
+        wheel: (interaction) => emit('wheel', interaction),
     });
 });
 
 onBeforeUnmount(() => releaseViewportFeature?.());
-
 </script>

@@ -1,12 +1,9 @@
-import type { Ref } from 'vue';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type {
-    IResolvedSearchMatchOptions,
-    ISearchMatchOptions,
-} from '@contracts/search';
-import type { TPdfSidebarTab } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
-import { reconcileDocumentSidebarTab } from '@app/modules/document-viewer/public';
+import type {Ref} from 'vue';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {IResolvedSearchMatchOptions, ISearchMatchOptions} from '@contracts/search';
+import type {TPdfSidebarTab} from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import {reconcileDocumentSidebarTab} from '@app/modules/document-viewer/public';
 
 /**
  * The rendered sidebar's tabs. While they are not ready, shared callers keep
@@ -85,7 +82,7 @@ export const usePageSearch = (deps: IPageSearchDeps) => {
             return;
         }
 
-        const nonSearchTabs = sidebarTabs.availableTabs.value.filter(tab => tab !== 'search');
+        const nonSearchTabs = sidebarTabs.availableTabs.value.filter((tab) => tab !== 'search');
         const fallback = reconcileDocumentSidebarTab('thumbnails', nonSearchTabs);
         if (fallback) {
             sidebarTab.value = fallback;

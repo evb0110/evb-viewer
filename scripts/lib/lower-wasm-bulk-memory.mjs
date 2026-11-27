@@ -43,7 +43,9 @@ const MEMARG_HAS_MEMORY = 0x40;
 /** @param {Uint8Array} bytes @param {number} offset @returns {number} */
 function byteAt(bytes, offset) {
     const byte = bytes[offset];
-    if (byte === undefined) throw new Error('Truncated WebAssembly module');
+    if (byte === undefined) {
+        throw new Error('Truncated WebAssembly module');
+    }
     return byte;
 }
 
@@ -53,7 +55,9 @@ function readU32(bytes, offset) {
     let shift = 0;
     let byte;
     do {
-        if (shift > 28) throw new Error(`Overlong WebAssembly u32 at byte ${offset}`);
+        if (shift > 28) {
+            throw new Error(`Overlong WebAssembly u32 at byte ${offset}`);
+        }
         byte = byteAt(bytes, offset++);
         value += (byte & 0x7f) * 2 ** shift;
         shift += 7;
@@ -65,7 +69,9 @@ function readU32(bytes, offset) {
 function skipLeb(bytes, offset) {
     const start = offset;
     while (byteAt(bytes, offset++) & 0x80) {
-        if (offset - start >= 10) throw new Error(`Overlong WebAssembly LEB128 at byte ${start}`);
+        if (offset - start >= 10) {
+            throw new Error(`Overlong WebAssembly LEB128 at byte ${start}`);
+        }
     }
     return offset;
 }
@@ -77,7 +83,9 @@ function encodeU32(value) {
     do {
         let byte = remaining & 0x7f;
         remaining = Math.floor(remaining / 128);
-        if (remaining !== 0) byte |= 0x80;
+        if (remaining !== 0) {
+            byte |= 0x80;
+        }
         out.push(byte);
     } while (remaining !== 0);
     return out;
@@ -90,9 +98,11 @@ function encodeS64(value) {
     for (;;) {
         const byte = Number(remaining & 0x7fn);
         remaining >>= 7n;
-        const done = (remaining === 0n && !(byte & 0x40)) || (remaining === -1n && (byte & 0x40));
+        const done = (remaining === 0n && !(byte & 0x40)) || (remaining === -1n && byte & 0x40);
         out.push(done ? byte : byte | 0x80);
-        if (done) return out;
+        if (done) {
+            return out;
+        }
     }
 }
 
@@ -119,7 +129,9 @@ function readValueType(bytes, offset, what) {
 /** Skips a block type: empty, one value type, or a type index. @param {Uint8Array} bytes @param {number} offset */
 function skipBlockType(bytes, offset) {
     const byte = byteAt(bytes, offset);
-    if (byte === 0x40 || VALUE_TYPES.has(byte)) return offset + 1;
+    if (byte === 0x40 || VALUE_TYPES.has(byte)) {
+        return offset + 1;
+    }
     // A one-byte s33 from 0x40 to 0x7f is negative: a type code, not an index.
     if (byte >= 0x40 && byte <= 0x7f) {
         throw new Error(`Unsupported WebAssembly block type 0x${byte.toString(16)} at byte ${offset}`);
@@ -131,7 +143,9 @@ function skipBlockType(bytes, offset) {
 function skipMemarg(bytes, offset) {
     const align = readU32(bytes, offset);
     offset = align.offset;
-    if (align.value & MEMARG_HAS_MEMORY) offset = skipLeb(bytes, offset);
+    if (align.value & MEMARG_HAS_MEMORY) {
+        offset = skipLeb(bytes, offset);
+    }
     return skipLeb(bytes, offset);
 }
 
@@ -156,26 +170,43 @@ function walkInstructions(bytes, offset, end, visit) {
     while (offset < end) {
         const start = offset;
         const opcode = byteAt(bytes, offset++);
-        if (opcode <= 0x01 || opcode === 0x05 || opcode === 0x0b || opcode === 0x0f
-            || opcode === 0x1a || opcode === 0x1b || opcode === 0xd1
-            || (opcode >= 0x45 && opcode <= 0xc4)) {
+        if (
+            opcode <= 0x01 ||
+            opcode === 0x05 ||
+            opcode === 0x0b ||
+            opcode === 0x0f ||
+            opcode === 0x1a ||
+            opcode === 0x1b ||
+            opcode === 0xd1 ||
+            (opcode >= 0x45 && opcode <= 0xc4)
+        ) {
             continue;
         }
         if (opcode >= 0x02 && opcode <= 0x04) {
             offset = skipBlockType(bytes, offset);
-        } else if (opcode === 0x0c || opcode === 0x0d || opcode === 0x10 || opcode === 0x12
-            || opcode === 0xd2 || (opcode >= 0x20 && opcode <= 0x26)) {
+        } else if (
+            opcode === 0x0c ||
+            opcode === 0x0d ||
+            opcode === 0x10 ||
+            opcode === 0x12 ||
+            opcode === 0xd2 ||
+            (opcode >= 0x20 && opcode <= 0x26)
+        ) {
             offset = skipLeb(bytes, offset);
         } else if (opcode === 0x0e) {
             const targets = readU32(bytes, offset);
             offset = targets.offset;
-            for (let index = 0; index <= targets.value; index += 1) offset = skipLeb(bytes, offset);
+            for (let index = 0; index <= targets.value; index += 1) {
+                offset = skipLeb(bytes, offset);
+            }
         } else if (opcode === 0x11 || opcode === 0x13) {
             offset = skipLeb(bytes, skipLeb(bytes, offset));
         } else if (opcode === 0x1c) {
             const types = readU32(bytes, offset);
             offset = types.offset;
-            for (let index = 0; index < types.value; index += 1) offset = readValueType(bytes, offset, 'select');
+            for (let index = 0; index < types.value; index += 1) {
+                offset = readValueType(bytes, offset, 'select');
+            }
         } else if (opcode >= 0x28 && opcode <= 0x3e) {
             offset = skipMemarg(bytes, offset);
         } else if (opcode === 0x3f || opcode === 0x40 || opcode === 0x41 || opcode === 0x42) {
@@ -194,12 +225,25 @@ function walkInstructions(bytes, offset, end, visit) {
             const sub = readU32(bytes, offset);
             offset = sub.offset;
             switch (sub.value) {
-                case 0: case 1: case 2: case 3: case 4: case 5: case 6: case 7:
+                case 0:
+                case 1:
+                case 2:
+                case 3:
+                case 4:
+                case 5:
+                case 6:
+                case 7:
                     break;
-                case 8: case 12: case 14:
+                case 8:
+                case 12:
+                case 14:
                     offset = skipLeb(bytes, skipLeb(bytes, offset));
                     break;
-                case 9: case 13: case 15: case 16: case 17:
+                case 9:
+                case 13:
+                case 15:
+                case 16:
+                case 17:
                     offset = skipLeb(bytes, offset);
                     break;
                 case 10:
@@ -219,14 +263,20 @@ function walkInstructions(bytes, offset, end, visit) {
             if (sub.value <= 0x0b || sub.value === 0x5c || sub.value === 0x5d) {
                 offset = skipMemarg(bytes, offset);
             } else if (sub.value === 0x0c || sub.value === 0x0d) {
-                if (offset + 16 > end) throw new Error(`Truncated WebAssembly SIMD128 immediate at byte ${start}`);
+                if (offset + 16 > end) {
+                    throw new Error(`Truncated WebAssembly SIMD128 immediate at byte ${start}`);
+                }
                 offset += 16;
             } else if (sub.value >= 0x15 && sub.value <= 0x22) {
-                if (offset + 1 > end) throw new Error(`Truncated WebAssembly SIMD128 lane index at byte ${start}`);
+                if (offset + 1 > end) {
+                    throw new Error(`Truncated WebAssembly SIMD128 lane index at byte ${start}`);
+                }
                 offset += 1;
             } else if (sub.value >= 0x54 && sub.value <= 0x5b) {
                 offset = skipMemarg(bytes, offset);
-                if (offset + 1 > end) throw new Error(`Truncated WebAssembly SIMD128 lane index at byte ${start}`);
+                if (offset + 1 > end) {
+                    throw new Error(`Truncated WebAssembly SIMD128 lane index at byte ${start}`);
+                }
                 offset += 1;
             } else if (sub.value <= 0xff) {
                 // Remaining WebAssembly 2.0 fixed-width SIMD128 instructions take no immediates.
@@ -237,7 +287,9 @@ function walkInstructions(bytes, offset, end, visit) {
             const sub = readU32(bytes, offset);
             offset = sub.offset;
             if (sub.value === 0x03) {
-                if (byteAt(bytes, offset) !== 0) throw new Error(`Unknown atomic.fence encoding at byte ${start}`);
+                if (byteAt(bytes, offset) !== 0) {
+                    throw new Error(`Unknown atomic.fence encoding at byte ${start}`);
+                }
                 offset += 1;
             } else if (sub.value <= 0x02 || (sub.value >= 0x10 && sub.value <= 0x4e)) {
                 offset = skipMemarg(bytes, offset);
@@ -248,13 +300,23 @@ function walkInstructions(bytes, offset, end, visit) {
             throw new Error(`Unknown WebAssembly instruction 0x${opcode.toString(16)} at byte ${start}`);
         }
     }
-    if (offset !== end) throw new Error('A WebAssembly function body ends inside an instruction');
+    if (offset !== end) {
+        throw new Error('A WebAssembly function body ends inside an instruction');
+    }
 }
 
 /** @param {Uint8Array} bytes */
 function readSections(bytes) {
-    if (bytes[0] !== 0x00 || bytes[1] !== 0x61 || bytes[2] !== 0x73 || bytes[3] !== 0x6d
-        || bytes[4] !== 0x01 || bytes[5] !== 0x00 || bytes[6] !== 0x00 || bytes[7] !== 0x00) {
+    if (
+        bytes[0] !== 0x00 ||
+        bytes[1] !== 0x61 ||
+        bytes[2] !== 0x73 ||
+        bytes[3] !== 0x6d ||
+        bytes[4] !== 0x01 ||
+        bytes[5] !== 0x00 ||
+        bytes[6] !== 0x00 ||
+        bytes[7] !== 0x00
+    ) {
         throw new Error('Not a WebAssembly 1.0 binary module');
     }
     const sections = [];
@@ -263,7 +325,9 @@ function readSections(bytes) {
         const id = byteAt(bytes, offset);
         const size = readU32(bytes, offset + 1);
         const end = size.offset + size.value;
-        if (end > bytes.length) throw new Error('Truncated WebAssembly section');
+        if (end > bytes.length) {
+            throw new Error('Truncated WebAssembly section');
+        }
         sections.push({id, start: offset, contentStart: size.offset, end});
         offset = end;
     }
@@ -313,7 +377,9 @@ function skipLimits(bytes, offset, allowedFlags, what) {
 
 /** The number of imported functions. @param {Uint8Array} bytes @param {{contentStart: number} | undefined} section */
 function countImportedFunctions(bytes, section) {
-    if (!section) return 0;
+    if (!section) {
+        return 0;
+    }
     let functions = 0;
     const count = readU32(bytes, section.contentStart);
     let offset = count.offset;
@@ -327,7 +393,9 @@ function countImportedFunctions(bytes, section) {
             offset = skipLeb(bytes, offset);
         } else if (kind === 0x01) {
             const type = byteAt(bytes, offset);
-            if (!REFERENCE_TYPES.has(type)) throw new Error(`Unsupported WebAssembly table type 0x${type.toString(16)}`);
+            if (!REFERENCE_TYPES.has(type)) {
+                throw new Error(`Unsupported WebAssembly table type 0x${type.toString(16)}`);
+            }
             offset = skipLimits(bytes, offset + 1, [0, 1], 'table');
         } else if (kind === 0x02) {
             // Unshared or shared 32-bit memories; not memory64 or custom page sizes.
@@ -335,7 +403,9 @@ function countImportedFunctions(bytes, section) {
         } else if (kind === 0x03) {
             offset = readValueType(bytes, offset, 'global');
             const mutability = byteAt(bytes, offset++);
-            if (mutability > 1) throw new Error(`Unsupported WebAssembly global mutability ${mutability}`);
+            if (mutability > 1) {
+                throw new Error(`Unsupported WebAssembly global mutability ${mutability}`);
+            }
         } else {
             throw new Error(`Unsupported WebAssembly import kind ${kind}`);
         }
@@ -350,8 +420,10 @@ function countImportedFunctions(bytes, section) {
  */
 export function countWasmBulkMemory(bytes) {
     const counts = {copy: 0, fill: 0};
-    const code = readSections(bytes).find(section => section.id === SECTION_CODE);
-    if (!code) return counts;
+    const code = readSections(bytes).find((section) => section.id === SECTION_CODE);
+    if (!code) {
+        return counts;
+    }
     for (const body of readBodies(bytes, code)) {
         walkInstructions(bytes, firstInstruction(bytes, body), body.end, (kind) => {
             counts[kind] += 1;
@@ -363,11 +435,32 @@ export function countWasmBulkMemory(bytes) {
 const I32 = 0x7f;
 const I64 = 0x7e;
 const op = {
-    unreachable: 0x00, block: 0x02, loop: 0x03, if: 0x04, else: 0x05, end: 0x0b, br: 0x0c, brIf: 0x0d,
-    localGet: 0x20, localSet: 0x21,
-    i64Load: 0x29, i32Load8U: 0x2d, i64Store: 0x37, i32Store8: 0x3a,
-    i32Const: 0x41, i64Const: 0x42, i32Eqz: 0x45, i32LtU: 0x49, i32GeU: 0x4f, i64GtU: 0x56,
-    i32Add: 0x6a, i32Sub: 0x6b, i32And: 0x71, i64Add: 0x7c, i64Mul: 0x7e, i64ExtendI32U: 0xad,
+    unreachable: 0x00,
+    block: 0x02,
+    loop: 0x03,
+    if: 0x04,
+    else: 0x05,
+    end: 0x0b,
+    br: 0x0c,
+    brIf: 0x0d,
+    localGet: 0x20,
+    localSet: 0x21,
+    i64Load: 0x29,
+    i32Load8U: 0x2d,
+    i64Store: 0x37,
+    i32Store8: 0x3a,
+    i32Const: 0x41,
+    i64Const: 0x42,
+    i32Eqz: 0x45,
+    i32LtU: 0x49,
+    i32GeU: 0x4f,
+    i64GtU: 0x56,
+    i32Add: 0x6a,
+    i32Sub: 0x6b,
+    i32And: 0x71,
+    i64Add: 0x7c,
+    i64Mul: 0x7e,
+    i64ExtendI32U: 0xad,
 };
 const VOID = 0x40;
 /** Alignment hint 1 byte, offset 0: unaligned accesses are valid and fast. */
@@ -385,9 +478,20 @@ function step(local, delta) {
  */
 function trapPast4GiB(local) {
     return [
-        op.localGet, local, op.i64ExtendI32U, op.localGet, 2, op.i64ExtendI32U, op.i64Add,
-        op.i64Const, ...encodeS64(2n ** 32n), op.i64GtU,
-        op.if, VOID, op.unreachable, op.end,
+        op.localGet,
+        local,
+        op.i64ExtendI32U,
+        op.localGet,
+        2,
+        op.i64ExtendI32U,
+        op.i64Add,
+        op.i64Const,
+        ...encodeS64(2n ** 32n),
+        op.i64GtU,
+        op.if,
+        VOID,
+        op.unreachable,
+        op.end,
     ];
 }
 
@@ -397,44 +501,125 @@ function trapPast4GiB(local) {
  */
 const COPY_BODY = [
     0, // no locals besides the parameters
-    ...trapPast4GiB(0), ...trapPast4GiB(1),
-    op.localGet, 0, op.localGet, 1, op.i32Sub, op.localGet, 2, op.i32GeU,
-    op.if, VOID,
-    op.block, VOID,
-    op.block, VOID,
-    op.loop, VOID,
-    op.localGet, 2, op.i32Const, 8, op.i32LtU, op.brIf, 1,
-    op.localGet, 0, op.localGet, 1, op.i64Load, ...UNALIGNED, op.i64Store, ...UNALIGNED,
-    ...step(0, 8), ...step(1, 8), ...step(2, -8),
-    op.br, 0,
+    ...trapPast4GiB(0),
+    ...trapPast4GiB(1),
+    op.localGet,
+    0,
+    op.localGet,
+    1,
+    op.i32Sub,
+    op.localGet,
+    2,
+    op.i32GeU,
+    op.if,
+    VOID,
+    op.block,
+    VOID,
+    op.block,
+    VOID,
+    op.loop,
+    VOID,
+    op.localGet,
+    2,
+    op.i32Const,
+    8,
+    op.i32LtU,
+    op.brIf,
+    1,
+    op.localGet,
+    0,
+    op.localGet,
+    1,
+    op.i64Load,
+    ...UNALIGNED,
+    op.i64Store,
+    ...UNALIGNED,
+    ...step(0, 8),
+    ...step(1, 8),
+    ...step(2, -8),
+    op.br,
+    0,
     op.end,
     op.end,
-    op.loop, VOID,
-    op.localGet, 2, op.i32Eqz, op.brIf, 1,
-    op.localGet, 0, op.localGet, 1, op.i32Load8U, ...UNALIGNED, op.i32Store8, ...UNALIGNED,
-    ...step(0, 1), ...step(1, 1), ...step(2, -1),
-    op.br, 0,
+    op.loop,
+    VOID,
+    op.localGet,
+    2,
+    op.i32Eqz,
+    op.brIf,
+    1,
+    op.localGet,
+    0,
+    op.localGet,
+    1,
+    op.i32Load8U,
+    ...UNALIGNED,
+    op.i32Store8,
+    ...UNALIGNED,
+    ...step(0, 1),
+    ...step(1, 1),
+    ...step(2, -1),
+    op.br,
+    0,
     op.end,
     op.end,
     op.else,
-    op.block, VOID,
-    op.block, VOID,
-    op.loop, VOID,
-    op.localGet, 2, op.i32Const, 8, op.i32LtU, op.brIf, 1,
+    op.block,
+    VOID,
+    op.block,
+    VOID,
+    op.loop,
+    VOID,
+    op.localGet,
+    2,
+    op.i32Const,
+    8,
+    op.i32LtU,
+    op.brIf,
+    1,
     ...step(2, -8),
-    op.localGet, 0, op.localGet, 2, op.i32Add,
-    op.localGet, 1, op.localGet, 2, op.i32Add, op.i64Load, ...UNALIGNED,
-    op.i64Store, ...UNALIGNED,
-    op.br, 0,
+    op.localGet,
+    0,
+    op.localGet,
+    2,
+    op.i32Add,
+    op.localGet,
+    1,
+    op.localGet,
+    2,
+    op.i32Add,
+    op.i64Load,
+    ...UNALIGNED,
+    op.i64Store,
+    ...UNALIGNED,
+    op.br,
+    0,
     op.end,
     op.end,
-    op.loop, VOID,
-    op.localGet, 2, op.i32Eqz, op.brIf, 1,
+    op.loop,
+    VOID,
+    op.localGet,
+    2,
+    op.i32Eqz,
+    op.brIf,
+    1,
     ...step(2, -1),
-    op.localGet, 0, op.localGet, 2, op.i32Add,
-    op.localGet, 1, op.localGet, 2, op.i32Add, op.i32Load8U, ...UNALIGNED,
-    op.i32Store8, ...UNALIGNED,
-    op.br, 0,
+    op.localGet,
+    0,
+    op.localGet,
+    2,
+    op.i32Add,
+    op.localGet,
+    1,
+    op.localGet,
+    2,
+    op.i32Add,
+    op.i32Load8U,
+    ...UNALIGNED,
+    op.i32Store8,
+    ...UNALIGNED,
+    op.br,
+    0,
     op.end,
     op.end,
     op.end,
@@ -443,24 +628,63 @@ const COPY_BODY = [
 
 /** (dst, value, n), with local 3 the value's low byte repeated eight times. */
 const FILL_BODY = [
-    1, 1, I64,
+    1,
+    1,
+    I64,
     ...trapPast4GiB(0),
-    op.localGet, 1, op.i32Const, ...encodeS64(255n), op.i32And, op.i64ExtendI32U,
-    op.i64Const, ...encodeS64(0x0101010101010101n), op.i64Mul, op.localSet, 3,
-    op.block, VOID,
-    op.block, VOID,
-    op.loop, VOID,
-    op.localGet, 2, op.i32Const, 8, op.i32LtU, op.brIf, 1,
-    op.localGet, 0, op.localGet, 3, op.i64Store, ...UNALIGNED,
-    ...step(0, 8), ...step(2, -8),
-    op.br, 0,
+    op.localGet,
+    1,
+    op.i32Const,
+    ...encodeS64(255n),
+    op.i32And,
+    op.i64ExtendI32U,
+    op.i64Const,
+    ...encodeS64(0x0101010101010101n),
+    op.i64Mul,
+    op.localSet,
+    3,
+    op.block,
+    VOID,
+    op.block,
+    VOID,
+    op.loop,
+    VOID,
+    op.localGet,
+    2,
+    op.i32Const,
+    8,
+    op.i32LtU,
+    op.brIf,
+    1,
+    op.localGet,
+    0,
+    op.localGet,
+    3,
+    op.i64Store,
+    ...UNALIGNED,
+    ...step(0, 8),
+    ...step(2, -8),
+    op.br,
+    0,
     op.end,
     op.end,
-    op.loop, VOID,
-    op.localGet, 2, op.i32Eqz, op.brIf, 1,
-    op.localGet, 0, op.localGet, 1, op.i32Store8, ...UNALIGNED,
-    ...step(0, 1), ...step(2, -1),
-    op.br, 0,
+    op.loop,
+    VOID,
+    op.localGet,
+    2,
+    op.i32Eqz,
+    op.brIf,
+    1,
+    op.localGet,
+    0,
+    op.localGet,
+    1,
+    op.i32Store8,
+    ...UNALIGNED,
+    ...step(0, 1),
+    ...step(2, -1),
+    op.br,
+    0,
     op.end,
     op.end,
     op.end,
@@ -480,7 +704,7 @@ function section(id, content) {
 export function lowerWasmBulkMemory(bytes) {
     const sections = readSections(bytes);
     /** @param {number} id */
-    const byId = id => sections.find(entry => entry.id === id);
+    const byId = (id) => sections.find((entry) => entry.id === id);
     const typeSection = byId(SECTION_TYPE);
     const functionSection = byId(SECTION_FUNCTION);
     const codeSection = byId(SECTION_CODE);
@@ -520,21 +744,27 @@ export function lowerWasmBulkMemory(bytes) {
 
     const newType = types.value;
     const replaced = new Map([
-        [typeSection, section(SECTION_TYPE, [
-            Uint8Array.from(encodeU32(types.value + 1)),
-            bytes.subarray(types.offset, typeSection.end),
-            Uint8Array.of(0x60, 3, I32, I32, I32, 0),
-        ])],
-        [functionSection, section(SECTION_FUNCTION, [
-            Uint8Array.from(encodeU32(definedFunctions.value + 2)),
-            bytes.subarray(definedFunctions.offset, functionSection.end),
-            Uint8Array.of(...encodeU32(newType), ...encodeU32(newType)),
-        ])],
+        [
+            typeSection,
+            section(SECTION_TYPE, [
+                Uint8Array.from(encodeU32(types.value + 1)),
+                bytes.subarray(types.offset, typeSection.end),
+                Uint8Array.of(0x60, 3, I32, I32, I32, 0),
+            ]),
+        ],
+        [
+            functionSection,
+            section(SECTION_FUNCTION, [
+                Uint8Array.from(encodeU32(definedFunctions.value + 2)),
+                bytes.subarray(definedFunctions.offset, functionSection.end),
+                Uint8Array.of(...encodeU32(newType), ...encodeU32(newType)),
+            ]),
+        ],
         [codeSection, section(SECTION_CODE, codeParts)],
     ]);
     const output = concat([
         bytes.subarray(0, 8),
-        ...sections.map(entry => replaced.get(entry) ?? bytes.subarray(entry.start, entry.end)),
+        ...sections.map((entry) => replaced.get(entry) ?? bytes.subarray(entry.start, entry.end)),
     ]);
     return {bytes: output, lowered};
 }

@@ -1,23 +1,8 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { execFileSync } from 'node:child_process';
-import {
-    mkdir,
-    mkdtemp,
-    readdir,
-    readFile,
-    realpath,
-    rm,
-    utimes,
-    writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import {
-    join, resolve,
-} from 'node:path';
+import {describe, expect, it} from 'vitest';
+import {execFileSync} from 'node:child_process';
+import {mkdir, mkdtemp, readdir, readFile, realpath, rm, utimes, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join, resolve} from 'node:path';
 import {
     NUXT_BUILD_DIR_ENV,
     NUXT_OUTPUT_DIR_ENV,
@@ -56,20 +41,10 @@ import {
     warmupElectronAppDependencies,
     warmupElectronAppDependenciesBestEffort,
 } from '@scripts/electron-run/electronRunNuxtServer';
-import {
-    E2E_RUN_ID_ENV,
-    createE2ERunScopedSessionName,
-} from '@scripts/electron-run/electronRunRunId';
-import { isReusableNuxtResponse } from '@scripts/electron-run/isReusableNuxtResponse';
-import {
-    allocateAutomationPorts,
-    buildElectronRuntimeEnv,
-} from '@scripts/electron-run/electronLaunch';
-import {
-    electronFileLogDir,
-    getCurrentSessionName,
-    setCurrentSessionName,
-} from '@scripts/electron-run/electronRunSessionPaths';
+import {E2E_RUN_ID_ENV, createE2ERunScopedSessionName} from '@scripts/electron-run/electronRunRunId';
+import {isReusableNuxtResponse} from '@scripts/electron-run/isReusableNuxtResponse';
+import {allocateAutomationPorts, buildElectronRuntimeEnv} from '@scripts/electron-run/electronLaunch';
+import {electronFileLogDir, getCurrentSessionName, setCurrentSessionName} from '@scripts/electron-run/electronRunSessionPaths';
 import {
     classifyRendererBindingReadiness,
     isElectronAppPageUrl,
@@ -108,15 +83,17 @@ describe('sessionManager automation launch args', () => {
     });
 
     it('disables the Electron sandbox on Linux CI by default', () => {
-        expect(shouldDisableAutomationSandbox({ CI: 'true' }, 'linux')).toBe(true);
+        expect(shouldDisableAutomationSandbox({CI: 'true'}, 'linux')).toBe(true);
 
-        expect(buildElectronAutomationArgs({
-            cdpPort: 9222,
-            automationUserDataDir: '/tmp/evb-user-data',
-            mainJs: '/tmp/main.js',
-            env: { CI: 'true' },
-            platform: 'linux',
-        })).toEqual([
+        expect(
+            buildElectronAutomationArgs({
+                cdpPort: 9222,
+                automationUserDataDir: '/tmp/evb-user-data',
+                mainJs: '/tmp/main.js',
+                env: {CI: 'true'},
+                platform: 'linux',
+            }),
+        ).toEqual([
             '--disable-setuid-sandbox',
             '--no-sandbox',
             '--remote-debugging-port=9222',
@@ -127,20 +104,17 @@ describe('sessionManager automation launch args', () => {
     });
 
     it('keeps the sandbox enabled outside Linux CI unless explicitly overridden', () => {
-        expect(shouldDisableAutomationSandbox({ CI: 'true' }, 'darwin')).toBe(false);
+        expect(shouldDisableAutomationSandbox({CI: 'true'}, 'darwin')).toBe(false);
 
-        expect(buildElectronAutomationArgs({
-            cdpPort: 9222,
-            automationUserDataDir: '/tmp/evb-user-data',
-            mainJs: '/tmp/main.js',
-            env: { CI: 'true' },
-            platform: 'darwin',
-        })).toEqual([
-            '--remote-debugging-port=9222',
-            '--user-data-dir=/tmp/evb-user-data',
-            '--disable-http-cache',
-            '/tmp/main.js',
-        ]);
+        expect(
+            buildElectronAutomationArgs({
+                cdpPort: 9222,
+                automationUserDataDir: '/tmp/evb-user-data',
+                mainJs: '/tmp/main.js',
+                env: {CI: 'true'},
+                platform: 'darwin',
+            }),
+        ).toEqual(['--remote-debugging-port=9222', '--user-data-dir=/tmp/evb-user-data', '--disable-http-cache', '/tmp/main.js']);
     });
 
     it('keeps hidden macOS automation on the hardware-rendered path users have', () => {
@@ -159,15 +133,16 @@ describe('sessionManager automation launch args', () => {
     });
 
     it('forces the requested device scale factor and rejects nonsense', () => {
-        const args = (env: NodeJS.ProcessEnv) => buildElectronAutomationArgs({
-            cdpPort: 9222,
-            automationUserDataDir: '/tmp/evb-user-data',
-            mainJs: '/tmp/main.js',
-            env,
-            platform: 'darwin',
-        });
+        const args = (env: NodeJS.ProcessEnv) =>
+            buildElectronAutomationArgs({
+                cdpPort: 9222,
+                automationUserDataDir: '/tmp/evb-user-data',
+                mainJs: '/tmp/main.js',
+                env,
+                platform: 'darwin',
+            });
         expect(args({EVB_AUTOMATION_DEVICE_SCALE_FACTOR: '2'})[0]).toBe('--force-device-scale-factor=2');
-        expect(args({}).some(arg => arg.startsWith('--force-device-scale-factor'))).toBe(false);
+        expect(args({}).some((arg) => arg.startsWith('--force-device-scale-factor'))).toBe(false);
         expect(() => args({EVB_AUTOMATION_DEVICE_SCALE_FACTOR: 'retina'})).toThrow(/EVB_AUTOMATION_DEVICE_SCALE_FACTOR/);
         expect(() => args({EVB_AUTOMATION_DEVICE_SCALE_FACTOR: '0'})).toThrow(/EVB_AUTOMATION_DEVICE_SCALE_FACTOR/);
     });
@@ -178,14 +153,16 @@ describe('sessionManager automation launch args', () => {
             EVB_AUTOMATION_NO_FOCUS: '1',
             EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '1',
         };
-        expect(buildElectronAutomationArgs({
-            cdpPort: 9222,
-            automationUserDataDir: '/tmp/evb-user-data',
-            mainJs: '/tmp/main.js',
-            initialOpenPaths: ['/tmp/a.pdf'],
-            env: hiddenEnv,
-            platform: 'darwin',
-        })).toEqual([
+        expect(
+            buildElectronAutomationArgs({
+                cdpPort: 9222,
+                automationUserDataDir: '/tmp/evb-user-data',
+                mainJs: '/tmp/main.js',
+                initialOpenPaths: ['/tmp/a.pdf'],
+                env: hiddenEnv,
+                platform: 'darwin',
+            }),
+        ).toEqual([
             '--remote-debugging-port=9222',
             '--user-data-dir=/tmp/evb-user-data',
             '--disable-http-cache',
@@ -195,30 +172,36 @@ describe('sessionManager automation launch args', () => {
             '--',
             '/tmp/a.pdf',
         ]);
-        expect(buildElectronAutomationArgs({
-            cdpPort: 9222,
-            automationUserDataDir: '/tmp/evb-user-data',
-            mainJs: '/tmp/main.js',
-            env: {EVB_AUTOMATION_HIDE_WINDOW: '0'},
-            platform: 'darwin',
-        })).not.toContain('-AppleShowScrollBars');
-        expect(buildElectronAutomationArgs({
-            cdpPort: 9222,
-            automationUserDataDir: '/tmp/evb-user-data',
-            mainJs: '/tmp/main.js',
-            env: hiddenEnv,
-            platform: 'linux',
-        })).not.toContain('-AppleShowScrollBars');
+        expect(
+            buildElectronAutomationArgs({
+                cdpPort: 9222,
+                automationUserDataDir: '/tmp/evb-user-data',
+                mainJs: '/tmp/main.js',
+                env: {EVB_AUTOMATION_HIDE_WINDOW: '0'},
+                platform: 'darwin',
+            }),
+        ).not.toContain('-AppleShowScrollBars');
+        expect(
+            buildElectronAutomationArgs({
+                cdpPort: 9222,
+                automationUserDataDir: '/tmp/evb-user-data',
+                mainJs: '/tmp/main.js',
+                env: hiddenEnv,
+                platform: 'linux',
+            }),
+        ).not.toContain('-AppleShowScrollBars');
     });
 
     it('can force a neutral reduced-motion baseline for profile E2E sessions', () => {
-        expect(buildElectronAutomationArgs({
-            cdpPort: 9222,
-            automationUserDataDir: '/tmp/evb-user-data',
-            mainJs: '/tmp/main.js',
-            env: {EVB_E2E_FORCE_NO_REDUCED_MOTION: '1'},
-            platform: 'darwin',
-        })).toEqual([
+        expect(
+            buildElectronAutomationArgs({
+                cdpPort: 9222,
+                automationUserDataDir: '/tmp/evb-user-data',
+                mainJs: '/tmp/main.js',
+                env: {EVB_E2E_FORCE_NO_REDUCED_MOTION: '1'},
+                platform: 'darwin',
+            }),
+        ).toEqual([
             '--force-prefers-no-reduced-motion',
             '--remote-debugging-port=9222',
             '--user-data-dir=/tmp/evb-user-data',
@@ -228,13 +211,18 @@ describe('sessionManager automation launch args', () => {
     });
 
     it('prepends whitespace-separated extra Chromium switches from the stress env hook', () => {
-        expect(buildElectronAutomationArgs({
-            cdpPort: 9222,
-            automationUserDataDir: '/tmp/evb-user-data',
-            mainJs: '/tmp/main.js',
-            env: {EVB_AUTOMATION_EXTRA_CHROMIUM_SWITCHES: '  --js-flags=--max-old-space-size=1024\n--renderer-process-limit=1 --evb-safe-mode '},
-            platform: 'darwin',
-        })).toEqual([
+        expect(
+            buildElectronAutomationArgs({
+                cdpPort: 9222,
+                automationUserDataDir: '/tmp/evb-user-data',
+                mainJs: '/tmp/main.js',
+                env: {
+                    EVB_AUTOMATION_EXTRA_CHROMIUM_SWITCHES:
+                        '  --js-flags=--max-old-space-size=1024\n--renderer-process-limit=1 --evb-safe-mode ',
+                },
+                platform: 'darwin',
+            }),
+        ).toEqual([
             '--js-flags=--max-old-space-size=1024',
             '--renderer-process-limit=1',
             '--evb-safe-mode',
@@ -246,28 +234,32 @@ describe('sessionManager automation launch args', () => {
     });
 
     it('rejects extra Chromium tokens that are not switches', () => {
-        expect(() => buildElectronAutomationArgs({
-            cdpPort: 9222,
-            automationUserDataDir: '/tmp/evb-user-data',
-            mainJs: '/tmp/main.js',
-            env: {EVB_AUTOMATION_EXTRA_CHROMIUM_SWITCHES: '--evb-safe-mode /tmp/evil.pdf'},
-            platform: 'darwin',
-        })).toThrow(/rejected: \/tmp\/evil\.pdf/);
+        expect(() =>
+            buildElectronAutomationArgs({
+                cdpPort: 9222,
+                automationUserDataDir: '/tmp/evb-user-data',
+                mainJs: '/tmp/main.js',
+                env: {EVB_AUTOMATION_EXTRA_CHROMIUM_SWITCHES: '--evb-safe-mode /tmp/evil.pdf'},
+                platform: 'darwin',
+            }),
+        ).toThrow(/rejected: \/tmp\/evil\.pdf/);
     });
 
     it('allows an explicit opt-in override on any platform', () => {
-        expect(shouldDisableAutomationSandbox({ EVB_AUTOMATION_DISABLE_SANDBOX: 'true' }, 'darwin')).toBe(true);
+        expect(shouldDisableAutomationSandbox({EVB_AUTOMATION_DISABLE_SANDBOX: 'true'}, 'darwin')).toBe(true);
     });
 
     it('strips ELECTRON_RUN_AS_NODE before launching Electron automation', () => {
-        expect(sanitizeElectronLaunchEnv({
-            ELECTRON_RUN_AS_NODE: '1',
-            EVB_SERVER_PORT: '3100',
-        })).toEqual({ EVB_SERVER_PORT: '3100' });
+        expect(
+            sanitizeElectronLaunchEnv({
+                ELECTRON_RUN_AS_NODE: '1',
+                EVB_SERVER_PORT: '3100',
+            }),
+        ).toEqual({EVB_SERVER_PORT: '3100'});
     });
 
     it('lets isolated automation Nuxt servers bypass the global dev lock', () => {
-        expect(buildNuxtDevServerEnv({ PATH: '/bin' }, 3123)).toEqual({
+        expect(buildNuxtDevServerEnv({PATH: '/bin'}, 3123)).toEqual({
             PATH: '/bin',
             NODE_ENV: 'development',
             PORT: '3123',
@@ -275,14 +267,14 @@ describe('sessionManager automation launch args', () => {
             NUXT_IGNORE_LOCK: '1',
         });
 
-        expect(buildNuxtDevServerEnv({ NUXT_IGNORE_LOCK: '0' }, 3124).NUXT_IGNORE_LOCK).toBe('0');
+        expect(buildNuxtDevServerEnv({NUXT_IGNORE_LOCK: '0'}, 3124).NUXT_IGNORE_LOCK).toBe('0');
     });
 
     it('leaves Nuxt a task temp directory whose Nitro socket path fits', () => {
         const deepTaskTemp = '/Users/someone/.t3/worktrees/evb-viewer/t3code-808143f1/.devkit/task/tmp';
-        expect(buildNuxtDevServerEnv({ TMPDIR: '/tmp/task' }, 3126, 'default', 'darwin')).toHaveProperty('TMPDIR', '/tmp/task');
+        expect(buildNuxtDevServerEnv({TMPDIR: '/tmp/task'}, 3126, 'default', 'darwin')).toHaveProperty('TMPDIR', '/tmp/task');
         // Linux Nitro uses an abstract socket, so a long task TMPDIR is harmless there.
-        expect(buildNuxtDevServerEnv({ TMPDIR: deepTaskTemp }, 3126, 'default', 'linux')).toHaveProperty('TMPDIR', deepTaskTemp);
+        expect(buildNuxtDevServerEnv({TMPDIR: deepTaskTemp}, 3126, 'default', 'linux')).toHaveProperty('TMPDIR', deepTaskTemp);
     });
 
     it.skipIf(process.platform === 'win32')('gives Nuxt a short path to a deep task temp directory on macOS', async () => {
@@ -308,7 +300,7 @@ describe('sessionManager automation launch args', () => {
                 expect(await realpath(nuxtTemp!)).toBe(await realpath(deepTaskTemp));
             }
         } finally {
-            await Promise.all([...aliases].map(alias => rm(alias, {force: true})));
+            await Promise.all([...aliases].map((alias) => rm(alias, {force: true})));
             await rm(taskRoot, {
                 recursive: true,
                 force: true,
@@ -333,11 +325,16 @@ describe('sessionManager automation launch args', () => {
     });
 
     it('preserves explicit isolated Nuxt artifact directories', () => {
-        expect(resolveNuxtDevServerArtifactDirs({
-            [NUXT_BUILD_DIR_ENV]: '/tmp/e2e-custom/nuxt-build',
-            [NUXT_OUTPUT_DIR_ENV]: '/tmp/e2e-custom/nuxt-output',
-            [NUXT_VITE_CACHE_DIR_ENV]: '/tmp/e2e-custom/vite-cache',
-        }, 'e2e-custom')).toEqual({
+        expect(
+            resolveNuxtDevServerArtifactDirs(
+                {
+                    [NUXT_BUILD_DIR_ENV]: '/tmp/e2e-custom/nuxt-build',
+                    [NUXT_OUTPUT_DIR_ENV]: '/tmp/e2e-custom/nuxt-output',
+                    [NUXT_VITE_CACHE_DIR_ENV]: '/tmp/e2e-custom/vite-cache',
+                },
+                'e2e-custom',
+            ),
+        ).toEqual({
             buildDir: '/tmp/e2e-custom/nuxt-build',
             outputDir: '/tmp/e2e-custom/nuxt-output',
             viteCacheDir: '/tmp/e2e-custom/vite-cache',
@@ -345,11 +342,13 @@ describe('sessionManager automation launch args', () => {
     });
 
     it('force-cleans only the active isolated Nuxt artifacts', () => {
-        expect(resolveNuxtForceCleanCachePaths('/repo', {
-            buildDir: resolve('/repo/.devkit/sessions/e2e-clean/nuxt-build'),
-            outputDir: resolve('/repo/.devkit/sessions/e2e-clean/nuxt-output'),
-            viteCacheDir: resolve('/repo/.devkit/sessions/e2e-clean/vite-cache'),
-        })).toEqual([
+        expect(
+            resolveNuxtForceCleanCachePaths('/repo', {
+                buildDir: resolve('/repo/.devkit/sessions/e2e-clean/nuxt-build'),
+                outputDir: resolve('/repo/.devkit/sessions/e2e-clean/nuxt-output'),
+                viteCacheDir: resolve('/repo/.devkit/sessions/e2e-clean/vite-cache'),
+            }),
+        ).toEqual([
             resolve('/repo/.devkit/sessions/e2e-clean/nuxt-build'),
             resolve('/repo/.devkit/sessions/e2e-clean/nuxt-output'),
             resolve('/repo/.devkit/sessions/e2e-clean/vite-cache'),
@@ -367,28 +366,39 @@ describe('sessionManager automation launch args', () => {
             outputDir: '/tmp/e2e-clean/nuxt-output',
             viteCacheDir: '/tmp/e2e-clean/vite-cache',
         };
-        expect(() => resolveNuxtForceCleanCachePaths('/repo', {
-            ...safeArtifacts,
-            outputDir: '/',
-        })).toThrow('Refusing unsafe Nuxt artifact cleanup path: /');
-        expect(() => resolveNuxtForceCleanCachePaths('/repo/nuxt-output', {
-            ...safeArtifacts,
-            outputDir: '/repo/nuxt-output',
-        })).toThrow('Refusing unsafe Nuxt artifact cleanup path: /repo/nuxt-output');
-        expect(() => resolveNuxtForceCleanCachePaths('/repo', {
-            ...safeArtifacts,
-            outputDir: '/tmp/e2e-clean/output',
-        })).toThrow('Refusing unsafe Nuxt artifact cleanup path: /tmp/e2e-clean/output');
+        expect(() =>
+            resolveNuxtForceCleanCachePaths('/repo', {
+                ...safeArtifacts,
+                outputDir: '/',
+            }),
+        ).toThrow('Refusing unsafe Nuxt artifact cleanup path: /');
+        expect(() =>
+            resolveNuxtForceCleanCachePaths('/repo/nuxt-output', {
+                ...safeArtifacts,
+                outputDir: '/repo/nuxt-output',
+            }),
+        ).toThrow('Refusing unsafe Nuxt artifact cleanup path: /repo/nuxt-output');
+        expect(() =>
+            resolveNuxtForceCleanCachePaths('/repo', {
+                ...safeArtifacts,
+                outputDir: '/tmp/e2e-clean/output',
+            }),
+        ).toThrow('Refusing unsafe Nuxt artifact cleanup path: /tmp/e2e-clean/output');
     });
 
     it('does not leak Vitest worker mode into the Nuxt dev server', () => {
-        expect(buildNuxtDevServerEnv({
-            NODE_ENV: 'test',
-            VITEST: 'true',
-            VITEST_POOL_ID: '1',
-            VITEST_WORKER_ID: '1',
-            CI: 'true',
-        }, 3125)).toEqual({
+        expect(
+            buildNuxtDevServerEnv(
+                {
+                    NODE_ENV: 'test',
+                    VITEST: 'true',
+                    VITEST_POOL_ID: '1',
+                    VITEST_WORKER_ID: '1',
+                    CI: 'true',
+                },
+                3125,
+            ),
+        ).toEqual({
             NODE_ENV: 'development',
             CI: 'true',
             PORT: '3125',
@@ -398,49 +408,69 @@ describe('sessionManager automation launch args', () => {
     });
 
     it('defaults to hidden windows in non-interactive (CI) environments', () => {
-        expect(resolveAutomationWindowEnv({}, { isTTY: false })).toEqual({
+        expect(resolveAutomationWindowEnv({}, {isTTY: false})).toEqual({
             EVB_AUTOMATION_NO_FOCUS: '1',
             EVB_AUTOMATION_HIDE_WINDOW: '1',
         });
     });
 
     it('defaults to visible, focused windows in interactive terminals', () => {
-        expect(resolveAutomationWindowEnv({}, { isTTY: true })).toEqual({
+        expect(resolveAutomationWindowEnv({}, {isTTY: true})).toEqual({
             EVB_AUTOMATION_NO_FOCUS: '0',
             EVB_AUTOMATION_HIDE_WINDOW: '0',
         });
     });
 
     it('keeps hide-window aligned with the explicit no-focus override unless hide-window is set', () => {
-        expect(resolveAutomationWindowEnv({ EVB_AUTOMATION_NO_FOCUS: '0' }, { isTTY: false })).toEqual({
+        expect(resolveAutomationWindowEnv({EVB_AUTOMATION_NO_FOCUS: '0'}, {isTTY: false})).toEqual({
             EVB_AUTOMATION_NO_FOCUS: '0',
             EVB_AUTOMATION_HIDE_WINDOW: '0',
         });
 
-        expect(resolveAutomationWindowEnv({
-            EVB_AUTOMATION_NO_FOCUS: '0',
-            EVB_AUTOMATION_HIDE_WINDOW: '1',
-        }, { isTTY: false })).toEqual({
+        expect(
+            resolveAutomationWindowEnv(
+                {
+                    EVB_AUTOMATION_NO_FOCUS: '0',
+                    EVB_AUTOMATION_HIDE_WINDOW: '1',
+                },
+                {isTTY: false},
+            ),
+        ).toEqual({
             EVB_AUTOMATION_NO_FOCUS: '0',
             EVB_AUTOMATION_HIDE_WINDOW: '1',
         });
     });
 
     it('waits for renderer readiness only for hidden automation by default', () => {
-        expect(resolveAutomationRendererReadyEnv({}, {
-            EVB_AUTOMATION_NO_FOCUS: '0',
-            EVB_AUTOMATION_HIDE_WINDOW: '0',
-        })).toBe('0');
+        expect(
+            resolveAutomationRendererReadyEnv(
+                {},
+                {
+                    EVB_AUTOMATION_NO_FOCUS: '0',
+                    EVB_AUTOMATION_HIDE_WINDOW: '0',
+                },
+            ),
+        ).toBe('0');
 
-        expect(resolveAutomationRendererReadyEnv({}, {
-            EVB_AUTOMATION_NO_FOCUS: '1',
-            EVB_AUTOMATION_HIDE_WINDOW: '0',
-        })).toBe('1');
+        expect(
+            resolveAutomationRendererReadyEnv(
+                {},
+                {
+                    EVB_AUTOMATION_NO_FOCUS: '1',
+                    EVB_AUTOMATION_HIDE_WINDOW: '0',
+                },
+            ),
+        ).toBe('1');
 
-        expect(resolveAutomationRendererReadyEnv({}, {
-            EVB_AUTOMATION_NO_FOCUS: '0',
-            EVB_AUTOMATION_HIDE_WINDOW: '1',
-        })).toBe('1');
+        expect(
+            resolveAutomationRendererReadyEnv(
+                {},
+                {
+                    EVB_AUTOMATION_NO_FOCUS: '0',
+                    EVB_AUTOMATION_HIDE_WINDOW: '1',
+                },
+            ),
+        ).toBe('1');
     });
 
     it('respects explicit renderer readiness overrides', () => {
@@ -449,37 +479,49 @@ describe('sessionManager automation launch args', () => {
             EVB_AUTOMATION_HIDE_WINDOW: '0',
         };
 
-        expect(resolveAutomationRendererReadyEnv({ EVB_WAIT_RENDERER_READY: '1' }, visibleWindowEnv)).toBe('1');
+        expect(resolveAutomationRendererReadyEnv({EVB_WAIT_RENDERER_READY: '1'}, visibleWindowEnv)).toBe('1');
 
-        expect(resolveAutomationRendererReadyEnv({ EVB_WAIT_RENDERER_READY: '0' }, {
-            EVB_AUTOMATION_NO_FOCUS: '1',
-            EVB_AUTOMATION_HIDE_WINDOW: '1',
-        })).toBe('0');
+        expect(
+            resolveAutomationRendererReadyEnv(
+                {EVB_WAIT_RENDERER_READY: '0'},
+                {
+                    EVB_AUTOMATION_NO_FOCUS: '1',
+                    EVB_AUTOMATION_HIDE_WINDOW: '1',
+                },
+            ),
+        ).toBe('0');
     });
 
     it('forces e2e automation into dockless hidden mode even from interactive env defaults', () => {
-        expect(buildHeadlessAutomationEnv({
-            PATH: '/bin',
-            EVB_AUTOMATION_NO_FOCUS: '0',
-            EVB_AUTOMATION_HIDE_WINDOW: '0',
-        })).toEqual({
+        expect(
+            buildHeadlessAutomationEnv({
+                PATH: '/bin',
+                EVB_AUTOMATION_NO_FOCUS: '0',
+                EVB_AUTOMATION_HIDE_WINDOW: '0',
+            }),
+        ).toEqual({
             PATH: '/bin',
             EVB_AUTOMATION_NO_FOCUS: '1',
             EVB_AUTOMATION_HIDE_WINDOW: '1',
             EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '1',
         });
 
-        expect(buildHeadlessAutomationEnv({ EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0' }).EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE).toBe('1');
+        expect(buildHeadlessAutomationEnv({EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0'}).EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE).toBe('1');
     });
 
     it('keeps ordinary macOS E2E automation hidden despite hostile environment overrides', () => {
-        expect(buildElectronE2EAutomationEnv({
-            PATH: '/bin',
-            EVB_AUTOMATION_NO_FOCUS: '0',
-            EVB_AUTOMATION_HIDE_WINDOW: '0',
-            EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0',
-            EVB_E2E_LARGE_PDF_WINDOW_MODE: 'visible',
-        }, 'darwin')).toEqual({
+        expect(
+            buildElectronE2EAutomationEnv(
+                {
+                    PATH: '/bin',
+                    EVB_AUTOMATION_NO_FOCUS: '0',
+                    EVB_AUTOMATION_HIDE_WINDOW: '0',
+                    EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0',
+                    EVB_E2E_LARGE_PDF_WINDOW_MODE: 'visible',
+                },
+                'darwin',
+            ),
+        ).toEqual({
             PATH: '/bin',
             EVB_AUTOMATION_NO_FOCUS: '1',
             EVB_AUTOMATION_HIDE_WINDOW: '1',
@@ -490,13 +532,18 @@ describe('sessionManager automation launch args', () => {
     });
 
     it('uses the host-isolated Linux runner policy despite hostile environment overrides', () => {
-        expect(buildElectronE2EAutomationEnv({
-            PATH: '/bin',
-            EVB_AUTOMATION_NO_FOCUS: '0',
-            EVB_AUTOMATION_HIDE_WINDOW: '1',
-            EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '1',
-            EVB_E2E_LARGE_PDF_WINDOW_MODE: 'visible',
-        }, 'linux')).toEqual({
+        expect(
+            buildElectronE2EAutomationEnv(
+                {
+                    PATH: '/bin',
+                    EVB_AUTOMATION_NO_FOCUS: '0',
+                    EVB_AUTOMATION_HIDE_WINDOW: '1',
+                    EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '1',
+                    EVB_E2E_LARGE_PDF_WINDOW_MODE: 'visible',
+                },
+                'linux',
+            ),
+        ).toEqual({
             PATH: '/bin',
             EVB_AUTOMATION_NO_FOCUS: '1',
             EVB_AUTOMATION_HIDE_WINDOW: '0',
@@ -507,18 +554,17 @@ describe('sessionManager automation launch args', () => {
     });
 
     it('lets one E2E session ask for native high-DPI rendering', () => {
-        expect(buildElectronE2EAutomationEnv({EVB_AUTOMATION_DEVICE_SCALE_FACTOR: '2'}, 'darwin')
-            .EVB_AUTOMATION_DEVICE_SCALE_FACTOR).toBe('2');
-        expect(buildElectronE2EAutomationEnv({EVB_AUTOMATION_DEVICE_SCALE_FACTOR: ' '}, 'darwin')
-            .EVB_AUTOMATION_DEVICE_SCALE_FACTOR).toBe('1');
+        expect(buildElectronE2EAutomationEnv({EVB_AUTOMATION_DEVICE_SCALE_FACTOR: '2'}, 'darwin').EVB_AUTOMATION_DEVICE_SCALE_FACTOR).toBe(
+            '2',
+        );
+        expect(buildElectronE2EAutomationEnv({EVB_AUTOMATION_DEVICE_SCALE_FACTOR: ' '}, 'darwin').EVB_AUTOMATION_DEVICE_SCALE_FACTOR).toBe(
+            '1',
+        );
     });
 
     it('resolves host-isolated Linux and hidden macOS runner policies', () => {
         expect(resolveElectronE2EHeadlessRunnerConfig('linux')).toEqual({
-            commandPrefix: [
-                'xvfb-run',
-                '-a',
-            ],
+            commandPrefix: ['xvfb-run', '-a'],
             environment: {
                 EVB_AUTOMATION_HIDE_WINDOW: '0',
                 EVB_AUTOMATION_NO_FOCUS: '1',
@@ -538,7 +584,7 @@ describe('sessionManager automation launch args', () => {
     });
 
     it('keeps the dedicated visible-window capability explicit', () => {
-        expect(buildVisibleWindowElectronE2EAutomationEnv({ PATH: '/bin' })).toEqual({
+        expect(buildVisibleWindowElectronE2EAutomationEnv({PATH: '/bin'})).toEqual({
             PATH: '/bin',
             EVB_AUTOMATION_NO_FOCUS: '0',
             EVB_AUTOMATION_HIDE_WINDOW: '0',
@@ -546,68 +592,98 @@ describe('sessionManager automation launch args', () => {
         });
     });
     it('requires a dockless bundle for every hidden macOS launch', () => {
-        expect(shouldUseMacOSHiddenAppLauncher({
-            EVB_AUTOMATION_HIDE_WINDOW: '1',
-            EVB_AUTOMATION_NO_FOCUS: '1',
-        }, 'darwin')).toBe(true);
-        expect(shouldUseMacOSHiddenAppLauncher({
-            EVB_AUTOMATION_HIDE_WINDOW: '1',
-            EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0',
-        }, 'darwin')).toBe(true);
-        expect(shouldUseMacOSHiddenAppLauncher({
-            EVB_AUTOMATION_HIDE_WINDOW: '1',
-            EVB_AUTOMATION_NO_FOCUS: '1',
-            EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '1',
-        }, 'darwin')).toBe(true);
-        expect(shouldUseMacOSHiddenAppLauncher({
-            EVB_AUTOMATION_HIDE_WINDOW: '1',
-            EVB_AUTOMATION_NO_FOCUS: '1',
-            EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '1',
-        }, 'linux')).toBe(false);
+        expect(
+            shouldUseMacOSHiddenAppLauncher(
+                {
+                    EVB_AUTOMATION_HIDE_WINDOW: '1',
+                    EVB_AUTOMATION_NO_FOCUS: '1',
+                },
+                'darwin',
+            ),
+        ).toBe(true);
+        expect(
+            shouldUseMacOSHiddenAppLauncher(
+                {
+                    EVB_AUTOMATION_HIDE_WINDOW: '1',
+                    EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0',
+                },
+                'darwin',
+            ),
+        ).toBe(true);
+        expect(
+            shouldUseMacOSHiddenAppLauncher(
+                {
+                    EVB_AUTOMATION_HIDE_WINDOW: '1',
+                    EVB_AUTOMATION_NO_FOCUS: '1',
+                    EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '1',
+                },
+                'darwin',
+            ),
+        ).toBe(true);
+        expect(
+            shouldUseMacOSHiddenAppLauncher(
+                {
+                    EVB_AUTOMATION_HIDE_WINDOW: '1',
+                    EVB_AUTOMATION_NO_FOCUS: '1',
+                    EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '1',
+                },
+                'linux',
+            ),
+        ).toBe(false);
     });
     it('bootstraps canonical dev recents only for the visible default session', () => {
-        expect(shouldBootstrapInteractiveDevProfile({
-            env: {},
-            sessionName: 'default',
-            automationWindowEnv: {
-                EVB_AUTOMATION_NO_FOCUS: '0',
-                EVB_AUTOMATION_HIDE_WINDOW: '0',
-            },
-        })).toBe(true);
+        expect(
+            shouldBootstrapInteractiveDevProfile({
+                env: {},
+                sessionName: 'default',
+                automationWindowEnv: {
+                    EVB_AUTOMATION_NO_FOCUS: '0',
+                    EVB_AUTOMATION_HIDE_WINDOW: '0',
+                },
+            }),
+        ).toBe(true);
 
-        expect(shouldBootstrapInteractiveDevProfile({
-            env: { CI: 'true' },
-            sessionName: 'default',
-            automationWindowEnv: {
-                EVB_AUTOMATION_NO_FOCUS: '0',
-                EVB_AUTOMATION_HIDE_WINDOW: '0',
-            },
-        })).toBe(false);
+        expect(
+            shouldBootstrapInteractiveDevProfile({
+                env: {CI: 'true'},
+                sessionName: 'default',
+                automationWindowEnv: {
+                    EVB_AUTOMATION_NO_FOCUS: '0',
+                    EVB_AUTOMATION_HIDE_WINDOW: '0',
+                },
+            }),
+        ).toBe(false);
 
-        expect(shouldBootstrapInteractiveDevProfile({
-            env: {},
-            sessionName: 'smoke-test',
-            automationWindowEnv: {
-                EVB_AUTOMATION_NO_FOCUS: '0',
-                EVB_AUTOMATION_HIDE_WINDOW: '0',
-            },
-        })).toBe(false);
+        expect(
+            shouldBootstrapInteractiveDevProfile({
+                env: {},
+                sessionName: 'smoke-test',
+                automationWindowEnv: {
+                    EVB_AUTOMATION_NO_FOCUS: '0',
+                    EVB_AUTOMATION_HIDE_WINDOW: '0',
+                },
+            }),
+        ).toBe(false);
 
-        expect(shouldBootstrapInteractiveDevProfile({
-            env: {},
-            sessionName: 'default',
-            automationWindowEnv: {
-                EVB_AUTOMATION_NO_FOCUS: '1',
-                EVB_AUTOMATION_HIDE_WINDOW: '1',
-            },
-        })).toBe(false);
+        expect(
+            shouldBootstrapInteractiveDevProfile({
+                env: {},
+                sessionName: 'default',
+                automationWindowEnv: {
+                    EVB_AUTOMATION_NO_FOCUS: '1',
+                    EVB_AUTOMATION_HIDE_WINDOW: '1',
+                },
+            }),
+        ).toBe(false);
     });
 
     it('builds hidden macOS app bundle paths inside a dedicated automation directory', () => {
-        expect(buildMacOSHiddenAppBundlePaths({
-            sourceAppPath: '/Applications/Electron.app',
-            destinationRoot: '/tmp/evb-automation-app',
-        })).toEqual({
+        expect(
+            buildMacOSHiddenAppBundlePaths({
+                sourceAppPath: '/Applications/Electron.app',
+                destinationRoot: '/tmp/evb-automation-app',
+            }),
+        ).toEqual({
             appPath: join('/tmp/evb-automation-app/Electron.app'),
             executablePath: join('/tmp/evb-automation-app/Electron.app/Contents/MacOS/Electron'),
             infoPlistPath: join('/tmp/evb-automation-app/Electron.app/Contents/Info.plist'),
@@ -629,9 +705,7 @@ describe('sessionManager automation launch args', () => {
             version: rootPackage.version,
             main: 'main.js',
         });
-        expect(() => buildAutomationAppEntryPackage('   ')).toThrow(
-            'requires the canonical application version',
-        );
+        expect(() => buildAutomationAppEntryPackage('   ')).toThrow('requires the canonical application version');
     });
 
     it('loads the generated automation entry from a filesystem path containing URL characters', async () => {
@@ -643,8 +717,7 @@ describe('sessionManager automation launch args', () => {
                 destinationRoot: directory,
                 mainJs,
             });
-            expect(execFileSync(process.execPath, [entry.mainJsPath], {encoding: 'utf8'}).trim())
-                .toBe('automation main loaded');
+            expect(execFileSync(process.execPath, [entry.mainJsPath], {encoding: 'utf8'}).trim()).toBe('automation main loaded');
         } finally {
             await rm(directory, {
                 recursive: true,
@@ -654,37 +727,49 @@ describe('sessionManager automation launch args', () => {
     });
 
     it('prefers real Electron executables instead of the npm shim on supported platforms', () => {
-        expect(buildElectronExecutablePath({
-            platform: 'linux',
-            rootDir: '/repo',
-        })).toBe(join('/repo/node_modules/electron/dist/electron'));
+        expect(
+            buildElectronExecutablePath({
+                platform: 'linux',
+                rootDir: '/repo',
+            }),
+        ).toBe(join('/repo/node_modules/electron/dist/electron'));
 
-        expect(buildElectronExecutablePath({
-            platform: 'win32',
-            rootDir: 'C:/repo',
-        })).toBe(join('C:/repo/node_modules/electron/dist/electron.exe'));
+        expect(
+            buildElectronExecutablePath({
+                platform: 'win32',
+                rootDir: 'C:/repo',
+            }),
+        ).toBe(join('C:/repo/node_modules/electron/dist/electron.exe'));
 
-        expect(buildElectronExecutablePath({
-            platform: 'darwin',
-            rootDir: '/repo',
-        })).toBe(join('/repo/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'));
+        expect(
+            buildElectronExecutablePath({
+                platform: 'darwin',
+                rootDir: '/repo',
+            }),
+        ).toBe(join('/repo/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'));
     });
 
     it('reuses only Nuxt-looking dev server responses', () => {
-        expect(isReusableNuxtResponse({
-            poweredBy: 'Nuxt',
-            body: '<script type="module" src="/_nuxt/app.js"></script>',
-        })).toBe(true);
+        expect(
+            isReusableNuxtResponse({
+                poweredBy: 'Nuxt',
+                body: '<script type="module" src="/_nuxt/app.js"></script>',
+            }),
+        ).toBe(true);
 
-        expect(isReusableNuxtResponse({
-            poweredBy: 'Express',
-            body: '<script type="module" src="/_nuxt/app.js"></script>',
-        })).toBe(false);
+        expect(
+            isReusableNuxtResponse({
+                poweredBy: 'Express',
+                body: '<script type="module" src="/_nuxt/app.js"></script>',
+            }),
+        ).toBe(false);
 
-        expect(isReusableNuxtResponse({
-            poweredBy: 'Nuxt',
-            body: '<main>unrelated app</main>',
-        })).toBe(false);
+        expect(
+            isReusableNuxtResponse({
+                poweredBy: 'Nuxt',
+                body: '<main>unrelated app</main>',
+            }),
+        ).toBe(false);
     });
 
     it('checks the Electron route for Nuxt HTTP readiness', async () => {
@@ -694,16 +779,15 @@ describe('sessionManager automation launch args', () => {
             return {ok: true} as Response;
         }) as typeof fetch;
 
-        await expect(checkNuxtHttpReadiness({
-            fetchImpl,
-            timeoutMs: 1234,
-        })).resolves.toBe(true);
+        await expect(
+            checkNuxtHttpReadiness({
+                fetchImpl,
+                timeoutMs: 1234,
+            }),
+        ).resolves.toBe(true);
 
         expect(calls).toHaveLength(1);
-        const [
-            url,
-            init,
-        ] = calls[0] ?? [];
+        const [url, init] = calls[0] ?? [];
         expect(url).toBe('http://127.0.0.1:3235/electron');
         expect(init).toMatchObject({method: 'GET'});
         expect((init as RequestInit).signal).toBeInstanceOf(AbortSignal);
@@ -736,14 +820,16 @@ describe('sessionManager automation launch args', () => {
     });
 
     it('detects a hydrated renderer with missing preload bindings as retryable', () => {
-        expect(classifyRendererBindingReadiness({
-            bodyTextLength: 12,
-            bodyTextSnippet: 'EVB Viewer',
-            electronAPI: 'undefined',
-            nuxtRootChildren: 1,
-            openFileDirect: 'undefined',
-            url: 'http://127.0.0.1:3235/electron',
-        })).toBe('retryable-preload-missing');
+        expect(
+            classifyRendererBindingReadiness({
+                bodyTextLength: 12,
+                bodyTextSnippet: 'EVB Viewer',
+                electronAPI: 'undefined',
+                nuxtRootChildren: 1,
+                openFileDirect: 'undefined',
+                url: 'http://127.0.0.1:3235/electron',
+            }),
+        ).toBe('retryable-preload-missing');
     });
 
     it('polls the newest Electron app target instead of serially waiting on a stale page', async () => {
@@ -764,12 +850,7 @@ describe('sessionManager automation launch args', () => {
             url: () => 'http://127.0.0.1:3235/electron',
         };
 
-        expect(selectNewestElectronAppPage([
-            stalePage,
-            unrelatedPage,
-            newestPage,
-            closedReplacement,
-        ])).toBe(newestPage);
+        expect(selectNewestElectronAppPage([stalePage, unrelatedPage, newestPage, closedReplacement])).toBe(newestPage);
     });
 
     it('classifies an initial body probe that never answers as unresponsive', async () => {
@@ -808,15 +889,14 @@ describe('sessionManager automation launch args', () => {
         }) as typeof fetch;
         const timings: string[] = [];
 
-        await expect(warmupElectronAppDependencies(
-            message => timings.push(message),
-            {
+        await expect(
+            warmupElectronAppDependencies((message) => timings.push(message), {
                 fetchImpl,
                 stablePolls: 2,
                 pollIntervalMs: 0,
                 timeoutMs: 5_000,
-            },
-        )).resolves.toEqual({
+            }),
+        ).resolves.toEqual({
             ok: true,
             stablePolls: 2,
         });
@@ -830,22 +910,19 @@ describe('sessionManager automation launch args', () => {
     });
 
     it('returns a bounded failure result when Electron route warmup does not settle', async () => {
-        const fetchImpl = (async () => new Response(
-            '<main>Failed to fetch dynamically imported module</main>',
-            {
+        const fetchImpl = (async () =>
+            new Response('<main>Failed to fetch dynamically imported module</main>', {
                 status: 200,
                 headers: {'x-powered-by': 'Nuxt'},
-            },
-        )) as typeof fetch;
+            })) as typeof fetch;
 
-        await expect(warmupElectronAppDependencies(
-            () => {},
-            {
+        await expect(
+            warmupElectronAppDependencies(() => {}, {
                 fetchImpl,
                 pollIntervalMs: 0,
                 timeoutMs: 5,
-            },
-        )).resolves.toMatchObject({
+            }),
+        ).resolves.toMatchObject({
             ok: false,
             reason: 'Electron app dependencies did not warm within 0s',
             status: 200,
@@ -854,24 +931,24 @@ describe('sessionManager automation launch args', () => {
     });
 
     it('logs and continues when best-effort Electron route warmup misses', async () => {
-        const fetchImpl = (async () => new Response('Outdated Optimize Dep', {
-            status: 504,
-            headers: {'x-powered-by': 'Nuxt'},
-        })) as typeof fetch;
+        const fetchImpl = (async () =>
+            new Response('Outdated Optimize Dep', {
+                status: 504,
+                headers: {'x-powered-by': 'Nuxt'},
+            })) as typeof fetch;
         const originalWarn = console.warn;
         const warnings: string[] = [];
         console.warn = (message?: unknown) => {
             warnings.push(String(message));
         };
         try {
-            await expect(warmupElectronAppDependenciesBestEffort(
-                () => {},
-                {
+            await expect(
+                warmupElectronAppDependenciesBestEffort(() => {}, {
                     fetchImpl,
                     pollIntervalMs: 0,
                     timeoutMs: 5,
-                },
-            )).resolves.toMatchObject({
+                }),
+            ).resolves.toMatchObject({
                 ok: false,
                 status: 504,
             });
@@ -879,7 +956,7 @@ describe('sessionManager automation launch args', () => {
             console.warn = originalWarn;
         }
 
-        expect(warnings.some(message => message.includes('Dependency warmup did not settle; continuing anyway'))).toBe(true);
+        expect(warnings.some((message) => message.includes('Dependency warmup did not settle; continuing anyway'))).toBe(true);
     });
 
     it('scopes e2e session names by run id', () => {
@@ -901,39 +978,41 @@ describe('sessionManager automation launch args', () => {
     });
 
     it('cleans only stale session-owned Nuxt port owners', () => {
-        expect(selectStaleNuxtPortOwnerCleanupTargets([
-            1111,
-            2222,
-            3333,
-        ], [
-            {
-                name: 'running-session',
-                sessionPid: 9001,
-                nuxtPid: 1111,
-                nuxtPort: 3000,
-                sessionAlive: true,
-                nuxtAlive: true,
-                descendantPids: [],
-            },
-            {
-                name: 'stale-session',
-                sessionPid: 9002,
-                nuxtPid: 2222,
-                nuxtPort: 3000,
-                sessionAlive: false,
-                nuxtAlive: true,
-                descendantPids: [2223],
-            },
-            {
-                name: 'other-port-stale-session',
-                sessionPid: 9003,
-                nuxtPid: 3333,
-                nuxtPort: 3100,
-                sessionAlive: false,
-                nuxtAlive: true,
-                descendantPids: [],
-            },
-        ], 3000)).toEqual([2222]);
+        expect(
+            selectStaleNuxtPortOwnerCleanupTargets(
+                [1111, 2222, 3333],
+                [
+                    {
+                        name: 'running-session',
+                        sessionPid: 9001,
+                        nuxtPid: 1111,
+                        nuxtPort: 3000,
+                        sessionAlive: true,
+                        nuxtAlive: true,
+                        descendantPids: [],
+                    },
+                    {
+                        name: 'stale-session',
+                        sessionPid: 9002,
+                        nuxtPid: 2222,
+                        nuxtPort: 3000,
+                        sessionAlive: false,
+                        nuxtAlive: true,
+                        descendantPids: [2223],
+                    },
+                    {
+                        name: 'other-port-stale-session',
+                        sessionPid: 9003,
+                        nuxtPid: 3333,
+                        nuxtPort: 3100,
+                        sessionAlive: false,
+                        nuxtAlive: true,
+                        descendantPids: [],
+                    },
+                ],
+                3000,
+            ),
+        ).toEqual([2222]);
     });
 
     it('does not select unrelated Nuxt port owners with no stale session metadata', () => {
@@ -982,41 +1061,38 @@ describe('sessionManager automation launch args', () => {
     });
 
     it('cleans orphaned project Nuxt roots while preserving the active reusable dev-server port', () => {
-        expect(selectOrphanedProjectNuxtRootCleanupTargets([
-            {
-                pid: 1001,
-                ppid: 1,
-                devServerPort: 3235,
-                descendantPids: [
-                    1002,
-                    1003,
+        expect(
+            selectOrphanedProjectNuxtRootCleanupTargets(
+                [
+                    {
+                        pid: 1001,
+                        ppid: 1,
+                        devServerPort: 3235,
+                        descendantPids: [1002, 1003],
+                    },
+                    {
+                        pid: 2001,
+                        ppid: 1,
+                        devServerPort: 50054,
+                        descendantPids: [2002, 2003],
+                    },
+                    {
+                        pid: 3001,
+                        ppid: 9000,
+                        devServerPort: 3235,
+                        descendantPids: [3002],
+                    },
+                    {
+                        pid: 4001,
+                        ppid: 1,
+                        devServerPort: 3235,
+                        descendantPids: [4002],
+                    },
                 ],
-            },
-            {
-                pid: 2001,
-                ppid: 1,
-                devServerPort: 50054,
-                descendantPids: [
-                    2002,
-                    2003,
-                ],
-            },
-            {
-                pid: 3001,
-                ppid: 9000,
-                devServerPort: 3235,
-                descendantPids: [3002],
-            },
-            {
-                pid: 4001,
-                ppid: 1,
-                devServerPort: 3235,
-                descendantPids: [4002],
-            },
-        ], [4002], 3235)).toEqual([
-            1001,
-            2001,
-        ]);
+                [4002],
+                3235,
+            ),
+        ).toEqual([1001, 2001]);
     });
 });
 
@@ -1024,79 +1100,74 @@ describe('shared hidden macOS app bundle', () => {
     it('keys the bundle directory on the installed Electron version, not the run', () => {
         expect(buildMacOSHiddenAppBundleDirName('43.4.1')).toBe('electron-43.4.1');
         expect(buildMacOSHiddenAppBundleDirName(' 44.0.0-beta.2+build/7 ')).toBe('electron-44.0.0-beta.2-build-7');
-        expect(resolveMacOSHiddenAppBundleDestinationRoot({
-            electronVersion: '43.4.1',
-            rootDir: '/repo',
-        })).toBe(join('/repo/.devkit/tmp/electron-e2e-hidden-app/electron-43.4.1'));
+        expect(
+            resolveMacOSHiddenAppBundleDestinationRoot({
+                electronVersion: '43.4.1',
+                rootDir: '/repo',
+            }),
+        ).toBe(join('/repo/.devkit/tmp/electron-e2e-hidden-app/electron-43.4.1'));
     });
 
     it('selects every bundle directory except the current one and fresh staging dirs', () => {
         const nowMs = 10 * 60 * 60 * 1000;
-        expect(selectStaleMacOSHiddenAppBundleDirs([
-            {
-                name: 'electron-43.4.1',
-                mtimeMs: nowMs,
-            },
-            {
-                name: 'electron-43.3.0',
-                mtimeMs: nowMs,
-            },
-            {
-                name: 'run-mtimly05-8584eb',
-                mtimeMs: nowMs,
-            },
-            {
-                name: 'default',
-                mtimeMs: nowMs,
-            },
-            {
-                name: '.staging-fresh',
-                mtimeMs: nowMs - 5 * 60 * 1000,
-            },
-            {
-                name: '.staging-abandoned',
-                mtimeMs: nowMs - 2 * 60 * 60 * 1000,
-            },
-        ], {
-            keepDirName: 'electron-43.4.1',
-            nowMs,
-        })).toEqual([
-            'electron-43.3.0',
-            'run-mtimly05-8584eb',
-            'default',
-            '.staging-abandoned',
-        ]);
+        expect(
+            selectStaleMacOSHiddenAppBundleDirs(
+                [
+                    {
+                        name: 'electron-43.4.1',
+                        mtimeMs: nowMs,
+                    },
+                    {
+                        name: 'electron-43.3.0',
+                        mtimeMs: nowMs,
+                    },
+                    {
+                        name: 'run-mtimly05-8584eb',
+                        mtimeMs: nowMs,
+                    },
+                    {
+                        name: 'default',
+                        mtimeMs: nowMs,
+                    },
+                    {
+                        name: '.staging-fresh',
+                        mtimeMs: nowMs - 5 * 60 * 1000,
+                    },
+                    {
+                        name: '.staging-abandoned',
+                        mtimeMs: nowMs - 2 * 60 * 60 * 1000,
+                    },
+                ],
+                {
+                    keepDirName: 'electron-43.4.1',
+                    nowMs,
+                },
+            ),
+        ).toEqual(['electron-43.3.0', 'run-mtimly05-8584eb', 'default', '.staging-abandoned']);
     });
 
     it('removes stale bundle directories on disk and keeps the current one', async () => {
         const root = await mkdtemp(join(tmpdir(), 'evb-hidden-app-'));
         try {
             const staleTime = new Date(Date.now() - 3 * 60 * 60 * 1000);
-            for (const name of [
-                'electron-43.4.1',
-                'run-old-run',
-                '.staging-abandoned',
-                '.staging-live',
-            ]) {
-                await mkdir(join(root, name, 'Electron.app'), { recursive: true });
+            for (const name of ['electron-43.4.1', 'run-old-run', '.staging-abandoned', '.staging-live']) {
+                await mkdir(join(root, name, 'Electron.app'), {recursive: true});
             }
             await utimes(join(root, '.staging-abandoned'), staleTime, staleTime);
 
-            expect(pruneStaleMacOSHiddenAppBundles({
-                bundlesRootDir: root,
-                keepDirName: 'electron-43.4.1',
-            }).sort()).toEqual([
-                '.staging-abandoned',
-                'run-old-run',
-            ]);
-            expect((await readdir(root)).sort()).toEqual([
-                '.staging-live',
-                'electron-43.4.1',
-            ]);
-            expect(pruneStaleMacOSHiddenAppBundles({
-                bundlesRootDir: join(root, 'missing'),
-                keepDirName: 'electron-43.4.1',
-            })).toEqual([]);
+            expect(
+                pruneStaleMacOSHiddenAppBundles({
+                    bundlesRootDir: root,
+                    keepDirName: 'electron-43.4.1',
+                }).sort(),
+            ).toEqual(['.staging-abandoned', 'run-old-run']);
+            expect((await readdir(root)).sort()).toEqual(['.staging-live', 'electron-43.4.1']);
+            expect(
+                pruneStaleMacOSHiddenAppBundles({
+                    bundlesRootDir: join(root, 'missing'),
+                    keepDirName: 'electron-43.4.1',
+                }),
+            ).toEqual([]);
         } finally {
             await rm(root, {
                 recursive: true,

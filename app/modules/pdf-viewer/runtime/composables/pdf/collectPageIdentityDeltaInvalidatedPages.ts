@@ -1,8 +1,7 @@
-import type { IPageIdentityDelta } from '@contracts/electronApiPageOps';
+import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
 
 function addRange(pages: Set<number>, firstPage: number, count: number) {
-    if (!Number.isSafeInteger(firstPage) || firstPage < 1
-        || !Number.isSafeInteger(count) || count < 1) {
+    if (!Number.isSafeInteger(firstPage) || firstPage < 1 || !Number.isSafeInteger(count) || count < 1) {
         return;
     }
     for (let offset = 0; offset < count; offset += 1) {
@@ -33,10 +32,7 @@ export function collectPageIdentityDeltaInvalidatedPages(
         for (const range of delta?.ranges ?? []) {
             if (range.kind === 'insert' || range.kind === 'touch') {
                 addRange(pages, range.toPageNumber, range.count);
-            } else if (
-                (range.kind === 'retain' || range.kind === 'move')
-                && range.fromPageNumber !== range.toPageNumber
-            ) {
+            } else if ((range.kind === 'retain' || range.kind === 'move') && range.fromPageNumber !== range.toPageNumber) {
                 addRange(pages, range.toPageNumber, range.count);
             }
         }

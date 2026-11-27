@@ -1,8 +1,8 @@
 {
-    "name": "@evb/djvu-core",
-    "private": true,
-    "type": "module",
-    "exports": {
-        "./*": "./*.ts"
-    }
+  "name": "@evb/djvu-core",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": "./*.ts"
+  }
 }

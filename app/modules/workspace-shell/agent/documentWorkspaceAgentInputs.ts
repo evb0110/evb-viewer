@@ -1,29 +1,12 @@
-import type {
-    IShapePoint,
-    TAnnotationTool,
-    TDrawableShapeType,
-} from '@app/types/annotations';
-import {
-    ANNOTATION_TOOLS,
-    DRAWABLE_SHAPE_TOOLS,
-} from '@app/types/annotations';
-import { isOneOf } from '@contracts/runtimeGuards';
-import type { TAgentTextMarkupKind } from '@app/modules/pdf-viewer/public';
+import type {IShapePoint, TAnnotationTool, TDrawableShapeType} from '@app/types/annotations';
+import {ANNOTATION_TOOLS, DRAWABLE_SHAPE_TOOLS} from '@app/types/annotations';
+import {isOneOf} from '@contracts/runtimeGuards';
+import type {TAgentTextMarkupKind} from '@app/modules/pdf-viewer/public';
 import type {TWorkspaceAgentSidebarTab} from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
 
-const AGENT_SIDEBAR_TABS = [
-    'annotations',
-    'bookmarks',
-    'thumbnails',
-    'search',
-] as const satisfies readonly TWorkspaceAgentSidebarTab[];
+const AGENT_SIDEBAR_TABS = ['annotations', 'bookmarks', 'thumbnails', 'search'] as const satisfies readonly TWorkspaceAgentSidebarTab[];
 
-const AGENT_TEXT_MARKUP_KINDS = [
-    'highlight',
-    'underline',
-    'strikethrough',
-    'squiggly',
-] as const satisfies readonly TAgentTextMarkupKind[];
+const AGENT_TEXT_MARKUP_KINDS = ['highlight', 'underline', 'strikethrough', 'squiggly'] as const satisfies readonly TAgentTextMarkupKind[];
 
 export function isAgentRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -31,9 +14,7 @@ export function isAgentRecord(value: unknown): value is Record<string, unknown> 
 
 export function getAgentStringInput(input: Record<string, unknown> | undefined, key: string) {
     const value = input?.[key];
-    return typeof value === 'string' && value.trim().length > 0
-        ? value.trim()
-        : null;
+    return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
 export function getAgentRawStringInput(input: Record<string, unknown> | undefined, key: string) {
@@ -43,9 +24,7 @@ export function getAgentRawStringInput(input: Record<string, unknown> | undefine
 
 export function getAgentNumberInput(input: Record<string, unknown> | undefined, key: string) {
     const value = input?.[key];
-    return typeof value === 'number' && Number.isFinite(value)
-        ? value
-        : null;
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 export function getAgentBooleanInput(input: Record<string, unknown> | undefined, key: string) {
@@ -129,9 +108,7 @@ export function getAgentStrokeArrayInput(input: Record<string, unknown>, key: st
     }
     const strokes = value
         .filter(Array.isArray)
-        .map(points => points
-            .map(getAgentPointInput)
-            .flatMap(point => point ? [point] : []))
-        .filter(points => points.length > 0);
+        .map((points) => points.map(getAgentPointInput).flatMap((point) => (point ? [point] : [])))
+        .filter((points) => points.length > 0);
     return strokes.length > 0 ? strokes : undefined;
 }

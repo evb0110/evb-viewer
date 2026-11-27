@@ -1,12 +1,6 @@
 import type {IScanCleanupOptions} from '@contracts/scan-cleanup/electronApiScanCleanup';
-import {
-    cloneScanCleanupPreferenceValue,
-    DEFAULT_SCAN_CLEANUP_PREFERENCES,
-} from '@contracts/scan-cleanup/scanCleanupSettings';
-import {
-    DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
-    isDefaultScanCleanupPageOverride,
-} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {cloneScanCleanupPreferenceValue, DEFAULT_SCAN_CLEANUP_PREFERENCES} from '@contracts/scan-cleanup/scanCleanupSettings';
+import {DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE, isDefaultScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 
 export type TScanCleanupNonDefaultSettingKey =
     | 'preserveOriginalQuality'
@@ -31,26 +25,17 @@ export interface IScanCleanupSettingsBadge {
 }
 
 function marginsEqual(left: IScanCleanupOptions['marginsMm'], right: IScanCleanupOptions['marginsMm']) {
-    return left.leftMm === right.leftMm
-        && left.topMm === right.topMm
-        && left.rightMm === right.rightMm
-        && left.bottomMm === right.bottomMm;
+    return left.leftMm === right.leftMm && left.topMm === right.topMm && left.rightMm === right.rightMm && left.bottomMm === right.bottomMm;
 }
 
-function addBadge(
-    badges: IScanCleanupSettingsBadge[],
-    key: TScanCleanupNonDefaultSettingKey,
-    value: string,
-) {
+function addBadge(badges: IScanCleanupSettingsBadge[], key: TScanCleanupNonDefaultSettingKey, value: string) {
     badges.push({
         key,
         value,
     });
 }
 
-export function resolveScanCleanupNonDefaultSettings(
-    options: IScanCleanupOptions,
-): IScanCleanupSettingsBadge[] {
+export function resolveScanCleanupNonDefaultSettings(options: IScanCleanupOptions): IScanCleanupSettingsBadge[] {
     const defaults = DEFAULT_SCAN_CLEANUP_PREFERENCES;
     const badges: IScanCleanupSettingsBadge[] = [];
     if (options.preserveOriginalQuality !== defaults.preserveOriginalQuality) {
@@ -86,10 +71,7 @@ export function resolveScanCleanupNonDefaultSettings(
     if (options.despeckleLevel !== defaults.despeckleLevel) {
         addBadge(badges, 'despeckleLevel', options.despeckleLevel ?? 'normal');
     }
-    if (
-        options.autoDewarp !== defaults.autoDewarp
-        || options.autoDewarpDepth !== defaults.autoDewarpDepth
-    ) {
+    if (options.autoDewarp !== defaults.autoDewarp || options.autoDewarpDepth !== defaults.autoDewarpDepth) {
         addBadge(badges, 'autoDewarp', options.autoDewarp ? 'enabled' : 'disabled');
     }
     if (options.skipBlankPages !== defaults.skipBlankPages) {
@@ -98,14 +80,10 @@ export function resolveScanCleanupNonDefaultSettings(
     if (options.outputMode !== 'auto') {
         addBadge(badges, 'outputMode', options.outputMode);
     }
-    const hasPageOverrideDefaults = options.pageOverrideDefaults !== undefined
-        && !isDefaultScanCleanupPageOverride(options.pageOverrideDefaults);
+    const hasPageOverrideDefaults =
+        options.pageOverrideDefaults !== undefined && !isDefaultScanCleanupPageOverride(options.pageOverrideDefaults);
     if (Object.keys(options.pageOverrides).length > 0 || hasPageOverrideDefaults) {
-        addBadge(
-            badges,
-            'pageOverrides',
-            String(Object.keys(options.pageOverrides).length + Number(hasPageOverrideDefaults)),
-        );
+        addBadge(badges, 'pageOverrides', String(Object.keys(options.pageOverrides).length + Number(hasPageOverrideDefaults)));
     }
     return badges;
 }

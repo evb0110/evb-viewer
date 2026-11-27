@@ -1,27 +1,13 @@
 import {randomUUID} from 'node:crypto';
-import {
-    constants,
-} from 'node:fs';
-import {
-    copyFile,
-    rm,
-} from 'node:fs/promises';
-import {
-    dirname,
-    join,
-} from 'node:path';
+import {constants} from 'node:fs';
+import {copyFile, rm} from 'node:fs/promises';
+import {dirname, join} from 'node:path';
 import {DamagedDocumentError} from '@document-store/documentDirectory';
-import {
-    SavePublicationError,
-    type TSaveResult,
-} from '@document-store/saveDocument';
-import type { IPdfValidationResult } from '@contracts/pdfConformance';
-import type {
-    IDocumentMutationRevisionOptions,
-    TDocumentSaveResult,
-} from '@contracts/electronApiDocuments';
+import {SavePublicationError, type TSaveResult} from '@document-store/saveDocument';
+import type {IPdfValidationResult} from '@contracts/pdfConformance';
+import type {IDocumentMutationRevisionOptions, TDocumentSaveResult} from '@contracts/electronApiDocuments';
 import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
-import { getErrorMessage } from '@electron/utils/error';
+import {getErrorMessage} from '@electron/utils/error';
 import {
     assertQueuedWorkingCopyMutationPreconditions,
     getDocumentRevisionInfo,
@@ -32,18 +18,12 @@ import {
     type IOpenDocument,
 } from '@electron/file-access/documentStore';
 import {explainWriteRefusal} from '@electron/file-access/explainWriteRefusal';
-import {
-    validatePdfFile,
-    validatePdfFileForSave,
-} from '@electron/features/documents/main/pdfConformance';
-import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
-import { rewritePdfWithQpdf } from '@electron/pdf/pdfAppendBase';
-import { createLogger } from '@electron/utils/createLogger';
-import {
-    optimizeLargePdfForOrdinarySave,
-    optimizePdfForSave,
-} from '@electron/features/documents/main/pdfSaveAsOptimization';
-import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
+import {validatePdfFile, validatePdfFileForSave} from '@electron/features/documents/main/pdfConformance';
+import {enqueueWorkingCopyMutation} from '@electron/file-access/workingCopyMutationQueue';
+import {rewritePdfWithQpdf} from '@electron/pdf/pdfAppendBase';
+import {createLogger} from '@electron/utils/createLogger';
+import {optimizeLargePdfForOrdinarySave, optimizePdfForSave} from '@electron/features/documents/main/pdfSaveAsOptimization';
+import type {IDocumentsSenderIdContext} from '@electron/features/documents/documentsContexts';
 
 const logger = createLogger('working-copy-save');
 
@@ -85,25 +65,27 @@ export function toDocumentSaveResult(
             }
             return result.keptOriginal === undefined
                 ? {
-                    ok: true,
-                    externalWriteCommitted: true,
-                    workingCopyRefreshed: result.acknowledgmentError === undefined,
-                    documentRevision: getDocumentRevisionInfo(entry),
-                    validation,
-                    ...(result.acknowledgmentError === undefined ? {} : {
-                        warning: {
-                            reason: 'refresh-failed' as const,
-                            message: getErrorMessage(result.acknowledgmentError),
-                        },
-                    }),
-                }
+                      ok: true,
+                      externalWriteCommitted: true,
+                      workingCopyRefreshed: result.acknowledgmentError === undefined,
+                      documentRevision: getDocumentRevisionInfo(entry),
+                      validation,
+                      ...(result.acknowledgmentError === undefined
+                          ? {}
+                          : {
+                                warning: {
+                                    reason: 'refresh-failed' as const,
+                                    message: getErrorMessage(result.acknowledgmentError),
+                                },
+                            }),
+                  }
                 : {
-                    ok: false,
-                    reason: 'original-changed',
-                    keptFilePath: result.keptOriginal,
-                    externalWriteCommitted: true,
-                    validation,
-                };
+                      ok: false,
+                      reason: 'original-changed',
+                      keptFilePath: result.keptOriginal,
+                      externalWriteCommitted: true,
+                      validation,
+                  };
         case 'conflict':
             if (result.acknowledgmentError !== undefined) {
                 logger.warn('Working-copy save conflict left pending publish for recovery', {
@@ -124,7 +106,13 @@ export function toDocumentSaveResult(
         case 'stale-revision':
             return {ok: false, reason: 'stale', externalWriteCommitted: false, validation: null};
         case 'needs-save-as':
-            return {ok: false, reason: 'unsupported', message: 'This document has no file to save to; use Save As', externalWriteCommitted: false, validation: null};
+            return {
+                ok: false,
+                reason: 'unsupported',
+                message: 'This document has no file to save to; use Save As',
+                externalWriteCommitted: false,
+                validation: null,
+            };
     }
 }
 
@@ -145,8 +133,10 @@ async function saveRewritten(
     const tempPath = documentTempPath(entry, 'save');
     try {
         const optimized = await rewrite(await requireDocumentFile(entry), tempPath);
-        const validation = optimized ?? await validatePdfFile(tempPath);
-        if (!validation.isValid) return validation;
+        const validation = optimized ?? (await validatePdfFile(tempPath));
+        if (!validation.isValid) {
+            return validation;
+        }
         const saved = await saveOpenDocument(entry, token, {commit: {kind: 'move', file: tempPath}});
         if (saved.status === 'saved' && saved.acknowledgmentError !== undefined) {
             logger.warn('Rewritten working-copy save published with an unacknowledged manifest', {
@@ -180,11 +170,14 @@ async function runNativePdfSaveMutation(
         const rootError = err instanceof SavePublicationError ? err.cause : err;
         const explainedMessage = `${failureMessage}: ${getErrorMessage(await explainWriteRefusal(rootError, entry.originalPath ?? ''))}`;
         if (err instanceof SavePublicationError && err.externalWriteCommitted !== false) {
-            throw new Error(encodeSerializableErrorEnvelope({
-                code: 'save-publication-outcome',
-                message: explainedMessage,
-                details: {externalWriteCommitted: err.externalWriteCommitted},
-            }), {cause: err});
+            throw new Error(
+                encodeSerializableErrorEnvelope({
+                    code: 'save-publication-outcome',
+                    message: explainedMessage,
+                    details: {externalWriteCommitted: err.externalWriteCommitted},
+                }),
+                {cause: err},
+            );
         }
         throw new Error(explainedMessage, {cause: err});
     }
@@ -226,9 +219,12 @@ export async function handleFileSaveStructured(
         });
         return {
             ok: false,
-            reason: rootError instanceof DamagedDocumentError
-                ? 'working-copy-missing'
-                : externalWriteCommitted === true ? 'refresh-failed' : 'write-failed',
+            reason:
+                rootError instanceof DamagedDocumentError
+                    ? 'working-copy-missing'
+                    : externalWriteCommitted === true
+                      ? 'refresh-failed'
+                      : 'write-failed',
             message: getErrorMessage(error),
             externalWriteCommitted,
             validation: null,
@@ -241,10 +237,16 @@ export async function handleRepairPdfSave(
     workingPath: string,
     options?: IDocumentMutationRevisionOptions,
 ): Promise<IPdfValidationResult> {
-    return runNativePdfSaveMutation(context, workingPath, options, async (currentPath, outputPath) => {
-        await rewritePdfWithQpdf(currentPath, outputPath);
-        return optimizeLargePdfForOrdinarySave(outputPath);
-    }, 'Failed to repair and save');
+    return runNativePdfSaveMutation(
+        context,
+        workingPath,
+        options,
+        async (currentPath, outputPath) => {
+            await rewritePdfWithQpdf(currentPath, outputPath);
+            return optimizeLargePdfForOrdinarySave(outputPath);
+        },
+        'Failed to repair and save',
+    );
 }
 
 export async function handleOptimizePdfForInteraction(
@@ -252,11 +254,17 @@ export async function handleOptimizePdfForInteraction(
     workingPath: string,
     options?: IDocumentMutationRevisionOptions,
 ): Promise<IPdfValidationResult> {
-    return runNativePdfSaveMutation(context, workingPath, options, async (currentPath, outputPath) => {
-        await copyFile(currentPath, outputPath, constants.COPYFILE_FICLONE);
-        return optimizePdfForSave(outputPath, {
-            force: true,
-            label: 'qpdf(optimize-current-pdf)',
-        });
-    }, 'Failed to optimize PDF');
+    return runNativePdfSaveMutation(
+        context,
+        workingPath,
+        options,
+        async (currentPath, outputPath) => {
+            await copyFile(currentPath, outputPath, constants.COPYFILE_FICLONE);
+            return optimizePdfForSave(outputPath, {
+                force: true,
+                label: 'qpdf(optimize-current-pdf)',
+            });
+        },
+        'Failed to optimize PDF',
+    );
 }

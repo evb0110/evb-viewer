@@ -1,18 +1,5 @@
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    mkdtemp,
-    readFile,
-    rm,
-    stat,
-    writeFile,
-} from 'fs/promises';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {mkdtemp, readFile, rm, stat, writeFile} from 'fs/promises';
 import {join} from 'path';
 import {tmpdir} from 'os';
 
@@ -44,7 +31,7 @@ describe('working-copy PDF decryption', () => {
     it('passes the password through a mode-600 scratch file and removes it after success', async () => {
         const observed: {
             args: string[];
-            passwordFileContents: string | null
+            passwordFileContents: string | null;
         } = {
             args: [],
             passwordFileContents: null,
@@ -55,13 +42,16 @@ describe('working-copy PDF decryption', () => {
             const passwordPath = args[args.indexOf('--password-file') + 1]!;
             observed.passwordFileContents = await readFile(passwordPath, 'utf8');
             await writeFile(outputPath, '%PDF-1.7\nplain\n');
-            await writeFile(`${outputPath}.decrypt.json`, JSON.stringify({
-                format: 'evb-pdf-decrypt',
-                schemaVersion: 1,
-                outcome: 'rewritten',
-                wasEncrypted: true,
-                revision: 6,
-            }));
+            await writeFile(
+                `${outputPath}.decrypt.json`,
+                JSON.stringify({
+                    format: 'evb-pdf-decrypt',
+                    schemaVersion: 1,
+                    outcome: 'rewritten',
+                    wasEncrypted: true,
+                    revision: 6,
+                }),
+            );
             return {
                 stdout: '',
                 stderr: '',
@@ -72,12 +62,11 @@ describe('working-copy PDF decryption', () => {
         await writeFile(sourcePath, '%PDF-1.7\n/Encrypt\n');
         const {decryptWorkingCopyWithWriter} = await loadDecryptModule();
 
-        await expect(decryptWorkingCopyWithWriter(sourcePath, 'correct horse battery staple'))
-            .resolves.toEqual({
-                outcome: 'decrypted',
-                wasEncrypted: true,
-                revision: 6,
-            });
+        await expect(decryptWorkingCopyWithWriter(sourcePath, 'correct horse battery staple')).resolves.toEqual({
+            outcome: 'decrypted',
+            wasEncrypted: true,
+            revision: 6,
+        });
 
         expect(observed.args).toContain('decrypt');
         expect(observed.args).toContain('--password-file');
@@ -102,12 +91,11 @@ describe('working-copy PDF decryption', () => {
         await writeFile(sourcePath, sourceBytes);
         const {decryptWorkingCopyWithWriter} = await loadDecryptModule();
 
-        await expect(decryptWorkingCopyWithWriter(sourcePath, 'wrong-password'))
-            .resolves.toEqual({
-                outcome: 'needs-password',
-                wasEncrypted: true,
-                revision: null,
-            });
+        await expect(decryptWorkingCopyWithWriter(sourcePath, 'wrong-password')).resolves.toEqual({
+            outcome: 'needs-password',
+            wasEncrypted: true,
+            revision: null,
+        });
         await expect(readFile(sourcePath, 'utf8')).resolves.toBe(sourceBytes);
         expect(runNativeToolCommand.mock.calls[0]?.[1]).not.toContain('wrong-password');
         const args = runNativeToolCommand.mock.calls[0]?.[1] as string[];
@@ -124,30 +112,27 @@ describe('working-copy PDF decryption', () => {
         await writeFile(sourcePath, '%PDF-1.7\n/Encrypt\n');
         const {decryptWorkingCopyWithWriter} = await loadDecryptModule();
 
-        await expect(decryptWorkingCopyWithWriter(sourcePath))
-            .resolves.toEqual({
-                outcome: 'unsupported',
-                wasEncrypted: true,
-                revision: null,
-            });
+        await expect(decryptWorkingCopyWithWriter(sourcePath)).resolves.toEqual({
+            outcome: 'unsupported',
+            wasEncrypted: true,
+            revision: null,
+        });
         expect(runNativeToolCommand.mock.calls[0]?.[1]).not.toContain('--password-file');
     });
 
     it('preserves the native too-large outcome for the document-open caller', async () => {
-        runNativeToolCommand.mockRejectedValueOnce(Object.assign(
-            new Error('Encrypted PDF exceeds the decrypt size limit'),
-            {code: 'too-large'},
-        ));
+        runNativeToolCommand.mockRejectedValueOnce(
+            Object.assign(new Error('Encrypted PDF exceeds the decrypt size limit'), {code: 'too-large'}),
+        );
         const sourcePath = join(tempRoot, 'large-encrypted.pdf');
         const sourceBytes = '%PDF-1.7\n/Encrypt\n';
         await writeFile(sourcePath, sourceBytes);
         const {decryptWorkingCopyWithWriter} = await loadDecryptModule();
 
-        await expect(decryptWorkingCopyWithWriter(sourcePath))
-            .rejects.toMatchObject({
-                name: 'PdfDecryptTooLargeError',
-                outcome: 'too-large',
-            });
+        await expect(decryptWorkingCopyWithWriter(sourcePath)).rejects.toMatchObject({
+            name: 'PdfDecryptTooLargeError',
+            outcome: 'too-large',
+        });
         await expect(readFile(sourcePath, 'utf8')).resolves.toBe(sourceBytes);
     });
 });

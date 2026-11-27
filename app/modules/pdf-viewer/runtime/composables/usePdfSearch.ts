@@ -1,18 +1,9 @@
-import { normalizePdfViewRotation } from '@app/utils/pdfViewRotation';
-import { getErrorMessage } from '@app/utils/error';
-import {
-    pageNumberToPageIndex, type TPageIndex,
-} from '@contracts/pageNumbers';
+import {normalizePdfViewRotation} from '@app/utils/pdfViewRotation';
+import {getErrorMessage} from '@app/utils/error';
+import {pageNumberToPageIndex, type TPageIndex} from '@contracts/pageNumbers';
 
-import type {
-    IPdfPageMatches,
-    IPdfSearchMatch,
-    TSearchDirection,
-} from '@app/types/pdfUi';
-import {
-    mapPdfSearchResultToUiMatch,
-    mapPdfSearchResultToUiPageMatchEntry,
-} from '@app/types/pdfUi';
+import type {IPdfPageMatches, IPdfSearchMatch, TSearchDirection} from '@app/types/pdfUi';
+import {mapPdfSearchResultToUiMatch, mapPdfSearchResultToUiPageMatchEntry} from '@app/types/pdfUi';
 import type {
     IPdfSearchRequestOptions,
     IPdfSearchResponse,
@@ -21,27 +12,18 @@ import type {
     ISearchMatchOptions,
     TSearchResultOffset,
 } from '@contracts/search';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import {
-    createRequestId,
-    type TRequestId,
-} from '@contracts/shared';
-import type { MaybeRefOrGetter } from 'vue';
-import {
-    findSearchErrorEnvelope,
-    PDF_SEARCH_MIN_QUERY_LENGTH,
-    SEARCH_RESULT_LIMIT,
-} from '@contracts/search';
-import { tryOnScopeDispose } from '@vueuse/core';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { getSearchCapability } from '@app/utils/getSearchCapability';
-import {
-    getDocumentSearchQueryError,
-    resolveDocumentSearchQuery,
-    type IDocumentSearchProgress,
-} from '@app/modules/document-viewer/public';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import {createRequestId, type TRequestId} from '@contracts/shared';
+import type {MaybeRefOrGetter} from 'vue';
+import {findSearchErrorEnvelope, PDF_SEARCH_MIN_QUERY_LENGTH, SEARCH_RESULT_LIMIT} from '@contracts/search';
+import {tryOnScopeDispose} from '@vueuse/core';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getSearchCapability} from '@app/utils/getSearchCapability';
+import {getDocumentSearchQueryError, resolveDocumentSearchQuery, type IDocumentSearchProgress} from '@app/modules/document-viewer/public';
 
-interface IUsePdfSearchOptions { documentRevisionToken?: MaybeRefOrGetter<TDocumentRevisionToken | null | undefined>; }
+interface IUsePdfSearchOptions {
+    documentRevisionToken?: MaybeRefOrGetter<TDocumentRevisionToken | null | undefined>;
+}
 
 /** The admitted run: a new query, or a result-window continuation with its direction. */
 interface IScheduledPdfSearch {
@@ -66,10 +48,7 @@ function mixSearchSignatureHash(hash: number, value: number) {
     return Math.imul(hash ^ (value >>> 0), 16777619);
 }
 
-function mixSearchWordGeometry(
-    hash: number,
-    words: IPdfSearchMatch['words'],
-) {
+function mixSearchWordGeometry(hash: number, words: IPdfSearchMatch['words']) {
     let nextHash = mixSearchSignatureHash(hash, words?.length ?? 0);
     words?.forEach((word) => {
         nextHash = mixSearchSignatureHash(nextHash, Math.round(word.x * 100));
@@ -81,7 +60,7 @@ function mixSearchWordGeometry(
 }
 
 export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
-    const { t } = useTypedI18n();
+    const {t} = useTypedI18n();
     const searchQuery = ref('');
     const submittedSearchQuery = ref('');
     const searchOptions = ref<IResolvedSearchMatchOptions>({
@@ -105,7 +84,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
 
     const totalMatches = computed(() => results.value.length);
     const hasPartialResults = computed(() => isSearching.value && (results.value.length > 0 || isTruncated.value));
-    const currentMatch = computed(() => results.value.length > 0 ? currentResultIndex.value + 1 : 0);
+    const currentMatch = computed(() => (results.value.length > 0 ? currentResultIndex.value + 1 : 0));
     const currentResult = computed(() => {
         if (currentResultIndex.value >= 0 && currentResultIndex.value < results.value.length) {
             return results.value[currentResultIndex.value] ?? null;
@@ -139,19 +118,18 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         return `${pageMatchData.pageIndex}:${pageMatchData.matches.length}:${hash >>> 0}`;
     }
 
-    function isSameSearchMatchTarget(
-        first: IPdfSearchMatch | null,
-        second: IPdfSearchMatch | null,
-    ) {
+    function isSameSearchMatchTarget(first: IPdfSearchMatch | null, second: IPdfSearchMatch | null) {
         if (!first || !second) {
             return first === second;
         }
 
-        return first.pageIndex === second.pageIndex
-            && first.matchIndex === second.matchIndex
-            && first.startOffset === second.startOffset
-            && first.endOffset === second.endOffset
-            && (first.pageMatchIndex ?? null) === (second.pageMatchIndex ?? null);
+        return (
+            first.pageIndex === second.pageIndex &&
+            first.matchIndex === second.matchIndex &&
+            first.startOffset === second.startOffset &&
+            first.endOffset === second.endOffset &&
+            (first.pageMatchIndex ?? null) === (second.pageMatchIndex ?? null)
+        );
     }
 
     function cleanupProgressListener() {
@@ -159,7 +137,9 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
             progressCleanup();
             progressCleanup = null;
         }
-        if (!searchProgress.value?.coverage) searchProgress.value = undefined;
+        if (!searchProgress.value?.coverage) {
+            searchProgress.value = undefined;
+        }
     }
 
     function normalizeSearchError(error: unknown) {
@@ -182,45 +162,41 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
     }
 
     function isCurrentSearchRun(runId: number, documentRevisionToken: TDocumentRevisionToken | null) {
-        return runId === searchRunId
-            && getCurrentDocumentRevisionToken() === documentRevisionToken;
+        return runId === searchRunId && getCurrentDocumentRevisionToken() === documentRevisionToken;
     }
 
-    function normalizeSearchResponse(
-        response: IPdfSearchResponse,
-        query: string,
-        options: IResolvedSearchMatchOptions,
-    ) {
+    function normalizeSearchResponse(response: IPdfSearchResponse, query: string, options: IResolvedSearchMatchOptions) {
         const mergedResults = response.results.map(mapPdfSearchResultToUiMatch);
 
         const pageResults = new Map<TPageIndex, IPdfSearchResult[]>();
         response.results.forEach((result) => {
             const pageIndex = pageNumberToPageIndex(result.pageNumber);
             const pageSearchResults = pageResults.get(pageIndex) ?? [];
-            if (pageSearchResults.length === 0) pageResults.set(pageIndex, pageSearchResults);
+            if (pageSearchResults.length === 0) {
+                pageResults.set(pageIndex, pageSearchResults);
+            }
             pageSearchResults.push(result);
         });
 
-        const matchesMap = new Map(Array.from(pageResults.entries()).map(([
-            pageIndex,
-            pageSearchResults,
-        ]) => {
-            const pageMatchData: IPdfPageMatches = {
-                pageIndex,
-                pageText: '',
-                searchQuery: query,
-                searchOptions: { ...options },
-                matches: pageSearchResults.map(result => mapPdfSearchResultToUiPageMatchEntry(result)),
-            };
+        const matchesMap = new Map(
+            Array.from(pageResults.entries()).map(([pageIndex, pageSearchResults]) => {
+                const pageMatchData: IPdfPageMatches = {
+                    pageIndex,
+                    pageText: '',
+                    searchQuery: query,
+                    searchOptions: {...options},
+                    matches: pageSearchResults.map((result) => mapPdfSearchResultToUiPageMatchEntry(result)),
+                };
 
-            return [
-                pageIndex,
-                {
-                    ...pageMatchData,
-                    signatureToken: buildPageMatchSignatureToken(pageMatchData),
-                },
-            ];
-        }));
+                return [
+                    pageIndex,
+                    {
+                        ...pageMatchData,
+                        signatureToken: buildPageMatchSignatureToken(pageMatchData),
+                    },
+                ];
+            }),
+        );
 
         return {
             results: mergedResults,
@@ -241,11 +217,13 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         results.value = normalizedResponse.results;
         pageMatches.value = normalizedResponse.pageMatches;
         isTruncated.value = response.truncated;
-        if (response.coverage) searchProgress.value = {
-            processed: response.coverage.pagesScanned,
-            total: response.coverage.pageCount,
-            coverage: response.coverage,
-        };
+        if (response.coverage) {
+            searchProgress.value = {
+                processed: response.coverage.pagesScanned,
+                total: response.coverage.pageCount,
+                coverage: response.coverage,
+            };
+        }
 
         if (normalizedResponse.results.length === 0) {
             currentResultIndex.value = -1;
@@ -253,32 +231,35 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         }
 
         if (direction || currentResultIndex.value < 0) {
-            currentResultIndex.value = targetMatchIndex === undefined
-                ? direction === 'previous' ? results.value.length - 1 : 0
-                : results.value.findIndex(match => match.matchIndex === targetMatchIndex);
+            currentResultIndex.value =
+                targetMatchIndex === undefined
+                    ? direction === 'previous'
+                        ? results.value.length - 1
+                        : 0
+                    : results.value.findIndex((match) => match.matchIndex === targetMatchIndex);
             currentResultNavigationId.value += 1;
             return;
         }
 
-        const preservedCurrentResultIndex = normalizedResponse.results.findIndex(match =>
-            isSameSearchMatchTarget(match, previousCurrentResult));
+        const preservedCurrentResultIndex = normalizedResponse.results.findIndex((match) =>
+            isSameSearchMatchTarget(match, previousCurrentResult),
+        );
         if (preservedCurrentResultIndex >= 0) {
             currentResultIndex.value = preservedCurrentResultIndex;
             const preserved = normalizedResponse.results[preservedCurrentResultIndex]!;
-            if (previousCurrentResult && (Math.round(previousCurrentResult.pageWidth ?? 0) !== Math.round(preserved.pageWidth ?? 0)
-                || Math.round(previousCurrentResult.pageHeight ?? 0) !== Math.round(preserved.pageHeight ?? 0)
-                || previousCurrentResult.rotation !== preserved.rotation
-                || mixSearchWordGeometry(2166136261, previousCurrentResult.words)
-                    !== mixSearchWordGeometry(2166136261, preserved.words))) {
+            if (
+                previousCurrentResult &&
+                (Math.round(previousCurrentResult.pageWidth ?? 0) !== Math.round(preserved.pageWidth ?? 0) ||
+                    Math.round(previousCurrentResult.pageHeight ?? 0) !== Math.round(preserved.pageHeight ?? 0) ||
+                    previousCurrentResult.rotation !== preserved.rotation ||
+                    mixSearchWordGeometry(2166136261, previousCurrentResult.words) !== mixSearchWordGeometry(2166136261, preserved.words))
+            ) {
                 currentResultNavigationId.value += 1;
             }
         } else if (currentResultIndex.value >= normalizedResponse.results.length) {
             currentResultIndex.value = normalizedResponse.results.length - 1;
             currentResultNavigationId.value += 1;
-        } else if (!isSameSearchMatchTarget(
-            previousCurrentResult,
-            normalizedResponse.results[currentResultIndex.value] ?? null,
-        )) {
+        } else if (!isSameSearchMatchTarget(previousCurrentResult, normalizedResponse.results[currentResultIndex.value] ?? null)) {
             currentResultNavigationId.value += 1;
         }
     }
@@ -356,9 +337,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
     }
 
     async function performSearch(payload: IScheduledPdfSearch) {
-        const {
-            runId, query, pdfPath, documentRevisionToken, pageCount, options, resultOffset, direction, targetMatchIndex,
-        } = payload;
+        const {runId, query, pdfPath, documentRevisionToken, pageCount, options, resultOffset, direction, targetMatchIndex} = payload;
         if (query.length === 0) {
             return;
         }
@@ -380,7 +359,9 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
                 currentResultIndex.value = -1;
             }
             cleanupProgressListener();
-            if (!direction) searchProgress.value = undefined;
+            if (!direction) {
+                searchProgress.value = undefined;
+            }
 
             // Call backend search API
             const api = getSearchCapability();
@@ -406,16 +387,16 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
                     return;
                 }
                 if (progress.results && !direction) {
-                    streamedResults = applySearchProgressResults(
-                        streamedResults,
-                        progress.results,
-                        progress.resultsStartIndex,
+                    streamedResults = applySearchProgressResults(streamedResults, progress.results, progress.resultsStartIndex);
+                    applySearchResponse(
+                        {
+                            results: streamedResults,
+                            truncated: Boolean(progress.truncated),
+                            ...(progress.coverage ? {coverage: progress.coverage} : {}),
+                        },
+                        query,
+                        options,
                     );
-                    applySearchResponse({
-                        results: streamedResults,
-                        truncated: Boolean(progress.truncated),
-                        ...(progress.coverage ? {coverage: progress.coverage} : {}),
-                    }, query, options);
                 }
             });
 
@@ -489,9 +470,8 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         }
 
         const runId = ++searchRunId;
-        const normalizedDocumentRevisionToken = documentRevisionToken === undefined
-            ? getCurrentDocumentRevisionToken()
-            : normalizeDocumentRevisionToken(documentRevisionToken);
+        const normalizedDocumentRevisionToken =
+            documentRevisionToken === undefined ? getCurrentDocumentRevisionToken() : normalizeDocumentRevisionToken(documentRevisionToken);
         await cancelActiveSearch();
         if (!isCurrentSearchRun(runId, normalizedDocumentRevisionToken)) {
             return false;
@@ -522,7 +502,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
             query: resolvedQuery,
             pdfPath,
             documentRevisionToken: normalizedDocumentRevisionToken,
-            options: { ...searchOptions.value },
+            options: {...searchOptions.value},
         };
         if (pageCount !== undefined) {
             return scheduleSearch({
@@ -533,10 +513,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         return scheduleSearch(payload);
     }
 
-    function setSearchOption(
-        key: keyof typeof searchOptions.value,
-        value: boolean,
-    ) {
+    function setSearchOption(key: keyof typeof searchOptions.value, value: boolean) {
         searchOptions.value = {
             ...searchOptions.value,
             [key]: value,
@@ -544,8 +521,14 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
     }
 
     async function goToResult(direction: TSearchDirection) {
-        if (isSearching.value || !results.value.length || !searchCommand
-            || !isCurrentSearchRun(searchRunId, searchCommand.documentRevisionToken)) return;
+        if (
+            isSearching.value ||
+            !results.value.length ||
+            !searchCommand ||
+            !isCurrentSearchRun(searchRunId, searchCommand.documentRevisionToken)
+        ) {
+            return;
+        }
         const nextIndex = currentResultIndex.value + (direction === 'next' ? 1 : -1);
         if (nextIndex >= 0 && nextIndex < results.value.length) {
             setResultIndex(nextIndex);
@@ -556,9 +539,14 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
             setResultIndex(direction === 'next' ? 0 : results.value.length - 1);
             return;
         }
-        const resultOffset = direction === 'next'
-            ? isTruncated.value ? results.value.at(-1)!.matchIndex + 1 : 0
-            : firstOrdinal > 0 ? Math.max(0, firstOrdinal - SEARCH_RESULT_LIMIT) : 'last';
+        const resultOffset =
+            direction === 'next'
+                ? isTruncated.value
+                    ? results.value.at(-1)!.matchIndex + 1
+                    : 0
+                : firstOrdinal > 0
+                  ? Math.max(0, firstOrdinal - SEARCH_RESULT_LIMIT)
+                  : 'last';
         searchCommand = {
             ...searchCommand,
             runId: ++searchRunId,
@@ -610,23 +598,27 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         const interrupted = searchCommand?.runId === searchRunId && !searchCommand.completed;
         const ordinal = !searchCommand?.direction ? currentResult.value?.matchIndex : undefined;
         cancelSearch();
-        if (!searchCommand) return;
+        if (!searchCommand) {
+            return;
+        }
         const command = {
             ...searchCommand,
             runId: searchRunId,
             documentRevisionToken,
         };
         searchCommand = command;
-        const rotatedPages = new Set(pages.map(page => page - 1));
+        const rotatedPages = new Set(pages.map((page) => page - 1));
         const rotate = <T extends Pick<IPdfSearchMatch, 'rotation'>>(match: T): T => ({
             ...match,
             rotation: normalizePdfViewRotation((match.rotation ?? 0) + rotationDelta),
         });
-        results.value = results.value.map(match => rotatedPages.has(match.pageIndex) ? rotate(match) : match);
+        results.value = results.value.map((match) => (rotatedPages.has(match.pageIndex) ? rotate(match) : match));
         const rotatedMatches = new Map(pageMatches.value);
         for (const pageIndex of rotatedPages) {
             const data = rotatedMatches.get(pageIndex);
-            if (!data) continue;
+            if (!data) {
+                continue;
+            }
             const rotated = {
                 ...data,
                 matches: data.matches.map(rotate),
@@ -637,25 +629,30 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
             });
         }
         pageMatches.value = rotatedMatches;
-        if (currentResult.value && rotatedPages.has(currentResult.value.pageIndex)) currentResultNavigationId.value += 1;
-        if (!interrupted) return;
+        if (currentResult.value && rotatedPages.has(currentResult.value.pageIndex)) {
+            currentResultNavigationId.value += 1;
+        }
+        if (!interrupted) {
+            return;
+        }
         isSearching.value = true;
-        const resumed = ordinal === undefined ? command : {
-            ...command,
-            direction: 'next' as const,
-            targetMatchIndex: ordinal,
-        };
+        const resumed =
+            ordinal === undefined
+                ? command
+                : {
+                      ...command,
+                      direction: 'next' as const,
+                      targetMatchIndex: ordinal,
+                  };
         resumeInterruptedSearch = () => void runScheduledSearch(resumed);
     }
 
     function resetSearchCache() {
-        if (!searchCommand || searchCommand.documentRevisionToken !== getCurrentDocumentRevisionToken()) clearSearch();
+        if (!searchCommand || searchCommand.documentRevisionToken !== getCurrentDocumentRevisionToken()) {
+            clearSearch();
+        }
         void Promise.resolve(getSearchCapability().resetCache()).catch((error) => {
-            BrowserLogger.debug(
-                'pdf-search',
-                'Failed to reset search cache',
-                error,
-            );
+            BrowserLogger.debug('pdf-search', 'Failed to reset search cache', error);
         });
         const resume = resumeInterruptedSearch;
         resumeInterruptedSearch = null;

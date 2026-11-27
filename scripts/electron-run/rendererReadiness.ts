@@ -1,24 +1,11 @@
-import { getErrorMessage } from '@contracts/getErrorMessage';
-import puppeteer, {
-    type Browser,
-    type ConsoleMessage,
-    type HTTPResponse,
-    type Page,
-} from 'puppeteer-core';
-import { delay } from 'es-toolkit/promise';
-import { waitForReusableNuxtServer } from '@scripts/electron-run/electronRunNuxtServer';
-import { logLauncher } from '@scripts/electron-run/terminalLog';
-import {
-    getRendererAppUrl,
-    isElectronAppPageUrl,
-    isNuxtDevServerUrl,
-    usesBuiltRenderer,
-} from '@scripts/electron-run/appRendererUrl';
-import { createStartupLogger } from '@scripts/electron-run/createStartupLogger';
-export {
-    isElectronAppPageUrl,
-    isNuxtDevServerUrl,
-} from '@scripts/electron-run/appRendererUrl';
+import {getErrorMessage} from '@contracts/getErrorMessage';
+import puppeteer, {type Browser, type ConsoleMessage, type HTTPResponse, type Page} from 'puppeteer-core';
+import {delay} from 'es-toolkit/promise';
+import {waitForReusableNuxtServer} from '@scripts/electron-run/electronRunNuxtServer';
+import {logLauncher} from '@scripts/electron-run/terminalLog';
+import {getRendererAppUrl, isElectronAppPageUrl, isNuxtDevServerUrl, usesBuiltRenderer} from '@scripts/electron-run/appRendererUrl';
+import {createStartupLogger} from '@scripts/electron-run/createStartupLogger';
+export {isElectronAppPageUrl, isNuxtDevServerUrl} from '@scripts/electron-run/appRendererUrl';
 
 const RENDERER_READY_TIMEOUT_MS = 30_000;
 const ELECTRON_APP_PAGE_APPEAR_TIMEOUT_MS = 20_000;
@@ -33,9 +20,7 @@ const RENDERER_DEAD_PAGE_MAX_RELOADS = 5;
 const WINDOW_PAINT_TIMEOUT_MS = 30_000;
 
 function createViteOptimizeDepError(details = '') {
-    const message = details
-        ? `${VITE_OPTIMIZE_DEP_ERROR_MARKER}: ${details}`
-        : VITE_OPTIMIZE_DEP_ERROR_MARKER;
+    const message = details ? `${VITE_OPTIMIZE_DEP_ERROR_MARKER}: ${details}` : VITE_OPTIMIZE_DEP_ERROR_MARKER;
     const error = new Error(message);
     error.name = 'ViteOptimizeDepError';
     return error;
@@ -45,10 +30,12 @@ export function isViteOptimizeDepError(error: unknown) {
     if (!(error instanceof Error)) {
         return false;
     }
-    return error.name === 'ViteOptimizeDepError'
-        || getErrorMessage(error).includes(VITE_OPTIMIZE_DEP_ERROR_MARKER)
-        || getErrorMessage(error).includes('Outdated Optimize Dep')
-        || getErrorMessage(error).includes('optimize-dep');
+    return (
+        error.name === 'ViteOptimizeDepError' ||
+        getErrorMessage(error).includes(VITE_OPTIMIZE_DEP_ERROR_MARKER) ||
+        getErrorMessage(error).includes('Outdated Optimize Dep') ||
+        getErrorMessage(error).includes('optimize-dep')
+    );
 }
 
 function createRendererReadinessError(message: string) {
@@ -61,9 +48,11 @@ export function isRendererReadinessError(error: unknown) {
     if (!(error instanceof Error)) {
         return false;
     }
-    return error.name === RENDERER_READINESS_ERROR_NAME
-        || getErrorMessage(error).includes('Renderer readiness timeout')
-        || getErrorMessage(error).includes('Renderer startup timed out');
+    return (
+        error.name === RENDERER_READINESS_ERROR_NAME ||
+        getErrorMessage(error).includes('Renderer readiness timeout') ||
+        getErrorMessage(error).includes('Renderer startup timed out')
+    );
 }
 
 function isTransientPageContextError(error: unknown) {
@@ -71,21 +60,20 @@ function isTransientPageContextError(error: unknown) {
         return false;
     }
 
-    return getErrorMessage(error).includes('Execution context was destroyed')
-        || getErrorMessage(error).includes('Attempted to use detached Frame')
-        || getErrorMessage(error).includes('Cannot find context with specified id')
-        || getErrorMessage(error).includes('Most likely the page has been closed');
+    return (
+        getErrorMessage(error).includes('Execution context was destroyed') ||
+        getErrorMessage(error).includes('Attempted to use detached Frame') ||
+        getErrorMessage(error).includes('Cannot find context with specified id') ||
+        getErrorMessage(error).includes('Most likely the page has been closed')
+    );
 }
 
 async function checkHydration(page: Page) {
     try {
         return await page.evaluate(() => {
-            const automationWindow = window as Window & {__appReady?: boolean;};
+            const automationWindow = window as Window & {__appReady?: boolean};
             const nuxtEl = document.querySelector('#__nuxt');
-            return !!(
-                automationWindow.__appReady === true
-                || (nuxtEl !== null && nuxtEl.children.length > 0)
-            );
+            return !!(automationWindow.__appReady === true || (nuxtEl !== null && nuxtEl.children.length > 0));
         });
     } catch {
         return false;
@@ -124,17 +112,10 @@ function readRendererState(page: Page): Promise<IRendererState> {
 }
 
 export function classifyRendererBindingReadiness(state: IRendererState) {
-    if (
-        state.openFileDirect === 'function'
-        && state.electronAPI === 'object'
-        && state.nuxtRootChildren > 0
-    ) {
+    if (state.openFileDirect === 'function' && state.electronAPI === 'object' && state.nuxtRootChildren > 0) {
         return 'ready' as const;
     }
-    if (
-        state.nuxtRootChildren > 0
-        && state.electronAPI !== 'object'
-    ) {
+    if (state.nuxtRootChildren > 0 && state.electronAPI !== 'object') {
         // Electron runs preload before page JavaScript. Once Nuxt has mounted,
         // a missing bridge cannot recover inside this renderer. Treat it as a
         // failed launch immediately so the outer launch owner can retry with a
@@ -157,17 +138,12 @@ function createRetryableRendererBindingsError(state: IRendererState) {
 }
 
 function createRetryableRendererBodyError() {
-    const error = new Error(
-        `Renderer body probe did not respond within ${String(RENDERER_BODY_PROBE_TIMEOUT_MS)}ms`,
-    );
+    const error = new Error(`Renderer body probe did not respond within ${String(RENDERER_BODY_PROBE_TIMEOUT_MS)}ms`);
     error.name = RETRYABLE_RENDERER_BODY_ERROR_NAME;
     return error;
 }
 
-export async function probeRendererBody(
-    page: Pick<Page, 'evaluate'>,
-    timeoutMs = RENDERER_BODY_PROBE_TIMEOUT_MS,
-) {
+export async function probeRendererBody(page: Pick<Page, 'evaluate'>, timeoutMs = RENDERER_BODY_PROBE_TIMEOUT_MS) {
     const timeoutMarker = {};
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -182,7 +158,7 @@ export async function probeRendererBody(
         if (result === timeoutMarker) {
             return 'unresponsive' as const;
         }
-        return result === true ? 'ready' as const : 'waiting' as const;
+        return result === true ? ('ready' as const) : ('waiting' as const);
     } finally {
         if (timeoutHandle !== undefined) {
             clearTimeout(timeoutHandle);
@@ -191,8 +167,10 @@ export async function probeRendererBody(
 }
 
 function hasRendererDeadDevServerBody(state: IRendererState) {
-    return state.bodyTextSnippet.includes('Failed to fetch dynamically imported module')
-        || state.bodyTextSnippet.includes('500 Internal Server Error');
+    return (
+        state.bodyTextSnippet.includes('Failed to fetch dynamically imported module') ||
+        state.bodyTextSnippet.includes('500 Internal Server Error')
+    );
 }
 
 async function waitForRendererBindings(
@@ -236,13 +214,17 @@ async function waitForRendererBindings(
         }
         const now = Date.now();
         if (
-            hasRendererDeadDevServerBody(lastState)
-            && reloadCount < RENDERER_DEAD_PAGE_MAX_RELOADS
-            && now - lastReloadAt >= RENDERER_DEAD_PAGE_RELOAD_INTERVAL_MS
+            hasRendererDeadDevServerBody(lastState) &&
+            reloadCount < RENDERER_DEAD_PAGE_MAX_RELOADS &&
+            now - lastReloadAt >= RENDERER_DEAD_PAGE_RELOAD_INTERVAL_MS
         ) {
             reloadCount += 1;
             lastReloadAt = now;
-            logLauncher('info', 'cdp', `Renderer loaded transient dev-server error, reloading (${reloadCount}/${RENDERER_DEAD_PAGE_MAX_RELOADS})...`);
+            logLauncher(
+                'info',
+                'cdp',
+                `Renderer loaded transient dev-server error, reloading (${reloadCount}/${RENDERER_DEAD_PAGE_MAX_RELOADS})...`,
+            );
             try {
                 await currentPage.reload({
                     waitUntil: 'domcontentloaded',
@@ -250,7 +232,11 @@ async function waitForRendererBindings(
                 });
             } catch (error) {
                 if (!isTransientPageContextError(error) && !isNavigationAbortedError(error)) {
-                    logLauncher('warn', 'cdp', `Renderer reload failed while recovering from transient dev-server error: ${getErrorMessage(error)}`);
+                    logLauncher(
+                        'warn',
+                        'cdp',
+                        `Renderer reload failed while recovering from transient dev-server error: ${getErrorMessage(error)}`,
+                    );
                 }
             }
         }
@@ -262,11 +248,7 @@ async function waitForRendererBindings(
     };
 }
 
-async function reattachToAppPage(
-    browser: Browser,
-    currentPage: Page,
-    onPageChanged?: (page: Page) => void,
-): Promise<Page> {
+async function reattachToAppPage(browser: Browser, currentPage: Page, onPageChanged?: (page: Page) => void): Promise<Page> {
     const freshPage = await findAppPage(browser);
     if (freshPage && freshPage !== currentPage) {
         onPageChanged?.(freshPage);
@@ -275,10 +257,12 @@ async function reattachToAppPage(
     return currentPage;
 }
 
-export function selectNewestElectronAppPage<TPage extends {
-    isClosed: () => boolean;
-    url: () => string;
-}>(pages: readonly TPage[]): TPage | null {
+export function selectNewestElectronAppPage<
+    TPage extends {
+        isClosed: () => boolean;
+        url: () => string;
+    },
+>(pages: readonly TPage[]): TPage | null {
     for (let index = pages.length - 1; index >= 0; index -= 1) {
         const page = pages[index];
         if (page && !page.isClosed() && isElectronAppPageUrl(page.url())) {
@@ -288,10 +272,7 @@ export function selectNewestElectronAppPage<TPage extends {
     return null;
 }
 
-async function getBrowserPages(
-    browser: Pick<Browser, 'pages'>,
-    timeoutMs = BROWSER_PAGE_DISCOVERY_TIMEOUT_MS,
-): Promise<Page[]> {
+async function getBrowserPages(browser: Pick<Browser, 'pages'>, timeoutMs = BROWSER_PAGE_DISCOVERY_TIMEOUT_MS): Promise<Page[]> {
     // Puppeteer attaches every page target before browser.pages() resolves. A
     // stuck CDP target attach must fail inside the launch deadline so the
     // existing Electron recovery loop can replace this process.
@@ -312,10 +293,7 @@ async function getBrowserPages(
     }
 }
 
-export async function findAppPage(
-    browser: Pick<Browser, 'pages'>,
-    timeoutMs = BROWSER_PAGE_DISCOVERY_TIMEOUT_MS,
-): Promise<Page | null> {
+export async function findAppPage(browser: Pick<Browser, 'pages'>, timeoutMs = BROWSER_PAGE_DISCOVERY_TIMEOUT_MS): Promise<Page | null> {
     return selectNewestElectronAppPage(await getBrowserPages(browser, timeoutMs));
 }
 
@@ -345,20 +323,22 @@ async function waitForElectronPageTarget(cdpPort: number, timeoutMs = 30_000) {
         try {
             const res = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
             if (res.ok) {
-                const targets = await res.json() as Array<{
+                const targets = (await res.json()) as Array<{
                     type: string;
                     url: string;
                     webSocketDebuggerUrl?: string;
                 }>;
-                const pageTarget = targets.find(t => t.type === 'page' && t.webSocketDebuggerUrl);
+                const pageTarget = targets.find((t) => t.type === 'page' && t.webSocketDebuggerUrl);
                 if (pageTarget?.webSocketDebuggerUrl) {
                     logLauncher('debug', 'cdp', 'Discovered page target', {url: pageTarget.url});
                     return;
                 }
-                const summary = JSON.stringify(targets.map(t => ({
-                    type: t.type,
-                    url: t.url,
-                })));
+                const summary = JSON.stringify(
+                    targets.map((t) => ({
+                        type: t.type,
+                        url: t.url,
+                    })),
+                );
                 if (summary !== lastLoggedTargets) {
                     logLauncher('debug', 'cdp', 'CDP targets', {summary});
                     lastLoggedTargets = summary;
@@ -377,7 +357,7 @@ async function getBrowserWsEndpoint(cdpPort: number) {
     if (!res.ok) {
         throw new Error(`Failed to fetch /json/version: HTTP ${res.status}`);
     }
-    const data = await res.json() as { webSocketDebuggerUrl?: string };
+    const data = (await res.json()) as {webSocketDebuggerUrl?: string};
     if (!data.webSocketDebuggerUrl) {
         throw new Error('/json/version did not include webSocketDebuggerUrl');
     }
@@ -414,7 +394,7 @@ async function findInitialElectronPage(browser: Browser) {
         const page = await findAppPage(browser);
         if (!page) {
             const allPages = await getBrowserPages(browser);
-            const fallbackPage = allPages.find(candidate => !candidate.isClosed()) ?? null;
+            const fallbackPage = allPages.find((candidate) => !candidate.isClosed()) ?? null;
             if (fallbackPage) {
                 return fallbackPage;
             }
@@ -427,11 +407,7 @@ async function findInitialElectronPage(browser: Browser) {
     throw new Error('No Electron page found after CDP connection');
 }
 
-async function ensureAppPageLoaded(
-    browser: Browser,
-    page: Page,
-    logTiming: (message: string) => void,
-) {
+async function ensureAppPageLoaded(browser: Browser, page: Page, logTiming: (message: string) => void) {
     if (isElectronAppPageUrl(page.url())) {
         return page;
     }
@@ -505,11 +481,7 @@ function createOptimizeDepWatcher() {
 
 type TOptimizeDepWatcher = ReturnType<typeof createOptimizeDepWatcher>;
 
-async function waitForBodyElement(
-    browser: Browser,
-    page: Page,
-    watcher: TOptimizeDepWatcher,
-) {
+async function waitForBodyElement(browser: Browser, page: Page, watcher: TOptimizeDepWatcher) {
     const startedAt = Date.now();
     let currentPage = page;
     while (Date.now() - startedAt < RENDERER_READY_TIMEOUT_MS) {
@@ -536,7 +508,9 @@ async function waitForBodyElement(
         }
         await delay(250);
     }
-    throw createRendererReadinessError(`Renderer startup timed out after ${String(RENDERER_READY_TIMEOUT_MS)}ms while waiting for body on the newest app target`);
+    throw createRendererReadinessError(
+        `Renderer startup timed out after ${String(RENDERER_READY_TIMEOUT_MS)}ms while waiting for body on the newest app target`,
+    );
 }
 
 async function waitForHydration(
@@ -582,10 +556,10 @@ async function reloadAndWaitForHydration(
 }> {
     let currentPage = page;
     try {
-        await currentPage.goto(getRendererAppUrl(), { waitUntil: 'networkidle2' });
+        await currentPage.goto(getRendererAppUrl(), {waitUntil: 'networkidle2'});
     } catch {
         await delay(2000);
-        currentPage = await findAppPage(browser) ?? currentPage;
+        currentPage = (await findAppPage(browser)) ?? currentPage;
         watcher.attach(currentPage);
     }
 
@@ -647,33 +621,28 @@ async function pollHydration(
     };
 }
 
-async function waitForReadyRenderer(
-    browser: Browser,
-    page: Page,
-    watcher: TOptimizeDepWatcher,
-) {
+async function waitForReadyRenderer(browser: Browser, page: Page, watcher: TOptimizeDepWatcher) {
     let currentPage = await reattachToAppPage(browser, page, watcher.attach);
-    const result = await waitForRendererBindings(
-        browser,
-        currentPage,
-        watcher,
-        RENDERER_READY_TIMEOUT_MS,
-    );
+    const result = await waitForRendererBindings(browser, currentPage, watcher, RENDERER_READY_TIMEOUT_MS);
     currentPage = result.page;
     const rendererState = result.state;
     if (!isRendererReady(rendererState)) {
         if (watcher.sawOutdatedOptimizeDep()) {
             throw createViteOptimizeDepError(watcher.optimizeDepUrl() ?? 'Outdated Optimize Dep while waiting for renderer bindings');
         }
-        throw createRendererReadinessError(`Renderer readiness timeout (openFileDirect=${rendererState.openFileDirect}, electronAPI=${rendererState.electronAPI}, nuxtChildren=${rendererState.nuxtRootChildren}, text=${rendererState.bodyTextLength}, url=${rendererState.url}, body="${rendererState.bodyTextSnippet}")`);
+        throw createRendererReadinessError(
+            `Renderer readiness timeout (openFileDirect=${rendererState.openFileDirect}, electronAPI=${rendererState.electronAPI}, nuxtChildren=${rendererState.nuxtRootChildren}, text=${rendererState.bodyTextLength}, url=${rendererState.url}, body="${rendererState.bodyTextSnippet}")`,
+        );
     }
     return currentPage;
 }
 
-export async function waitForRendererPaint(page: Pick<Page, 'evaluate'> & {
-    on: (event: 'console', listener: (message: ConsoleMessage) => void) => unknown;
-    off: (event: 'console', listener: (message: ConsoleMessage) => void) => unknown;
-}) {
+export async function waitForRendererPaint(
+    page: Pick<Page, 'evaluate'> & {
+        on: (event: 'console', listener: (message: ConsoleMessage) => void) => unknown;
+        off: (event: 'console', listener: (message: ConsoleMessage) => void) => unknown;
+    },
+) {
     let lastRendererState = 'rAFCallbacks=unavailable visibilityState=unavailable hidden=unavailable';
     const capturePaintState = (message: ConsoleMessage) => {
         if (message.text().startsWith('[automation-first-paint] ')) {
@@ -683,28 +652,35 @@ export async function waitForRendererPaint(page: Pick<Page, 'evaluate'> & {
     page.on('console', capturePaintState);
     try {
         await Promise.race([
-            page.evaluate(() => new Promise<void>(resolve => {
-                const paintState = {
-                    rAFCallbacks: 0,
-                    report() {
-                        console.debug(`[automation-first-paint] rAFCallbacks=${paintState.rAFCallbacks} visibilityState=${document.visibilityState} hidden=${document.hidden}`);
-                    },
-                };
-                document.addEventListener('visibilitychange', paintState.report);
-                paintState.report();
-                requestAnimationFrame(() => {
-                    paintState.rAFCallbacks = 1;
-                    paintState.report();
-                    requestAnimationFrame(() => {
-                        paintState.rAFCallbacks = 2;
+            page.evaluate(
+                () =>
+                    new Promise<void>((resolve) => {
+                        const paintState = {
+                            rAFCallbacks: 0,
+                            report() {
+                                console.debug(
+                                    `[automation-first-paint] rAFCallbacks=${paintState.rAFCallbacks} visibilityState=${document.visibilityState} hidden=${document.hidden}`,
+                                );
+                            },
+                        };
+                        document.addEventListener('visibilitychange', paintState.report);
                         paintState.report();
-                        document.removeEventListener('visibilitychange', paintState.report);
-                        resolve();
-                    });
-                });
-            })),
+                        requestAnimationFrame(() => {
+                            paintState.rAFCallbacks = 1;
+                            paintState.report();
+                            requestAnimationFrame(() => {
+                                paintState.rAFCallbacks = 2;
+                                paintState.report();
+                                document.removeEventListener('visibilitychange', paintState.report);
+                                resolve();
+                            });
+                        });
+                    }),
+            ),
             delay(WINDOW_PAINT_TIMEOUT_MS).then(() => {
-                throw createRendererReadinessError(`Renderer startup timed out: the window did not paint within ${String(WINDOW_PAINT_TIMEOUT_MS / 1000)} s after its bindings were ready (${lastRendererState}; main-window state, when available, is in the automation-first-paint log)`);
+                throw createRendererReadinessError(
+                    `Renderer startup timed out: the window did not paint within ${String(WINDOW_PAINT_TIMEOUT_MS / 1000)} s after its bindings were ready (${lastRendererState}; main-window state, when available, is in the automation-first-paint log)`,
+                );
             }),
         ]);
     } finally {
@@ -714,7 +690,7 @@ export async function waitForRendererPaint(page: Pick<Page, 'evaluate'> & {
 
 export async function connectToBrowser(cdpPort: number): Promise<{
     browser: Browser;
-    page: Page
+    page: Page;
 }> {
     const logTiming = createStartupLogger();
     logLauncher('debug', 'cdp', 'Connecting via CDP...');

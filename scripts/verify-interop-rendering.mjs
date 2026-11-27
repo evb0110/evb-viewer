@@ -2,24 +2,11 @@
 
 import {execFile} from 'node:child_process';
 import {mapAsync} from 'es-toolkit/array';
-import {
-    mkdir,
-    mkdtemp,
-    readFile,
-    rm,
-} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, rm} from 'node:fs/promises';
 import {availableParallelism} from 'node:os';
 import {promisify} from 'node:util';
-import {
-    basename,
-    join,
-    resolve,
-} from 'node:path';
-import {
-    checkQpdf,
-    inspectPdf,
-    validateCorpus,
-} from './verify-interop-corpus.mjs';
+import {basename, join, resolve} from 'node:path';
+import {checkQpdf, inspectPdf, validateCorpus} from './verify-interop-corpus.mjs';
 
 const execFileAsync = promisify(execFile);
 const RENDER_DPI = 144;
@@ -76,10 +63,7 @@ function parseImageInfo(output) {
 }
 
 async function renderPage(inputPath, outputDirectory, options = {}) {
-    const outputBase = join(
-        outputDirectory,
-        `${basename(inputPath, '.pdf')}${options.outputSuffix ?? ''}`,
-    );
+    const outputBase = join(outputDirectory, `${basename(inputPath, '.pdf')}${options.outputSuffix ?? ''}`);
     const renderArguments = [
         ...(options.hideAnnotations ? ['-hide-annotations'] : []),
         '-png',
@@ -95,28 +79,15 @@ async function renderPage(inputPath, outputDirectory, options = {}) {
     ];
     const render = await runCommand('pdftoppm', renderArguments);
     const pngPath = `${outputBase}.png`;
-    const [
-        info,
-        pageInfo,
-    ] = await Promise.all([
-        runCommand('identify', [
-            '-format',
-            '%wx%h %[mean]',
-            pngPath,
-        ]),
-        runCommand('pdfinfo', [
-            '-f',
-            '1',
-            '-l',
-            '1',
-            inputPath,
-        ]),
+    const [info, pageInfo] = await Promise.all([
+        runCommand('identify', ['-format', '%wx%h %[mean]', pngPath]),
+        runCommand('pdfinfo', ['-f', '1', '-l', '1', inputPath]),
     ]);
     const image = parseImageInfo(info.stdout);
     const page = parsePageSize(pageInfo.stdout);
     const expected = {
-        height: Math.round(page.height * RENDER_DPI / 72),
-        width: Math.round(page.width * RENDER_DPI / 72),
+        height: Math.round((page.height * RENDER_DPI) / 72),
+        width: Math.round((page.width * RENDER_DPI) / 72),
     };
     if (image.width !== expected.width || image.height !== expected.height) {
         fail(`${basename(inputPath)} rendered at ${image.width}x${image.height}, expected ${expected.width}x${expected.height}`);
@@ -142,14 +113,7 @@ async function cropMean(pngPath, rectangle, page, image) {
     if (width < 2 || height < 2) {
         return null;
     }
-    const result = await runCommand('convert', [
-        pngPath,
-        '-crop',
-        `${width}x${height}+${left}+${top}`,
-        '-format',
-        '%[mean]',
-        'info:',
-    ]);
+    const result = await runCommand('convert', [pngPath, '-crop', `${width}x${height}+${left}+${top}`, '-format', '%[mean]', 'info:']);
     const mean = Number(result.stdout.trim());
     if (!Number.isFinite(mean)) {
         fail(`ImageMagick returned an invalid crop mean for ${pngPath}`);
@@ -169,19 +133,17 @@ async function cropMean(pngPath, rectangle, page, image) {
 async function validateFile(inputPath, outputDirectory, expectedQpdfWarnings = null) {
     const qpdf = await checkQpdf(inputPath);
     if (expectedQpdfWarnings) {
-        if (qpdf.exitCode !== expectedQpdfWarnings.exitCode
-            || JSON.stringify(qpdf.warnings) !== JSON.stringify(expectedQpdfWarnings.warnings)) {
+        if (
+            qpdf.exitCode !== expectedQpdfWarnings.exitCode ||
+            JSON.stringify(qpdf.warnings) !== JSON.stringify(expectedQpdfWarnings.warnings)
+        ) {
             fail(`${basename(inputPath)} qpdf result differs from the recorded baseline`);
         }
     } else if (qpdf.exitCode !== 0 || qpdf.warnings.length > 0) {
         fail(`${basename(inputPath)} qpdf did not pass cleanly: ${JSON.stringify(qpdf)}`);
     }
 
-    const [
-        inventory,
-        render,
-        hiddenAnnotationRender,
-    ] = await Promise.all([
+    const [inventory, render, hiddenAnnotationRender] = await Promise.all([
         inspectPdf(inputPath),
         renderPage(inputPath, outputDirectory),
         renderPage(inputPath, outputDirectory, {
@@ -189,27 +151,18 @@ async function validateFile(inputPath, outputDirectory, expectedQpdfWarnings = n
             outputSuffix: '-annotations-hidden',
         }),
     ]);
-    const checkKind = async kind => {
-        const candidates = inventory.annotations.filter(annotation => annotation.kind === kind);
-        const annotation = candidates.find(candidate => (
-            candidate.rect
-            && !candidate.blankAppearance
-            && (kind !== 'note' || candidate.subtype === 'Text')
-        )) ?? candidates.find(candidate => candidate.rect);
+    const checkKind = async (kind) => {
+        const candidates = inventory.annotations.filter((annotation) => annotation.kind === kind);
+        const annotation =
+            candidates.find(
+                (candidate) => candidate.rect && !candidate.blankAppearance && (kind !== 'note' || candidate.subtype === 'Text'),
+            ) ?? candidates.find((candidate) => candidate.rect);
         if (!annotation?.rect) {
             fail(`${basename(inputPath)} has no positioned ${kind} annotation`);
         }
-        const [
-            crop,
-            hiddenCrop,
-        ] = await Promise.all([
+        const [crop, hiddenCrop] = await Promise.all([
             cropMean(render.pngPath, annotation.rect, render.page, render.image),
-            cropMean(
-                hiddenAnnotationRender.pngPath,
-                annotation.rect,
-                hiddenAnnotationRender.page,
-                hiddenAnnotationRender.image,
-            ),
+            cropMean(hiddenAnnotationRender.pngPath, annotation.rect, hiddenAnnotationRender.page, hiddenAnnotationRender.image),
         ]);
         if (!crop) {
             fail(`${basename(inputPath)} has a ${kind} rectangle too small to render`);
@@ -237,13 +190,7 @@ async function validateFile(inputPath, outputDirectory, expectedQpdfWarnings = n
             subtype: annotation.subtype,
         };
     };
-    const visualChecks = await Promise.all([
-        'text-box',
-        'highlight',
-        'note',
-        'stamp',
-        'shape',
-    ].map(checkKind));
+    const visualChecks = await Promise.all(['text-box', 'highlight', 'note', 'stamp', 'shape'].map(checkKind));
     return {
         bytes: (await readFile(inputPath)).length,
         file: inputPath,
@@ -280,14 +227,8 @@ function argumentValues(name) {
     return values;
 }
 
-export async function verifyInteropRendering({
-    artifactDirectory,
-    corpusDirectory,
-    inputPaths,
-}) {
-    const outputDirectory = artifactDirectory
-        ? resolve(artifactDirectory)
-        : await mkdtemp('/tmp/evb-interop-render-');
+export async function verifyInteropRendering({artifactDirectory, corpusDirectory, inputPaths}) {
+    const outputDirectory = artifactDirectory ? resolve(artifactDirectory) : await mkdtemp('/tmp/evb-interop-render-');
     await mkdir(outputDirectory, {recursive: true});
     let expectedEntries = new Map();
     let paths = inputPaths ?? [];
@@ -297,30 +238,25 @@ export async function verifyInteropRendering({
             runQpdf: true,
         });
         const manifest = JSON.parse(await readFile(join(corpusDirectory, 'corpus-manifest.json'), 'utf8'));
-        expectedEntries = new Map(manifest.entries.map(entry => [
-            resolve(corpusDirectory, entry.file),
-            entry,
-        ]));
-        paths = manifest.entries
-            .filter(entry => entry.status === 'ready')
-            .map(entry => resolve(corpusDirectory, entry.file));
+        expectedEntries = new Map(manifest.entries.map((entry) => [resolve(corpusDirectory, entry.file), entry]));
+        paths = manifest.entries.filter((entry) => entry.status === 'ready').map((entry) => resolve(corpusDirectory, entry.file));
         if (manifestResult.scenarioCount <= 0) {
             fail('corpus reported no scenarios');
         }
     }
     // Each input spawns about a dozen tools, so inputs run one per core.
-    const files = await mapAsync(paths, async (inputPath, index) => {
-        const resolvedPath = resolve(inputPath);
-        const entry = expectedEntries.get(resolvedPath);
-        // Inputs run concurrently; same-named files from different directories must not share PNG paths.
-        const fileDirectory = join(outputDirectory, String(index));
-        await mkdir(fileDirectory, {recursive: true});
-        return validateFile(
-            resolvedPath,
-            fileDirectory,
-            entry?.qpdfWarningBaseline ?? null,
-        );
-    }, {concurrency: availableParallelism()});
+    const files = await mapAsync(
+        paths,
+        async (inputPath, index) => {
+            const resolvedPath = resolve(inputPath);
+            const entry = expectedEntries.get(resolvedPath);
+            // Inputs run concurrently; same-named files from different directories must not share PNG paths.
+            const fileDirectory = join(outputDirectory, String(index));
+            await mkdir(fileDirectory, {recursive: true});
+            return validateFile(resolvedPath, fileDirectory, entry?.qpdfWarningBaseline ?? null);
+        },
+        {concurrency: availableParallelism()},
+    );
     const result = {
         artifactDirectory: outputDirectory,
         files,
@@ -343,8 +279,7 @@ export async function verifyInteropRendering({
 
 if (import.meta.url === `file://${process.argv[1]}`) {
     const corpusDirectory = resolve(
-        process.env.EVB_INTEROP_CORPUS_DIR
-            ?? join(import.meta.dirname, '..', 'tests/fixtures/electron/interop'),
+        process.env.EVB_INTEROP_CORPUS_DIR ?? join(import.meta.dirname, '..', 'tests/fixtures/electron/interop'),
     );
     const inputPaths = argumentValues('--input');
     const artifactDirectory = argumentValues('--artifact-dir')[0];

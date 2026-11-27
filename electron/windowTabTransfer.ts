@@ -1,27 +1,23 @@
-import { randomUUID } from 'crypto';
-import { remove } from 'es-toolkit/array';
-import { clamp } from 'es-toolkit/math';
+import {randomUUID} from 'crypto';
+import {remove} from 'es-toolkit/array';
+import {clamp} from 'es-toolkit/math';
 import type {
     IWindowTabIncomingTransfer,
     IWindowTabTransferAck,
     IWindowTabTransferRequest,
     IWindowTabTransferResult,
 } from '@contracts/windowTabs';
-import { WINDOW_TABS_PLATFORM_FEATURE } from '@contracts/windowTabsPlatformFeature';
-import { createAppWindow } from '@electron/window';
-import { getWindowByIdFromRegistry } from '@electron/window/registry';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
+import {WINDOW_TABS_PLATFORM_FEATURE} from '@contracts/windowTabsPlatformFeature';
+import {createAppWindow} from '@electron/window';
+import {getWindowByIdFromRegistry} from '@electron/window/registry';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
 import {
     commitWorkingCopyTransferAccess,
     grantWorkingCopyTransferAccess,
     revokeWorkingCopyTransferAccess,
 } from '@electron/file-access/documentStore';
-import {
-    allowOpenPath,
-    removeAllowedOpenPath,
-    requireOpenPath,
-} from '@electron/file-access/openPathCapabilities';
+import {allowOpenPath, removeAllowedOpenPath, requireOpenPath} from '@electron/file-access/openPathCapabilities';
 
 const logger = createLogger('windowTabTransfer');
 const DEFAULT_TRANSFER_TIMEOUT_MS = 12_000;
@@ -88,7 +84,11 @@ export class WindowTabTransferBroker {
 
     constructor(private readonly deps: IWindowTabTransferBrokerDeps) {}
 
-    async requestTransfer(sourceWindowId: number, request: IWindowTabTransferRequest, sourceOwnerId = sourceWindowId): Promise<IWindowTabTransferResult> {
+    async requestTransfer(
+        sourceWindowId: number,
+        request: IWindowTabTransferRequest,
+        sourceOwnerId = sourceWindowId,
+    ): Promise<IWindowTabTransferResult> {
         const targetWindow = await this.resolveTargetWindow(request);
         const targetWindowId = targetWindow?.id ?? (request.target.kind === 'window' ? request.target.windowId : -1);
 
@@ -113,10 +113,7 @@ export class WindowTabTransferBroker {
         const pdfSnapshotPath = request.payload.kind === 'pdfSnapshot' ? request.payload.snapshotPath : undefined;
         const targetOwnerId = targetWindow.webContents.id ?? targetWindow.id;
         let pdfSnapshotRegistrationId: number | undefined;
-        if (
-            pdfSnapshotPath
-            && this.deps.preparePdfSnapshotTransfer
-        ) {
+        if (pdfSnapshotPath && this.deps.preparePdfSnapshotTransfer) {
             const registrationId = this.deps.preparePdfSnapshotTransfer(pdfSnapshotPath, sourceOwnerId, targetOwnerId);
             if (registrationId === false || !Number.isInteger(registrationId) || registrationId <= 0) {
                 return {
@@ -229,7 +226,9 @@ export class WindowTabTransferBroker {
                 pending.timeoutMs,
                 'Transfer timed out while waiting for the source window decision.',
             );
-            const decision = new Promise<boolean>((resolve) => { pending.decide = resolve; });
+            const decision = new Promise<boolean>((resolve) => {
+                pending.decide = resolve;
+            });
             // Restoration lends the target its provisional copy. Only the source,
             // after validating and finalizing under its lease, commits this decision.
             pending.resolve({
@@ -280,8 +279,8 @@ export class WindowTabTransferBroker {
         }
 
         const pendingForWindow = Array.from(this.pendingTransfers.values())
-            .filter(transfer => transfer.targetWindowId === windowId)
-            .map(transfer => transfer.transferId);
+            .filter((transfer) => transfer.targetWindowId === windowId)
+            .map((transfer) => transfer.transferId);
 
         for (const transferId of pendingForWindow) {
             this.finishTransfer(transferId, {
@@ -313,8 +312,10 @@ export class WindowTabTransferBroker {
             }
         }
 
-        return pendingForSourceWindow < MAX_PENDING_TRANSFERS_PER_SOURCE_WINDOW
-            && pendingForTargetWindow < MAX_PENDING_TRANSFERS_PER_TARGET_WINDOW;
+        return (
+            pendingForSourceWindow < MAX_PENDING_TRANSFERS_PER_SOURCE_WINDOW &&
+            pendingForTargetWindow < MAX_PENDING_TRANSFERS_PER_TARGET_WINDOW
+        );
     }
 
     private dispatchTransfer(transferId: string) {
@@ -343,10 +344,7 @@ export class WindowTabTransferBroker {
         );
 
         try {
-            targetWindow.webContents.send(
-                WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onIncomingTransfer,
-                pending.payload,
-            );
+            targetWindow.webContents.send(WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onIncomingTransfer, pending.payload);
         } catch (error) {
             this.finishTransfer(transferId, {
                 success: false,
@@ -366,8 +364,8 @@ export class WindowTabTransferBroker {
 
     private finishTransfersForSourceWindow(windowId: number, error: string) {
         const pendingForSourceWindow = Array.from(this.pendingTransfers.values())
-            .filter(transfer => transfer.sourceWindowId === windowId)
-            .map(transfer => transfer.transferId);
+            .filter((transfer) => transfer.sourceWindowId === windowId)
+            .map((transfer) => transfer.transferId);
 
         for (const transferId of pendingForSourceWindow) {
             this.finishTransfer(transferId, {
@@ -379,8 +377,8 @@ export class WindowTabTransferBroker {
 
     private finishTransfersForTargetWindow(windowId: number, error: string) {
         const pendingForTargetWindow = Array.from(this.pendingTransfers.values())
-            .filter(transfer => transfer.targetWindowId === windowId)
-            .map(transfer => transfer.transferId);
+            .filter((transfer) => transfer.targetWindowId === windowId)
+            .map((transfer) => transfer.transferId);
 
         for (const transferId of pendingForTargetWindow) {
             this.finishTransfer(transferId, {
@@ -432,7 +430,7 @@ export class WindowTabTransferBroker {
             return;
         }
 
-        remove(queued, candidate => candidate === transferId);
+        remove(queued, (candidate) => candidate === transferId);
         if (queued.length === 0) {
             this.queuedTransfersByWindow.delete(windowId);
             return;
@@ -444,7 +442,7 @@ const browserWindowTransferBroker = new WindowTabTransferBroker({
     createTargetWindow: async () => createAppWindow(),
     getWindowById: getWindowByIdFromRegistry,
     setTimer: (callback, ms) => setTimeout(callback, ms),
-    clearTimer: handle => clearTimeout(handle),
+    clearTimer: (handle) => clearTimeout(handle),
     preparePdfSnapshotTransfer: grantWorkingCopyTransferAccess,
     commitPdfSnapshotTransfer: commitWorkingCopyTransferAccess,
     revokePdfSnapshotTransfer: revokeWorkingCopyTransferAccess,

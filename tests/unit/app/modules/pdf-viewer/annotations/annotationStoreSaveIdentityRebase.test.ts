@@ -1,12 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    AnnotationStore,
-    estimateRetainedAnnotationBytes,
-} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
+import {describe, expect, it} from 'vitest';
+import {AnnotationStore, estimateRetainedAnnotationBytes} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {buildSerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import type {IAnnotationHistoryAuthority} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import type {
@@ -17,10 +10,7 @@ import type {
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {IPdfAppAnnotationHistoryCommand} from '@app/modules/pdf-viewer/engine/annotations/annotation-history/pdfAppAnnotationHistoryCommand';
 import {LocalAnnotationHistoryAuthority} from '@app/modules/pdf-viewer/engine/annotations/annotation-history/pdfAppAnnotationHistoryCommand';
-import {
-    asAnnotationId,
-    toLegacyShapeAnnotation,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {asAnnotationId, toLegacyShapeAnnotation} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
 
@@ -60,12 +50,14 @@ function textMarkup(id: string, _legacyEditorId: string): ITextMarkupEntity {
         author: null,
         subtype: 'Highlight',
         contents: '',
-        quadPoints: [{
-            left: 0.1,
-            top: 0.2,
-            width: 0.3,
-            height: 0.04,
-        }],
+        quadPoints: [
+            {
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.04,
+            },
+        ],
         color: '#ffff00',
         opacity: 1,
     };
@@ -101,10 +93,7 @@ function persistedShape(id: string, pdfRef: string, x: number): IShapeEntity {
 
 function authoredShape(id: string, x: number): IShapeEntity {
     const shape = persistedShape(id, '', x);
-    const {
-        pdfRef: _pdfRef,
-        ...identity
-    } = shape.identity;
+    const {pdfRef: _pdfRef, ...identity} = shape.identity;
     return {
         ...shape,
         identity,
@@ -142,13 +131,17 @@ function createRecordingHistoryAuthority() {
     const local = new LocalAnnotationHistoryAuthority();
     const commands: IPdfAppAnnotationHistoryCommand[] = [];
     const authority: IAnnotationHistoryAuthority = {
-        get canUndo() { return local.canUndo; },
-        get canRedo() { return local.canRedo; },
+        get canUndo() {
+            return local.canUndo;
+        },
+        get canRedo() {
+            return local.canRedo;
+        },
         registerCommand: (command) => {
             commands.push(command);
             local.registerCommand(command);
         },
-        forgetCommands: ids => local.forgetCommands(ids),
+        forgetCommands: (ids) => local.forgetCommands(ids),
         undo: () => local.undo(),
         redo: () => local.redo(),
     };
@@ -159,10 +152,12 @@ function createRecordingHistoryAuthority() {
 }
 
 function saveWithMaterializedRef(store: AnnotationStore, id: AnnotationId, pdfRef: string) {
-    store.markPersisted(store.beginSave(), [{
-        annotationId: id,
-        pdfRef,
-    }]);
+    store.markPersisted(store.beginSave(), [
+        {
+            annotationId: id,
+            pdfRef,
+        },
+    ]);
 }
 
 function importEntity(store: AnnotationStore, entity: ITextMarkupEntity | IShapeEntity | INoteEntity) {
@@ -211,17 +206,19 @@ describe('AnnotationStore save identity rebase', () => {
         store.createShape(authored);
         store.markPersisted(store.beginSave());
 
-        const {
-            points: _parsedPoints,
-            ...parsedLine
-        } = authored;
-        store.replaceFromDocument([{
-            ...parsedLine,
-            identity: {
-                id: asAnnotationId('parser-line'),
-                pdfRef: '21R',
-            },
-        }], []);
+        const {points: _parsedPoints, ...parsedLine} = authored;
+        store.replaceFromDocument(
+            [
+                {
+                    ...parsedLine,
+                    identity: {
+                        id: asAnnotationId('parser-line'),
+                        pdfRef: '21R',
+                    },
+                },
+            ],
+            [],
+        );
 
         expect(store.get(authored.identity.id)).toMatchObject({
             identity: {
@@ -241,22 +238,26 @@ describe('AnnotationStore save identity rebase', () => {
         store.createShape(authored);
         store.markPersisted(store.beginSave());
 
-        store.replaceFromDocument([{
-            ...authored,
+        store.replaceFromDocument(
+            [
+                {
+                    ...authored,
+                    identity: {
+                        id: asAnnotationId('parser-reversed-line'),
+                        pdfRef: '22R',
+                    },
+                    points: [authored.points![1]!, authored.points![0]!],
+                },
+            ],
+            [],
+        );
+
+        expect(store.get(authored.identity.id)).toMatchObject({
             identity: {
-                id: asAnnotationId('parser-reversed-line'),
+                id: authored.identity.id,
                 pdfRef: '22R',
             },
-            points: [
-                authored.points![1]!,
-                authored.points![0]!,
-            ],
-        }], []);
-
-        expect(store.get(authored.identity.id)).toMatchObject({identity: {
-            id: authored.identity.id,
-            pdfRef: '22R',
-        }});
+        });
         expect(store.get(asAnnotationId('parser-reversed-line'))).toBeNull();
     });
 
@@ -264,10 +265,12 @@ describe('AnnotationStore save identity rebase', () => {
         const shape = authoredShape('draw-shape', 0.2);
 
         expect(toLegacyShapeAnnotation(shape).stableKey).toBe('evb-shape:draw-shape');
-        expect(toLegacyShapeAnnotation({
-            ...shape,
-            identity: {id: asAnnotationId('evb-shape:existing')},
-        }).stableKey).toBe('evb-shape:existing');
+        expect(
+            toLegacyShapeAnnotation({
+                ...shape,
+                identity: {id: asAnnotationId('evb-shape:existing')},
+            }).stableKey,
+        ).toBe('evb-shape:existing');
     });
 
     it('keeps the acknowledged persistence identity through undo and redo of an edit', () => {
@@ -340,23 +343,26 @@ describe('AnnotationStore save identity rebase', () => {
             persistedRevision: 0,
         });
         // A read of the saved document that lands after the undo keeps it deleted.
-        expect(store.replaceFromDocument([{
-            ...markup,
-            identity: {
-                ...markup.identity,
-                pdfRef: '32R',
-            },
-            persistedRevision: 0,
-        }], [])).toBe(true);
+        expect(
+            store.replaceFromDocument(
+                [
+                    {
+                        ...markup,
+                        identity: {
+                            ...markup.identity,
+                            pdfRef: '32R',
+                        },
+                        persistedRevision: 0,
+                    },
+                ],
+                [],
+            ),
+        ).toBe(true);
         expect(store.get(markup.identity.id)).toMatchObject({deleted: true});
 
         const frontier = store.beginSave();
-        const plan = buildSerializationPlan(
-            frontier,
-            store.dirtyEntities(),
-            store.list({includeDeleted: true}),
-        );
-        const deleteStep = plan.steps.find(step => step.operation === 'delete-annotation');
+        const plan = buildSerializationPlan(frontier, store.dirtyEntities(), store.list({includeDeleted: true}));
+        const deleteStep = plan.steps.find((step) => step.operation === 'delete-annotation');
 
         expect(deleteStep?.annotationId).toBe(markup.identity.id);
         expect(deleteStep?.fields.identity).toMatchObject({pdfRef: '32R'});
@@ -413,12 +419,14 @@ describe('AnnotationStore save identity rebase', () => {
 
     it('rebases every annotation in a batched markup selection', () => {
         const store = new AnnotationStore();
-        const quadPoints = [{
-            left: 0.1,
-            top: 0.2,
-            width: 0.3,
-            height: 0.04,
-        }];
+        const quadPoints = [
+            {
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.04,
+            },
+        ];
         const existing: ITextMarkupEntity = {
             ...textMarkup('existing-markup', 'existing-editor'),
             identity: {
@@ -435,16 +443,20 @@ describe('AnnotationStore save identity rebase', () => {
             subtype: 'Underline',
             quadPoints,
         };
-        store.applyTextMarkupSelection(created, [{
-            annotationId: existing.identity.id,
-            observedQuadPoints: quadPoints,
-        }]);
+        store.applyTextMarkupSelection(created, [
+            {
+                annotationId: existing.identity.id,
+                observedQuadPoints: quadPoints,
+            },
+        ]);
 
         expect(store.get(existing.identity.id)?.deleted).toBe(true);
-        store.markPersisted(store.beginSave(), [{
-            annotationId: created.identity.id,
-            pdfRef: '8R',
-        }]);
+        store.markPersisted(store.beginSave(), [
+            {
+                annotationId: created.identity.id,
+                pdfRef: '8R',
+            },
+        ]);
 
         expect(store.undo()).toBe(true);
         expect(store.get(existing.identity.id)).toMatchObject({
@@ -546,12 +558,8 @@ describe('AnnotationStore save identity rebase', () => {
         expect(store.redo()).toBe(true);
 
         const frontier = store.beginSave();
-        const plan = buildSerializationPlan(
-            frontier,
-            store.dirtyEntities(),
-            store.list({includeDeleted: true}),
-        );
-        const deleteStep = plan.steps.find(step => step.operation === 'delete-annotation');
+        const plan = buildSerializationPlan(frontier, store.dirtyEntities(), store.list({includeDeleted: true}));
+        const deleteStep = plan.steps.find((step) => step.operation === 'delete-annotation');
 
         expect(deleteStep?.annotationId).toBe(note.identity.id);
         expect(deleteStep?.fields.identity).toMatchObject({pdfRef: '9R'});
@@ -645,10 +653,7 @@ describe('AnnotationStore save identity rebase', () => {
         const store = new AnnotationStore();
         const shape = persistedShape('renumbered-shape', '7R', 0.1);
         const survivor = persistedShape('surviving-shape', '8R', 0.5);
-        store.replaceFromDocument([
-            shape,
-            survivor,
-        ], []);
+        store.replaceFromDocument([shape, survivor], []);
         store.updateShape(shape.identity.id, {strokeColor: '#00ff00'});
         store.updateShape(survivor.identity.id, {strokeColor: '#00ff00'});
 
@@ -664,19 +669,13 @@ describe('AnnotationStore save identity rebase', () => {
     });
 
     it('prices canonical snapshot commands by the entities they retain', () => {
-        const {
-            authority,
-            commands,
-        } = createRecordingHistoryAuthority();
+        const {authority, commands} = createRecordingHistoryAuthority();
         const store = new AnnotationStore(authority);
         const note = stickyNote('priced-note', 'priced-editor');
         store.createNote(note);
         store.updateNote(note.identity.id, {contents: 'x'.repeat(4096)});
 
-        const [
-            createCommand,
-            editCommand,
-        ] = commands;
+        const [createCommand, editCommand] = commands;
 
         // The create command wraps a clone of the note in one entry, so a priced
         // command can never come in under the note itself; an unpriced one would

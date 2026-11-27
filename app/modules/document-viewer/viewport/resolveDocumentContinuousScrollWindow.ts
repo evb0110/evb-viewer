@@ -3,8 +3,8 @@ import {
     createPageNumbersForWindow,
     EMPTY_DOCUMENT_VIEWER_PAGE_RANGE,
 } from '@app/modules/document-viewer/virtualization/pageVirtualization';
-import type { IDocumentZoomPageLayout } from '@app/modules/document-viewer/zoomAnchor';
-import { normalizeDocumentPageNumber } from '@app/modules/document-viewer/documentPageRange';
+import type {IDocumentZoomPageLayout} from '@app/modules/document-viewer/zoomAnchor';
+import {normalizeDocumentPageNumber} from '@app/modules/document-viewer/documentPageRange';
 
 interface IDocumentContinuousScrollWindow {
     start: number;
@@ -56,11 +56,7 @@ interface IContinuousScrollBoundsState {
     maxVisibleHeight: number;
 }
 
-function createContinuousScrollWindow(
-    start: number,
-    end: number,
-    mostVisiblePage: number | null,
-) {
+function createContinuousScrollWindow(start: number, end: number, mostVisiblePage: number | null) {
     return {
         start,
         end,
@@ -76,16 +72,14 @@ function clampPageRange(pageNumber: number, totalPages: number) {
     return normalizeDocumentPageNumber(pageNumber, totalPages);
 }
 
-function resolveFallbackContinuousScrollRange(
-    anchorPage: number,
-    totalPages: number,
-    renderMarginPages: number,
-) {
-    return createAnchorPageWindow({
-        anchorPage,
-        totalPages,
-        radiusPages: renderMarginPages,
-    }) ?? EMPTY_DOCUMENT_VIEWER_PAGE_RANGE;
+function resolveFallbackContinuousScrollRange(anchorPage: number, totalPages: number, renderMarginPages: number) {
+    return (
+        createAnchorPageWindow({
+            anchorPage,
+            totalPages,
+            radiusPages: renderMarginPages,
+        }) ?? EMPTY_DOCUMENT_VIEWER_PAGE_RANGE
+    );
 }
 
 function expandContinuousScrollRange(
@@ -118,12 +112,7 @@ function createContinuousScrollBoundsState(anchorPage: number): IContinuousScrol
     };
 }
 
-function measureIntersectionHeight(
-    top: number,
-    bottom: number,
-    viewportTop: number,
-    viewportBottom: number,
-) {
+function measureIntersectionHeight(top: number, bottom: number, viewportTop: number, viewportBottom: number) {
     return Math.max(0, Math.min(bottom, viewportBottom) - Math.max(top, viewportTop));
 }
 
@@ -152,16 +141,10 @@ function applyPageIntersectionToContinuousBounds(
 
 function getPageHeight(pageHeights: readonly number[], pageNumber: number) {
     const pageHeight = pageHeights[pageNumber - 1] ?? 0;
-    return Number.isFinite(pageHeight)
-        ? Math.max(0, pageHeight)
-        : 0;
+    return Number.isFinite(pageHeight) ? Math.max(0, pageHeight) : 0;
 }
 
-function getGeometryPageTop(
-    geometry: IDocumentContinuousScrollGeometry,
-    pageGapPx: number,
-    pageNumber: number,
-) {
+function getGeometryPageTop(geometry: IDocumentContinuousScrollGeometry, pageGapPx: number, pageNumber: number) {
     return geometry.pageTops[pageNumber - 1] ?? normalizeGapPx(pageGapPx);
 }
 
@@ -173,9 +156,7 @@ function getGeometryPageTop(
  * but which lies wholly offscreen is never named. Ties keep the lower page.
  * If no intersecting page qualifies, name the most visible intersecting page.
  */
-export function resolveDocumentVisiblePageForIndicator(
-    options: IResolveVisibleIndicatorPageOptions,
-) {
+export function resolveDocumentVisiblePageForIndicator(options: IResolveVisibleIndicatorPageOptions) {
     const pageCount = Math.min(options.totalPages, options.pageLayouts.length);
     if (pageCount <= 0 || options.viewportHeight <= 0 || options.viewportWidth <= 0) {
         return null;
@@ -187,9 +168,14 @@ export function resolveDocumentVisiblePageForIndicator(
     const currentPage = normalizeDocumentPageNumber(options.currentPage, pageCount);
     const current = options.pageLayouts[currentPage - 1]!;
     const currentLeft = current.left ?? 0;
-    if (current.height > 0 && current.width > 0
-        && current.top >= viewportTop && current.top + current.height <= viewportBottom
-        && currentLeft >= viewportLeft && currentLeft + current.width <= viewportRight) {
+    if (
+        current.height > 0 &&
+        current.width > 0 &&
+        current.top >= viewportTop &&
+        current.top + current.height <= viewportBottom &&
+        currentLeft >= viewportLeft &&
+        currentLeft + current.width <= viewportRight
+    ) {
         return currentPage;
     }
 
@@ -199,25 +185,32 @@ export function resolveDocumentVisiblePageForIndicator(
     let high = pageCount;
     while (low < high) {
         const middle = Math.floor((low + high) / 2);
-        if (options.pageLayouts[middle]!.top > viewportTop) high = middle;
-        else low = middle + 1;
+        if (options.pageLayouts[middle]!.top > viewportTop) {
+            high = middle;
+        } else {
+            low = middle + 1;
+        }
     }
     let first = Math.max(0, low - 1);
-    while (first > 0 && options.pageLayouts[first - 1]!.top === options.pageLayouts[first]!.top) first -= 1;
+    while (first > 0 && options.pageLayouts[first - 1]!.top === options.pageLayouts[first]!.top) {
+        first -= 1;
+    }
 
     let visiblePage: number | null = null;
     let greatestFraction = 0;
     let fallbackPage: number | null = null;
     let fallbackFraction = 0;
     for (let index = first; index < pageCount; index += 1) {
-        const {
-            top, height, width, left = 0,
-        } = options.pageLayouts[index]!;
-        if (top >= viewportBottom) break;
-        if (height <= 0 || width <= 0) continue;
+        const {top, height, width, left = 0} = options.pageLayouts[index]!;
+        if (top >= viewportBottom) {
+            break;
+        }
+        if (height <= 0 || width <= 0) {
+            continue;
+        }
         const visibleHeight = measureIntersectionHeight(top, top + height, viewportTop, viewportBottom);
         const visibleWidth = measureIntersectionHeight(left, left + width, viewportLeft, viewportRight);
-        const fraction = visibleHeight * visibleWidth / (height * width);
+        const fraction = (visibleHeight * visibleWidth) / (height * width);
         if (fraction > fallbackFraction) {
             fallbackPage = index + 1;
             fallbackFraction = fraction;
@@ -231,9 +224,7 @@ export function resolveDocumentVisiblePageForIndicator(
 }
 
 function normalizeGapPx(value: number) {
-    return Number.isFinite(value)
-        ? Math.max(0, value)
-        : 0;
+    return Number.isFinite(value) ? Math.max(0, value) : 0;
 }
 
 export function resolveDocumentContinuousScrollGeometry(
@@ -294,12 +285,7 @@ function resolveContinuousScrollBounds(
         const visibleHeight = measureIntersectionHeight(pageTop, pageBottom, viewportTop, viewportBottom);
         const overscanHeight = measureIntersectionHeight(pageTop, pageBottom, overscanTop, overscanBottom);
 
-        applyPageIntersectionToContinuousBounds(
-            state,
-            pageNumber,
-            visibleHeight,
-            overscanHeight,
-        );
+        applyPageIntersectionToContinuousBounds(state, pageNumber, visibleHeight, overscanHeight);
     }
 
     return state;
@@ -329,11 +315,7 @@ function findFirstPageWithBottomAfter(
     return low;
 }
 
-function findLastPageWithTopBefore(
-    geometry: IDocumentContinuousScrollGeometry,
-    boundary: number,
-    totalPages: number,
-) {
+function findLastPageWithTopBefore(geometry: IDocumentContinuousScrollGeometry, boundary: number, totalPages: number) {
     let low = 1;
     let high = totalPages + 1;
 
@@ -361,14 +343,7 @@ export function resolveDocumentContinuousScrollWindow(
     const anchorPage = normalizeDocumentPageNumber(options.currentPage, options.totalPages);
     const geometry = options.geometry ?? resolveDocumentContinuousScrollGeometry(options);
     if (options.viewportHeight <= 0) {
-        const {
-            start,
-            end,
-        } = resolveFallbackContinuousScrollRange(
-            anchorPage,
-            options.totalPages,
-            options.renderMarginPages,
-        );
+        const {start, end} = resolveFallbackContinuousScrollRange(anchorPage, options.totalPages, options.renderMarginPages);
         return createContinuousScrollWindow(start, end, anchorPage);
     }
 
@@ -376,30 +351,12 @@ export function resolveDocumentContinuousScrollWindow(
     const viewportBottom = viewportTop + options.viewportHeight;
     const overscanTop = Math.max(0, viewportTop - options.viewportHeight * options.overscanViewports);
     const overscanBottom = viewportBottom + options.viewportHeight * options.overscanViewports;
-    const bounds = resolveContinuousScrollBounds(
-        options,
-        anchorPage,
-        geometry,
-        viewportTop,
-        viewportBottom,
-        overscanTop,
-        overscanBottom,
-    );
-    const {
-        start,
-        end,
-    } = expandContinuousScrollRange(
-        bounds,
-        anchorPage,
-        options.totalPages,
-        options.renderMarginPages,
-    );
+    const bounds = resolveContinuousScrollBounds(options, anchorPage, geometry, viewportTop, viewportBottom, overscanTop, overscanBottom);
+    const {start, end} = expandContinuousScrollRange(bounds, anchorPage, options.totalPages, options.renderMarginPages);
 
     return createContinuousScrollWindow(
         start,
         end,
-        bounds.visibleStart === null && bounds.overscanStart !== null
-            ? bounds.overscanStart
-            : bounds.mostVisiblePage,
+        bounds.visibleStart === null && bounds.overscanStart !== null ? bounds.overscanStart : bounds.mostVisiblePage,
     );
 }

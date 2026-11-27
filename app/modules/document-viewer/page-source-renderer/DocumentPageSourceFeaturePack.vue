@@ -16,13 +16,11 @@
                     v-if="runtime.getChassisOpeningShellTarget(pageNumber)"
                     :to="runtime.getChassisOpeningShellTarget(pageNumber)!"
                 >
-                    <DocumentPageSourcePageVisual
-                        v-bind="getPageVisualProps(pageNumber, true)"
-                    />
+                    <DocumentPageSourcePageVisual v-bind="getPageVisualProps(pageNumber, true)" />
                 </Teleport>
                 <section
                     v-else
-                    :ref="element => runtime.setPageElement(pageNumber, element)"
+                    :ref="(element) => runtime.setPageElement(pageNumber, element)"
                     class="document-source-viewer__page"
                     :class="{
                         'document-source-viewer__page--hidden': pagePaintMode === 'hidden',
@@ -34,27 +32,22 @@
                     :data-page-source-visual="runtime.presentation.getVisual(pageNumber)"
                     data-testid="document-page-source-page"
                 >
-                    <DocumentPageSourcePageVisual
-                        v-bind="getPageVisualProps(pageNumber)"
-                    />
+                    <DocumentPageSourcePageVisual v-bind="getPageVisualProps(pageNumber)" />
                 </section>
             </template>
         </div>
     </div>
 </template>
 <script setup lang="ts">
-import {
-    DETACHED_ZOOM_ACCESS,
-    getZoomMode,
-} from '@contracts/shared';
+import {DETACHED_ZOOM_ACCESS, getZoomMode} from '@contracts/shared';
 import DocumentPageSourcePageVisual from '@app/modules/document-viewer/page-source-renderer/DocumentPageSourcePageVisual.vue';
 import type {
     IDocumentPageSourceFeaturePackEmit,
     IDocumentPageSourceFeaturePackProps,
 } from '@app/modules/document-viewer/page-source-renderer/documentPageSourceFeaturePackState';
-import { useDocumentPageSourceRuntime } from '@app/modules/document-viewer/page-source-renderer/useDocumentPageSourceRuntime';
-import { isDocumentOpenEmptySurfaceTransition } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
-import { injectDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+import {useDocumentPageSourceRuntime} from '@app/modules/document-viewer/page-source-renderer/useDocumentPageSourceRuntime';
+import {isDocumentOpenEmptySurfaceTransition} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import {injectDocumentViewerRuntime} from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 
 defineOptions({inheritAttrs: false});
 const {
@@ -70,21 +63,23 @@ const {
     zoom = DETACHED_ZOOM_ACCESS,
 } = defineProps<IDocumentPageSourceFeaturePackProps>();
 const emit = defineEmits<IDocumentPageSourceFeaturePackEmit>();
-const runtime = reactive(useDocumentPageSourceRuntime({
-    emit,
-    readProps: () => ({
-        continuousScroll,
-        documentRevisionToken,
-        isActive,
-        isInteractionActive: isInteractionActive ?? isActive,
-        isResizing,
-        src,
-        viewMode,
-        zoom: zoom.state.kind === 'custom' ? zoom.state.scale : 1,
-        zoomMode: getZoomMode(zoom.state),
+const runtime = reactive(
+    useDocumentPageSourceRuntime({
+        emit,
+        readProps: () => ({
+            continuousScroll,
+            documentRevisionToken,
+            isActive,
+            isInteractionActive: isInteractionActive ?? isActive,
+            isResizing,
+            src,
+            viewMode,
+            zoom: zoom.state.kind === 'custom' ? zoom.state.scale : 1,
+            zoomMode: getZoomMode(zoom.state),
+        }),
+        readZoom: () => zoom,
     }),
-    readZoom: () => zoom,
-}));
+);
 const viewerRuntime = injectDocumentViewerRuntime();
 const pagePaintMode = computed<'normal' | 'hidden' | 'shell-owned'>(() => {
     const snapshot = viewerRuntime?.openSurface.snapshot.value;
@@ -98,10 +93,9 @@ const pagePaintMode = computed<'normal' | 'hidden' | 'shell-owned'>(() => {
 });
 function shouldDeferSkeleton(pageNumber: number) {
     const visual = viewerRuntime?.openSurface.viewportSession.value.visual;
-    return visual?.kind === 'page'
-        && visual.pageNumber === pageNumber
-        && visual.presentation === 'skeleton'
-        && visual.deferSkeleton === true;
+    return (
+        visual?.kind === 'page' && visual.pageNumber === pageNumber && visual.presentation === 'skeleton' && visual.deferSkeleton === true
+    );
 }
 function getPageVisualProps(pageNumber: number, hostOwnsSkeleton = false) {
     return {

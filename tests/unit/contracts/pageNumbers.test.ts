@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     buildPageMoveOrder,
     buildPageMoveRangesOrder,
@@ -34,35 +30,18 @@ import {
     requirePageIndex,
     requirePageNumber,
 } from '@pdf-core/pdfPageSelection';
-import { clampPageRange } from '@contracts/pageNumbers';
+import {clampPageRange} from '@contracts/pageNumbers';
 
 describe('page number contracts', () => {
     it.each([
-        [
-            0,
-            3,
-            0,
-        ],
-        [
-            1,
-            3,
-            1,
-        ],
-        [
-            2,
-            3,
-            2,
-        ],
+        [0, 3, 0],
+        [1, 3, 1],
+        [2, 3, 2],
     ])('accepts valid zero-based page index %s of %s', (value, pageCount, expected) => {
         expect(parsePageIndex(value, pageCount)).toBe(expected);
     });
 
-    it.each([
-        [-1],
-        [1.5],
-        [Number.NaN],
-        [Number.MAX_SAFE_INTEGER + 1],
-    ])('rejects invalid page index %s', value => {
+    it.each([[-1], [1.5], [Number.NaN], [Number.MAX_SAFE_INTEGER + 1]])('rejects invalid page index %s', (value) => {
         expect(parsePageIndex(value)).toBeNull();
     });
 
@@ -72,32 +51,14 @@ describe('page number contracts', () => {
     });
 
     it.each([
-        [
-            1,
-            3,
-            1,
-        ],
-        [
-            2,
-            3,
-            2,
-        ],
-        [
-            3,
-            3,
-            3,
-        ],
+        [1, 3, 1],
+        [2, 3, 2],
+        [3, 3, 3],
     ])('accepts valid one-based page number %s of %s', (value, pageCount, expected) => {
         expect(parsePageNumber(value, pageCount)).toBe(expected);
     });
 
-    it.each([
-        [0],
-        [-1],
-        [1.5],
-        [Number.NaN],
-        [Number.MAX_SAFE_INTEGER + 1],
-    ])('rejects invalid page number %s', value => {
+    it.each([[0], [-1], [1.5], [Number.NaN], [Number.MAX_SAFE_INTEGER + 1]])('rejects invalid page number %s', (value) => {
         expect(parsePageNumber(value)).toBeNull();
     });
 
@@ -118,31 +79,48 @@ describe('page number contracts', () => {
     });
 
     it('clamps both ends of a viewport range and never lets the end come first', () => {
-        expect(clampPageRange({
-            start: 297,
-            end: 298,
-        }, 150)).toEqual({
+        expect(
+            clampPageRange(
+                {
+                    start: 297,
+                    end: 298,
+                },
+                150,
+            ),
+        ).toEqual({
             start: 150,
             end: 150,
         });
-        expect(clampPageRange({
-            start: 2.8,
-            end: 4.2,
-        }, 10)).toEqual({
+        expect(
+            clampPageRange(
+                {
+                    start: 2.8,
+                    end: 4.2,
+                },
+                10,
+            ),
+        ).toEqual({
             start: 2,
             end: 4,
         });
-        expect(clampPageRange({
-            start: 5,
-            end: 3,
-        }, 10)).toEqual({
+        expect(
+            clampPageRange(
+                {
+                    start: 5,
+                    end: 3,
+                },
+                10,
+            ),
+        ).toEqual({
             start: 5,
             end: 5,
         });
-        expect(clampPageRange({
-            start: Number.NaN,
-            end: 0,
-        })).toEqual({
+        expect(
+            clampPageRange({
+                start: Number.NaN,
+                end: 0,
+            }),
+        ).toEqual({
             start: 1,
             end: 1,
         });
@@ -166,21 +144,15 @@ describe('page number contracts', () => {
         expect(isPageSelected(inverted, 9)).toBe(true);
         expect(isPageSelected(inverted, 10)).toBe(false);
         expect([...iteratePageSelectionBatches(all, {batchSize: 3})].slice(0, 2)).toEqual([
-            [
-                1,
-                2,
-                3,
-            ],
-            [
-                4,
-                5,
-                6,
-            ],
+            [1, 2, 3],
+            [4, 5, 6],
         ]);
-        expect([...iteratePageSelectionRanges(all)]).toEqual([{
-            startPage: 1,
-            endPage: pageCount,
-        }]);
+        expect([...iteratePageSelectionRanges(all)]).toEqual([
+            {
+                startPage: 1,
+                endPage: pageCount,
+            },
+        ]);
         expect([...iteratePageSelectionRanges(inverted)]).toEqual([
             {
                 startPage: 1,
@@ -194,58 +166,21 @@ describe('page number contracts', () => {
     });
 
     it('inverts an explicit selection without losing its compact representation', () => {
-        const selection = createExplicitPageSelection(8, [
-            2,
-            4,
-            4,
-        ]);
+        const selection = createExplicitPageSelection(8, [2, 4, 4]);
         const inverted = invertPageSelection(selection);
 
         expect(inverted).toEqual({
             kind: 'complement',
             pageCount: 8,
-            excludedPages: [
-                2,
-                4,
-            ],
+            excludedPages: [2, 4],
         });
         expect(pageSelectionCount(inverted)).toBe(6);
     });
 
     it.each([
-        [
-            1,
-            1,
-            4,
-            [
-                2,
-                3,
-                4,
-                1,
-            ],
-        ],
-        [
-            2,
-            2,
-            4,
-            [
-                1,
-                3,
-                4,
-                2,
-            ],
-        ],
-        [
-            2,
-            3,
-            0,
-            [
-                2,
-                3,
-                1,
-                4,
-            ],
-        ],
+        [1, 1, 4, [2, 3, 4, 1]],
+        [2, 2, 4, [1, 3, 4, 2]],
+        [2, 3, 0, [2, 3, 1, 4]],
     ])('maps a contiguous move %s-%s into the expected order', (start, end, insertAt, expected) => {
         const move = createPageMoveRange(4, start, end, insertAt);
         expect(buildPageMoveOrder(move)).toEqual(expected);
@@ -259,16 +194,20 @@ describe('page number contracts', () => {
     });
 
     it('maps non-contiguous moves without requiring a document-sized permutation', () => {
-        const move = createPageMoveRanges(1_000_000, [
-            {
-                startPage: 900_000,
-                endPage: 900_000,
-            },
-            {
-                startPage: 900_002,
-                endPage: 900_002,
-            },
-        ], 0);
+        const move = createPageMoveRanges(
+            1_000_000,
+            [
+                {
+                    startPage: 900_000,
+                    endPage: 900_000,
+                },
+                {
+                    startPage: 900_002,
+                    endPage: 900_002,
+                },
+            ],
+            0,
+        );
 
         expect(pageMoveRangesSelectedPageCount(move)).toBe(2);
         expect(move.ranges).toEqual([
@@ -288,26 +227,22 @@ describe('page number contracts', () => {
     });
 
     it('preserves source order for a small non-contiguous move', () => {
-        const move = createPageMoveRanges(7, [
-            {
-                startPage: 2,
-                endPage: 2,
-            },
-            {
-                startPage: 4,
-                endPage: 4,
-            },
-        ], 0);
-
-        expect(buildPageMoveRangesOrder(move)).toEqual([
-            2,
-            4,
-            1,
-            3,
-            5,
-            6,
+        const move = createPageMoveRanges(
             7,
-        ]);
+            [
+                {
+                    startPage: 2,
+                    endPage: 2,
+                },
+                {
+                    startPage: 4,
+                    endPage: 4,
+                },
+            ],
+            0,
+        );
+
+        expect(buildPageMoveRangesOrder(move)).toEqual([2, 4, 1, 3, 5, 6, 7]);
         for (let page = 1; page <= 7; page += 1) {
             const destination = mapPageNumberAfterPageMove(page, move);
             expect(destination).not.toBeNull();
@@ -319,18 +254,12 @@ describe('page number contracts', () => {
         const source = createPredicatePageSelection(1_000_000, 'odd');
         const firstMove = createPageMoveRange(1_000_000, 2, 2, 1_000_000);
         const secondMove = createPageMoveRange(1_000_000, 10, 20, 0);
-        const mapped = createMappedPageSelection(
-            createMappedPageSelection(source, firstMove),
-            secondMove,
-        );
+        const mapped = createMappedPageSelection(createMappedPageSelection(source, firstMove), secondMove);
 
         expect(mapped).toMatchObject({
             kind: 'mapped',
             source,
-            moves: [
-                firstMove,
-                secondMove,
-            ],
+            moves: [firstMove, secondMove],
         });
         expect(mapPageNumberBeforePageMove(1_000_000, firstMove)).toBe(2);
         expect(isPageSelected(mapped, 999_999)).toBe(false);
@@ -338,44 +267,17 @@ describe('page number contracts', () => {
     });
 
     it('iterates mapped selections in destination order without a full permutation', () => {
-        const source = createExplicitPageSelection(8, [
-            1,
-            4,
-        ]);
-        const mapped = createMappedPageSelection(
-            source,
-            createPageMoveRange(8, 1, 1, 8),
-        );
+        const source = createExplicitPageSelection(8, [1, 4]);
+        const mapped = createMappedPageSelection(source, createPageMoveRange(8, 1, 1, 8));
 
-        expect([...iteratePageSelectionBatches(mapped, {batchSize: 8})]).toEqual([[
-            3,
-            8,
-        ]]);
+        expect([...iteratePageSelectionBatches(mapped, {batchSize: 8})]).toEqual([[3, 8]]);
     });
 
     it('preserves exact outputs for exceptions, complements, and chained multi-range moves', () => {
         const base = createRangePageSelection(12, 2, 10);
         // Includes 1 (outside base), 5 (already in base), 6 (also excluded -> stays excluded), 12 (outside base).
-        const exceptions = createExceptionPageSelection(base, [
-            1,
-            5,
-            6,
-            12,
-        ], [
-            3,
-            6,
-            9,
-        ]);
-        const expectedExceptionPages = [
-            1,
-            2,
-            4,
-            5,
-            7,
-            8,
-            10,
-            12,
-        ];
+        const exceptions = createExceptionPageSelection(base, [1, 5, 6, 12], [3, 6, 9]);
+        const expectedExceptionPages = [1, 2, 4, 5, 7, 8, 10, 12];
         expect([...iteratePageSelection(exceptions)]).toEqual(expectedExceptionPages);
         expect([...iteratePageSelectionRanges(exceptions)]).toEqual([
             {
@@ -403,33 +305,36 @@ describe('page number contracts', () => {
             expect(isPageSelected(exceptions, page)).toBe(expectedExceptionPages.includes(page));
         }
 
-        const move1 = createPageMoveRanges(12, [
-            {
-                startPage: 2,
-                endPage: 3,
-            },
-            {
-                startPage: 8,
-                endPage: 9,
-            },
-        ], 12);
-        const move2 = createPageMoveRanges(12, [
-            {
-                startPage: 1,
-                endPage: 1,
-            },
-            {
-                startPage: 5,
-                endPage: 6,
-            },
-        ], 0);
+        const move1 = createPageMoveRanges(
+            12,
+            [
+                {
+                    startPage: 2,
+                    endPage: 3,
+                },
+                {
+                    startPage: 8,
+                    endPage: 9,
+                },
+            ],
+            12,
+        );
+        const move2 = createPageMoveRanges(
+            12,
+            [
+                {
+                    startPage: 1,
+                    endPage: 1,
+                },
+                {
+                    startPage: 5,
+                    endPage: 6,
+                },
+            ],
+            0,
+        );
         const mappedComplement = createMappedPageSelection(
-            createMappedPageSelection(createComplementPageSelection(12, [
-                2,
-                4,
-                7,
-                11,
-            ]), move1),
+            createMappedPageSelection(createComplementPageSelection(12, [2, 4, 7, 11]), move1),
             move2,
         );
         const mappedPages = [...iteratePageSelection(mappedComplement)];
@@ -458,20 +363,20 @@ describe('page number contracts', () => {
             }
         }
 
-        const exceptionSelection = createExceptionPageSelection(
-            createAllPageSelection(pageCount),
-            [],
-            evenPages,
-        );
+        const exceptionSelection = createExceptionPageSelection(createAllPageSelection(pageCount), [], evenPages);
         const moveRanges = Array.from({length: 1_500}, (_, index) => ({
             startPage: index * 4 + 1,
             endPage: index * 4 + 1,
         }));
         const firstMove = createPageMoveRanges(pageCount, moveRanges, pageCount);
-        const secondMove = createPageMoveRanges(pageCount, moveRanges.map(segment => ({
-            startPage: segment.startPage + 2,
-            endPage: segment.endPage + 2,
-        })), 0);
+        const secondMove = createPageMoveRanges(
+            pageCount,
+            moveRanges.map((segment) => ({
+                startPage: segment.startPage + 2,
+                endPage: segment.endPage + 2,
+            })),
+            0,
+        );
         const mappedExplicit = createMappedPageSelection(
             createMappedPageSelection(createExplicitPageSelection(pageCount, oddPages), firstMove),
             secondMove,
@@ -495,17 +400,10 @@ describe('page number contracts', () => {
         const rawComplement = {
             kind: 'complement' as const,
             pageCount: 5,
-            excludedPages: [
-                4,
-                2,
-            ],
+            excludedPages: [4, 2],
         };
 
-        expect([...iteratePageSelection(rawComplement)]).toEqual([
-            1,
-            3,
-            5,
-        ]);
+        expect([...iteratePageSelection(rawComplement)]).toEqual([1, 3, 5]);
         expect([...iteratePageSelectionRanges(rawComplement)]).toEqual([
             {
                 startPage: 1,
@@ -528,15 +426,13 @@ describe('page number contracts', () => {
 
         // Mutating the public excludedPages array in place must not observe stale cached results.
         rawComplement.excludedPages[0] = 1;
-        expect([...iteratePageSelection(rawComplement)]).toEqual([
-            3,
-            4,
-            5,
+        expect([...iteratePageSelection(rawComplement)]).toEqual([3, 4, 5]);
+        expect([...iteratePageSelectionRanges(rawComplement)]).toEqual([
+            {
+                startPage: 3,
+                endPage: 5,
+            },
         ]);
-        expect([...iteratePageSelectionRanges(rawComplement)]).toEqual([{
-            startPage: 3,
-            endPage: 5,
-        }]);
         expect(isPageSelected(rawComplement, 1)).toBe(false);
         expect(isPageSelected(rawComplement, 2)).toBe(false);
         expect(isPageSelected(rawComplement, 3)).toBe(true);

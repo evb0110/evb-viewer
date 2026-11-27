@@ -1,19 +1,10 @@
-import { getErrorMessage } from '@contracts/getErrorMessage';
-import {
-    spawn,
-    type ChildProcess,
-} from 'node:child_process';
-import {
-    existsSync,
-    mkdirSync,
-} from 'node:fs';
-import { join } from 'node:path';
-import type {
-    Browser,
-    Page,
-} from 'puppeteer-core';
-import { delay } from 'es-toolkit/promise';
-import { safeJsonParse } from '@contracts/safeJsonParse';
+import {getErrorMessage} from '@contracts/getErrorMessage';
+import {spawn, type ChildProcess} from 'node:child_process';
+import {existsSync, mkdirSync} from 'node:fs';
+import {join} from 'node:path';
+import type {Browser, Page} from 'puppeteer-core';
+import {delay} from 'es-toolkit/promise';
+import {safeJsonParse} from '@contracts/safeJsonParse';
 import {
     buildElectronAutomationArgs,
     buildElectronExecutablePath,
@@ -25,28 +16,20 @@ import {
     shouldBootstrapInteractiveDevProfile,
     shouldUseMacOSHiddenAppLauncher,
 } from '@scripts/electron-run/electronRunLaunchConfig';
-import { getNuxtPort } from '@scripts/electron-run/electronRunPortConfig';
-import { getActiveDevServerOutputTee } from '@scripts/electron-run/devServerOutputTee';
-import {
-    ELECTRON_SERVER_PATH,
-    startNuxtServer,
-} from '@scripts/electron-run/electronRunNuxtServer';
-import {
-    findFreePort,
-    isProcessAlive,
-    killProcessTrees,
-    killSpawnedProcessTree,
-} from '@scripts/electron-run/electronRunProcessTree';
-import { findSessionOwnedElectronPids } from '@scripts/electron-run/electronRunProcessIdentity';
-import { formatElectronStartupDiagnostics } from '@scripts/electron-run/electronRunStartupDiagnostics';
-import { projectRoot } from '@scripts/electron-run/projectRoot';
+import {getNuxtPort} from '@scripts/electron-run/electronRunPortConfig';
+import {getActiveDevServerOutputTee} from '@scripts/electron-run/devServerOutputTee';
+import {ELECTRON_SERVER_PATH, startNuxtServer} from '@scripts/electron-run/electronRunNuxtServer';
+import {findFreePort, isProcessAlive, killProcessTrees, killSpawnedProcessTree} from '@scripts/electron-run/electronRunProcessTree';
+import {findSessionOwnedElectronPids} from '@scripts/electron-run/electronRunProcessIdentity';
+import {formatElectronStartupDiagnostics} from '@scripts/electron-run/electronRunStartupDiagnostics';
+import {projectRoot} from '@scripts/electron-run/projectRoot';
 import {
     createElectronOutputRecordStream,
     logLauncher,
     printTerminalLogRecord,
     resolveTerminalLogLevel,
 } from '@scripts/electron-run/terminalLog';
-import { recordSessionStartingAttempt } from '@scripts/electron-run/electronRunSessionArtifacts';
+import {recordSessionStartingAttempt} from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
     electronAppStatePath,
     electronUserDataPath,
@@ -54,11 +37,7 @@ import {
     sessionDir,
     resolveAutomationFileLogDir,
 } from '@scripts/electron-run/electronRunSessionPaths';
-import {
-    connectToBrowser,
-    isRendererReadinessError,
-    isViteOptimizeDepError,
-} from '@scripts/electron-run/rendererReadiness';
+import {connectToBrowser, isRendererReadinessError, isViteOptimizeDepError} from '@scripts/electron-run/rendererReadiness';
 
 const ELECTRON_START_TIMEOUT_MS = 45_000;
 const ELECTRON_LAUNCH_ATTEMPTS = 3;
@@ -90,7 +69,7 @@ function createElectronStartupLog() {
 
             const lines = chunk
                 .split(/\r?\n/)
-                .map(line => line.trim())
+                .map((line) => line.trim())
                 .filter(Boolean);
             for (const line of lines) {
                 startupLogLines.push(`[${stream}] ${line}`);
@@ -99,20 +78,18 @@ function createElectronStartupLog() {
                 startupLogLines.splice(0, startupLogLines.length - ELECTRON_STARTUP_LOG_MAX_LINES);
             }
         },
-        formatFailure(reason: string, details: {
-            code: number | null;
-            signal: NodeJS.Signals | null
-        }) {
-            const tail = startupLogLines
-                .slice(-ELECTRON_STARTUP_LOG_TAIL_LINES)
-                .join('\n')
-                .trim();
+        formatFailure(
+            reason: string,
+            details: {
+                code: number | null;
+                signal: NodeJS.Signals | null;
+            },
+        ) {
+            const tail = startupLogLines.slice(-ELECTRON_STARTUP_LOG_TAIL_LINES).join('\n').trim();
             const exitInfo = `code=${details.code ?? 'null'}, signal=${details.signal ?? 'null'}`;
-            const baseMessage = tail
-                ? `${reason} (${exitInfo})\n--- Electron output tail ---\n${tail}`
-                : `${reason} (${exitInfo})`;
+            const baseMessage = tail ? `${reason} (${exitInfo})\n--- Electron output tail ---\n${tail}` : `${reason} (${exitInfo})`;
             const includeMacOSLog = details.signal === 'SIGKILL';
-            return `${baseMessage}\n${formatElectronStartupDiagnostics({ includeMacOSLog })}`;
+            return `${baseMessage}\n${formatElectronStartupDiagnostics({includeMacOSLog})}`;
         },
     };
 }
@@ -170,29 +147,24 @@ function buildElectronLaunchPlan(cdpPort: number, mainJs: string, initialOpenPat
         destinationRoot: join(sessionDir(), 'automation-electron-app-entry'),
         mainJs,
     }).appPath;
-    const {
-        electronRuntimeEnv,
-        electronArgs,
-    } = buildElectronRuntimeEnv(cdpPort, automationAppEntryPath, initialOpenPaths);
+    const {electronRuntimeEnv, electronArgs} = buildElectronRuntimeEnv(cdpPort, automationAppEntryPath, initialOpenPaths);
     const electronPath = buildElectronExecutablePath();
     const electronAppPath = join(projectRoot, 'node_modules', 'electron', 'dist', 'Electron.app');
-    const launchViaHiddenMacApp = shouldUseMacOSHiddenAppLauncher(electronRuntimeEnv)
-        && existsSync(electronAppPath);
+    const launchViaHiddenMacApp = shouldUseMacOSHiddenAppLauncher(electronRuntimeEnv) && existsSync(electronAppPath);
     if (!launchViaHiddenMacApp && !existsSync(electronPath)) {
         throw new Error(
-            `Electron executable not found at ${electronPath}. `
-            + 'Ensure pnpm install completed Electron binary download successfully.',
+            `Electron executable not found at ${electronPath}. ` + 'Ensure pnpm install completed Electron binary download successfully.',
         );
     }
-    const hiddenAutomationBundlePaths = launchViaHiddenMacApp
-        ? prepareSharedMacOSHiddenAppBundle({ sourceAppPath: electronAppPath })
-        : null;
+    const hiddenAutomationBundlePaths = launchViaHiddenMacApp ? prepareSharedMacOSHiddenAppBundle({sourceAppPath: electronAppPath}) : null;
     if (hiddenAutomationBundlePaths && hiddenAutomationBundlePaths.removedStaleBundleDirs.length > 0) {
-        logLauncher('info', 'launcher', `Removed ${hiddenAutomationBundlePaths.removedStaleBundleDirs.length} stale hidden Electron bundle dir(s).`);
+        logLauncher(
+            'info',
+            'launcher',
+            `Removed ${hiddenAutomationBundlePaths.removedStaleBundleDirs.length} stale hidden Electron bundle dir(s).`,
+        );
     }
-    const launchCommand = launchViaHiddenMacApp
-        ? hiddenAutomationBundlePaths!.executablePath
-        : electronPath;
+    const launchCommand = launchViaHiddenMacApp ? hiddenAutomationBundlePaths!.executablePath : electronPath;
 
     return {
         launchCommand,
@@ -207,23 +179,15 @@ function spawnElectronProcess(
     startupLog: ReturnType<typeof createElectronStartupLog>,
     initialOpenPaths: string[] = [],
 ) {
-    const {
-        launchCommand,
-        launchArgs,
-        electronRuntimeEnv,
-    } = buildElectronLaunchPlan(cdpPort, mainJs, initialOpenPaths);
+    const {launchCommand, launchArgs, electronRuntimeEnv} = buildElectronLaunchPlan(cdpPort, mainJs, initialOpenPaths);
     const electron = spawn(launchCommand, launchArgs, {
         cwd: projectRoot,
-        stdio: [
-            'ignore',
-            'pipe',
-            'pipe',
-        ],
+        stdio: ['ignore', 'pipe', 'pipe'],
         env: sanitizeElectronLaunchEnv(electronRuntimeEnv),
     });
 
     const terminalLevel = resolveTerminalLogLevel(process.env);
-    const records = createElectronOutputRecordStream(record => printTerminalLogRecord(record, terminalLevel));
+    const records = createElectronOutputRecordStream((record) => printTerminalLogRecord(record, terminalLevel));
     const onElectronOutput = (stream: 'stdout' | 'stderr', data: Buffer) => {
         // Raw output stays in the run directory only; the session log gets
         // the formatted terminal line instead.
@@ -241,15 +205,16 @@ function spawnElectronProcess(
     return electron;
 }
 
-function hasElectronExited(electron: ChildProcess, exitDetails: {
-    code: number | null;
-    signal: NodeJS.Signals | null;
-}) {
+function hasElectronExited(
+    electron: ChildProcess,
+    exitDetails: {
+        code: number | null;
+        signal: NodeJS.Signals | null;
+    },
+) {
     const electronPid = electron.pid ?? null;
     const hasKnownPid = typeof electronPid === 'number' && electronPid > 0;
-    return exitDetails.code !== null
-        || exitDetails.signal !== null
-        || (hasKnownPid && !isProcessAlive(electronPid));
+    return exitDetails.code !== null || exitDetails.signal !== null || (hasKnownPid && !isProcessAlive(electronPid));
 }
 
 async function waitForElectronCdp(
@@ -287,7 +252,7 @@ async function startElectron(cdpPort: number, initialOpenPaths: string[] = []): 
     }
 
     logLauncher('info', 'electron', 'Starting Electron', {cdpPort});
-    mkdirSync(sessionDir(), { recursive: true });
+    mkdirSync(sessionDir(), {recursive: true});
 
     const startupLog = createElectronStartupLog();
     const electron = spawnElectronProcess(cdpPort, mainJs, startupLog, initialOpenPaths);
@@ -317,7 +282,9 @@ async function startElectron(cdpPort: number, initialOpenPaths: string[] = []): 
 export async function allocateAutomationPorts(logTiming: (message: string) => void) {
     const serverPort = await findFreePort();
     let cdpPort = await findFreePort();
-    while (cdpPort === serverPort) cdpPort = await findFreePort();
+    while (cdpPort === serverPort) {
+        cdpPort = await findFreePort();
+    }
     const ports = {
         serverPort,
         cdpPort,
@@ -344,9 +311,7 @@ interface IAutomationLaunchResult {
 }
 
 export function normalizeInitialOpenPaths(paths: string[] | undefined) {
-    return (paths ?? [])
-        .map(path => path.trim())
-        .filter(Boolean);
+    return (paths ?? []).map((path) => path.trim()).filter(Boolean);
 }
 
 export function readInitialOpenPathsFromEnv(env: NodeJS.ProcessEnv = process.env) {
@@ -380,7 +345,11 @@ export async function launchAutomationSessionWithRecovery(options: {
     for (let attempt = 0; attempt < ELECTRON_LAUNCH_ATTEMPTS; attempt += 1) {
         if (attempt > 0) {
             cdpPort = await findFreePort();
-            logLauncher('warn', 'recovery', `Retrying launch (attempt ${attempt + 1}/${ELECTRON_LAUNCH_ATTEMPTS}) with CDP port ${cdpPort}`);
+            logLauncher(
+                'warn',
+                'recovery',
+                `Retrying launch (attempt ${attempt + 1}/${ELECTRON_LAUNCH_ATTEMPTS}) with CDP port ${cdpPort}`,
+            );
         }
 
         let electronProcess: ChildProcess | null = null;
@@ -397,10 +366,7 @@ export async function launchAutomationSessionWithRecovery(options: {
                 recordSessionStartingAttempt({electronPids: [electronProcess.pid]});
             }
             options.logTiming('Electron process/CDP ready');
-            const {
-                browser,
-                page,
-            } = await connectToBrowser(cdpPort);
+            const {browser, page} = await connectToBrowser(cdpPort);
             options.logTiming('Browser automation attached');
             return {
                 electronProcess,
@@ -426,7 +392,9 @@ export async function launchAutomationSessionWithRecovery(options: {
 
             if (attempt === 0 && isViteOptimizeDepError(error)) {
                 if (options.otherRunning.length > 0) {
-                    throw new Error(`Detected Vite optimize-dep failure, but other sessions are active (${options.otherRunning.join(', ')}). Stop them and run cleanstart.`);
+                    throw new Error(
+                        `Detected Vite optimize-dep failure, but other sessions are active (${options.otherRunning.join(', ')}). Stop them and run cleanstart.`,
+                    );
                 }
                 logLauncher('warn', 'recovery', 'Detected Vite optimize-dep issue. Restarting Nuxt with cleared cache...');
                 nuxtProcess = await startNuxtServer(true);

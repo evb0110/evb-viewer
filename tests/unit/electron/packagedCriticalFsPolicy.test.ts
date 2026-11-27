@@ -1,9 +1,5 @@
-import { readFile } from 'node:fs/promises';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {readFile} from 'node:fs/promises';
+import {describe, expect, it} from 'vitest';
 
 // ADR 0001: packaged Windows Electron's ASAR fs shim mishandles fs.promises
 // metadata calls (lstat/realpath/stat), rejecting valid working-copy paths
@@ -17,23 +13,20 @@ const PACKAGED_CRITICAL_FILES = [
     'electron/features/documents/main/documentFileReadHandlers.ts',
 ];
 
-const FORBIDDEN_PROMISE_METADATA_IMPORTS = [
-    'lstat',
-    'realpath',
-    'stat',
-    'access',
-];
+const FORBIDDEN_PROMISE_METADATA_IMPORTS = ['lstat', 'realpath', 'stat', 'access'];
 
 function fsPromisesImportBlocks(source: string) {
-    return [...source.matchAll(/import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*["'](?:node:)?fs\/promises["']/gu)]
-        .map(match => match[1] ?? '');
+    return [...source.matchAll(/import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*["'](?:node:)?fs\/promises["']/gu)].map(
+        (match) => match[1] ?? '',
+    );
 }
 
 // A namespace or default import would let metadata calls hide behind a
 // prefix (fsp.lstat), so only named-brace imports are allowed at all.
 function hasNonBraceFsPromisesImport(source: string) {
-    return [...source.matchAll(/import\s+([^;]*?)from\s*["'](?:node:)?fs\/promises["']/gu)]
-        .some(match => !(match[1] ?? '').trimEnd().endsWith('}'));
+    return [...source.matchAll(/import\s+([^;]*?)from\s*["'](?:node:)?fs\/promises["']/gu)].some(
+        (match) => !(match[1] ?? '').trimEnd().endsWith('}'),
+    );
 }
 
 describe('packaged-critical fs policy (ADR 0001)', () => {
@@ -44,10 +37,15 @@ describe('packaged-critical fs policy (ADR 0001)', () => {
             for (const importBlock of fsPromisesImportBlocks(source)) {
                 const importedNames = importBlock
                     .split(',')
-                    .map(name => name.trim().split(/\s+as\s+/u)[0]?.trim() ?? '')
+                    .map(
+                        (name) =>
+                            name
+                                .trim()
+                                .split(/\s+as\s+/u)[0]
+                                ?.trim() ?? '',
+                    )
                     .filter(Boolean);
-                const forbidden = importedNames.filter(name =>
-                    FORBIDDEN_PROMISE_METADATA_IMPORTS.includes(name));
+                const forbidden = importedNames.filter((name) => FORBIDDEN_PROMISE_METADATA_IMPORTS.includes(name));
                 expect(forbidden, `${filePath} imports fs.promises metadata functions`).toEqual([]);
             }
         });

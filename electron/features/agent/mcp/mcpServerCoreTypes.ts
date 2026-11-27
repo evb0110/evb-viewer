@@ -1,7 +1,4 @@
-import type {
-    IAgentWorkspaceSnapshot,
-    TAgentCommand,
-} from '@contracts/agent';
+import type {IAgentWorkspaceSnapshot, TAgentCommand} from '@contracts/agent';
 import type {
     IAgentDocumentPageReadOptions,
     IAgentDocumentSearchOptions,

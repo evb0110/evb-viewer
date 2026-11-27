@@ -16,36 +16,41 @@ import {
     type TFeatureEventMap,
     type TFeatureInvokeMap,
 } from '@contracts/platformFeature';
-import {
-    decodeWorkspaceCheckpoint,
-    type IWorkspaceCheckpoint,
-    workspaceAnnotationRecoverySchema,
-} from '@contracts/workspaceCheckpoint';
+import {decodeWorkspaceCheckpoint, type IWorkspaceCheckpoint, workspaceAnnotationRecoverySchema} from '@contracts/workspaceCheckpoint';
 import * as v from 'valibot';
 
 const noArgs = v.strictTuple([]);
-const voidResult = v.pipe(v.undefined('expected an undefined IPC result'), v.transform((): void => undefined));
+const voidResult = v.pipe(
+    v.undefined('expected an undefined IPC result'),
+    v.transform((): void => undefined),
+);
 const checkpointDiscardToken = v.pipe(
     v.string('invalid workspace checkpoint discard token'),
     v.regex(/^\d+$/u, 'invalid workspace checkpoint discard token'),
 );
-const workspaceCheckpoint = v.pipe(v.unknown(), v.transform((value) => {
-    const decoded = decodeWorkspaceCheckpoint(value);
-    if (!decoded) {
-        throw new Error('invalid workspace checkpoint');
-    }
-    return decoded;
-}));
-const nullableWorkspaceCheckpoint = v.pipe(v.unknown(), v.transform((value): IWorkspaceCheckpoint | null => {
-    if (value === null) {
-        return null;
-    }
-    const decoded = decodeWorkspaceCheckpoint(value);
-    if (!decoded) {
-        throw new Error('invalid workspace checkpoint');
-    }
-    return decoded;
-}));
+const workspaceCheckpoint = v.pipe(
+    v.unknown(),
+    v.transform((value) => {
+        const decoded = decodeWorkspaceCheckpoint(value);
+        if (!decoded) {
+            throw new Error('invalid workspace checkpoint');
+        }
+        return decoded;
+    }),
+);
+const nullableWorkspaceCheckpoint = v.pipe(
+    v.unknown(),
+    v.transform((value): IWorkspaceCheckpoint | null => {
+        if (value === null) {
+            return null;
+        }
+        const decoded = decodeWorkspaceCheckpoint(value);
+        if (!decoded) {
+            throw new Error('invalid workspace checkpoint');
+        }
+        return decoded;
+    }),
+);
 
 export const WINDOW_TABS_PLATFORM_FEATURE = definePlatformFeature({
     path: ['windowTabs'],
@@ -200,10 +205,12 @@ const rendererStartupPhaseSchema = v.variant('phase', [
 ]);
 export type TRendererReportedStartupPhase = v.InferOutput<typeof rendererStartupPhaseSchema>;
 /** A window's startup phase; main adds the failures only it can observe. */
-export type TRendererStartupPhase = TRendererReportedStartupPhase | {
-    phase: 'failed';
-    reason: 'load-failed' | 'renderer-gone' | 'timed-out';
-};
+export type TRendererStartupPhase =
+    | TRendererReportedStartupPhase
+    | {
+          phase: 'failed';
+          reason: 'load-failed' | 'renderer-gone' | 'timed-out';
+      };
 export type TRendererStartupFailure = Extract<TRendererStartupPhase, {phase: 'failed'}>;
 export type TRendererStartupFailureReason = TRendererStartupFailure['reason'];
 
@@ -219,13 +226,8 @@ interface IWindowTabsLifecycleCapability {
 
 export type IWindowTabsApi = Pick<
     TFeatureCapability<typeof WINDOW_TABS_PLATFORM_FEATURE>,
-    | 'transfer'
-    | 'transferAck'
-    | 'listTargetWindows'
-    | 'onIncomingTransfer'
-    | 'onWindowAction'
+    'transfer' | 'transferAck' | 'listTargetWindows' | 'onIncomingTransfer' | 'onWindowAction'
 >;
-export type IWindowTabsCapability =
-    TFeatureCapability<typeof WINDOW_TABS_PLATFORM_FEATURE> & IWindowTabsLifecycleCapability;
+export type IWindowTabsCapability = TFeatureCapability<typeof WINDOW_TABS_PLATFORM_FEATURE> & IWindowTabsLifecycleCapability;
 export type IWindowTabsInvokeMap = TFeatureInvokeMap<typeof WINDOW_TABS_PLATFORM_FEATURE>;
 export type IWindowTabsEventMap = TFeatureEventMap<typeof WINDOW_TABS_PLATFORM_FEATURE>;

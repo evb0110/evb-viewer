@@ -1,4 +1,4 @@
-import type { IDocxExportFileCapability } from '@contracts/docxExport';
+import type {IDocxExportFileCapability} from '@contracts/docxExport';
 import type {
     IDocumentsFileIoCapability,
     IDocumentsMenuCapability,
@@ -16,15 +16,15 @@ import type {
     DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
     DOCUMENT_WINDOW_PLATFORM_FEATURE,
 } from '@contracts/documentsPlatformFeature';
-import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
-import type { IImageExportCapability } from '@contracts/imageExportPlatformFeature';
-import type { IPageOpsCapability } from '@contracts/pageOpsPlatformFeature';
+import type {TFeatureBrowserBindings} from '@contracts/platformFeature';
+import type {IImageExportCapability} from '@contracts/imageExportPlatformFeature';
+import type {IPageOpsCapability} from '@contracts/pageOpsPlatformFeature';
 import {
     OPEN_PDF_IMAGE_ACCEPT,
     buildOpenPdfImagePickerTypes,
     configureBrowserFilePickerDescriptions,
 } from '@app/platform/browser-api/browserFileAccepts';
-import type { TBrowserFilePickerDescriptionKey } from '@app/platform/browser-api/browserFileAccepts';
+import type {TBrowserFilePickerDescriptionKey} from '@app/platform/browser-api/browserFileAccepts';
 import {
     createBrowserCombinedPdfFromPaths,
     createBrowserDocumentsFileCapability,
@@ -36,18 +36,11 @@ import {
     saveBytesToPickerOrDownload,
     writeBytesToHandle,
 } from '@app/platform/browser-api/browserFilePickerAdapter';
-import { createBrowserImageExportCapability } from '@app/platform/browser-api/createBrowserImageExportCapability';
-import {
-    browserDocumentsMenuCapability,
-    onBrowserOpenDocumentDirectBatchProgress,
-} from '@app/platform/browser-api/documentsMenuCapability';
-import { createBrowserPageOpsCapability } from '@app/platform/browser-api/createBrowserPageOpsCapability';
-import { repairBrowserWorkingCopy } from '@app/platform/browser-api/browserWorkingCopyService';
-import type {
-    TLocale,
-    TTranslateFn,
-    TTranslationKey,
-} from '@i18n-app';
+import {createBrowserImageExportCapability} from '@app/platform/browser-api/createBrowserImageExportCapability';
+import {browserDocumentsMenuCapability, onBrowserOpenDocumentDirectBatchProgress} from '@app/platform/browser-api/documentsMenuCapability';
+import {createBrowserPageOpsCapability} from '@app/platform/browser-api/createBrowserPageOpsCapability';
+import {repairBrowserWorkingCopy} from '@app/platform/browser-api/browserWorkingCopyService';
+import type {TLocale, TTranslateFn, TTranslationKey} from '@i18n-app';
 import {
     DEFAULT_LOCALE,
     formatTranslationLeaf,
@@ -57,10 +50,12 @@ import {
     normalizeTranslationParams,
     resolveLocale,
 } from '@i18n-core';
-import { safeDecodeURIComponent } from '@app/utils/browserSafe';
-import type { TDocumentRef } from '@contracts/documentRef';
+import {safeDecodeURIComponent} from '@app/utils/browserSafe';
+import type {TDocumentRef} from '@contracts/documentRef';
 
-interface ICreateBrowserDocumentsCapabilityOptions {clearSearchCaches: (pdfPath?: string) => void | Promise<void>;}
+interface ICreateBrowserDocumentsCapabilityOptions {
+    clearSearchCaches: (pdfPath?: string) => void | Promise<void>;
+}
 
 export interface IBrowserDocumentCapabilities {
     documentPicker: IDocumentsPickerCapability;
@@ -76,12 +71,8 @@ export interface IBrowserDocumentCapabilities {
 }
 
 function getBrowserLocale(): TLocale {
-    const cookieMatch = typeof document !== 'undefined'
-        ? document.cookie.match(/(?:^|;\s*)i18n_redirected=([^;]+)/u)
-        : null;
-    const cookieLocale = cookieMatch?.[1]
-        ? safeDecodeURIComponent(cookieMatch[1])
-        : null;
+    const cookieMatch = typeof document !== 'undefined' ? document.cookie.match(/(?:^|;\s*)i18n_redirected=([^;]+)/u) : null;
+    const cookieLocale = cookieMatch?.[1] ? safeDecodeURIComponent(cookieMatch[1]) : null;
 
     if (cookieLocale) {
         if (isSupportedLocale(cookieLocale)) {
@@ -89,9 +80,7 @@ function getBrowserLocale(): TLocale {
         }
     }
 
-    return typeof navigator !== 'undefined'
-        ? resolveLocale(navigator.language)
-        : DEFAULT_LOCALE;
+    return typeof navigator !== 'undefined' ? resolveLocale(navigator.language) : DEFAULT_LOCALE;
 }
 
 // Read messages from the already-loaded vue-i18n composer so resolving this capability
@@ -101,9 +90,9 @@ const translateBrowserMessage: TTranslateFn = (key, ...args) => {
     const locale = getBrowserLocale();
     const composer: unknown = tryUseNuxtApp()?.$i18n;
     const leaf = isLocaleMessageSource(composer)
-        ? getNestedTranslationLeaf(composer.getLocaleMessage(locale), key)
-            ?? getNestedTranslationLeaf(composer.getLocaleMessage(DEFAULT_LOCALE), key)
-            ?? key
+        ? (getNestedTranslationLeaf(composer.getLocaleMessage(locale), key) ??
+          getNestedTranslationLeaf(composer.getLocaleMessage(DEFAULT_LOCALE), key) ??
+          key)
         : key;
 
     return formatTranslationLeaf(leaf, params, locale);
@@ -119,16 +108,12 @@ const BROWSER_FILE_PICKER_DESCRIPTION_MESSAGE_KEYS = {
     tiffImages: 'browser.filePicker.tiffImages',
 } as const satisfies Record<TBrowserFilePickerDescriptionKey, TTranslationKey>;
 
-export function createBrowserDocumentsCapability(
-    options: ICreateBrowserDocumentsCapabilityOptions,
-): IBrowserDocumentCapabilities {
+export function createBrowserDocumentsCapability(options: ICreateBrowserDocumentsCapabilityOptions): IBrowserDocumentCapabilities {
     const errorMessageProvider = {
         saveExtensionMismatch: (extensions: string) => translateBrowserMessage('errors.browser.saveExtensionMismatch', {extensions}),
     };
     configureBrowserFilePickerMessages(errorMessageProvider);
-    configureBrowserFilePickerDescriptions((key) =>
-        translateBrowserMessage(BROWSER_FILE_PICKER_DESCRIPTION_MESSAGE_KEYS[key]),
-    );
+    configureBrowserFilePickerDescriptions((key) => translateBrowserMessage(BROWSER_FILE_PICKER_DESCRIPTION_MESSAGE_KEYS[key]));
     const fileCapability = createBrowserDocumentsFileCapability(options);
     const imageExportCapability = createBrowserImageExportCapability();
     const pageOpsCapability = createBrowserPageOpsCapability({
@@ -150,14 +135,12 @@ export function createBrowserDocumentsCapability(
         getPathsForFiles: fileCapability.getPathsForFiles,
         registerFilesForOpen: fileCapability.registerFilesForOpen,
         createCombinedPdfFromFiles: fileCapability.createCombinedPdfFromFiles!,
-    } satisfies IDocumentsPickerCapability
-        & TFeatureBrowserBindings<typeof DOCUMENT_PICKER_PLATFORM_FEATURE>;
+    } satisfies IDocumentsPickerCapability & TFeatureBrowserBindings<typeof DOCUMENT_PICKER_PLATFORM_FEATURE>;
     const documentOpen = {
         openDocumentDirect: fileCapability.openDocumentDirect,
         openDocumentDirectBatch: fileCapability.openDocumentDirectBatch,
         onOpenDocumentDirectBatchProgress: onBrowserOpenDocumentDirectBatchProgress,
-    } satisfies IDocumentsOpenCapability
-        & TFeatureBrowserBindings<typeof DOCUMENT_OPEN_PLATFORM_FEATURE>;
+    } satisfies IDocumentsOpenCapability & TFeatureBrowserBindings<typeof DOCUMENT_OPEN_PLATFORM_FEATURE>;
     const documentWorkingCopy = {
         createWorkingCopyFromData: fileCapability.createWorkingCopyFromData,
         createWorkingCopyFromPath: fileCapability.createWorkingCopyFromPath,
@@ -167,24 +150,16 @@ export function createBrowserDocumentsCapability(
         cleanupFile: fileCapability.cleanupFile,
     } satisfies IDocumentsWorkingCopyCapability;
     const optionalDocumentFileMethods = {
-        ...(fileCapability.getPdfNativePageSizes
-            ? {getPdfNativePageSizes: fileCapability.getPdfNativePageSizes}
-            : {}),
-        ...(fileCapability.createManagedTempFileHandle
-            ? {createManagedTempFileHandle: fileCapability.createManagedTempFileHandle}
-            : {}),
-        ...(fileCapability.releaseManagedTempFileHandle
-            ? {releaseManagedTempFileHandle: fileCapability.releaseManagedTempFileHandle}
-            : {}),
+        ...(fileCapability.getPdfNativePageSizes ? {getPdfNativePageSizes: fileCapability.getPdfNativePageSizes} : {}),
+        ...(fileCapability.createManagedTempFileHandle ? {createManagedTempFileHandle: fileCapability.createManagedTempFileHandle} : {}),
+        ...(fileCapability.releaseManagedTempFileHandle ? {releaseManagedTempFileHandle: fileCapability.releaseManagedTempFileHandle} : {}),
         ...(fileCapability.cloneStagedPdfNativeMutationToWorkingCopy
             ? {cloneStagedPdfNativeMutationToWorkingCopy: fileCapability.cloneStagedPdfNativeMutationToWorkingCopy}
             : {}),
         ...(fileCapability.repairPdf ? {repairPdf: fileCapability.repairPdf} : {}),
         ...(fileCapability.optimizePdfForInteraction ? {optimizePdfForInteraction: fileCapability.optimizePdfForInteraction} : {}),
         ...(fileCapability.optimizePdfAsCopy ? {optimizePdfAsCopy: fileCapability.optimizePdfAsCopy} : {}),
-        ...(fileCapability.prepareOptimizePdfAsCopy
-            ? {prepareOptimizePdfAsCopy: fileCapability.prepareOptimizePdfAsCopy}
-            : {}),
+        ...(fileCapability.prepareOptimizePdfAsCopy ? {prepareOptimizePdfAsCopy: fileCapability.prepareOptimizePdfAsCopy} : {}),
         ...(fileCapability.applyPdfNativeMutationsToWorkingCopy
             ? {applyPdfNativeMutationsToWorkingCopy: fileCapability.applyPdfNativeMutationsToWorkingCopy}
             : {}),
@@ -234,8 +209,7 @@ export function createBrowserDocumentsCapability(
             await fileCapability.recentFiles.clear();
             return undefined;
         },
-    } satisfies
-        TFeatureBrowserBindings<typeof DOCUMENT_RECENT_FILES_PLATFORM_FEATURE>;
+    } satisfies TFeatureBrowserBindings<typeof DOCUMENT_RECENT_FILES_PLATFORM_FEATURE>;
     const documentRecentFiles = {recentFiles} satisfies IDocumentsRecentFilesCapability;
     const documentWindow = {
         setWindowTitle: async (title: string) => {
@@ -243,10 +217,9 @@ export function createBrowserDocumentsCapability(
             return undefined;
         },
         showItemInFolder: fileCapability.showItemInFolder,
-    } satisfies IDocumentsWindowCapability
-        & TFeatureBrowserBindings<typeof DOCUMENT_WINDOW_PLATFORM_FEATURE>;
-    const documentMenu = {...browserDocumentsMenuCapability} satisfies IDocumentsMenuCapability
-        & TFeatureBrowserBindings<typeof DOCUMENT_MENU_PLATFORM_FEATURE>;
+    } satisfies IDocumentsWindowCapability & TFeatureBrowserBindings<typeof DOCUMENT_WINDOW_PLATFORM_FEATURE>;
+    const documentMenu = {...browserDocumentsMenuCapability} satisfies IDocumentsMenuCapability &
+        TFeatureBrowserBindings<typeof DOCUMENT_MENU_PLATFORM_FEATURE>;
     return {
         documentPicker,
         documentOpen,

@@ -11,10 +11,7 @@ import {
     resolveScanCleanupRasterRenderLimits as resolveRasterRenderLimits,
     SCAN_CLEANUP_RASTER_MAX_PIXELS,
 } from '@evb/scan-cleanup/core/rasterValidation';
-import {
-    encodePngFromPpm,
-    readPpmDimensions,
-} from '@evb/scan-cleanup/core/rasterLayerDimensions';
+import {encodePngFromPpm, readPpmDimensions} from '@evb/scan-cleanup/core/rasterLayerDimensions';
 import {getErrorMessage} from '@electron/utils/error';
 import {createLogger} from '@electron/utils/createLogger';
 
@@ -27,10 +24,7 @@ function isPpmSignature(bytes: Uint8Array) {
     return bytes.byteLength >= 2 && bytes[0] === 0x50 && bytes[1] === 0x36;
 }
 
-async function isPpmFile(
-    path: string,
-    open: NonNullable<IScanCleanupRasterDependencies['open']>,
-) {
+async function isPpmFile(path: string, open: NonNullable<IScanCleanupRasterDependencies['open']>) {
     const handle = await open(path, 'r');
     try {
         const magic = Buffer.alloc(2);
@@ -48,19 +42,20 @@ export function logScanCleanupMessage(level: 'debug' | 'error' | 'info' | 'warn'
     logger[level](message);
 }
 
-export function closeScanCleanupPageSizeStores(
-    document: IRetainedDocument,
-    pendingClosures: Set<Promise<void>>,
-) {
+export function closeScanCleanupPageSizeStores(document: IRetainedDocument, pendingClosures: Set<Promise<void>>) {
     const stores = document.pageSizeStores;
     document.pageSizeStores = new Set();
     document.pageSizeStore = null;
     document.rasterPageSourceStore = null;
     document.rasterPageSource = null;
     document.rasterPageSourceReader = null;
-    const closing = Promise.all([...stores].map(store => store.close().catch(error => {
-        logger.warn(`Scan cleanup could not close the raster page-size store: ${getErrorMessage(error)}`);
-    }))).then(() => undefined);
+    const closing = Promise.all(
+        [...stores].map((store) =>
+            store.close().catch((error) => {
+                logger.warn(`Scan cleanup could not close the raster page-size store: ${getErrorMessage(error)}`);
+            }),
+        ),
+    ).then(() => undefined);
     pendingClosures.add(closing);
     void closing.finally(() => pendingClosures.delete(closing));
     return closing;
@@ -71,11 +66,18 @@ export function createScanCleanupPathOperationQueue() {
     const enqueue = <T>(path: string, operation: () => Promise<T>) => {
         const previous = operations.get(path) ?? Promise.resolve();
         const next = previous.catch(() => undefined).then(operation);
-        const tracked = next.then(() => undefined, () => undefined);
+        const tracked = next.then(
+            () => undefined,
+            () => undefined,
+        );
         operations.set(path, tracked);
-        void next.finally(() => {
-            if (operations.get(path) === tracked) operations.delete(path);
-        }).catch(() => undefined);
+        void next
+            .finally(() => {
+                if (operations.get(path) === tracked) {
+                    operations.delete(path);
+                }
+            })
+            .catch(() => undefined);
         return next;
     };
     enqueue.drain = async () => {
@@ -103,7 +105,7 @@ export function createScanCleanupReadLifecycle() {
     return {
         begin() {
             if (pendingCount === 0) {
-                settled = new Promise(resolve => {
+                settled = new Promise((resolve) => {
                     resolveSettled = resolve;
                 });
             }
@@ -137,12 +139,13 @@ export function createScanCleanupRasterRemovalCoordinator(input: {
     ) => Promise<void>;
 }) {
     const pendingCleanups = new Set<Promise<void>>();
-    const removeQuietly = (path: string): Promise<void> => input.removePath(path, {
-        force: true,
-        recursive: true,
-    }).catch(error => logger.warn(
-        `Failed to drop a retained scan cleanup raster: ${getErrorMessage(error)}`,
-    ));
+    const removeQuietly = (path: string): Promise<void> =>
+        input
+            .removePath(path, {
+                force: true,
+                recursive: true,
+            })
+            .catch((error) => logger.warn(`Failed to drop a retained scan cleanup raster: ${getErrorMessage(error)}`));
     const remove = (path: string) => {
         const cleanup: Promise<void> = input.enqueue(path, async () => {
             await removeQuietly(path);
@@ -152,9 +155,7 @@ export function createScanCleanupRasterRemovalCoordinator(input: {
     };
     const removeRaster = (raster: IRetainedRawRaster) => {
         void input.enqueue(raster.path, async () => {
-            if ([...input.rasters.values()].some(current => (
-                current.path === raster.path && current !== raster
-            ))) {
+            if ([...input.rasters.values()].some((current) => current.path === raster.path && current !== raster)) {
                 return;
             }
             await removeQuietly(raster.path);
@@ -173,12 +174,7 @@ export interface IScanCleanupRetainedReadOperation {
     token: symbol;
 }
 
-export function createScanCleanupRasterKey(
-    document: IRetainedDocument,
-    pageNumber: number,
-    dpi: number,
-    view?: TScanCleanupRasterView,
-) {
+export function createScanCleanupRasterKey(document: IRetainedDocument, pageNumber: number, dpi: number, view?: TScanCleanupRasterView) {
     return JSON.stringify([
         document.sourcePdfPath,
         document.documentRevision,
@@ -189,19 +185,11 @@ export function createScanCleanupRasterKey(
     ]);
 }
 
-type IRequiredRasterDependencies = IScanCleanupRasterDependencies & Required<Pick<
-    IScanCleanupRasterDependencies,
-    'fileSystem' | 'getAvailableScratchBytes' | 'getSourceStatIdentity'
->>;
+type IRequiredRasterDependencies = IScanCleanupRasterDependencies &
+    Required<Pick<IScanCleanupRasterDependencies, 'fileSystem' | 'getAvailableScratchBytes' | 'getSourceStatIdentity'>>;
 
-export function requireScanCleanupRasterDependencies(
-    dependencies: IScanCleanupRasterDependencies,
-): IRequiredRasterDependencies {
-    const {
-        fileSystem,
-        getAvailableScratchBytes,
-        getSourceStatIdentity,
-    } = dependencies;
+export function requireScanCleanupRasterDependencies(dependencies: IScanCleanupRasterDependencies): IRequiredRasterDependencies {
+    const {fileSystem, getAvailableScratchBytes, getSourceStatIdentity} = dependencies;
     if (!fileSystem || !getAvailableScratchBytes || !getSourceStatIdentity) {
         throw new Error('Scan cleanup retention requires complete injected capabilities');
     }
@@ -230,7 +218,7 @@ export async function readRetainedRaster<TValue>(input: {
     refresh: (raster: IRetainedRawRaster, value: TValue) => IRetainedRawRaster;
 }): Promise<{
     value: TValue;
-    raster: IRetainedRawRaster
+    raster: IRetainedRawRaster;
 } | null> {
     input.beginRead();
     input.rasters.delete(input.key);
@@ -243,11 +231,12 @@ export async function readRetainedRaster<TValue>(input: {
         const value = await input.load(input.raster);
         const refreshed = input.refresh(input.raster, value);
         input.adjustBytes(refreshed.sizeBytes - input.raster.sizeBytes);
-        const canRestore = input.inFlightReads.get(input.key)?.token === operation.token
-            && input.currentGeneration() === input.generation
-            && !input.document.removeWhenIdle
-            && !input.pendingRasterReleases.has(operation.token)
-            && !input.rasters.has(input.key);
+        const canRestore =
+            input.inFlightReads.get(input.key)?.token === operation.token &&
+            input.currentGeneration() === input.generation &&
+            !input.document.removeWhenIdle &&
+            !input.pendingRasterReleases.has(operation.token) &&
+            !input.rasters.has(input.key);
         if (canRestore) {
             input.rasters.set(input.key, refreshed);
             input.adopt(input.key);
@@ -255,19 +244,25 @@ export async function readRetainedRaster<TValue>(input: {
             input.adjustBytes(-refreshed.sizeBytes);
         }
         input.finishRead(input.key, operation);
-        return canRestore ? {
-            value,
-            raster: refreshed,
-        } : null;
+        return canRestore
+            ? {
+                  value,
+                  raster: refreshed,
+              }
+            : null;
     } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-            const canRestore = input.inFlightReads.get(input.key)?.token === operation.token
-                && input.currentGeneration() === input.generation
-                && !input.document.removeWhenIdle
-                && !input.pendingRasterReleases.has(operation.token)
-                && !input.rasters.has(input.key);
-            if (canRestore) input.rasters.set(input.key, input.raster);
-            else input.adjustBytes(-input.raster.sizeBytes);
+            const canRestore =
+                input.inFlightReads.get(input.key)?.token === operation.token &&
+                input.currentGeneration() === input.generation &&
+                !input.document.removeWhenIdle &&
+                !input.pendingRasterReleases.has(operation.token) &&
+                !input.rasters.has(input.key);
+            if (canRestore) {
+                input.rasters.set(input.key, input.raster);
+            } else {
+                input.adjustBytes(-input.raster.sizeBytes);
+            }
             input.finishRead(input.key, operation);
             throw error;
         }
@@ -277,10 +272,7 @@ export async function readRetainedRaster<TValue>(input: {
     }
 }
 
-export async function readPreviewBytes(
-    path: string,
-    dependencies: IScanCleanupRasterDependencies,
-): Promise<Uint8Array> {
+export async function readPreviewBytes(path: string, dependencies: IScanCleanupRasterDependencies): Promise<Uint8Array> {
     if (!dependencies.stat || !dependencies.readFile) {
         throw new Error('Scan cleanup raster I/O requires injected stat and readFile capabilities');
     }
@@ -288,7 +280,7 @@ export async function readPreviewBytes(
     if (file.size < 1) {
         throw new Error(`Scan cleanup preview image exceeds ${PREVIEW_MAX_IMAGE_BYTES} bytes`);
     }
-    if (file.size <= MAX_PREVIEW_PPM_BYTES && dependencies.open && await isPpmFile(path, dependencies.open)) {
+    if (file.size <= MAX_PREVIEW_PPM_BYTES && dependencies.open && (await isPpmFile(path, dependencies.open))) {
         try {
             const {bytes} = await encodePngFromPpm(path, {
                 maxPixels: SCAN_CLEANUP_RASTER_MAX_PIXELS,
@@ -313,10 +305,7 @@ export async function readPreviewBytes(
     return bytes;
 }
 
-export async function readPreviewMetadata(
-    path: string,
-    dependencies: IScanCleanupRasterDependencies,
-) {
+export async function readPreviewMetadata(path: string, dependencies: IScanCleanupRasterDependencies) {
     if (!dependencies.stat || !dependencies.open) {
         throw new Error('Scan cleanup raster metadata requires injected stat and open capabilities');
     }
@@ -338,9 +327,7 @@ export async function readPreviewMetadata(
     if (bytesRead >= 2 && isPpmSignature(header)) {
         const dimensions = await readPpmDimensions(path, dependencies.open);
         if (dimensions.width * dimensions.height > SCAN_CLEANUP_RASTER_MAX_PIXELS) {
-            throw new Error(
-                `Scan cleanup preview PPM dimensions ${dimensions.width}x${dimensions.height} exceed limits`,
-            );
+            throw new Error(`Scan cleanup preview PPM dimensions ${dimensions.width}x${dimensions.height} exceed limits`);
         }
         return {
             width: dimensions.width,
@@ -348,7 +335,9 @@ export async function readPreviewMetadata(
             sizeBytes: file.size,
         };
     }
-    if (bytesRead !== header.byteLength) throw new Error('Scan cleanup raster produced a truncated PNG');
+    if (bytesRead !== header.byteLength) {
+        throw new Error('Scan cleanup raster produced a truncated PNG');
+    }
     return {
         ...readPngDimensions(header, undefined, 'preview'),
         sizeBytes: file.size,
@@ -370,7 +359,7 @@ export async function renderUnretainedRawRaster(
     dpi: number,
     pageSize: IPdfPageSize | undefined,
 ) {
-    const totalPages = knownTotalPages ?? await retention.pageCount(document, signal);
+    const totalPages = knownTotalPages ?? (await retention.pageCount(document, signal));
     if (pageNumber > totalPages) {
         throw new Error('Scan cleanup preview page is out of range');
     }

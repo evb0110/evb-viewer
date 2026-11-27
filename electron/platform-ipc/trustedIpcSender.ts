@@ -1,13 +1,8 @@
-import {
-    BrowserWindow,
-    type IpcMainInvokeEvent,
-    type WebContents,
-    type WebFrameMain,
-} from 'electron';
-import { config } from '@electron/config';
-import { isTrustedRendererUrl } from '@electron/security/isTrustedRendererUrl';
-import { createLogger } from '@electron/utils/createLogger';
-import { getWindowByIdFromRegistry } from '@electron/window/registry';
+import {BrowserWindow, type IpcMainInvokeEvent, type WebContents, type WebFrameMain} from 'electron';
+import {config} from '@electron/config';
+import {isTrustedRendererUrl} from '@electron/security/isTrustedRendererUrl';
+import {createLogger} from '@electron/utils/createLogger';
+import {getWindowByIdFromRegistry} from '@electron/window/registry';
 
 const logger = createLogger('ipc');
 
@@ -15,11 +10,7 @@ function getTrustedRendererUrl() {
     return config.renderer.trustedUrl;
 }
 
-export function isTrustedWebContentsSender(
-    sender: WebContents,
-    senderFrame: WebFrameMain | null | undefined,
-    channel: string,
-) {
+export function isTrustedWebContentsSender(sender: WebContents, senderFrame: WebFrameMain | null | undefined, channel: string) {
     const sourceWindow = BrowserWindow.fromWebContents(sender);
     if (!sourceWindow || sourceWindow.isDestroyed() || sender.isDestroyed()) {
         logger.warn(`[ipc] rejected ${channel}: missing or destroyed sender window`);
@@ -55,9 +46,7 @@ export function isTrustedWebContentsSender(
             return false;
         }
 
-        logger.warn(
-            `[ipc] rejected ${channel}: untrusted sender URL ${senderDescription} (expected ${trustedUrl})`,
-        );
+        logger.warn(`[ipc] rejected ${channel}: untrusted sender URL ${senderDescription} (expected ${trustedUrl})`);
         return false;
     }
 

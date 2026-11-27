@@ -1,9 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {
     createDocumentViewportWritePort,
     observeDocumentViewportWheelInteraction,
@@ -39,10 +34,7 @@ describe('createPageSourcePagedWheelNavigation', () => {
 
         for (let packet = 0; packet < 8; packet += 1) {
             now += 220;
-            const {
-                event,
-                preventDefault,
-            } = createWheelEvent(180);
+            const {event, preventDefault} = createWheelEvent(180);
             const target = navigation.handle(event, {
                 container,
                 continuousScroll: false,
@@ -51,20 +43,13 @@ describe('createPageSourcePagedWheelNavigation', () => {
                 pageHeights: Array.from({length: 20}, () => 760),
                 viewMode: 'single',
             });
-            if (target !== null) targets.push(target);
+            if (target !== null) {
+                targets.push(target);
+            }
             expect(preventDefault).toHaveBeenCalledOnce();
         }
 
-        expect(targets).toEqual([
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-        ]);
+        expect(targets).toEqual([2, 3, 4, 5, 6, 7, 8, 9]);
         vi.restoreAllMocks();
     });
 
@@ -74,32 +59,33 @@ describe('createPageSourcePagedWheelNavigation', () => {
         const navigation = createPageSourcePagedWheelNavigation(20);
         const container = createContainer();
         container.scrollTop = 100;
-        const {
-            event: interiorEvent,
-            preventDefault,
-        } = createWheelEvent(180);
+        const {event: interiorEvent, preventDefault} = createWheelEvent(180);
 
-        expect(navigation.handle(interiorEvent, {
-            container,
-            continuousScroll: false,
-            currentPage: 4,
-            pageCount: 20,
-            pageHeights: Array.from({length: 20}, () => 1_200),
-            viewMode: 'single',
-        })).toBeNull();
+        expect(
+            navigation.handle(interiorEvent, {
+                container,
+                continuousScroll: false,
+                currentPage: 4,
+                pageCount: 20,
+                pageHeights: Array.from({length: 20}, () => 1_200),
+                viewMode: 'single',
+            }),
+        ).toBeNull();
         expect(preventDefault).not.toHaveBeenCalled();
 
         navigation.reset();
         container.scrollTop = 0;
         now += 1_000;
-        expect(navigation.handle(createWheelEvent(-180).event, {
-            container,
-            continuousScroll: false,
-            currentPage: 4,
-            pageCount: 20,
-            pageHeights: Array.from({length: 20}, () => 760),
-            viewMode: 'single',
-        })).toBe(3);
+        expect(
+            navigation.handle(createWheelEvent(-180).event, {
+                container,
+                continuousScroll: false,
+                currentPage: 4,
+                pageCount: 20,
+                pageHeights: Array.from({length: 20}, () => 760),
+                viewMode: 'single',
+            }),
+        ).toBe(3);
         vi.restoreAllMocks();
     });
 
@@ -128,25 +114,35 @@ describe('createPageSourcePagedWheelNavigation', () => {
         ];
         for (const packet of packets) {
             const preventDefault = vi.fn();
-            const target = navigation.handle({
-                ...packet,
-                cancelable: true,
-                preventDefault,
-            }, state);
-            if (target !== null) targets.push(target);
+            const target = navigation.handle(
+                {
+                    ...packet,
+                    cancelable: true,
+                    preventDefault,
+                },
+                state,
+            );
+            if (target !== null) {
+                targets.push(target);
+            }
             expect(preventDefault).toHaveBeenCalledOnce();
         }
         expect(targets).toEqual([2]);
 
         // After a quiet gap (>= 200ms), another small scroll flips to page 3.
         const nextPreventDefault = vi.fn();
-        expect(navigation.handle({
-            timeStamp: 600,
-            deltaX: 0,
-            deltaY: 36,
-            cancelable: true,
-            preventDefault: nextPreventDefault,
-        }, state)).toBe(3);
+        expect(
+            navigation.handle(
+                {
+                    timeStamp: 600,
+                    deltaX: 0,
+                    deltaY: 36,
+                    cancelable: true,
+                    preventDefault: nextPreventDefault,
+                },
+                state,
+            ),
+        ).toBe(3);
         expect(nextPreventDefault).toHaveBeenCalledOnce();
     });
 
@@ -157,21 +153,27 @@ describe('createPageSourcePagedWheelNavigation', () => {
 
         // Line mode: deltaX=2 lines, deltaY=1 line -> normalized vertical deltaPx=16.
         // Raw axis comparison must classify this as horizontal-dominant and not turn a page.
-        expect(navigation.handle({
-            cancelable: true,
-            deltaMode: 1,
-            deltaX: 2,
-            deltaY: 1,
-            timeStamp: 100,
-            preventDefault,
-        }, {
-            container,
-            continuousScroll: false,
-            currentPage: 1,
-            pageCount: 20,
-            pageHeights: Array.from({length: 20}, () => 760),
-            viewMode: 'single',
-        }, 16)).toBeNull();
+        expect(
+            navigation.handle(
+                {
+                    cancelable: true,
+                    deltaMode: 1,
+                    deltaX: 2,
+                    deltaY: 1,
+                    timeStamp: 100,
+                    preventDefault,
+                },
+                {
+                    container,
+                    continuousScroll: false,
+                    currentPage: 1,
+                    pageCount: 20,
+                    pageHeights: Array.from({length: 20}, () => 760),
+                    viewMode: 'single',
+                },
+                16,
+            ),
+        ).toBeNull();
         expect(preventDefault).not.toHaveBeenCalled();
     });
 
@@ -189,15 +191,21 @@ describe('createPageSourcePagedWheelNavigation', () => {
         const targets: number[] = [];
 
         for (let index = 0; index < 16; index += 1) {
-            const target = navigation.handle({
-                cancelable: true,
-                deltaMode: 1,
-                deltaX: 0,
-                deltaY: 1,
-                timeStamp: index * 100,
-                preventDefault: vi.fn(),
-            }, state, 16);
-            if (target !== null) targets.push(target);
+            const target = navigation.handle(
+                {
+                    cancelable: true,
+                    deltaMode: 1,
+                    deltaX: 0,
+                    deltaY: 1,
+                    timeStamp: index * 100,
+                    preventDefault: vi.fn(),
+                },
+                state,
+                16,
+            );
+            if (target !== null) {
+                targets.push(target);
+            }
         }
         expect(targets.length).toBeGreaterThanOrEqual(5);
     });
@@ -227,70 +235,110 @@ describe('createPageSourcePagedWheelNavigation', () => {
 
         // 1. Interior scroll starts the host sequence unprevented.
         const interiorEvent = makeEvent(0, 40);
-        observeDocumentViewportWheelInteraction(port, {
-            deltaPx: 40,
-            event: interiorEvent,
-            intent: 'scroll',
-        }, container);
-        expect(navigation.handle(interiorEvent, {
+        observeDocumentViewportWheelInteraction(
+            port,
+            {
+                deltaPx: 40,
+                event: interiorEvent,
+                intent: 'scroll',
+            },
             container,
-            continuousScroll: false,
-            currentPage: 1,
-            pageCount: 20,
-            pageHeights: Array.from({length: 20}, () => 1_200),
-            viewMode: 'single',
-        }, 40)).toBeNull();
+        );
+        expect(
+            navigation.handle(
+                interiorEvent,
+                {
+                    container,
+                    continuousScroll: false,
+                    currentPage: 1,
+                    pageCount: 20,
+                    pageHeights: Array.from({length: 20}, () => 1_200),
+                    viewMode: 'single',
+                },
+                40,
+            ),
+        ).toBeNull();
         port.observeWheelScrollSequence('begin');
 
         // 2. Reaching the page edge flips once to page 2.
         container.scrollTop = 440;
         const flipEvent = makeEvent(40, 120);
-        observeDocumentViewportWheelInteraction(port, {
-            deltaPx: 120,
-            event: flipEvent,
-            intent: 'scroll',
-        }, container);
-        expect(navigation.handle(flipEvent, {
+        observeDocumentViewportWheelInteraction(
+            port,
+            {
+                deltaPx: 120,
+                event: flipEvent,
+                intent: 'scroll',
+            },
             container,
-            continuousScroll: false,
-            currentPage: 1,
-            pageCount: 20,
-            pageHeights: Array.from({length: 20}, () => 1_200),
-            viewMode: 'single',
-        }, 120)).toBe(2);
+        );
+        expect(
+            navigation.handle(
+                flipEvent,
+                {
+                    container,
+                    continuousScroll: false,
+                    currentPage: 1,
+                    pageCount: 20,
+                    pageHeights: Array.from({length: 20}, () => 1_200),
+                    viewMode: 'single',
+                },
+                120,
+            ),
+        ).toBe(2);
 
         // 3. A cancelable decaying tail after a 260ms gap stays blocked while the host sequence is open.
         const delayedTailEvent = makeEvent(300, 60);
-        observeDocumentViewportWheelInteraction(port, {
-            deltaPx: 60,
-            event: delayedTailEvent,
-            intent: 'scroll',
-        }, container);
-        expect(navigation.handle(delayedTailEvent, {
+        observeDocumentViewportWheelInteraction(
+            port,
+            {
+                deltaPx: 60,
+                event: delayedTailEvent,
+                intent: 'scroll',
+            },
             container,
-            continuousScroll: false,
-            currentPage: 2,
-            pageCount: 20,
-            pageHeights: Array.from({length: 20}, () => 760),
-            viewMode: 'single',
-        }, 60)).toBeNull();
+        );
+        expect(
+            navigation.handle(
+                delayedTailEvent,
+                {
+                    container,
+                    continuousScroll: false,
+                    currentPage: 2,
+                    pageCount: 20,
+                    pageHeights: Array.from({length: 20}, () => 760),
+                    viewMode: 'single',
+                },
+                60,
+            ),
+        ).toBeNull();
         expect(delayedTailEvent.preventDefault).toHaveBeenCalledOnce();
 
         // 4. Once the host closes the sequence, a new gesture after the quiet gap flips to page 3.
         port.observeWheelScrollSequence('end');
         const nextGestureEvent = makeEvent(560, 120);
-        observeDocumentViewportWheelInteraction(port, {
-            deltaPx: 120,
-            event: nextGestureEvent,
-            intent: 'scroll',
-        }, container);
-        expect(navigation.handle(nextGestureEvent, {
+        observeDocumentViewportWheelInteraction(
+            port,
+            {
+                deltaPx: 120,
+                event: nextGestureEvent,
+                intent: 'scroll',
+            },
             container,
-            continuousScroll: false,
-            currentPage: 2,
-            pageCount: 20,
-            pageHeights: Array.from({length: 20}, () => 760),
-            viewMode: 'single',
-        }, 120)).toBe(3);
+        );
+        expect(
+            navigation.handle(
+                nextGestureEvent,
+                {
+                    container,
+                    continuousScroll: false,
+                    currentPage: 2,
+                    pageCount: 20,
+                    pageHeights: Array.from({length: 20}, () => 760),
+                    viewMode: 'single',
+                },
+                120,
+            ),
+        ).toBe(3);
     });
 });

@@ -23,7 +23,8 @@ const REVERT_SUBJECT_PATTERN = /^(?:revert(?:\([^)]*\))?!?:|revert\b)/iu;
 // Product code only. Tests, docs, tooling and the nine locale catalogs change
 // alongside most fixes without being the thing that keeps breaking.
 const PRODUCT_PATH_PATTERN = /^(?:app|electron|packages|native|server|landing)\//u;
-const EXCLUDED_PATH_PATTERN = /^(?:packages\/i18n-app\/messages\/|landing\/app\/locales\/)|\/tests?\/|_tests?\.rs$|\.(?:test|spec)\.[cm]?[jt]s$/u;
+const EXCLUDED_PATH_PATTERN =
+    /^(?:packages\/i18n-app\/messages\/|landing\/app\/locales\/)|\/tests?\/|_tests?\.rs$|\.(?:test|spec)\.[cm]?[jt]s$/u;
 
 const SIGNED = new Intl.NumberFormat('en-US', {signDisplay: 'exceptZero'});
 
@@ -64,21 +65,19 @@ function parseNumstat(output) {
         .split('\0')
         .filter(Boolean)
         .flatMap((record) => {
-            const [
-                added,
-                deleted,
-                ...pathParts
-            ] = record.replace(/^\n/u, '').split('\t');
+            const [added, deleted, ...pathParts] = record.replace(/^\n/u, '').split('\t');
             const path = pathParts.join('\t');
             // Binary files report "-"; they are never fences.
             if (!path || added === '-' || deleted === '-') {
                 return [];
             }
-            return [{
-                added: Number(added),
-                deleted: Number(deleted),
-                path,
-            }];
+            return [
+                {
+                    added: Number(added),
+                    deleted: Number(deleted),
+                    path,
+                },
+            ];
         });
 }
 
@@ -86,25 +85,12 @@ function parseNumstat(output) {
 // id stands for the side where the commit adds or deletes the file.
 /** @param {string} commit @param {string} cwd @returns {Map<string, string[]>} */
 function readChangedBlobs(commit, cwd) {
-    const fields = git([
-        'diff-tree',
-        '--no-commit-id',
-        '--no-renames',
-        '-r',
-        '-z',
-        commit,
-    ], cwd).split('\0');
+    const fields = git(['diff-tree', '--no-commit-id', '--no-renames', '-r', '-z', commit], cwd).split('\0');
     /** @type {Map<string, string[]>} */
     const blobs = new Map();
     for (let index = 0; index + 1 < fields.length; index += 2) {
-        const [
-            , , before = '',
-            after = '',
-        ] = (fields[index] ?? '').split(' ');
-        blobs.set(fields[index + 1] ?? '', [
-            before,
-            after,
-        ]);
+        const [, , before = '', after = ''] = (fields[index] ?? '').split(' ');
+        blobs.set(fields[index + 1] ?? '', [before, after]);
     }
     return blobs;
 }
@@ -114,11 +100,7 @@ function countNonWhitespaceCharacters(blob, cwd) {
     if (/^0+$/u.test(blob)) {
         return 0;
     }
-    return git([
-        'cat-file',
-        'blob',
-        blob,
-    ], cwd).replace(/\s/gu, '').length;
+    return git(['cat-file', 'blob', blob], cwd).replace(/\s/gu, '').length;
 }
 
 /**
@@ -127,23 +109,13 @@ function countNonWhitespaceCharacters(blob, cwd) {
  * @param {string} commit @param {string} path @param {number} commitTime @param {string} cwd @returns {string[]}
  */
 function priorFixCommits(commit, path, commitTime, cwd) {
-    const since = new Date((commitTime - (FIX_CHAIN_WINDOW_DAYS * 24 * 60 * 60)) * 1000).toISOString();
-    const output = git([
-        'log',
-        '--no-merges',
-        `--since=${since}`,
-        '--format=%H%x09%s',
-        `${commit}^`,
-        '--',
-        path,
-    ], cwd);
+    const since = new Date((commitTime - FIX_CHAIN_WINDOW_DAYS * 24 * 60 * 60) * 1000).toISOString();
+    const output = git(['log', '--no-merges', `--since=${since}`, '--format=%H%x09%s', `${commit}^`, '--', path], cwd);
     return output
         .split('\n')
         .filter(Boolean)
-        .map(line => line.split('\t'))
-        .filter(([
-            , subject,
-        ]) => subject !== undefined && isFixSubject(subject))
+        .map((line) => line.split('\t'))
+        .filter(([, subject]) => subject !== undefined && isFixSubject(subject))
         .map(([oid]) => oid ?? '');
 }
 
@@ -160,27 +132,17 @@ function findCommitFixChainViolations(commit, metadata, cwd) {
         return [];
     }
     const blobs = readChangedBlobs(commit, cwd);
-    const grown = parseNumstat(git([
-        'diff-tree',
-        '--no-commit-id',
-        '--no-renames',
-        '--numstat',
-        '-z',
-        commit,
-    ], cwd))
-        .filter(entry => isFixChainProductPath(entry.path))
+    const grown = parseNumstat(git(['diff-tree', '--no-commit-id', '--no-renames', '--numstat', '-z', commit], cwd))
+        .filter((entry) => isFixChainProductPath(entry.path))
         .map((entry) => {
-            const [
-                before = '',
-                after = '',
-            ] = blobs.get(entry.path) ?? [];
+            const [before = '', after = ''] = blobs.get(entry.path) ?? [];
             return {
                 characters: countNonWhitespaceCharacters(after, cwd) - countNonWhitespaceCharacters(before, cwd),
                 lines: entry.added - entry.deleted,
                 path: entry.path,
             };
         })
-        .filter(entry => entry.lines > 0 || entry.characters > 0);
+        .filter((entry) => entry.lines > 0 || entry.characters > 0);
 
     /** @type {string[]} */
     const matches = [];
@@ -188,27 +150,36 @@ function findCommitFixChainViolations(commit, metadata, cwd) {
         const prior = priorFixCommits(commit, entry.path, metadata.committedAt, cwd);
         if (prior.length >= FIX_CHAIN_LIMIT) {
             matches.push(
-                `${entry.path} grows (${SIGNED.format(entry.lines)} lines, ${SIGNED.format(entry.characters)} `
-                + `non-whitespace characters) after ${prior.length} fix commits in ${FIX_CHAIN_WINDOW_DAYS} days `
-                + `(${prior.slice(0, 5).map(oid => oid.slice(0, 9)).join(', ')})`,
+                `${entry.path} grows (${SIGNED.format(entry.lines)} lines, ${SIGNED.format(entry.characters)} ` +
+                    `non-whitespace characters) after ${prior.length} fix commits in ${FIX_CHAIN_WINDOW_DAYS} days ` +
+                    `(${prior
+                        .slice(0, 5)
+                        .map((oid) => oid.slice(0, 9))
+                        .join(', ')})`,
             );
         }
     }
-    return matches.length > 0 ? [{
-        matches,
-        subject: commit,
-    }] : [];
+    return matches.length > 0
+        ? [
+              {
+                  matches,
+                  subject: commit,
+              },
+          ]
+        : [];
 }
 
 /** @param {string[]} commits @param {string} cwd @param {Map<string, import('./added-checks.mjs').ICommitMetadata>} [commitMetadata] @returns {IViolation[]} */
 export function findFixChainViolations(commits, cwd, commitMetadata = readCommitMetadata(commits, cwd)) {
-    return commits.flatMap(commit => findCommitFixChainViolations(commit, commitMetadata.get(commit), cwd));
+    return commits.flatMap((commit) => findCommitFixChainViolations(commit, commitMetadata.get(commit), cwd));
 }
 
 /** @returns {string} */
 export function describeFixChainRule() {
-    return `A fix to a file that already took ${FIX_CHAIN_LIMIT} fix commits in ${FIX_CHAIN_WINDOW_DAYS} days must `
-        + 'shrink that file or revert: neither its line count nor its non-whitespace character count may grow, so '
-        + 'cramming code onto fewer lines does not count. Delete the redundant state or path instead of adding '
-        + `another fence, flag, timer or retry. Only the owner can waive this, quoted in a \`${FIX_CHAIN_OVERRIDE_TRAILER}:\` trailer.`;
+    return (
+        `A fix to a file that already took ${FIX_CHAIN_LIMIT} fix commits in ${FIX_CHAIN_WINDOW_DAYS} days must ` +
+        'shrink that file or revert: neither its line count nor its non-whitespace character count may grow, so ' +
+        'cramming code onto fewer lines does not count. Delete the redundant state or path instead of adding ' +
+        `another fence, flag, timer or retry. Only the owner can waive this, quoted in a \`${FIX_CHAIN_OVERRIDE_TRAILER}:\` trailer.`
+    );
 }

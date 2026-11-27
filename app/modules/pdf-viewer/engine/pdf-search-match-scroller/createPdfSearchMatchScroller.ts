@@ -1,17 +1,8 @@
-import type {
-    TPageIndex,
-    TPageNumber,
-} from '@contracts/pageNumbers';
+import type {TPageIndex, TPageNumber} from '@contracts/pageNumbers';
 
-import type {
-    IPdfSearchExcerpt,
-    ISearchMatchOptions,
-} from '@contracts/search';
+import type {IPdfSearchExcerpt, ISearchMatchOptions} from '@contracts/search';
 import type {TOcrIndexRotation} from '@contracts/ocrIndex';
-import {
-    pageIndexToPageNumber,
-    requirePageIndex,
-} from '@contracts/pageNumbers';
+import {pageIndexToPageNumber, requirePageIndex} from '@contracts/pageNumbers';
 import type {IScrollToPageOptions} from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
 
 interface ICurrentSearchMatchWord {
@@ -59,10 +50,7 @@ interface IPdfSearchMatchScrollerDeps {
             navigationSource?: 'search';
         } & ISearchNavigationTargetOptions,
     ) => void;
-    revealSearchNavigationTarget?: (
-        pageNumber: TPageNumber,
-        options?: ISearchNavigationTargetOptions,
-    ) => void;
+    revealSearchNavigationTarget?: (pageNumber: TPageNumber, options?: ISearchNavigationTargetOptions) => void;
     endSearchNavigation?: (settleMs?: number) => void;
 }
 
@@ -82,29 +70,30 @@ function resolveCurrentMatchMarkerRect(
     targetPageIndex: TPageIndex,
 ): ICurrentSearchMatchMarkerRect | null {
     if (
-        !currentMatch
-        || currentMatch.pageIndex !== targetPageIndex
-        || !currentMatch.words?.length
-        || !currentMatch.pageWidth
-        || !currentMatch.pageHeight
+        !currentMatch ||
+        currentMatch.pageIndex !== targetPageIndex ||
+        !currentMatch.words?.length ||
+        !currentMatch.pageWidth ||
+        !currentMatch.pageHeight
     ) {
         return null;
     }
-    const boxes = currentMatch.words.filter(word => (
-        Number.isFinite(word.x)
-        && Number.isFinite(word.y)
-        && Number.isFinite(word.width)
-        && Number.isFinite(word.height)
-        && word.width > 0
-        && word.height > 0
-    ));
+    const boxes = currentMatch.words.filter(
+        (word) =>
+            Number.isFinite(word.x) &&
+            Number.isFinite(word.y) &&
+            Number.isFinite(word.width) &&
+            Number.isFinite(word.height) &&
+            word.width > 0 &&
+            word.height > 0,
+    );
     if (boxes.length === 0) {
         return null;
     }
-    const left = Math.min(...boxes.map(word => word.x));
-    const top = Math.min(...boxes.map(word => word.y));
-    const right = Math.max(...boxes.map(word => word.x + word.width));
-    const bottom = Math.max(...boxes.map(word => word.y + word.height));
+    const left = Math.min(...boxes.map((word) => word.x));
+    const top = Math.min(...boxes.map((word) => word.y));
+    const right = Math.max(...boxes.map((word) => word.x + word.width));
+    const bottom = Math.max(...boxes.map((word) => word.y + word.height));
     const normalizedLeft = clampRatio(left / currentMatch.pageWidth);
     const normalizedTop = clampRatio(top / currentMatch.pageHeight);
     const normalizedRect = {
@@ -149,23 +138,21 @@ function resolveCurrentMatchTextAnchor(
     const startOffset = currentMatch?.startOffset;
     const endOffset = currentMatch?.endOffset;
     if (
-        !currentMatch
-        || currentMatch.pageIndex !== targetPageIndex
-        || !excerpt?.match
-        || typeof startOffset !== 'number'
-        || typeof endOffset !== 'number'
-        || !Number.isSafeInteger(startOffset)
-        || !Number.isSafeInteger(endOffset)
-        || startOffset < 0
-        || endOffset <= startOffset
+        !currentMatch ||
+        currentMatch.pageIndex !== targetPageIndex ||
+        !excerpt?.match ||
+        typeof startOffset !== 'number' ||
+        typeof endOffset !== 'number' ||
+        !Number.isSafeInteger(startOffset) ||
+        !Number.isSafeInteger(endOffset) ||
+        startOffset < 0 ||
+        endOffset <= startOffset
     ) {
         return null;
     }
 
     const orderedMatches = pageMatches?.matches;
-    const expectedPageMatchCount = orderedMatches !== undefined && isInSearchOrder(orderedMatches)
-        ? orderedMatches.length
-        : undefined;
+    const expectedPageMatchCount = orderedMatches !== undefined && isInSearchOrder(orderedMatches) ? orderedMatches.length : undefined;
     return {
         text: excerpt.match,
         ...(excerpt.before ? {prefix: excerpt.before} : {}),
@@ -200,18 +187,9 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
         const pageNumber = pageIndexToPageNumber(pageIndex);
         const currentMatch = deps.getCurrentSearchMatch();
         const pageMatches = deps.getCurrentSearchPageMatches?.(pageIndex) ?? null;
-        const markerRect = resolveCurrentMatchMarkerRect(
-            currentMatch,
-            pageIndex,
-        );
-        const textAnchor = markerRect
-            ? null
-            : resolveCurrentMatchTextAnchor(currentMatch, pageIndex, pageMatches);
-        const navigationOptions = markerRect
-            ? {markerRect}
-            : textAnchor
-                ? {textAnchor}
-                : undefined;
+        const markerRect = resolveCurrentMatchMarkerRect(currentMatch, pageIndex);
+        const textAnchor = markerRect ? null : resolveCurrentMatchTextAnchor(currentMatch, pageIndex, pageMatches);
+        const navigationOptions = markerRect ? {markerRect} : textAnchor ? {textAnchor} : undefined;
         if (deps.revealSearchNavigationTarget) {
             deps.revealSearchNavigationTarget(pageNumber, navigationOptions);
             return;

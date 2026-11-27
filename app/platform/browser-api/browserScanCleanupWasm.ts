@@ -1,8 +1,5 @@
-import { getErrorMessage } from '@app/utils/error';
-import {
-    createNativeWasmToolLoader,
-    type TNativeWasmCallResult,
-} from '@app/platform/browser/nativeWasmTool';
+import {getErrorMessage} from '@app/utils/error';
+import {createNativeWasmToolLoader, type TNativeWasmCallResult} from '@app/platform/browser/nativeWasmTool';
 import {NativeWasmThreadStartError} from '@app/platform/browser/nativeWasmThreadedTool';
 import {
     readScanCleanupEngineWorkerThreads,
@@ -58,9 +55,13 @@ const engineThreads = readScanCleanupEngineWorkerThreads(typeof workerName === '
 let activeProgressListener: ((progress: IScanCleanupWasmSubPageProgress) => void) | null = null;
 const handleWasmProgress = (stageCode: number, completed: number, total: number) => {
     const listener = activeProgressListener;
-    if (listener === null) return;
+    if (listener === null) {
+        return;
+    }
     const stage = decodeScanCleanupWasmSubPageStage(stageCode >>> 0);
-    if (stage === null) return;
+    if (stage === null) {
+        return;
+    }
     listener({
         stage,
         completed: completed >>> 0,
@@ -75,18 +76,22 @@ const engine = createNativeWasmToolLoader({
     maxRequestBytes: SCAN_CLEANUP_WASM_MAX_REQUEST_BYTES,
     maxOutputBytes: SCAN_CLEANUP_WASM_MAX_OUTPUT_BYTES,
     // Rust's clock traps on wasm32-unknown-unknown; stage timings read this one.
-    imports: () => ({env: {
-        evb_now_ms: () => performance.now(),
-        evb_progress: handleWasmProgress,
-    }}),
+    imports: () => ({
+        env: {
+            evb_now_ms: () => performance.now(),
+            evb_progress: handleWasmProgress,
+        },
+    }),
     ...(engineThreads === null
         ? {}
-        : {threads: {
-            path: BROWSER_SCAN_CLEANUP_THREADS_WASM_PATH,
-            count: engineThreads,
-            maximumMemoryPages: SCAN_CLEANUP_ENGINE_MAXIMUM_MEMORY_PAGES,
-            onProgress: handleWasmProgress,
-        }}),
+        : {
+              threads: {
+                  path: BROWSER_SCAN_CLEANUP_THREADS_WASM_PATH,
+                  count: engineThreads,
+                  maximumMemoryPages: SCAN_CLEANUP_ENGINE_MAXIMUM_MEMORY_PAGES,
+                  onProgress: handleWasmProgress,
+              },
+          }),
 });
 
 /** The SHA-256 of the engine module this worker runs, once it has compiled it. */
@@ -116,12 +121,16 @@ async function run<TResult>(
         called = await engine.call(encode());
     } catch (error) {
         // The worker hands the request back so the page can run it on today's engine.
-        if (error instanceof NativeWasmThreadStartError) throw error;
+        if (error instanceof NativeWasmThreadStartError) {
+            throw error;
+        }
         return failed('invalid-request', getErrorMessage(error));
     } finally {
         activeProgressListener = previousListener;
     }
-    if (called.status === 'failed') return called;
+    if (called.status === 'failed') {
+        return called;
+    }
     try {
         return {
             status: 'succeeded',
@@ -154,11 +163,9 @@ export function renderBrowserScanCleanupPage(
     request: IScanCleanupWasmRenderPageRequest,
     onProgress?: (progress: IScanCleanupWasmSubPageProgress) => void,
 ) {
-    return run(
-        () => encodeScanCleanupWasmRenderPageRequest(request),
-        decodeScanCleanupWasmRenderPageResult,
-        onProgress,
-    ) satisfies Promise<TBrowserScanCleanupOutcome<IScanCleanupWasmRenderPageResult>>;
+    return run(() => encodeScanCleanupWasmRenderPageRequest(request), decodeScanCleanupWasmRenderPageResult, onProgress) satisfies Promise<
+        TBrowserScanCleanupOutcome<IScanCleanupWasmRenderPageResult>
+    >;
 }
 
 /** Runs one page analysis an analysis plan asked for. */
@@ -166,11 +173,9 @@ export function analyzeBrowserScanCleanupPage(
     request: IScanCleanupWasmAnalyzeRequest,
     onProgress?: (progress: IScanCleanupWasmSubPageProgress) => void,
 ) {
-    return run(
-        () => encodeScanCleanupWasmAnalyzeRequest(request),
-        decodeScanCleanupWasmAnalyzeResult,
-        onProgress,
-    ) satisfies Promise<TBrowserScanCleanupOutcome<IScanCleanupWasmAnalyzeResult>>;
+    return run(() => encodeScanCleanupWasmAnalyzeRequest(request), decodeScanCleanupWasmAnalyzeResult, onProgress) satisfies Promise<
+        TBrowserScanCleanupOutcome<IScanCleanupWasmAnalyzeResult>
+    >;
 }
 
 /**
@@ -179,13 +184,14 @@ export function analyzeBrowserScanCleanupPage(
  * finished metadata.
  */
 export function planBrowserScanCleanupAnalysis(request: TScanCleanupWasmPlanAnalysisRequest) {
-    return run(
-        () => encodeScanCleanupWasmPlanAnalysisRequest(request),
-        decodeScanCleanupWasmPlanAnalysisResult,
-    ) satisfies Promise<TBrowserScanCleanupOutcome<TScanCleanupWasmPlanAnalysisResult>>;
+    return run(() => encodeScanCleanupWasmPlanAnalysisRequest(request), decodeScanCleanupWasmPlanAnalysisResult) satisfies Promise<
+        TBrowserScanCleanupOutcome<TScanCleanupWasmPlanAnalysisResult>
+    >;
 }
 
-export interface IBrowserOcrScanCleanupResult extends IOcrScanCleanupGeometry {plane: IScanCleanupWasmPlane;}
+export interface IBrowserOcrScanCleanupResult extends IOcrScanCleanupGeometry {
+    plane: IScanCleanupWasmPlane;
+}
 
 /**
  * Preprocesses one rendered OCR page exactly as desktop OCR does: the shared
@@ -209,11 +215,10 @@ export async function preprocessBrowserOcrPage(
         },
         planeEncoding,
     });
-    if (rendered.status === 'failed') return rendered;
-    const [
-        output,
-        ...extra
-    ] = rendered.result.outputs;
+    if (rendered.status === 'failed') {
+        return rendered;
+    }
+    const [output, ...extra] = rendered.result.outputs;
     if (!output || extra.length > 0) {
         return failed('invalid-request', 'OCR preprocessing produced no single page');
     }

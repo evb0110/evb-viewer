@@ -18,5 +18,5 @@ export function onBrowserWorkingCopyClose(listener: TBrowserWorkingCopyCloseList
 
 /** Ends every piece of work that reads the working copy, before its records are cleaned up. */
 export async function closeBrowserWorkingCopyWork(ref: TDocumentRef) {
-    await Promise.allSettled([...listeners].map(async listener => listener(ref)));
+    await Promise.allSettled([...listeners].map(async (listener) => listener(ref)));
 }

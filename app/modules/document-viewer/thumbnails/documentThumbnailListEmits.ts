@@ -11,4 +11,6 @@
  * thumbnail rows with rows that carry no selection meaning, such as bookmark
  * entries, republishes the event as optional.
  */
-export interface IDocumentThumbnailListEmits {'go-to-page': [pageNumber: number, event: MouseEvent];}
+export interface IDocumentThumbnailListEmits {
+    'go-to-page': [pageNumber: number, event: MouseEvent];
+}

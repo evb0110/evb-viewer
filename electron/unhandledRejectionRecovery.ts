@@ -1,10 +1,12 @@
-import { getErrorMessage } from '@electron/utils/error';
-import { isAbortError } from '@electron/utils/abort';
+import {getErrorMessage} from '@electron/utils/error';
+import {isAbortError} from '@electron/utils/abort';
 
 export type TMainSubsystem = 'agent' | 'djvu' | 'documents' | 'ocr' | 'search' | 'unknown';
 type TRecoverableMainSubsystem = Exclude<TMainSubsystem, 'unknown'>;
 
-interface ISubsystemTaggedValue {subsystem: TRecoverableMainSubsystem;}
+interface ISubsystemTaggedValue {
+    subsystem: TRecoverableMainSubsystem;
+}
 
 interface IUnhandledRejectionRecoveryOptions {
     threshold?: number;
@@ -17,31 +19,16 @@ export type TUnhandledRejectionDecision =
     | {action: 'ignore'}
     | {action: 'report'}
     | {
-        action: 'recover';
-        subsystem: TRecoverableMainSubsystem;
-    };
+          action: 'recover';
+          subsystem: TRecoverableMainSubsystem;
+      };
 
 const SUBSYSTEM_MESSAGE_PATTERNS: Array<[TMainSubsystem, RegExp]> = [
-    [
-        'ocr',
-        /(?:ocr job|tesseract)/iu,
-    ],
-    [
-        'search',
-        /search worker/iu,
-    ],
-    [
-        'djvu',
-        /(?:ddjvu|djvm|djvulibre|djvu engine)/iu,
-    ],
-    [
-        'agent',
-        /(?:^|[\s:])assistant(?:\s|$)|mcp server/imu,
-    ],
-    [
-        'documents',
-        /(?:working copy|pdf mutation)/iu,
-    ],
+    ['ocr', /(?:ocr job|tesseract)/iu],
+    ['search', /search worker/iu],
+    ['djvu', /(?:ddjvu|djvm|djvulibre|djvu engine)/iu],
+    ['agent', /(?:^|[\s:])assistant(?:\s|$)|mcp server/imu],
+    ['documents', /(?:working copy|pdf mutation)/iu],
 ];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -49,11 +36,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isRecoverableMainSubsystem(value: unknown): value is TRecoverableMainSubsystem {
-    return value === 'agent'
-        || value === 'djvu'
-        || value === 'documents'
-        || value === 'ocr'
-        || value === 'search';
+    return value === 'agent' || value === 'djvu' || value === 'documents' || value === 'ocr' || value === 'search';
 }
 
 function isSubsystemTaggedValue(value: unknown): value is ISubsystemTaggedValue {
@@ -91,12 +74,8 @@ export function classifyUnhandledRejectionSubsystem(reason: unknown): TMainSubsy
     if (taggedSubsystem) {
         return taggedSubsystem;
     }
-    const details = reason instanceof Error
-        ? `${getErrorMessage(reason)}\n${reason.stack ?? ''}`
-        : getErrorMessage(reason);
-    return SUBSYSTEM_MESSAGE_PATTERNS.find(([
-        , pattern,
-    ]) => pattern.test(details))?.[0] ?? 'unknown';
+    const details = reason instanceof Error ? `${getErrorMessage(reason)}\n${reason.stack ?? ''}` : getErrorMessage(reason);
+    return SUBSYSTEM_MESSAGE_PATTERNS.find(([, pattern]) => pattern.test(details))?.[0] ?? 'unknown';
 }
 
 export function decideUnhandledRejection(reason: unknown): TUnhandledRejectionDecision {
@@ -108,9 +87,9 @@ export function decideUnhandledRejection(reason: unknown): TUnhandledRejectionDe
     return subsystem === 'unknown'
         ? {action: 'report'}
         : {
-            action: 'recover',
-            subsystem,
-        };
+              action: 'recover',
+              subsystem,
+          };
 }
 
 export function createUnhandledRejectionRecovery(options: IUnhandledRejectionRecoveryOptions) {
@@ -122,7 +101,7 @@ export function createUnhandledRejectionRecovery(options: IUnhandledRejectionRec
 
     return async (subsystem: TRecoverableMainSubsystem, reason: unknown) => {
         const cutoff = now() - windowMs;
-        const recent = (failures.get(subsystem) ?? []).filter(timestamp => timestamp >= cutoff);
+        const recent = (failures.get(subsystem) ?? []).filter((timestamp) => timestamp >= cutoff);
         recent.push(now());
         failures.set(subsystem, recent);
         if (recent.length < threshold || recovering.has(subsystem)) {

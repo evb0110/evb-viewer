@@ -1,4 +1,4 @@
-import type { TDocumentRef } from '@contracts/documentRef';
+import type {TDocumentRef} from '@contracts/documentRef';
 import type {IPagePreviewSource} from '@app/modules/document-viewer/pagePreviewSource';
 import {
     assertDocumentPageNumber,
@@ -28,7 +28,7 @@ export interface IDjvuSurfaceBudget {
     }): {
         promotePriority?(priority: number): void;
         setPriority?(priority: number): void;
-        release(): void
+        release(): void;
     };
     tryReserve?(options: {
         scopeId: string;
@@ -40,7 +40,7 @@ export interface IDjvuSurfaceBudget {
     }): {
         promotePriority?(priority: number): void;
         setPriority?(priority: number): void;
-        release(): void
+        release(): void;
     } | null;
     releaseScope(scopeId: string): void;
 }
@@ -98,14 +98,17 @@ export async function createDjvuPageSource(
     };
     const scopeId = `djvu-page-source:${++nextDjvuPageSourceId}`;
     let nextRenderRequestId = 0;
-    const urlLeases = new Map<string, {
-        lease: {
-            promotePriority?(priority: number): void;
-            setPriority?(priority: number): void;
-            release(): void
-        } | null;
-        invalidationListeners: Set<() => void>;
-    }>();
+    const urlLeases = new Map<
+        string,
+        {
+            lease: {
+                promotePriority?(priority: number): void;
+                setPriority?(priority: number): void;
+                release(): void;
+            } | null;
+            invalidationListeners: Set<() => void>;
+        }
+    >();
 
     const releaseUrl = (objectUrl: string) => {
         urlLeases.get(objectUrl)?.lease?.release();
@@ -123,9 +126,7 @@ export async function createDjvuPageSource(
         const transientWidthPx = previewSource.fullResolutionDecodeBeforeScale
             ? Math.max(1, pageSize.width)
             : Math.max(1, Math.min(pageSize.width, request.widthPx));
-        const transientHeightPx = Math.max(1, Math.round(
-            transientWidthPx * Math.max(1, pageSize.height) / Math.max(1, pageSize.width),
-        ));
+        const transientHeightPx = Math.max(1, Math.round((transientWidthPx * Math.max(1, pageSize.height)) / Math.max(1, pageSize.width)));
         const transientBytes = transientWidthPx * transientHeightPx * 4;
         const transientPriority = previewPriorityByClass[request.priority];
         const transientReservation = {
@@ -137,8 +138,8 @@ export async function createDjvuPageSource(
         } as const;
         const transientLease = isRequiredVisiblePriority(request.priority)
             ? surfaceBudget.reserve(transientReservation)
-            : surfaceBudget.tryReserve?.(transientReservation)
-                ?? (surfaceBudget.tryReserve ? null : surfaceBudget.reserve(transientReservation));
+            : (surfaceBudget.tryReserve?.(transientReservation) ??
+              (surfaceBudget.tryReserve ? null : surfaceBudget.reserve(transientReservation)));
         if (!transientLease) {
             throw new RangeError('DjVu preview exceeds the available raster surface budget');
         }
@@ -170,15 +171,13 @@ export async function createDjvuPageSource(
             releaseUrl(rendered.objectUrl);
             request.signal.throwIfAborted();
         }
-        const heightPx = Math.max(1, Math.round(
-            rendered.renderedPx * Math.max(1, pageSize.height) / Math.max(1, pageSize.width),
-        ));
+        const heightPx = Math.max(1, Math.round((rendered.renderedPx * Math.max(1, pageSize.height)) / Math.max(1, pageSize.width)));
         const bytes = rendered.renderedPx * heightPx * 4;
         const leaseEntry = {
             lease: null as {
                 promotePriority?(priority: number): void;
                 setPriority?(priority: number): void;
-                release(): void
+                release(): void;
             } | null,
             invalidationListeners: new Set<() => void>(),
         };
@@ -200,8 +199,8 @@ export async function createDjvuPageSource(
         } as const;
         leaseEntry.lease = isRequiredVisiblePriority(request.priority)
             ? surfaceBudget.reserve(retainedReservation)
-            : surfaceBudget.tryReserve?.(retainedReservation)
-                ?? (surfaceBudget.tryReserve ? null : surfaceBudget.reserve(retainedReservation));
+            : (surfaceBudget.tryReserve?.(retainedReservation) ??
+              (surfaceBudget.tryReserve ? null : surfaceBudget.reserve(retainedReservation)));
         if (!leaseEntry.lease) {
             urlLeases.delete(rendered.objectUrl);
             previewSource.revokeObjectURL(rendered.objectUrl);
@@ -251,25 +250,43 @@ export async function createDjvuPageSource(
         kind: 'djvu',
         documentRef,
         pageCount,
-        ...(getPageText ? {textProvider: {async getPageText(pageNumber, signal) {
-            assertDocumentPageNumber(pageNumber, pageCount);
-            signal.throwIfAborted();
-            const text = await getPageText(pageNumber);
-            signal.throwIfAborted();
-            return text;
-        }}} : {}),
-        ...(searchText ? {searchProvider: {search(request) {
-            return searchText({
-                ...request,
-                pageCount,
-            });
-        }}} : {}),
-        ...(getOutline ? {outlineProvider: {async getOutline(signal) {
-            signal.throwIfAborted();
-            const outline = await getOutline();
-            signal.throwIfAborted();
-            return outline;
-        }}} : {}),
+        ...(getPageText
+            ? {
+                  textProvider: {
+                      async getPageText(pageNumber, signal) {
+                          assertDocumentPageNumber(pageNumber, pageCount);
+                          signal.throwIfAborted();
+                          const text = await getPageText(pageNumber);
+                          signal.throwIfAborted();
+                          return text;
+                      },
+                  },
+              }
+            : {}),
+        ...(searchText
+            ? {
+                  searchProvider: {
+                      search(request) {
+                          return searchText({
+                              ...request,
+                              pageCount,
+                          });
+                      },
+                  },
+              }
+            : {}),
+        ...(getOutline
+            ? {
+                  outlineProvider: {
+                      async getOutline(signal) {
+                          signal.throwIfAborted();
+                          const outline = await getOutline();
+                          signal.throwIfAborted();
+                          return outline;
+                      },
+                  },
+              }
+            : {}),
         thumbnailProvider: {renderThumbnail: renderSurface},
         rasterProvider: {renderRaster: renderSurface},
         async getPageMetrics(pageNumber, signal) {
@@ -277,10 +294,7 @@ export async function createDjvuPageSource(
             signal?.throwIfAborted();
             const size = await getPageSize(pageNumber);
             signal?.throwIfAborted();
-            const {
-                widthPoints,
-                heightPoints,
-            } = resolveDjvuPageSizeInPoints(size);
+            const {widthPoints, heightPoints} = resolveDjvuPageSizeInPoints(size);
             return {
                 widthPoints,
                 heightPoints,

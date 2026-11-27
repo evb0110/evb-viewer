@@ -1,31 +1,16 @@
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import type {
-    IPdfDocument,
-    IPdfPage,
-} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type {IPdfDocument, IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type { PropType } from 'vue';
-import {
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    reactive,
-} from 'vue';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import type {PropType} from 'vue';
+import {createApp, defineComponent, h, nextTick, reactive} from 'vue';
 import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
-import type { IPdfBookmarkChangePayload } from '@app/types/pdfUi';
-import type { IDocumentBookmarkTreeItem } from '@app/modules/document-viewer/bookmarks/documentBookmarks';
+import type {IPdfBookmarkChangePayload} from '@app/types/pdfUi';
+import type {IDocumentBookmarkTreeItem} from '@app/modules/document-viewer/bookmarks/documentBookmarks';
 import PdfOutline from '@app/modules/pdf-viewer/components/PdfOutline.vue';
-import { cast } from '@tests/helpers/cast';
+import {cast} from '@tests/helpers/cast';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireDocumentRef} from '@contracts/documentRef';
 
@@ -54,52 +39,52 @@ const outlineItemRenames = new Map<string, (title: string) => void>();
 
 vi.mock('@app/components/document-viewer/DocumentBookmarkTree.vue', async () => {
     const vue = await import('vue');
-    return {default: vue.defineComponent({
-        props: {
-            items: {
-                type: Array as PropType<IDocumentBookmarkTreeItem[]>,
-                required: true,
+    return {
+        default: vue.defineComponent({
+            props: {
+                items: {
+                    type: Array as PropType<IDocumentBookmarkTreeItem[]>,
+                    required: true,
+                },
+                activeId: {
+                    type: String,
+                    default: null,
+                },
+                displayMode: {
+                    type: String,
+                    required: true,
+                },
+                expandedIds: {
+                    type: Object as PropType<Set<string>>,
+                    required: true,
+                },
+                activePathIds: {
+                    type: Object as PropType<Set<string>>,
+                    required: true,
+                },
             },
-            activeId: {
-                type: String,
-                default: null,
+            emits: ['activate', 'toggle-expand', 'save-edit'],
+            setup: (props, {emit}) => {
+                vue.watchEffect(() => {
+                    treeStub.items = props.items;
+                    outlineItemRenames.clear();
+                    for (const item of props.items) {
+                        outlineItemRenames.set(item.id, (title: string) =>
+                            emit('save-edit', {
+                                id: item.id,
+                                title,
+                            }),
+                        );
+                    }
+                    treeStub.activeId = props.activeId;
+                    treeStub.expandedIds = props.expandedIds;
+                });
+                treeStub.toggleExpand = (id: string) => emit('toggle-expand', id);
+                treeStub.activate = (id: string) => emit('activate', id);
+                return () => vue.h('div', {'data-tree-stub': ''});
             },
-            displayMode: {
-                type: String,
-                required: true,
-            },
-            expandedIds: {
-                type: Object as PropType<Set<string>>,
-                required: true,
-            },
-            activePathIds: {
-                type: Object as PropType<Set<string>>,
-                required: true,
-            },
-        },
-        emits: [
-            'activate',
-            'toggle-expand',
-            'save-edit',
-        ],
-        setup: (props, {emit}) => {
-            vue.watchEffect(() => {
-                treeStub.items = props.items;
-                outlineItemRenames.clear();
-                for (const item of props.items) {
-                    outlineItemRenames.set(item.id, (title: string) => emit('save-edit', {
-                        id: item.id,
-                        title,
-                    }));
-                }
-                treeStub.activeId = props.activeId;
-                treeStub.expandedIds = props.expandedIds;
-            });
-            treeStub.toggleExpand = (id: string) => emit('toggle-expand', id);
-            treeStub.activate = (id: string) => emit('activate', id);
-            return () => vue.h('div', {'data-tree-stub': ''});
-        },
-    })};
+        }),
+    };
 });
 
 function stubComponent(marker: string) {
@@ -128,10 +113,7 @@ afterEach(() => {
     treeStub.expandedIds = new Set<string>();
 });
 
-function createEntry(
-    title: string,
-    overrides: Partial<IPdfBookmarkEntry> = {},
-): IPdfBookmarkEntry {
+function createEntry(title: string, overrides: Partial<IPdfBookmarkEntry> = {}): IPdfBookmarkEntry {
     return {
         title,
         pageIndex: requirePageIndex(1),
@@ -155,18 +137,15 @@ function createPdfDocumentStub(outline: IPdfBookmarkEntry[]) {
                 num: 12,
                 gen: 0,
             },
-            { name: 'Fit' },
+            {name: 'Fit'},
         ]),
         getPageIndex: vi.fn(async (_ref: unknown) => 3),
-        getPage: vi.fn(async (_pageNumber: number) => cast<IPdfPage>({
-            view: [
-                0,
-                0,
-                612,
-                792,
-            ],
-            getViewport: vi.fn(() => ({ height: 792 })),
-        })),
+        getPage: vi.fn(async (_pageNumber: number) =>
+            cast<IPdfPage>({
+                view: [0, 0, 612, 792],
+                getViewport: vi.fn(() => ({height: 792})),
+            }),
+        ),
     });
 }
 
@@ -185,20 +164,25 @@ async function mountOutline(options: {
     const changes: IPdfBookmarkChangePayload[] = [];
     const host = document.createElement('div');
     document.body.append(host);
-    const app = createApp(defineComponent({setup: () => () => h(PdfOutline, {
-        pdfDocument: options.pdfDocument ?? null,
-        documentRef: options.pdfDocument ? requireDocumentRef('/working/outline.pdf') : null,
-        currentPage: state.currentPage,
-        isEditMode: state.isEditMode,
-        bookmarkItems: state.bookmarkItems,
-        bookmarksDirty: state.bookmarksDirty,
-        onBookmarksChange: (payload: IPdfBookmarkChangePayload) => {
-            changes.push(payload);
-        },
-        'onUpdate:isEditMode': (value: boolean) => {
-            state.isEditMode = value;
-        },
-    })}));
+    const app = createApp(
+        defineComponent({
+            setup: () => () =>
+                h(PdfOutline, {
+                    pdfDocument: options.pdfDocument ?? null,
+                    documentRef: options.pdfDocument ? requireDocumentRef('/working/outline.pdf') : null,
+                    currentPage: state.currentPage,
+                    isEditMode: state.isEditMode,
+                    bookmarkItems: state.bookmarkItems,
+                    bookmarksDirty: state.bookmarksDirty,
+                    onBookmarksChange: (payload: IPdfBookmarkChangePayload) => {
+                        changes.push(payload);
+                    },
+                    'onUpdate:isEditMode': (value: boolean) => {
+                        state.isEditMode = value;
+                    },
+                }),
+        }),
+    );
     app.component('UButton', stubComponent('data-button-stub').default);
     app.mount(host);
     await nextTick();
@@ -226,18 +210,15 @@ async function mountOutline(options: {
 }
 
 function collectTreeIds(items: readonly IDocumentBookmarkTreeItem[]): string[] {
-    return items.flatMap(item => [
-        item.id,
-        ...collectTreeIds(item.children),
-    ]);
+    return items.flatMap((item) => [item.id, ...collectTreeIds(item.children)]);
 }
 
 function createBaseOutline() {
     return [
-        createEntry('Alpha', { pageIndex: requirePageIndex(1) }),
+        createEntry('Alpha', {pageIndex: requirePageIndex(1)}),
         createEntry('Beta', {
             pageIndex: requirePageIndex(2),
-            items: [createEntry('Beta child', { pageIndex: requirePageIndex(3) })],
+            items: [createEntry('Beta child', {pageIndex: requirePageIndex(3)})],
         }),
     ];
 }
@@ -265,7 +246,7 @@ describe('PdfOutline bookmark identity and dirty comparison', () => {
         await vi.waitFor(() => expect(treeStub.activeId).toBe(firstId));
         await nextTick();
         expect(outline.changes).toHaveLength(1);
-        expect(outline.changes[0]?.bookmarks.every(item => item.pageIndex === null)).toBe(true);
+        expect(outline.changes[0]?.bookmarks.every((item) => item.pageIndex === null)).toBe(true);
         expect(document.getPage).not.toHaveBeenCalled();
     });
 
@@ -292,15 +273,17 @@ describe('PdfOutline bookmark identity and dirty comparison', () => {
                 pageIndex: null,
                 namedDest: 'pending',
             }),
-            createEntry('Replacement selected', { pageIndex: requirePageIndex(3) }),
+            createEntry('Replacement selected', {pageIndex: requirePageIndex(3)}),
         ]);
         expect(treeStub.activeId).toBeNull();
         const replacementId = treeStub.items[1]!.id;
         treeStub.activate(replacementId);
-        destination.resolve([{
-            num: 12,
-            gen: 0,
-        }]);
+        destination.resolve([
+            {
+                num: 12,
+                gen: 0,
+            },
+        ]);
         await nextTick();
         await nextTick();
         expect(treeStub.activeId).toBe(replacementId);
@@ -309,13 +292,10 @@ describe('PdfOutline bookmark identity and dirty comparison', () => {
     });
 
     it('keeps bookmark ids when an unrelated bookmark is inserted externally', async () => {
-        const outline = await mountOutline({ bookmarkItems: createBaseOutline() });
+        const outline = await mountOutline({bookmarkItems: createBaseOutline()});
         const baselineIds = collectTreeIds(treeStub.items);
 
-        await outline.applyExternalBookmarks([
-            createEntry('Inserted', { pageIndex: requirePageIndex(0) }),
-            ...createBaseOutline(),
-        ]);
+        await outline.applyExternalBookmarks([createEntry('Inserted', {pageIndex: requirePageIndex(0)}), ...createBaseOutline()]);
         const nextIds = collectTreeIds(treeStub.items);
 
         expect(baselineIds).toHaveLength(3);
@@ -324,7 +304,7 @@ describe('PdfOutline bookmark identity and dirty comparison', () => {
     });
 
     it('keeps expansion state when the same outline arrives with different object shapes', async () => {
-        const outline = await mountOutline({ bookmarkItems: createBaseOutline() });
+        const outline = await mountOutline({bookmarkItems: createBaseOutline()});
         const expandableId = treeStub.items[1]?.id ?? '';
         treeStub.toggleExpand(expandableId);
         await nextTick();
@@ -347,7 +327,7 @@ describe('PdfOutline bookmark identity and dirty comparison', () => {
                 bold: false,
                 italic: false,
                 color: null,
-                items: [createEntry('Beta child', { pageIndex: requirePageIndex(3) })],
+                items: [createEntry('Beta child', {pageIndex: requirePageIndex(3)})],
             },
         ]);
 
@@ -393,7 +373,7 @@ describe('PdfOutline bookmark identity and dirty comparison', () => {
         // The untitled bookmark is saved under the untitled label, plus one
         // unrelated root so the panel actually rebuilds.
         await outline.applyExternalBookmarks([
-            createEntry('Inserted', { pageIndex: requirePageIndex(0) }),
+            createEntry('Inserted', {pageIndex: requirePageIndex(0)}),
             {
                 title: 'bookmarks.untitled',
                 pageIndex: null,
@@ -402,9 +382,9 @@ describe('PdfOutline bookmark identity and dirty comparison', () => {
                 bold: false,
                 italic: false,
                 color: null,
-                items: [createEntry('Child', { pageIndex: null })],
+                items: [createEntry('Child', {pageIndex: null})],
             },
-            createEntry('Named', { pageIndex: null }),
+            createEntry('Named', {pageIndex: null}),
         ]);
 
         expect(collectTreeIds(treeStub.items).slice(1)).toEqual(baselineIds);

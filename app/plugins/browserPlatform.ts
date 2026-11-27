@@ -1,9 +1,6 @@
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { isBrowserExtensionPage } from '@app/utils/isBrowserExtensionPage';
-import {
-    loadBrowserPlatformApi,
-    shouldPreferDesktopPlatform,
-} from '@app/utils/platform';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {isBrowserExtensionPage} from '@app/utils/isBrowserExtensionPage';
+import {loadBrowserPlatformApi, shouldPreferDesktopPlatform} from '@app/utils/platform';
 
 // The hosted build loads its platform implementation once, before any page
 // mounts, so every caller reads one plain object.
@@ -16,7 +13,7 @@ export default defineNuxtPlugin({
             // The extension's document downloads while the workspace mounts.
             if (isBrowserExtensionPage()) {
                 void import('@app/platform/browser-api/public')
-                    .then(browserApi => browserApi.openBrowserExtensionLaunchDocument())
+                    .then((browserApi) => browserApi.openBrowserExtensionLaunchDocument())
                     .catch((error: unknown) => {
                         BrowserLogger.warn('browser-platform', 'The extension could not open its document', error);
                     });

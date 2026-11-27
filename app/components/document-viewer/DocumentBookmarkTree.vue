@@ -1,12 +1,25 @@
 <template>
-    <div ref="treeRef" class="document-bookmark-tree" @focusin="handleFocusIn" @focusout="handleFocusOut" @keydown="handleKeydown">
-        <div ref="rowMeasureRef" class="document-bookmark-tree__row-measure" aria-hidden="true" />
+    <div
+        ref="treeRef"
+        class="document-bookmark-tree"
+        @focusin="handleFocusIn"
+        @focusout="handleFocusOut"
+        @keydown="handleKeydown"
+    >
+        <div
+            ref="rowMeasureRef"
+            class="document-bookmark-tree__row-measure"
+            aria-hidden="true"
+        />
         <div
             v-bind="containerProps"
             class="document-bookmark-tree__list app-scrollbar app-scroll-region--balanced"
             @wheel="handleWheel"
         >
-            <div v-bind="wrapperProps" style="position: relative">
+            <div
+                v-bind="wrapperProps"
+                style="position: relative"
+            >
                 <DocumentBookmarkTreeItem
                     v-for="row in mountedRows"
                     :key="row.id"
@@ -40,17 +53,9 @@
 </template>
 
 <script setup lang="ts">
-import type { CSSProperties } from 'vue';
-import {
-    useElementSize,
-    useVirtualList,
-} from '@vueuse/core';
-import type {
-    IBookmarkDropPayload,
-    IBookmarkDropTarget,
-    IBookmarkMenuPayload,
-    TBookmarkDropPosition,
-} from '@app/types/pdfOutline';
+import type {CSSProperties} from 'vue';
+import {useElementSize, useVirtualList} from '@vueuse/core';
+import type {IBookmarkDropPayload, IBookmarkDropTarget, IBookmarkMenuPayload, TBookmarkDropPosition} from '@app/types/pdfOutline';
 import {
     getDocumentBookmarkVisibleRows,
     resolveDocumentBookmarkRevealRowIndex,
@@ -86,10 +91,12 @@ const {
 const emit = defineEmits<{
     activate: [id: string, event?: MouseEvent | KeyboardEvent];
     'open-actions': [payload: IBookmarkMenuPayload];
-    'save-edit': [payload: {
-        id: string;
-        title: string
-    }];
+    'save-edit': [
+        payload: {
+            id: string;
+            title: string;
+        },
+    ];
     'cancel-edit': [];
     'drag-start': [payload: {id: string}];
     'drag-hover': [payload: IBookmarkDropPayload];
@@ -103,11 +110,13 @@ const rowMeasureRef = ref<HTMLElement | null>(null);
 const {height: measuredRowHeight} = useElementSize(rowMeasureRef);
 const rowHeight = computed(() => measuredRowHeight.value || 42);
 
-const visibleRows = computed(() => getDocumentBookmarkVisibleRows(items, {
-    displayMode,
-    expandedIds,
-    activePathIds,
-}));
+const visibleRows = computed(() =>
+    getDocumentBookmarkVisibleRows(items, {
+        displayMode,
+        expandedIds,
+        activePathIds,
+    }),
+);
 
 const {
     list: virtualRows,
@@ -141,20 +150,16 @@ interface IMountedBookmarkRow {
 
 const mountedRows = computed<IMountedBookmarkRow[]>(() => {
     const firstVirtualIndex = virtualRows.value[0]?.index ?? 0;
-    const rows = virtualRows.value.map(row => ({
+    const rows = virtualRows.value.map((row) => ({
         ...row,
         pinned: false,
     }));
-    const retainedIds = new Set([
-        focusedId.value,
-        editingId,
-        dragSourceId.value,
-    ]);
+    const retainedIds = new Set([focusedId.value, editingId, dragSourceId.value]);
     for (const id of retainedIds) {
-        if (!id || rows.some(row => row.data.item.id === id)) {
+        if (!id || rows.some((row) => row.data.item.id === id)) {
             continue;
         }
-        const index = visibleRows.value.findIndex(row => row.item.id === id);
+        const index = visibleRows.value.findIndex((row) => row.item.id === id);
         const data = visibleRows.value[index];
         if (data) {
             rows.push({
@@ -166,11 +171,7 @@ const mountedRows = computed<IMountedBookmarkRow[]>(() => {
     }
     rows.sort((left, right) => left.index - right.index);
     return rows.map((row): IMountedBookmarkRow => {
-        const {
-            item,
-            depth,
-            isExpanded,
-        } = row.data;
+        const {item, depth, isExpanded} = row.data;
         const id = item.id;
         return {
             id,
@@ -179,10 +180,10 @@ const mountedRows = computed<IMountedBookmarkRow[]>(() => {
             isExpanded,
             style: row.pinned
                 ? {
-                    position: 'absolute',
-                    top: `${(row.index - firstVirtualIndex) * rowHeight.value}px`,
-                    insetInline: 0,
-                }
+                      position: 'absolute',
+                      top: `${(row.index - firstVirtualIndex) * rowHeight.value}px`,
+                      insetInline: 0,
+                  }
                 : undefined,
             isActive: id === activeId,
             isSelected: Boolean(selectedIds?.has(id)),
@@ -209,27 +210,35 @@ function handleFocusOut(event: FocusEvent) {
     }
 }
 
-function completeEdit(payload?: {
-    id: string;
-    title: string
-}) {
+function completeEdit(payload?: {id: string; title: string}) {
     const rowId = editingId ?? null;
     const input = document.activeElement;
-    const restoreFocus = input?.matches('.pdf-bookmark-item-input')
-        && input.closest<HTMLElement>('[data-bookmark-id]')?.dataset.bookmarkId === rowId;
-    if (payload) emit('save-edit', payload);
-    else emit('cancel-edit');
+    const restoreFocus =
+        input?.matches('.pdf-bookmark-item-input') && input.closest<HTMLElement>('[data-bookmark-id]')?.dataset.bookmarkId === rowId;
+    if (payload) {
+        emit('save-edit', payload);
+    } else {
+        emit('cancel-edit');
+    }
     // Pointer blur leaves its next target in charge. Keyboard completion uses
     // the tree's reveal while the edited row is still retained for this flush.
-    if (restoreFocus) void focusRow(rowId);
+    if (restoreFocus) {
+        void focusRow(rowId);
+    }
 }
 
 function handleWheel(event: WheelEvent) {
     const list = containerProps.ref.value;
-    if (!editingId || !list || !event.cancelable || event.shiftKey) return;
-    if (event.deltaX !== 0 || event.deltaMode !== WheelEvent.DOM_DELTA_PIXEL) return;
+    if (!editingId || !list || !event.cancelable || event.shiftKey) {
+        return;
+    }
+    if (event.deltaX !== 0 || event.deltaMode !== WheelEvent.DOM_DELTA_PIXEL) {
+        return;
+    }
     const interaction = resolveDocumentWheelInteraction(event, list);
-    if (interaction.intent !== 'scroll') return;
+    if (interaction.intent !== 'scroll') {
+        return;
+    }
     // Apply editing input in event order. The compositor's delayed default can
     // otherwise overtake the subsequent keyboard completion reveal.
     event.preventDefault();
@@ -245,11 +254,14 @@ function handleDragStart(payload: {id: string}) {
     emit('drag-start', payload);
 }
 
-watch(() => draggingIds?.size, size => {
-    if (!size) {
-        dragSourceId.value = null;
-    }
-});
+watch(
+    () => draggingIds?.size,
+    (size) => {
+        if (!size) {
+            dragSourceId.value = null;
+        }
+    },
+);
 
 async function handleTabKeydown(event: KeyboardEvent, currentRow: HTMLElement, index: number) {
     const controls = currentRow.querySelectorAll<HTMLElement>('button, input');
@@ -267,11 +279,7 @@ async function handleTabKeydown(event: KeyboardEvent, currentRow: HTMLElement, i
     await focusRow(nextRow.item.id, event.shiftKey);
 }
 
-function resolveNavigationTargetIndex(
-    key: string,
-    index: number,
-    current: (typeof visibleRows.value)[number],
-): number {
+function resolveNavigationTargetIndex(key: string, index: number, current: (typeof visibleRows.value)[number]): number {
     switch (key) {
         case 'ArrowDown':
             return index + 1;
@@ -298,7 +306,7 @@ async function handleKeydown(event: KeyboardEvent) {
     if (!currentRow) {
         return;
     }
-    const index = visibleRows.value.findIndex(row => row.item.id === currentRow.dataset.bookmarkId);
+    const index = visibleRows.value.findIndex((row) => row.item.id === currentRow.dataset.bookmarkId);
     const current = visibleRows.value[index];
     if (!current) {
         return;
@@ -310,8 +318,9 @@ async function handleKeydown(event: KeyboardEvent) {
     if (event.target !== currentRow) {
         return;
     }
-    const shouldToggleExpand = (event.key === 'ArrowRight' && current.item.children.length > 0 && !current.isExpanded)
-        || (event.key === 'ArrowLeft' && current.isExpanded);
+    const shouldToggleExpand =
+        (event.key === 'ArrowRight' && current.item.children.length > 0 && !current.isExpanded) ||
+        (event.key === 'ArrowLeft' && current.isExpanded);
     if (shouldToggleExpand) {
         event.preventDefault();
         emit('toggle-expand', current.item.id);
@@ -326,15 +335,12 @@ async function handleKeydown(event: KeyboardEvent) {
     await focusRow(nextRow.item.id);
 }
 
-const revealRowId = computed(() => visibleRows.value[resolveDocumentBookmarkRevealRowIndex(
-    visibleRows.value,
-    activeId,
-    activePathIds,
-)]?.item.id ?? null);
+const revealRowId = computed(
+    () => visibleRows.value[resolveDocumentBookmarkRevealRowIndex(visibleRows.value, activeId, activePathIds)]?.item.id ?? null,
+);
 
 function revealRow(rowId: string) {
-    const renderedRow = treeRef.value
-        ?.querySelector<HTMLElement>(`[data-bookmark-id="${CSS.escape(rowId)}"]`);
+    const renderedRow = treeRef.value?.querySelector<HTMLElement>(`[data-bookmark-id="${CSS.escape(rowId)}"]`);
     if (renderedRow) {
         // Preserve the user's scroll position when the row is already rendered;
         // the virtual-list scroll helper aligns to an absolute row instead.
@@ -345,7 +351,7 @@ function revealRow(rowId: string) {
         containerProps.onScroll();
         return;
     }
-    const rowIndex = visibleRows.value.findIndex(row => row.item.id === rowId);
+    const rowIndex = visibleRows.value.findIndex((row) => row.item.id === rowId);
     if (rowIndex >= 0) {
         scrollToRow(rowIndex, {behavior: 'instant'});
     }
@@ -359,7 +365,7 @@ async function focusRow(rowId: string | null, lastControl = false) {
     await nextTick();
     const row = treeRef.value?.querySelector<HTMLElement>(`[data-bookmark-id="${CSS.escape(rowId)}"]`);
     const controls = row?.querySelectorAll<HTMLElement>('button, input');
-    const target = lastControl ? controls?.item(controls.length - 1) ?? row : row;
+    const target = lastControl ? (controls?.item(controls.length - 1) ?? row) : row;
     target?.focus({preventScroll: true});
 }
 
@@ -370,12 +376,13 @@ watch(visibleRows, async (rows, previousRows) => {
     if (!element || !treeRef.value?.contains(element) || editingId) {
         return;
     }
-    const index = previousRows.findIndex(row => row.item.id === focusedId.value);
-    const ids = new Set(rows.map(row => row.item.id));
-    const survives = (row: typeof rows[number]) => ids.has(row.item.id);
-    const row = rows.find(candidate => candidate.item.id === focusedId.value)
-        ?? previousRows.slice(index + 1).find(survives)
-        ?? previousRows.slice(0, index).findLast(survives);
+    const index = previousRows.findIndex((row) => row.item.id === focusedId.value);
+    const ids = new Set(rows.map((row) => row.item.id));
+    const survives = (row: (typeof rows)[number]) => ids.has(row.item.id);
+    const row =
+        rows.find((candidate) => candidate.item.id === focusedId.value) ??
+        previousRows.slice(index + 1).find(survives) ??
+        previousRows.slice(0, index).findLast(survives);
     await nextTick();
     if (row && !element.isConnected && document.activeElement === document.body) {
         await focusRow(row.item.id);
@@ -388,16 +395,11 @@ defineExpose({focusActiveRow: () => focusRow(revealRowId.value)});
 // expansion change moves which row stands in for it. Expansion itself stays
 // under the user's control: nothing here rewrites `expandedIds`.
 watch(
-    [
-        () => activeId,
-        revealRowId,
-    ],
+    [() => activeId, revealRowId],
     () => {
         // Passive page resolution after Undo must not scroll away from the
         // row the person is using. A clicked row already owns DOM focus.
-        const rowId = treeRef.value?.contains(document.activeElement)
-            ? focusedId.value
-            : revealRowId.value;
+        const rowId = treeRef.value?.contains(document.activeElement) ? focusedId.value : revealRowId.value;
         if (rowId) {
             revealRow(rowId);
         }

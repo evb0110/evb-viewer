@@ -1,10 +1,6 @@
-import {
-    describe,
-    it,
-    vi,
-} from 'vitest';
-import { PLATFORM_FEATURE_REGISTRY } from '@contracts/platformApiDescriptor';
-import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
+import {describe, it, vi} from 'vitest';
+import {PLATFORM_FEATURE_REGISTRY} from '@contracts/platformApiDescriptor';
+import {registerPlatformFeatureHandlers} from '@electron/platform-ipc/validatedIpcRegistrar';
 import {
     assertValidatedRegistrarCases,
     createFeatureRegistrarCases,
@@ -26,11 +22,13 @@ vi.mock('@electron/platform-ipc/trustedIpcSender', () => mocks);
 function createServiceDouble() {
     type TServiceMethod = ReturnType<typeof vi.fn>;
     const methods: Record<string, TServiceMethod> = {};
-    return new Proxy(methods, {get(target, property) {
-        const key = typeof property === 'symbol' ? property.toString() : property;
-        target[key] ??= vi.fn(async () => undefined);
-        return target[key];
-    }});
+    return new Proxy(methods, {
+        get(target, property) {
+            const key = typeof property === 'symbol' ? property.toString() : property;
+            target[key] ??= vi.fn(async () => undefined);
+            return target[key];
+        },
+    });
 }
 
 describe('feature validated IPC decoders', () => {
@@ -41,12 +39,11 @@ describe('feature validated IPC decoders', () => {
                 channels: feature.invokeChannels,
                 codecs: feature.ipcCodecs,
                 register: (registrar, service) => {
-                    const registrarAdapter: Parameters<typeof registerPlatformFeatureHandlers>[0] = {handle: (channel, handler) => {
-                        Reflect.apply(registrar.handle, registrar, [
-                            channel,
-                            handler,
-                        ]);
-                    }};
+                    const registrarAdapter: Parameters<typeof registerPlatformFeatureHandlers>[0] = {
+                        handle: (channel, handler) => {
+                            Reflect.apply(registrar.handle, registrar, [channel, handler]);
+                        },
+                    };
                     registerPlatformFeatureHandlers(registrarAdapter, feature, service);
                 },
                 service: createServiceDouble(),
@@ -55,7 +52,7 @@ describe('feature validated IPC decoders', () => {
                 cases: createFeatureRegistrarCases(feature),
                 channels: feature.invokeChannels,
                 handlers,
-                setTrusted: trusted => mocks.isTrustedIpcInvokeSender.mockReturnValue(trusted),
+                setTrusted: (trusted) => mocks.isTrustedIpcInvokeSender.mockReturnValue(trusted),
             });
         }
     });

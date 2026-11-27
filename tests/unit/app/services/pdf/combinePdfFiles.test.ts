@@ -1,17 +1,10 @@
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import type {IDocumentsBatchProgress} from '@contracts/electronApiDocuments';
 import {combinePdfFiles} from '@app/services/pdf/combinePdfFiles';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {SerializableError} from '@contracts/serializableError';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
-import type { IPlatformApiFixtureEventMethod } from '@tests/helpers/createDefaultPlatformApiFixtureMethod';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
+import type {IPlatformApiFixtureEventMethod} from '@tests/helpers/createDefaultPlatformApiFixtureMethod';
 
 interface IMenuProgress {
     operation: 'document-open';
@@ -53,7 +46,9 @@ const platformApi = createElectronPlatformApiFixture({
     documentPicker: mocks.documentPicker,
     documentWorkingCopy: mocks.documentWorkingCopy,
 });
-const progressEvent = platformApi.documentOpen.onOpenDocumentDirectBatchProgress as typeof platformApi.documentOpen.onOpenDocumentDirectBatchProgress & IPlatformApiFixtureEventMethod<IMenuProgress>;
+const progressEvent = platformApi.documentOpen
+    .onOpenDocumentDirectBatchProgress as typeof platformApi.documentOpen.onOpenDocumentDirectBatchProgress &
+    IPlatformApiFixtureEventMethod<IMenuProgress>;
 vi.mock('@app/utils/platform', () => ({
     getPlatformAPI: () => platformApi,
     hasElectronAPI: () => mocks.hasElectronAPI(),
@@ -80,11 +75,7 @@ describe('combinePdfFiles', () => {
             workingPath: '/tmp/combined-working.pdf',
             isGenerated: true,
         });
-        mocks.documentPicker.createCombinedPdfFromFiles.mockResolvedValue(new Uint8Array([
-            1,
-            2,
-            3,
-        ]));
+        mocks.documentPicker.createCombinedPdfFromFiles.mockResolvedValue(new Uint8Array([1, 2, 3]));
         mocks.documentWorkingCopy.createWorkingCopyFromData.mockResolvedValue('browser://documents/working/combined.pdf');
         mocks.logError.mockReturnValue(mocks.failure);
     });
@@ -97,10 +88,7 @@ describe('combinePdfFiles', () => {
         const firstFile = createFile('first.pdf');
         const secondFile = createFile('second.pdf');
         const onProgress = vi.fn<(progress: IDocumentsBatchProgress) => void>();
-        mocks.documentPicker.getPathsForFiles.mockReturnValue([
-            '/tmp/first.pdf',
-            '/tmp/second.pdf',
-        ]);
+        mocks.documentPicker.getPathsForFiles.mockReturnValue(['/tmp/first.pdf', '/tmp/second.pdf']);
         mocks.documentOpen.openDocumentDirectBatch.mockImplementation(async (_paths: string[], requestId: string) => {
             progressEvent.emit({
                 operation: 'document-open',
@@ -120,10 +108,7 @@ describe('combinePdfFiles', () => {
         });
 
         const result = await combinePdfFiles({
-            files: [
-                {file: firstFile},
-                {file: secondFile},
-            ],
+            files: [{file: firstFile}, {file: secondFile}],
             outputName: 'combined.pdf',
             openErrorMessage: 'Could not open combined PDF',
             onProgress,
@@ -135,14 +120,12 @@ describe('combinePdfFiles', () => {
             workingPath: '/tmp/combined-working.pdf',
             isGenerated: true,
         });
-        expect(mocks.documentPicker.getPathsForFiles).toHaveBeenCalledWith([
-            firstFile,
-            secondFile,
-        ]);
-        expect(mocks.documentOpen.openDocumentDirectBatch).toHaveBeenCalledWith([
-            '/tmp/first.pdf',
-            '/tmp/second.pdf',
-        ], 'pdf-combine-combine-request-1', {forceCombine: true});
+        expect(mocks.documentPicker.getPathsForFiles).toHaveBeenCalledWith([firstFile, secondFile]);
+        expect(mocks.documentOpen.openDocumentDirectBatch).toHaveBeenCalledWith(
+            ['/tmp/first.pdf', '/tmp/second.pdf'],
+            'pdf-combine-combine-request-1',
+            {forceCombine: true},
+        );
         expect(platformApi.documentOpen.onOpenDocumentDirectBatchProgress).toHaveBeenCalledOnce();
         expect(onProgress).toHaveBeenNthCalledWith(1, {
             processed: 1,
@@ -163,25 +146,18 @@ describe('combinePdfFiles', () => {
     it('allows former desktop byte limits because native combine receives file paths', async () => {
         const firstFile = createFile('first.pdf', 600 * 1024 * 1024);
         const secondFile = createFile('second.pdf', 600 * 1024 * 1024);
-        mocks.documentPicker.getPathsForFiles.mockReturnValue([
-            '/tmp/first.pdf',
-            '/tmp/second.pdf',
-        ]);
+        mocks.documentPicker.getPathsForFiles.mockReturnValue(['/tmp/first.pdf', '/tmp/second.pdf']);
 
-        await expect(combinePdfFiles({
-            files: [
-                {file: firstFile},
-                {file: secondFile},
-            ],
-            outputName: 'combined.pdf',
-            openErrorMessage: 'Could not open combined PDF',
-        })).resolves.toMatchObject({kind: 'pdf'});
+        await expect(
+            combinePdfFiles({
+                files: [{file: firstFile}, {file: secondFile}],
+                outputName: 'combined.pdf',
+                openErrorMessage: 'Could not open combined PDF',
+            }),
+        ).resolves.toMatchObject({kind: 'pdf'});
 
         expect(mocks.documentOpen.openDocumentDirectBatch).toHaveBeenCalledWith(
-            [
-                '/tmp/first.pdf',
-                '/tmp/second.pdf',
-            ],
+            ['/tmp/first.pdf', '/tmp/second.pdf'],
             'pdf-combine-combine-request-1',
             {forceCombine: true},
         );
@@ -192,47 +168,39 @@ describe('combinePdfFiles', () => {
         const paths = files.map((_file, index) => `/tmp/page-${index}.pdf`);
         mocks.documentPicker.getPathsForFiles.mockReturnValue(paths);
 
-        await expect(combinePdfFiles({
-            files: files.map(file => ({file})),
-            outputName: 'combined.pdf',
-            openErrorMessage: 'Could not open combined PDF',
-        })).resolves.toMatchObject({kind: 'pdf'});
+        await expect(
+            combinePdfFiles({
+                files: files.map((file) => ({file})),
+                outputName: 'combined.pdf',
+                openErrorMessage: 'Could not open combined PDF',
+            }),
+        ).resolves.toMatchObject({kind: 'pdf'});
 
-        expect(mocks.documentOpen.openDocumentDirectBatch).toHaveBeenCalledWith(
-            paths,
-            'pdf-combine-combine-request-1',
-            {forceCombine: true},
-        );
+        expect(mocks.documentOpen.openDocumentDirectBatch).toHaveBeenCalledWith(paths, 'pdf-combine-combine-request-1', {
+            forceCombine: true,
+        });
     });
 
     it('creates browser generated output through the split working-copy capability', async () => {
         mocks.hasElectronAPI.mockReturnValue(false);
         const firstFile = createFile('first.pdf');
         const secondFile = createFile('second.png');
-        const combinedBytes = new Uint8Array([
-            4,
-            5,
-            6,
-        ]);
-        mocks.documentPicker.createCombinedPdfFromFiles.mockImplementation(async (
-            _files: File[],
-            options: { onProgress?: (progress: IDocumentsBatchProgress) => void },
-        ) => {
-            options.onProgress?.({
-                processed: 1,
-                total: 2,
-                percent: 50,
-                elapsedMs: 10,
-                estimatedRemainingMs: 10,
-            });
-            return combinedBytes;
-        });
+        const combinedBytes = new Uint8Array([4, 5, 6]);
+        mocks.documentPicker.createCombinedPdfFromFiles.mockImplementation(
+            async (_files: File[], options: {onProgress?: (progress: IDocumentsBatchProgress) => void}) => {
+                options.onProgress?.({
+                    processed: 1,
+                    total: 2,
+                    percent: 50,
+                    elapsedMs: 10,
+                    estimatedRemainingMs: 10,
+                });
+                return combinedBytes;
+            },
+        );
 
         const result = await combinePdfFiles({
-            files: [
-                {file: firstFile},
-                {file: secondFile},
-            ],
+            files: [{file: firstFile}, {file: secondFile}],
             outputName: 'combined.pdf',
             openErrorMessage: 'Could not open combined PDF',
         });
@@ -243,25 +211,17 @@ describe('combinePdfFiles', () => {
             originalPath: 'browser://documents/working/combined.pdf',
             isGenerated: true,
         });
-        expect(mocks.documentPicker.createCombinedPdfFromFiles).toHaveBeenCalledWith([
-            firstFile,
-            secondFile,
-        ], {onProgress: expect.any(Function)});
-        expect(mocks.documentWorkingCopy.createWorkingCopyFromData).toHaveBeenCalledWith(
-            'combined.pdf',
-            combinedBytes,
-        );
+        expect(mocks.documentPicker.createCombinedPdfFromFiles).toHaveBeenCalledWith([firstFile, secondFile], {
+            onProgress: expect.any(Function),
+        });
+        expect(mocks.documentWorkingCopy.createWorkingCopyFromData).toHaveBeenCalledWith('combined.pdf', combinedBytes);
     });
 
     it('keeps fallback progress monotonic and reserves 100 percent for completion', async () => {
         const onProgress = vi.fn<(progress: IDocumentsBatchProgress) => void>();
         mocks.documentPicker.getPathsForFiles.mockReturnValue(['/tmp/first.pdf']);
         mocks.documentOpen.openDocumentDirectBatch.mockImplementation(async (_paths: string[], requestId: string) => {
-            for (const percent of [
-                80,
-                20,
-                100,
-            ]) {
+            for (const percent of [80, 20, 100]) {
                 progressEvent.emit({
                     operation: 'document-open',
                     requestId,
@@ -287,12 +247,7 @@ describe('combinePdfFiles', () => {
             onProgress,
         });
 
-        expect(onProgress.mock.calls.map(([progress]) => progress.percent)).toEqual([
-            80,
-            80,
-            95,
-            100,
-        ]);
+        expect(onProgress.mock.calls.map(([progress]) => progress.percent)).toEqual([80, 80, 95, 100]);
     });
 
     it('routes renderer cancellation to the active Electron combine request', async () => {
@@ -300,9 +255,12 @@ describe('combinePdfFiles', () => {
         const controller = new AbortController();
         mocks.documentPicker.getPathsForFiles.mockReturnValue(['/tmp/first.pdf']);
         let rejectOpen: ((error: Error) => void) | null = null;
-        mocks.documentOpen.openDocumentDirectBatch.mockImplementation(() => new Promise((_resolve, reject) => {
-            rejectOpen = reject;
-        }));
+        mocks.documentOpen.openDocumentDirectBatch.mockImplementation(
+            () =>
+                new Promise((_resolve, reject) => {
+                    rejectOpen = reject;
+                }),
+        );
         mocks.documentOpen.cancelOpenDocumentDirectBatch.mockImplementation(async () => {
             rejectOpen?.(new DOMException('Canceled', 'AbortError'));
             return true;
@@ -325,9 +283,12 @@ describe('combinePdfFiles', () => {
         const controller = new AbortController();
         mocks.documentPicker.getPathsForFiles.mockReturnValue(['/tmp/first.pdf']);
         const reply: {resolve?: (result: unknown) => void} = {};
-        mocks.documentOpen.openDocumentDirectBatch.mockImplementation(() => new Promise((resolve) => {
-            reply.resolve = resolve;
-        }));
+        mocks.documentOpen.openDocumentDirectBatch.mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    reply.resolve = resolve;
+                }),
+        );
         // Main has already finished, so there is no request left to cancel.
         mocks.documentOpen.cancelOpenDocumentDirectBatch.mockResolvedValue(false);
         const pending = combinePdfFiles({
@@ -371,26 +332,33 @@ describe('combinePdfFiles', () => {
 
     it('classifies a typed native limit without inspecting its message', async () => {
         mocks.documentPicker.getPathsForFiles.mockReturnValue(['/tmp/first.pdf']);
-        mocks.documentOpen.openDocumentDirectBatch.mockRejectedValue(new SerializableError({
-            code: 'too-large',
-            message: 'The native combine limit was reached',
-        }));
+        mocks.documentOpen.openDocumentDirectBatch.mockRejectedValue(
+            new SerializableError({
+                code: 'too-large',
+                message: 'The native combine limit was reached',
+            }),
+        );
 
-        await expect(combinePdfFiles({
-            files: [{file: createFile('first.pdf')}],
-            outputName: 'combined.pdf',
-            openErrorMessage: 'open failed',
-        })).rejects.toMatchObject({code: 'limit'});
+        await expect(
+            combinePdfFiles({
+                files: [{file: createFile('first.pdf')}],
+                outputName: 'combined.pdf',
+                openErrorMessage: 'open failed',
+            }),
+        ).rejects.toMatchObject({code: 'limit'});
         expect(mocks.logError).not.toHaveBeenCalled();
     });
 
     it('cleans up a browser working copy when cancellation lands during materialization', async () => {
         mocks.hasElectronAPI.mockReturnValue(false);
         const controller = new AbortController();
-        const workingCopyDeferred: { resolve?: (path: string) => void; } = {};
-        mocks.documentWorkingCopy.createWorkingCopyFromData.mockImplementationOnce(() => new Promise((resolve) => {
-            workingCopyDeferred.resolve = resolve;
-        }));
+        const workingCopyDeferred: {resolve?: (path: string) => void} = {};
+        mocks.documentWorkingCopy.createWorkingCopyFromData.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    workingCopyDeferred.resolve = resolve;
+                }),
+        );
 
         const pending = combinePdfFiles({
             files: [{file: createFile('first.pdf')}],
@@ -406,24 +374,24 @@ describe('combinePdfFiles', () => {
         workingCopyDeferred.resolve?.('browser://documents/working/combined.pdf');
 
         await expect(pending).rejects.toMatchObject({code: 'canceled'});
-        expect(mocks.documentWorkingCopy.cleanupFile).toHaveBeenCalledWith(
-            'browser://documents/working/combined.pdf',
-        );
+        expect(mocks.documentWorkingCopy.cleanupFile).toHaveBeenCalledWith('browser://documents/working/combined.pdf');
     });
 
     it('hands the browser combiner more than 500 inputs and inputs over the former 32 MiB, as desktop does', async () => {
         mocks.hasElectronAPI.mockReturnValue(false);
         const files = [
-            createFile('scan.png', (32 * 1024 * 1024) + 1),
+            createFile('scan.png', 32 * 1024 * 1024 + 1),
             ...Array.from({length: 600}, (_, index) => createFile(`doc-${index}.pdf`)),
         ];
         mocks.documentPicker.createCombinedPdfFromFiles.mockResolvedValue(new Uint8Array([4]));
 
-        await expect(combinePdfFiles({
-            files: files.map(file => ({file})),
-            outputName: 'combined.pdf',
-            openErrorMessage: 'open failed',
-        })).resolves.toMatchObject({kind: 'pdf'});
+        await expect(
+            combinePdfFiles({
+                files: files.map((file) => ({file})),
+                outputName: 'combined.pdf',
+                openErrorMessage: 'open failed',
+            }),
+        ).resolves.toMatchObject({kind: 'pdf'});
         expect(mocks.documentPicker.createCombinedPdfFromFiles).toHaveBeenCalledWith(files, {onProgress: expect.any(Function)});
     });
 

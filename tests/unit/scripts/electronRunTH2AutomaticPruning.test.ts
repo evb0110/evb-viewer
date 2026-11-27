@@ -1,24 +1,8 @@
 import {spawn} from 'node:child_process';
-import {
-    existsSync,
-    mkdirSync,
-    rmSync,
-    writeFileSync,
-} from 'node:fs';
-import {
-    dirname,
-    join,
-} from 'node:path';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    findFreePort,
-    isProcessAlive,
-} from '@scripts/electron-run/electronRunProcessTree';
+import {existsSync, mkdirSync, rmSync, writeFileSync} from 'node:fs';
+import {dirname, join} from 'node:path';
+import {describe, expect, it, vi} from 'vitest';
+import {findFreePort, isProcessAlive} from '@scripts/electron-run/electronRunProcessTree';
 import {projectRoot} from '@scripts/electron-run/projectRoot';
 import {
     electronAppTempDirPath,
@@ -39,13 +23,14 @@ import type {ISessionInfo} from '@scripts/electron-run/electronRunSessionTypes';
 
 const UNUSED_PID = 4_194_305;
 const STALE_MTIME_MS = 1_700_000_000_000;
-const PRUNE_NOW_MS = STALE_MTIME_MS + (48 * 60 * 60 * 1000);
+const PRUNE_NOW_MS = STALE_MTIME_MS + 48 * 60 * 60 * 1000;
 const PRUNE_MAX_AGE_MS = 60 * 60 * 1000;
 const CONTROLLER_SENTINEL_SCRIPT = 'setInterval(() => {}, 1000); process.stdout.write("ready\\n");';
-const NUXT_SENTINEL_SCRIPT = 'const http = require("node:http"); '
-    + 'const server = http.createServer((_req, res) => res.end("ok")); '
-    + 'server.listen(Number(process.env.PORT), "127.0.0.1", () => process.stdout.write("ready\\n")); '
-    + 'setInterval(() => {}, 1000);';
+const NUXT_SENTINEL_SCRIPT =
+    'const http = require("node:http"); ' +
+    'const server = http.createServer((_req, res) => res.end("ok")); ' +
+    'server.listen(Number(process.env.PORT), "127.0.0.1", () => process.stdout.write("ready\\n")); ' +
+    'setInterval(() => {}, 1000);';
 
 let sessionSequence = 0;
 
@@ -77,18 +62,14 @@ function writeEvidence(name: string, fileName: string) {
     return evidencePath;
 }
 
-async function writeSessionInfo(
-    name: string,
-    pid: number,
-    options: ITestSessionInfoOptions = {},
-): Promise<ISessionInfo> {
+async function writeSessionInfo(name: string, pid: number, options: ITestSessionInfoOptions = {}): Promise<ISessionInfo> {
     const info: ISessionInfo = {
-        port: options.controllerPort ?? await findFreePort(),
+        port: options.controllerPort ?? (await findFreePort()),
         pid,
-        cdpPort: options.cdpPort ?? await findFreePort(),
+        cdpPort: options.cdpPort ?? (await findFreePort()),
         electronPid: options.electronPid ?? null,
         nuxtPid: options.nuxtPid ?? null,
-        nuxtPort: options.nuxtPort ?? await findFreePort(),
+        nuxtPort: options.nuxtPort ?? (await findFreePort()),
         runId: null,
     };
     mkdirSync(sessionDir(name), {recursive: true});
@@ -105,16 +86,20 @@ function writeSessionStarting(
     } = {},
 ) {
     mkdirSync(sessionDir(name), {recursive: true});
-    writeFileSync(sessionStartingFilePath(name), JSON.stringify({
-        pid,
-        startedAt: STALE_MTIME_MS,
-        electronPids: [],
-        cdpPorts: [],
-        electronUserDataDir: electronUserDataPath(name),
-        nuxtPid: options.nuxtPid ?? null,
-        nuxtPort: options.nuxtPort ?? null,
-        runId: null,
-    }), 'utf8');
+    writeFileSync(
+        sessionStartingFilePath(name),
+        JSON.stringify({
+            pid,
+            startedAt: STALE_MTIME_MS,
+            electronPids: [],
+            cdpPorts: [],
+            electronUserDataDir: electronUserDataPath(name),
+            nuxtPid: options.nuxtPid ?? null,
+            nuxtPort: options.nuxtPort ?? null,
+            runId: null,
+        }),
+        'utf8',
+    );
 }
 
 function disposeSession(name: string) {
@@ -128,31 +113,18 @@ function disposeSession(name: string) {
     });
 }
 
-function spawnReadyProcess(
-    script: string,
-    args: string[],
-    env: NodeJS.ProcessEnv = process.env,
-) {
-    const child = spawn(process.execPath, [
-        '-e',
-        script,
-        '--',
-        ...args,
-    ], {
+function spawnReadyProcess(script: string, args: string[], env: NodeJS.ProcessEnv = process.env) {
+    const child = spawn(process.execPath, ['-e', script, '--', ...args], {
         cwd: projectRoot,
         env,
-        stdio: [
-            'ignore',
-            'pipe',
-            'ignore',
-        ],
+        stdio: ['ignore', 'pipe', 'ignore'],
     });
     const ready = new Promise<void>((resolve, reject) => {
         child.stdout?.once('data', () => resolve());
         child.once('error', reject);
-        child.once('exit', (code, signal) => reject(new Error(
-            `sentinel exited before readiness (code ${String(code)}, signal ${String(signal)})`,
-        )));
+        child.once('exit', (code, signal) =>
+            reject(new Error(`sentinel exited before readiness (code ${String(code)}, signal ${String(signal)})`)),
+        );
     });
     return {
         child,
@@ -164,32 +136,15 @@ function spawnControllerSentinel(sessionName: string, startup: boolean) {
     const entry = startup
         ? join(projectRoot, 'scripts', 'electron-run', 'ephemeralSessionEntry.ts')
         : join(projectRoot, 'scripts', 'electronRun.ts');
-    const args = startup
-        ? [
-            entry,
-            sessionName,
-        ]
-        : [
-            entry,
-            `--session=${sessionName}`,
-            'start',
-        ];
+    const args = startup ? [entry, sessionName] : [entry, `--session=${sessionName}`, 'start'];
     return spawnReadyProcess(CONTROLLER_SENTINEL_SCRIPT, args);
 }
 
 function spawnNuxtSentinel(port: number) {
-    return spawnReadyProcess(
-        NUXT_SENTINEL_SCRIPT,
-        [
-            'pnpm',
-            'run',
-            'dev:nuxt',
-        ],
-        {
-            ...process.env,
-            PORT: String(port),
-        },
-    );
+    return spawnReadyProcess(NUXT_SENTINEL_SCRIPT, ['pnpm', 'run', 'dev:nuxt'], {
+        ...process.env,
+        PORT: String(port),
+    });
 }
 
 function childPid(child: ReturnType<typeof spawn>) {
@@ -335,10 +290,7 @@ describe('TH-2 automatic E2E session pruning', () => {
             const nuxt = spawnNuxtSentinel(nuxtPort);
             const activeController = spawnControllerSentinel(activeName, false);
             try {
-                await Promise.all([
-                    nuxt.ready,
-                    activeController.ready,
-                ]);
+                await Promise.all([nuxt.ready, activeController.ready]);
                 const nuxtPid = childPid(nuxt.child);
                 const activePid = childPid(activeController.child);
                 await writeSessionInfo(activeName, activePid, {
@@ -415,10 +367,12 @@ describe('TH-2 automatic E2E session pruning', () => {
             });
 
             expect(result.removed).toEqual([]);
-            expect(result.refused).toEqual([{
-                name,
-                reason: 'workspace recovery evidence is present; retained for later recovery',
-            }]);
+            expect(result.refused).toEqual([
+                {
+                    name,
+                    reason: 'workspace recovery evidence is present; retained for later recovery',
+                },
+            ]);
             const cleanup = await cleanupStaleSessionArtifacts(name);
             expect(cleanup.kind).toBe('preserved-recovery');
             expect(existsSync(sessionFilePath(name))).toBe(true);

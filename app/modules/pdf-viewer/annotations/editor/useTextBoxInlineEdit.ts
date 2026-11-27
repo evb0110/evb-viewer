@@ -1,13 +1,7 @@
-import type { IAnnotationTextEditPoint } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
-import { useEventListener } from '@vueuse/core';
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
-import {
-    normalizeAnnotationText,
-    type ITextBoxEntity,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {IAnnotationTextEditPoint} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
+import {useEventListener} from '@vueuse/core';
+import type {ComputedRef, Ref} from 'vue';
+import {normalizeAnnotationText, type ITextBoxEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 interface ITextBoxInlineEditOptions {
     entity: ComputedRef<ITextBoxEntity>;
@@ -44,7 +38,7 @@ export interface ITextBoxInlineEdit {
 
 function readEditorText(element: HTMLElement) {
     const innerText = element.innerText;
-    return normalizeAnnotationText(typeof innerText === 'string' ? innerText : element.textContent ?? '');
+    return normalizeAnnotationText(typeof innerText === 'string' ? innerText : (element.textContent ?? ''));
 }
 
 function placeEditorCaret(element: HTMLElement, point: IAnnotationTextEditPoint | null) {
@@ -70,14 +64,10 @@ function placeEditorCaret(element: HTMLElement, point: IAnnotationTextEditPoint 
 }
 
 function isEditorElement(value: EventTarget | null): value is HTMLElement {
-    return typeof value === 'object'
-        && value !== null
-        && 'textContent' in value;
+    return typeof value === 'object' && value !== null && 'textContent' in value;
 }
 
-export const useTextBoxInlineEdit = (
-    options: ITextBoxInlineEditOptions,
-): ITextBoxInlineEdit => {
+export const useTextBoxInlineEdit = (options: ITextBoxInlineEditOptions): ITextBoxInlineEdit => {
     const editorRef = ref<HTMLElement | null>(null);
     const draftText = ref(options.entity.value.text);
     let completion: Promise<void> | null = null;
@@ -90,17 +80,21 @@ export const useTextBoxInlineEdit = (
         }
     }
 
-    watch(options.editing, (editing, _previous, onCleanup) => {
-        if (!editing) {
-            return;
-        }
-        if (typeof document !== 'undefined') {
-            onCleanup(useEventListener(document, 'focusout', handleContextFocusOut));
-        }
-        completion = null;
-        draftText.value = options.recoveredDraftText?.value ?? options.entity.value.text;
-        void focusEditor();
-    }, {immediate: true});
+    watch(
+        options.editing,
+        (editing, _previous, onCleanup) => {
+            if (!editing) {
+                return;
+            }
+            if (typeof document !== 'undefined') {
+                onCleanup(useEventListener(document, 'focusout', handleContextFocusOut));
+            }
+            completion = null;
+            draftText.value = options.recoveredDraftText?.value ?? options.entity.value.text;
+            void focusEditor();
+        },
+        {immediate: true},
+    );
 
     function handleInput(event: ITextBoxInputEvent) {
         if (!options.editing.value || event.isComposing) {
@@ -117,16 +111,22 @@ export const useTextBoxInlineEdit = (
         if (!options.editing.value) {
             return;
         }
-        if (completion) return completion;
+        if (completion) {
+            return completion;
+        }
         const pending = (async () => {
-            if (typeof document !== 'undefined' && document.fonts) await document.fonts.ready;
+            if (typeof document !== 'undefined' && document.fonts) {
+                await document.fonts.ready;
+            }
             await action();
         })();
         completion = pending;
         void pending.catch(() => {
             if (completion === pending) {
                 completion = null;
-                if (editorRef.value?.ownerDocument.activeElement !== editorRef.value) void focusEditor();
+                if (editorRef.value?.ownerDocument.activeElement !== editorRef.value) {
+                    void focusEditor();
+                }
             }
         });
         return pending;
@@ -152,27 +152,37 @@ export const useTextBoxInlineEdit = (
     // The inspector and the app menu's text editing act on this draft, so
     // moving to either keeps it open.
     function isEditingContextTarget(target: EventTarget | null | undefined) {
-        return typeof HTMLElement !== 'undefined'
-            && target instanceof HTMLElement
-            && Boolean(target.closest('[data-annotation-inspector], [data-text-edit-menu]'));
+        return (
+            typeof HTMLElement !== 'undefined' &&
+            target instanceof HTMLElement &&
+            Boolean(target.closest('[data-annotation-inspector], [data-text-edit-menu]'))
+        );
     }
 
     function handleContextFocusOut(event: FocusEvent) {
         const target = event.relatedTarget;
-        if (options.editing.value && isEditingContextTarget(event.target) && !isEditingContextTarget(target)
-            && !(typeof Node !== 'undefined' && target instanceof Node && editorRef.value?.contains(target))) {
+        if (
+            options.editing.value &&
+            isEditingContextTarget(event.target) &&
+            !isEditingContextTarget(target) &&
+            !(typeof Node !== 'undefined' && target instanceof Node && editorRef.value?.contains(target))
+        ) {
             void commit();
         }
     }
 
     function handleBlur(event?: Pick<FocusEvent, 'relatedTarget'>) {
-        if (!isEditingContextTarget(event?.relatedTarget)) void commit();
+        if (!isEditingContextTarget(event?.relatedTarget)) {
+            void commit();
+        }
     }
 
     return {
         editorRef,
         draftText,
-        get pendingCompletion() { return options.editing.value ? completion : null; },
+        get pendingCompletion() {
+            return options.editing.value ? completion : null;
+        },
         commit,
         handleInput,
         handleKeydown,

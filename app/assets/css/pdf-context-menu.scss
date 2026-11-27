@@ -52,7 +52,9 @@
     padding: 0 var(--pdf-context-menu-inline-padding);
     cursor: pointer;
     font-size: var(--app-text-size-body-sm);
-    transition: background-color 120ms ease, color 120ms ease;
+    transition:
+        background-color 120ms ease,
+        color 120ms ease;
 }
 
 .pdf-context-menu-base--panel .pdf-context-menu__action {

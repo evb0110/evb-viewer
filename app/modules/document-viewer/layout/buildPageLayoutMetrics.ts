@@ -1,17 +1,11 @@
-import {
-    requirePageIndex,
-    requirePageNumber,
-} from '@contracts/pageNumbers';
-import type { TPageIndex } from '@contracts/pageNumbers';
+import {requirePageIndex, requirePageNumber} from '@contracts/pageNumbers';
+import type {TPageIndex} from '@contracts/pageNumbers';
 
-import type { TPdfViewMode } from '@app/types/pdfContracts';
-import type { IPdfPageMetric } from '@app/types/pdfUi';
-import type {
-    IPdfPageLayoutBase,
-    IPdfPageLayoutMetrics,
-} from '@app/modules/document-viewer/layout/pdfPageLayoutMetrics';
-import { getPageNumbersForViewMode } from '@app/modules/document-viewer/layout/getPageRowBoundsForViewMode';
-import { createLazyIndexedCollection } from '@app/modules/document-viewer/virtualization/pageVirtualization';
+import type {TPdfViewMode} from '@app/types/pdfContracts';
+import type {IPdfPageMetric} from '@app/types/pdfUi';
+import type {IPdfPageLayoutBase, IPdfPageLayoutMetrics} from '@app/modules/document-viewer/layout/pdfPageLayoutMetrics';
+import {getPageNumbersForViewMode} from '@app/modules/document-viewer/layout/getPageRowBoundsForViewMode';
+import {createLazyIndexedCollection} from '@app/modules/document-viewer/virtualization/pageVirtualization';
 import {
     getIndexedValue,
     getPageMetricMaximum,
@@ -28,18 +22,12 @@ function normalizeSpacing(value: number, fallback = 0) {
     return Number.isFinite(value) ? Math.max(0, value) : fallback;
 }
 
-function resolveSafeLayoutSpacing(options: {
-    gap: number;
-    paddingTop: number;
-    paddingBottom?: number;
-}) {
+function resolveSafeLayoutSpacing(options: {gap: number; paddingTop: number; paddingBottom?: number}) {
     const paddingTop = normalizeSpacing(options.paddingTop);
     return {
         gap: normalizeSpacing(options.gap),
         paddingTop,
-        paddingBottom: typeof options.paddingBottom === 'number'
-            ? normalizeSpacing(options.paddingBottom, paddingTop)
-            : paddingTop,
+        paddingBottom: typeof options.paddingBottom === 'number' ? normalizeSpacing(options.paddingBottom, paddingTop) : paddingTop,
     };
 }
 
@@ -55,18 +43,14 @@ function getLayoutRowCount(totalPages: number, viewMode: TPdfViewMode) {
     if (viewMode === 'single' || totalPages <= 1) {
         return totalPages;
     }
-    return viewMode === 'facing'
-        ? Math.ceil(totalPages / 2)
-        : 1 + Math.ceil((totalPages - 1) / 2);
+    return viewMode === 'facing' ? Math.ceil(totalPages / 2) : 1 + Math.ceil((totalPages - 1) / 2);
 }
 
 function getLayoutRowStart(rowIndex: number, totalPages: number, viewMode: TPdfViewMode) {
     if (viewMode === 'single' || totalPages <= 1) {
         return rowIndex + 1;
     }
-    return viewMode === 'facing'
-        ? rowIndex * 2 + 1
-        : rowIndex === 0 ? 1 : rowIndex * 2;
+    return viewMode === 'facing' ? rowIndex * 2 + 1 : rowIndex === 0 ? 1 : rowIndex * 2;
 }
 
 function getLayoutRowEnd(rowIndex: number, totalPages: number, viewMode: TPdfViewMode) {
@@ -74,18 +58,14 @@ function getLayoutRowEnd(rowIndex: number, totalPages: number, viewMode: TPdfVie
     if (viewMode === 'single' || totalPages <= 1) {
         return start;
     }
-    return viewMode === 'facing'
-        ? Math.min(totalPages, start + 1)
-        : rowIndex === 0 ? 1 : Math.min(totalPages, start + 1);
+    return viewMode === 'facing' ? Math.min(totalPages, start + 1) : rowIndex === 0 ? 1 : Math.min(totalPages, start + 1);
 }
 
 function getLayoutRowIndex(pageIndex: TPageIndex, totalPages: number, viewMode: TPdfViewMode) {
     if (viewMode === 'single' || totalPages <= 1) {
         return pageIndex;
     }
-    return viewMode === 'facing'
-        ? Math.floor(pageIndex / 2)
-        : pageIndex === 0 ? 0 : 1 + Math.floor((pageIndex - 1) / 2);
+    return viewMode === 'facing' ? Math.floor(pageIndex / 2) : pageIndex === 0 ? 0 : 1 + Math.floor((pageIndex - 1) / 2);
 }
 
 function getMetricDimension(
@@ -95,9 +75,7 @@ function getMetricDimension(
 ) {
     const metric = getIndexedValue(pageMetrics, pageIndex);
     const value = metric?.[dimension];
-    return typeof value === 'number' && Number.isFinite(value) && value > 0
-        ? value
-        : 0;
+    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
 function getMetricEstimateDimension(
@@ -105,31 +83,17 @@ function getMetricEstimateDimension(
     pageIndex: TPageIndex,
     dimension: 'width' | 'height',
 ) {
-    const metric = isSparsePageMetricCollection(pageMetrics)
-        ? pageMetrics.estimate(pageIndex)
-        : getIndexedValue(pageMetrics, pageIndex);
+    const metric = isSparsePageMetricCollection(pageMetrics) ? pageMetrics.estimate(pageIndex) : getIndexedValue(pageMetrics, pageIndex);
     const value = metric?.[dimension];
-    return typeof value === 'number' && Number.isFinite(value) && value > 0
-        ? value
-        : 0;
+    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
-function getRowHeight(
-    rowIndex: number,
-    totalPages: number,
-    viewMode: TPdfViewMode,
-    getDimension: (
-        pageIndex: TPageIndex,
-    ) => number,
-) {
+function getRowHeight(rowIndex: number, totalPages: number, viewMode: TPdfViewMode, getDimension: (pageIndex: TPageIndex) => number) {
     const start = getLayoutRowStart(rowIndex, totalPages, viewMode) - 1;
     const end = getLayoutRowEnd(rowIndex, totalPages, viewMode) - 1;
     let height = 0;
     for (let index = start; index <= end; index += 1) {
-        height = Math.max(
-            height,
-            getDimension(requirePageIndex(index)),
-        );
+        height = Math.max(height, getDimension(requirePageIndex(index)));
     }
     return height;
 }
@@ -148,18 +112,14 @@ function getEstimatedRowStarts(
     const starts = new Set([0]);
     for (let index = 1; index < knownIndices.length; index += 1) {
         const metricChangeIndex = Math.floor((knownIndices[index - 1]! + knownIndices[index]!) / 2) + 1;
-        const rowIndex = getLayoutRowIndex(
-            requirePageIndex(metricChangeIndex),
-            totalPages,
-            viewMode,
-        );
+        const rowIndex = getLayoutRowIndex(requirePageIndex(metricChangeIndex), totalPages, viewMode);
         starts.add(rowIndex);
         // Isolate a mixed pair before following rows use only the new estimate.
         if (getLayoutRowStart(rowIndex, totalPages, viewMode) !== metricChangeIndex + 1) {
             starts.add(rowIndex + 1);
         }
     }
-    return [...starts].filter(row => row < rowCount);
+    return [...starts].filter((row) => row < rowCount);
 }
 
 function findFirstAtOrAfter(values: readonly number[], target: number) {
@@ -198,13 +158,8 @@ function getSparsePrefixDeltaTotal(node: ISparsePrefixDeltaNode | null) {
 }
 
 function refreshSparsePrefixDeltaNode(node: ISparsePrefixDeltaNode) {
-    node.height = 1 + Math.max(
-        getSparsePrefixDeltaHeight(node.left),
-        getSparsePrefixDeltaHeight(node.right),
-    );
-    node.subtreeTotal = node.value
-        + getSparsePrefixDeltaTotal(node.left)
-        + getSparsePrefixDeltaTotal(node.right);
+    node.height = 1 + Math.max(getSparsePrefixDeltaHeight(node.left), getSparsePrefixDeltaHeight(node.right));
+    node.subtreeTotal = node.value + getSparsePrefixDeltaTotal(node.left) + getSparsePrefixDeltaTotal(node.right);
     return node;
 }
 
@@ -230,17 +185,13 @@ function rotateSparsePrefixDeltaRight(node: ISparsePrefixDeltaNode) {
 
 function rebalanceSparsePrefixDeltaNode(node: ISparsePrefixDeltaNode) {
     const refreshed = refreshSparsePrefixDeltaNode(node);
-    const balance = getSparsePrefixDeltaHeight(refreshed.left)
-        - getSparsePrefixDeltaHeight(refreshed.right);
+    const balance = getSparsePrefixDeltaHeight(refreshed.left) - getSparsePrefixDeltaHeight(refreshed.right);
     if (balance > 1) {
         const left = refreshed.left;
         if (!left) {
             return refreshed;
         }
-        if (
-            getSparsePrefixDeltaHeight(left.left)
-            < getSparsePrefixDeltaHeight(left.right)
-        ) {
+        if (getSparsePrefixDeltaHeight(left.left) < getSparsePrefixDeltaHeight(left.right)) {
             refreshed.left = rotateSparsePrefixDeltaLeft(left);
         }
         return rotateSparsePrefixDeltaRight(refreshed);
@@ -250,10 +201,7 @@ function rebalanceSparsePrefixDeltaNode(node: ISparsePrefixDeltaNode) {
         if (!right) {
             return refreshed;
         }
-        if (
-            getSparsePrefixDeltaHeight(right.right)
-            < getSparsePrefixDeltaHeight(right.left)
-        ) {
+        if (getSparsePrefixDeltaHeight(right.right) < getSparsePrefixDeltaHeight(right.left)) {
             refreshed.right = rotateSparsePrefixDeltaRight(right);
         }
         return rotateSparsePrefixDeltaLeft(refreshed);
@@ -261,11 +209,7 @@ function rebalanceSparsePrefixDeltaNode(node: ISparsePrefixDeltaNode) {
     return refreshed;
 }
 
-function setSparsePrefixDelta(
-    node: ISparsePrefixDeltaNode | null,
-    key: number,
-    value: number,
-): ISparsePrefixDeltaNode {
+function setSparsePrefixDelta(node: ISparsePrefixDeltaNode | null, key: number, value: number): ISparsePrefixDeltaNode {
     if (!node) {
         return {
             key,
@@ -297,10 +241,7 @@ function getSparsePrefixDeltaMinimum(node: ISparsePrefixDeltaNode) {
     return current;
 }
 
-function removeSparsePrefixDelta(
-    node: ISparsePrefixDeltaNode | null,
-    key: number,
-): ISparsePrefixDeltaNode | null {
+function removeSparsePrefixDelta(node: ISparsePrefixDeltaNode | null, key: number): ISparsePrefixDeltaNode | null {
     if (!node) {
         return null;
     }
@@ -372,9 +313,8 @@ function createChunkedPrefixSums(
         }
         const estimatedTotal = getEstimatedBlockTotal(blockIndex);
         const delta = total - estimatedTotal;
-        exactBlockDeltas = delta === 0
-            ? removeSparsePrefixDelta(exactBlockDeltas, blockIndex)
-            : setSparsePrefixDelta(exactBlockDeltas, blockIndex, delta);
+        exactBlockDeltas =
+            delta === 0 ? removeSparsePrefixDelta(exactBlockDeltas, blockIndex) : setSparsePrefixDelta(exactBlockDeltas, blockIndex, delta);
         blockValues.set(blockIndex, values);
         while (blockValues.size > maxCachedBlocks) {
             const oldest = blockValues.keys().next().value;
@@ -399,7 +339,7 @@ function createChunkedPrefixSums(
 
     return createLazyIndexedCollection<number>({
         length,
-        getValue: index => {
+        getValue: (index) => {
             const blockIndex = Math.floor(index / blockSize);
             const values = getBlockValues(blockIndex);
             let prefix = getBlockPrefix(blockIndex);
@@ -414,11 +354,7 @@ function createChunkedPrefixSums(
     });
 }
 
-function buildDensePageLayoutBase(options: {
-    pageMetrics: IPdfPageMetric[];
-    totalPages: number;
-    viewMode: TPdfViewMode;
-}) {
+function buildDensePageLayoutBase(options: {pageMetrics: IPdfPageMetric[]; totalPages: number; viewMode: TPdfViewMode}) {
     const pageWidths = new Array<number>(options.totalPages);
     const pageHeights = new Array<number>(options.totalPages);
     for (let index = 0; index < options.totalPages; index += 1) {
@@ -442,7 +378,7 @@ function buildDensePageLayoutBase(options: {
         const rowEndPage = rowPages[rowPages.length - 1] ?? pageNumber;
         rowStartPages.push(pageNumber);
         rowEndPages.push(rowEndPage);
-        rowHeights.push(Math.max(...rowPages.map(rowPage => pageHeights[rowPage - 1] ?? 0)));
+        rowHeights.push(Math.max(...rowPages.map((rowPage) => pageHeights[rowPage - 1] ?? 0)));
         for (const rowPage of rowPages) {
             pageRowIndices[rowPage - 1] = rowIndex;
         }
@@ -453,14 +389,8 @@ function buildDensePageLayoutBase(options: {
     return Object.freeze({
         totalPages: options.totalPages,
         isSparse: false,
-        maxPageWidth: pageWidths.reduce(
-            (maxWidth, pageWidth) => pageWidth > maxWidth ? pageWidth : maxWidth,
-            0,
-        ),
-        maxPageHeight: pageHeights.reduce(
-            (maxHeight, pageHeight) => pageHeight > maxHeight ? pageHeight : maxHeight,
-            0,
-        ),
+        maxPageWidth: pageWidths.reduce((maxWidth, pageWidth) => (pageWidth > maxWidth ? pageWidth : maxWidth), 0),
+        maxPageHeight: pageHeights.reduce((maxHeight, pageHeight) => (pageHeight > maxHeight ? pageHeight : maxHeight), 0),
         pageWidths: Object.freeze(pageWidths),
         pageHeights: Object.freeze(pageHeights),
         pageHeightPrefixSums: Object.freeze(buildPrefixSums(pageHeights)),
@@ -480,99 +410,63 @@ function buildSparsePageLayoutBase(options: {
     const rowCount = getLayoutRowCount(options.totalPages, options.viewMode);
     const pageWidths = createLazyIndexedCollection<number>({
         length: options.totalPages,
-        getValue: index => getMetricDimension(
-            options.pageMetrics,
-            requirePageIndex(index),
-            'width',
-        ),
+        getValue: (index) => getMetricDimension(options.pageMetrics, requirePageIndex(index), 'width'),
     });
     const pageHeights = createLazyIndexedCollection<number>({
         length: options.totalPages,
-        getValue: index => getMetricDimension(
-            options.pageMetrics,
-            requirePageIndex(index),
-            'height',
-        ),
+        getValue: (index) => getMetricDimension(options.pageMetrics, requirePageIndex(index), 'height'),
     });
     const pageRowIndices = createLazyIndexedCollection<number>({
         length: options.totalPages,
-        getValue: index => getLayoutRowIndex(
-            requirePageIndex(index),
-            options.totalPages,
-            options.viewMode,
-        ),
+        getValue: (index) => getLayoutRowIndex(requirePageIndex(index), options.totalPages, options.viewMode),
     });
     const rowStartPages = createLazyIndexedCollection<number>({
         length: rowCount,
-        getValue: rowIndex => getLayoutRowStart(rowIndex, options.totalPages, options.viewMode),
+        getValue: (rowIndex) => getLayoutRowStart(rowIndex, options.totalPages, options.viewMode),
     });
     const rowEndPages = createLazyIndexedCollection<number>({
         length: rowCount,
-        getValue: rowIndex => getLayoutRowEnd(rowIndex, options.totalPages, options.viewMode),
+        getValue: (rowIndex) => getLayoutRowEnd(rowIndex, options.totalPages, options.viewMode),
     });
     const rowHeights = createLazyIndexedCollection<number>({
         length: rowCount,
-        getValue: rowIndex => {
-            return getRowHeight(
-                rowIndex,
-                options.totalPages,
-                options.viewMode,
-                index => getMetricDimension(
-                    options.pageMetrics,
-                    requirePageIndex(index),
-                    'height',
-                ),
+        getValue: (rowIndex) => {
+            return getRowHeight(rowIndex, options.totalPages, options.viewMode, (index) =>
+                getMetricDimension(options.pageMetrics, requirePageIndex(index), 'height'),
             );
         },
     });
-    const estimatePageHeightRange = (start: number, end: number) => (
+    const estimatePageHeightRange = (start: number, end: number) =>
         isSparsePageMetricCollection(options.pageMetrics)
             ? options.pageMetrics.estimateRange(start, end, 'height')
-            : getMetricEstimateDimension(
-                options.pageMetrics,
-                requirePageIndex(start),
-                'height',
-            ) * (end - start)
-    );
+            : getMetricEstimateDimension(options.pageMetrics, requirePageIndex(start), 'height') * (end - start);
     const pageHeightPrefixSums = createChunkedPrefixSums(
         options.totalPages,
-        index => getMetricDimension(
-            options.pageMetrics,
-            requirePageIndex(index),
-            'height',
-        ),
+        (index) => getMetricDimension(options.pageMetrics, requirePageIndex(index), 'height'),
         estimatePageHeightRange,
-        end => estimatePageHeightRange(0, end),
+        (end) => estimatePageHeightRange(0, end),
     );
-    const estimatedRowStarts = getEstimatedRowStarts(
-        options.pageMetrics, options.totalPages, options.viewMode,
+    const estimatedRowStarts = getEstimatedRowStarts(options.pageMetrics, options.totalPages, options.viewMode);
+    const estimatedRowHeights = estimatedRowStarts.map((row) =>
+        getRowHeight(row, options.totalPages, options.viewMode, (index) =>
+            getMetricEstimateDimension(options.pageMetrics, index, 'height'),
+        ),
     );
-    const estimatedRowHeights = estimatedRowStarts.map(row => getRowHeight(
-        row, options.totalPages, options.viewMode,
-        index => getMetricEstimateDimension(options.pageMetrics, index, 'height'),
-    ));
     // The immutable layout owns these run totals. Re-reading a row's top
     // needs one prefix lookup, not another walk through every measured page.
-    const estimatedRowPrefixes = buildPrefixSums(estimatedRowStarts.map((start, index) => (
-        ((estimatedRowStarts[index + 1] ?? rowCount) - start) * estimatedRowHeights[index]!
-    )));
+    const estimatedRowPrefixes = buildPrefixSums(
+        estimatedRowStarts.map((start, index) => ((estimatedRowStarts[index + 1] ?? rowCount) - start) * estimatedRowHeights[index]!),
+    );
     const estimateRowHeightPrefix = (end: number) => {
         const index = Math.max(0, findFirstAtOrAfter(estimatedRowStarts, end) - 1);
-        return (estimatedRowPrefixes[index - 1] ?? 0)
-            + (end - estimatedRowStarts[index]!) * estimatedRowHeights[index]!;
+        return (estimatedRowPrefixes[index - 1] ?? 0) + (end - estimatedRowStarts[index]!) * estimatedRowHeights[index]!;
     };
     const rowHeightPrefixSums = createChunkedPrefixSums(
         rowCount,
-        rowIndex => getRowHeight(
-            rowIndex,
-            options.totalPages,
-            options.viewMode,
-            index => getMetricDimension(
-                options.pageMetrics,
-                requirePageIndex(index),
-                'height',
+        (rowIndex) =>
+            getRowHeight(rowIndex, options.totalPages, options.viewMode, (index) =>
+                getMetricDimension(options.pageMetrics, requirePageIndex(index), 'height'),
             ),
-        ),
         (start, end) => estimateRowHeightPrefix(end) - estimateRowHeightPrefix(start),
         estimateRowHeightPrefix,
     );
@@ -599,25 +493,21 @@ function buildPageLayoutBase(options: {
     totalPages: number;
     viewMode: TPdfViewMode;
 }) {
-    const cacheKey = [
-        options.pageMetricsVersion,
-        options.totalPages,
-        options.viewMode,
-    ].join(':');
+    const cacheKey = [options.pageMetricsVersion, options.totalPages, options.viewMode].join(':');
     const metricsObject = options.pageMetrics as object;
     const cached = baseCache.get(metricsObject)?.get(cacheKey);
     if (cached) {
         return cached;
     }
 
-    const base = options.totalPages > PDF_PAGE_METRICS_DENSE_LIMIT
-        || isSparsePageMetricCollection(options.pageMetrics)
-        ? buildSparsePageLayoutBase(options)
-        : buildDensePageLayoutBase({
-            pageMetrics: options.pageMetrics,
-            totalPages: options.totalPages,
-            viewMode: options.viewMode,
-        });
+    const base =
+        options.totalPages > PDF_PAGE_METRICS_DENSE_LIMIT || isSparsePageMetricCollection(options.pageMetrics)
+            ? buildSparsePageLayoutBase(options)
+            : buildDensePageLayoutBase({
+                  pageMetrics: options.pageMetrics,
+                  totalPages: options.totalPages,
+                  viewMode: options.viewMode,
+              });
 
     const metricsCache = baseCache.get(metricsObject) ?? new Map<string, IPdfPageLayoutBase>();
     metricsCache.set(cacheKey, base);
@@ -659,11 +549,7 @@ export function buildPageLayoutMetrics(options: {
         viewMode: options.viewMode,
     });
 
-    const {
-        gap,
-        paddingTop,
-        paddingBottom,
-    } = resolveSafeLayoutSpacing({
+    const {gap, paddingTop, paddingBottom} = resolveSafeLayoutSpacing({
         gap: options.gap,
         paddingTop: options.paddingTop,
         ...(options.paddingBottom !== undefined ? {paddingBottom: options.paddingBottom} : {}),

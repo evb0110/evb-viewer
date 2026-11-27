@@ -48,7 +48,7 @@
                     v-if="styleSummary.targetCount > 1"
                     class="bookmarks-context-menu-style-scope"
                 >
-                    {{ t('bookmarks.styleSelectedBookmarks', { count: styleSummary.targetCount }) }}
+                    {{ t('bookmarks.styleSelectedBookmarks', {count: styleSummary.targetCount}) }}
                 </div>
                 <div class="bookmarks-context-menu-style-row">
                     <button
@@ -59,7 +59,10 @@
                         :aria-label="styleSummary.bold === 'on' ? t('bookmarks.disableBold') : t('bookmarks.enableBold')"
                         @click="toggleBold(bookmark.id)"
                     >
-                        <UIcon name="i-ph-text-b-bold" class="bookmarks-style-toggle-icon" />
+                        <UIcon
+                            name="i-ph-text-b-bold"
+                            class="bookmarks-style-toggle-icon"
+                        />
                     </button>
                     <button
                         type="button"
@@ -69,14 +72,17 @@
                         :aria-label="styleSummary.italic === 'on' ? t('bookmarks.disableItalic') : t('bookmarks.enableItalic')"
                         @click="toggleItalic(bookmark.id)"
                     >
-                        <UIcon name="i-ph-text-italic" class="bookmarks-style-toggle-icon" />
+                        <UIcon
+                            name="i-ph-text-italic"
+                            class="bookmarks-style-toggle-icon"
+                        />
                     </button>
                 </div>
                 <div class="bookmarks-context-menu-color-row">
                     <button
                         type="button"
                         class="bookmarks-color-swatch bookmarks-color-swatch--default"
-                        :class="{ 'is-active': !styleSummary.colorMixed && !styleSummary.color }"
+                        :class="{'is-active': !styleSummary.colorMixed && !styleSummary.color}"
                         :aria-pressed="!styleSummary.colorMixed && !styleSummary.color"
                         :aria-label="t('bookmarks.defaultColor')"
                         @click="setColor(bookmark.id, null)"
@@ -86,10 +92,10 @@
                         :key="preset"
                         type="button"
                         class="bookmarks-color-swatch"
-                        :class="{ 'is-active': !styleSummary.colorMixed && styleSummary.color === preset }"
+                        :class="{'is-active': !styleSummary.colorMixed && styleSummary.color === preset}"
                         :aria-pressed="!styleSummary.colorMixed && styleSummary.color === preset"
-                        :style="{ background: preset }"
-                        :aria-label="t('bookmarks.setColor', { color: preset })"
+                        :style="{background: preset}"
+                        :aria-label="t('bookmarks.setColor', {color: preset})"
                         @click="setColor(bookmark.id, preset)"
                     />
                 </div>
@@ -110,12 +116,8 @@
 
 <script setup lang="ts">
 import PdfContextMenuBase from '@app/modules/pdf-viewer/components/PdfContextMenuBase.vue';
-import type {
-    IBookmarkItem,
-    IBookmarkStyleSummary,
-    TBookmarkStyleFlagState,
-} from '@app/types/pdfOutline';
-import { BOOKMARK_COLOR_PRESETS } from '@app/constants/pdfColors';
+import type {IBookmarkItem, IBookmarkStyleSummary, TBookmarkStyleFlagState} from '@app/types/pdfOutline';
+import {BOOKMARK_COLOR_PRESETS} from '@app/constants/pdfColors';
 
 interface IProps {
     visible: boolean;
@@ -126,10 +128,7 @@ interface IProps {
     removeLabel: string;
 }
 
-const {
-    x,
-    y,
-} = defineProps<IProps>();
+const {x, y} = defineProps<IProps>();
 
 const emit = defineEmits<{
     edit: [id: string];
@@ -138,14 +137,16 @@ const emit = defineEmits<{
     'add-child': [id: string];
     'toggle-bold': [id: string];
     'toggle-italic': [id: string];
-    'set-color': [payload: {
-        id: string;
-        color: string | null 
-    }];
+    'set-color': [
+        payload: {
+            id: string;
+            color: string | null;
+        },
+    ];
     remove: [id: string];
 }>();
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 
 const colorPresets = BOOKMARK_COLOR_PRESETS;
 
@@ -285,6 +286,8 @@ function removeBookmark(id: string) {
 
 .bookmarks-color-swatch.is-active {
     border-color: var(--app-sidebar-bg);
-    box-shadow: 0 0 0 1px var(--app-sidebar-bg), 0 0 0 3px var(--ui-text);
+    box-shadow:
+        0 0 0 1px var(--app-sidebar-bg),
+        0 0 0 3px var(--ui-text);
 }
 </style>

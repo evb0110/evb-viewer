@@ -1,9 +1,6 @@
 import type {IAnnotationMarkerRect} from '@app/types/annotations';
 import type {IPdfSemanticAnchor} from '@contracts/recentReadingView';
-import type {
-    IPdfSearchUtf16Range,
-    ISearchMatchOptions,
-} from '@contracts/search';
+import type {IPdfSearchUtf16Range, ISearchMatchOptions} from '@contracts/search';
 
 export interface IDocumentTextAnchorNavigationOptions {
     text: string;
@@ -20,24 +17,24 @@ export interface IDocumentTextAnchorNavigationOptions {
 
 export type TDocumentNavigationTarget =
     | {
-        kind: 'page';
-        page: number;
-        /** A restored reading point on that page, placed where the reader left it. */
-        anchor?: IPdfSemanticAnchor;
-    }
+          kind: 'page';
+          page: number;
+          /** A restored reading point on that page, placed where the reader left it. */
+          anchor?: IPdfSemanticAnchor;
+      }
     | {
-        kind: 'rect';
-        page: number;
-        rect: IAnnotationMarkerRect
-    }
+          kind: 'rect';
+          page: number;
+          rect: IAnnotationMarkerRect;
+      }
     | ({
-        kind: 'text-anchor';
-        page: number;
-    } & IDocumentTextAnchorNavigationOptions)
+          kind: 'text-anchor';
+          page: number;
+      } & IDocumentTextAnchorNavigationOptions)
     | {
-        kind: 'named-dest';
-        destination: string | unknown[]
-    };
+          kind: 'named-dest';
+          destination: string | unknown[];
+      };
 
 export interface IDocumentNavigationRequest {
     searchNavigationId?: number | undefined;
@@ -50,18 +47,18 @@ export interface IDocumentNavigationRequest {
 
 export type TDocumentNavigationOutcome =
     | {
-        readonly kind: 'arrived';
-        readonly page: number
-    }
+          readonly kind: 'arrived';
+          readonly page: number;
+      }
     | {
-        readonly kind: 'superseded';
-        readonly by: 'command' | 'user-input'
-    }
-    | { readonly kind: 'document-ended' }
+          readonly kind: 'superseded';
+          readonly by: 'command' | 'user-input';
+      }
+    | {readonly kind: 'document-ended'}
     | {
-        readonly kind: 'failed';
-        readonly reason: string
-    };
+          readonly kind: 'failed';
+          readonly reason: string;
+      };
 
 /** One accepted semantic request. Geometry and painting never replace it. */
 export interface IDocumentNavigationTicket {
@@ -77,29 +74,29 @@ export interface IDocumentNavigationTicket {
 /** Reports describe execution of an existing ticket; none creates a command. */
 export type TDocumentNavigationReport =
     | {
-        readonly kind: 'resolved';
-        readonly page: number
-    }
+          readonly kind: 'resolved';
+          readonly page: number;
+      }
     | {
-        readonly kind: 'placed';
-        readonly page: number;
-        readonly left: number;
-        readonly top: number;
-        readonly geometryRevision: number;
-        readonly interactionEpoch: number;
-    }
+          readonly kind: 'placed';
+          readonly page: number;
+          readonly left: number;
+          readonly top: number;
+          readonly geometryRevision: number;
+          readonly interactionEpoch: number;
+      }
     | {
-        readonly kind: 'arrived';
-        readonly page: number
-    }
+          readonly kind: 'arrived';
+          readonly page: number;
+      }
     | {
-        readonly kind: 'failed';
-        readonly reason: string
-    }
+          readonly kind: 'failed';
+          readonly reason: string;
+      }
     | {
-        readonly kind: 'abandoned';
-        readonly by: 'command' | 'user-input'
-    };
+          readonly kind: 'abandoned';
+          readonly by: 'command' | 'user-input';
+      };
 
 export function createPageNavigationRequest(
     page: number,

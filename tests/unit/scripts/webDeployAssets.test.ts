@@ -1,38 +1,27 @@
-import {
-    copyFile,
-    link,
-    mkdir,
-    mkdtemp,
-    readFile,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path, { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import {
-    afterAll,
-    beforeAll,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { createServer } from 'node:http';
+import {copyFile, link, mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path, {resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {afterAll, beforeAll, describe, expect, it} from 'vitest';
+import {createServer} from 'node:http';
 import {BROWSER_OCR_ENGINE_REVISION} from '@contracts/browserOcrEngine';
 import {BROWSER_QPDF_ENGINE_REVISION} from '@contracts/browserQpdfEngine';
 import {PREBUILT_WASM_FILES} from '@scripts/wasm-artifacts.mjs';
 
 interface IWebDeployAssetsModule {
-    REQUIRED_WEB_DEPLOY_ASSETS: Array<{ relativePath: string }>;
+    REQUIRED_WEB_DEPLOY_ASSETS: Array<{relativePath: string}>;
     REQUIRED_WEB_OUTPUT_CONTRACTS: string[];
-    REQUIRED_WEB_WASM_ASSETS: Array<{ relativePath: string }>;
+    REQUIRED_WEB_WASM_ASSETS: Array<{relativePath: string}>;
     getExpectedWebDeployOutputRoots: (env?: NodeJS.ProcessEnv) => string[];
     getNodeServerBootTiming: (platform?: NodeJS.Platform) => {
         healthDeadlineMs: number;
         listeningDeadlineMs: number;
         shutdownTimeoutMs: number;
     };
-    parseWebDeployAssetOptions: (rawArgs?: string[], env?: NodeJS.ProcessEnv) => {
+    parseWebDeployAssetOptions: (
+        rawArgs?: string[],
+        env?: NodeJS.ProcessEnv,
+    ) => {
         outputRoots: string[];
         vercelOutput: boolean;
     };
@@ -48,10 +37,7 @@ interface IWebDeployAssetsModule {
         sourceRoot?: string;
     }) => Promise<unknown>;
     validateVercelFunctionBoot: (options?: {projectRoot?: string}) => Promise<void>;
-    validateNodeServerBoot: (options?: {
-        port?: number;
-        projectRoot?: string;
-    }) => Promise<void>;
+    validateNodeServerBoot: (options?: {port?: number; projectRoot?: string}) => Promise<void>;
 }
 
 const {
@@ -66,9 +52,7 @@ const {
     validateWebDeployAssets,
     validateNodeServerBoot,
     validateVercelFunctionBoot,
-} = await import(
-    pathToFileURL(resolve(process.cwd(), 'scripts/check-web-deploy-assets.mjs')).href
-) as IWebDeployAssetsModule;
+} = (await import(pathToFileURL(resolve(process.cwd(), 'scripts/check-web-deploy-assets.mjs')).href)) as IWebDeployAssetsModule;
 
 let wasmFixtureRoot: string;
 
@@ -91,11 +75,7 @@ afterAll(async () => {
 
 async function createTempProject() {
     const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-web-assets-'));
-    const roots = [
-        'public',
-        'nuxt-output/public',
-        '.vercel/output/static',
-    ];
+    const roots = ['public', 'nuxt-output/public', '.vercel/output/static'];
 
     for (const root of roots) {
         await mkdir(path.join(tempRoot, root, 'wasm'), {recursive: true});
@@ -110,7 +90,7 @@ async function createTempProject() {
         }
     }
 
-    const wasmPaths = new Set(REQUIRED_WEB_WASM_ASSETS.map(asset => asset.relativePath));
+    const wasmPaths = new Set(REQUIRED_WEB_WASM_ASSETS.map((asset) => asset.relativePath));
     for (const asset of REQUIRED_WEB_DEPLOY_ASSETS) {
         if (wasmPaths.has(asset.relativePath)) {
             continue;
@@ -126,11 +106,7 @@ async function createTempProject() {
         for (const relativePath of REQUIRED_WEB_OUTPUT_CONTRACTS) {
             await writeFile(path.join(tempRoot, root, relativePath), '<!doctype html>', 'utf8');
         }
-        await writeFile(
-            path.join(tempRoot, root, 'electron/index.html'),
-            '<!doctype html>',
-            'utf8',
-        );
+        await writeFile(path.join(tempRoot, root, 'electron/index.html'), '<!doctype html>', 'utf8');
     }
 
     return tempRoot;
@@ -194,13 +170,10 @@ describe('web deploy assets check', () => {
         const shutdownMarker = path.join(tempRoot, 'graceful-shutdown.txt');
         try {
             await mkdir(serverRoot, {recursive: true});
-            await writeFile(
-                path.join(serverRoot, 'index.mjs'),
-                'await import("./missing-runtime-module.mjs");',
-                'utf8',
+            await writeFile(path.join(serverRoot, 'index.mjs'), 'await import("./missing-runtime-module.mjs");', 'utf8');
+            await expect(validateNodeServerBoot({projectRoot: tempRoot})).rejects.toThrow(
+                /Nuxt node server failed to boot:.*missing-runtime-module/su,
             );
-            await expect(validateNodeServerBoot({projectRoot: tempRoot}))
-                .rejects.toThrow(/Nuxt node server failed to boot:.*missing-runtime-module/su);
 
             await writeFile(
                 path.join(serverRoot, 'index.mjs'),
@@ -265,12 +238,14 @@ describe('web deploy assets check', () => {
                 'utf8',
             );
 
-            await expect(validateNodeServerBoot({
-                port: address.port,
-                projectRoot: tempRoot,
-            })).rejects.toThrow(/Nuxt node server failed to boot.*EADDRINUSE/su);
+            await expect(
+                validateNodeServerBoot({
+                    port: address.port,
+                    projectRoot: tempRoot,
+                }),
+            ).rejects.toThrow(/Nuxt node server failed to boot.*EADDRINUSE/su);
         } finally {
-            await new Promise<void>(resolvePromise => impostor.close(() => resolvePromise()));
+            await new Promise<void>((resolvePromise) => impostor.close(() => resolvePromise()));
             await rm(tempRoot, {
                 force: true,
                 recursive: true,
@@ -279,23 +254,27 @@ describe('web deploy assets check', () => {
     });
 
     it('rejects an invalid explicit boot-check port', async () => {
-        await expect(validateNodeServerBoot({
-            port: 0,
-            projectRoot: process.cwd(),
-        })).rejects.toThrow('The Nuxt boot check port must be an integer from 1 through 65535.');
+        await expect(
+            validateNodeServerBoot({
+                port: 0,
+                projectRoot: process.cwd(),
+            }),
+        ).rejects.toThrow('The Nuxt boot check port must be an integer from 1 through 65535.');
     });
 
     it('checks local Nuxt build output assets', async () => {
-        const engine = PREBUILT_WASM_FILES.find(file => file.publicRelativePath === 'public/wasm/evb-tesseract.wasm');
+        const engine = PREBUILT_WASM_FILES.find((file) => file.publicRelativePath === 'public/wasm/evb-tesseract.wasm');
         expect(engine?.url.endsWith(`/evb-tesseract-${BROWSER_OCR_ENGINE_REVISION}.wasm`)).toBe(true);
-        const qpdf = PREBUILT_WASM_FILES.find(file => file.publicRelativePath === 'public/wasm/evb-qpdf.wasm');
+        const qpdf = PREBUILT_WASM_FILES.find((file) => file.publicRelativePath === 'public/wasm/evb-qpdf.wasm');
         expect(qpdf?.url.endsWith(`/evb-qpdf-${BROWSER_QPDF_ENGINE_REVISION}.wasm`)).toBe(true);
         const tempRoot = await createTempProject();
         try {
-            await expect(validateWebDeployAssets({
-                env: {},
-                projectRoot: tempRoot,
-            })).resolves.toBeTruthy();
+            await expect(
+                validateWebDeployAssets({
+                    env: {},
+                    projectRoot: tempRoot,
+                }),
+            ).resolves.toBeTruthy();
         } finally {
             await rm(tempRoot, {
                 force: true,
@@ -307,10 +286,12 @@ describe('web deploy assets check', () => {
     it('checks Vercel Build Output static assets', async () => {
         const tempRoot = await createTempProject();
         try {
-            await expect(validateWebDeployAssets({
-                env: {VERCEL: '1'},
-                projectRoot: tempRoot,
-            })).resolves.toBeTruthy();
+            await expect(
+                validateWebDeployAssets({
+                    env: {VERCEL: '1'},
+                    projectRoot: tempRoot,
+                }),
+            ).resolves.toBeTruthy();
         } finally {
             await rm(tempRoot, {
                 force: true,
@@ -323,25 +304,16 @@ describe('web deploy assets check', () => {
         const tempRoot = await createTempProject();
         try {
             await mkdir(path.join(tempRoot, '.vercel/output/static/_nuxt'), {recursive: true});
-            await writeFile(
-                path.join(tempRoot, '.vercel/output/static/_nuxt/app.js.map'),
-                '{}',
-                'utf8',
-            );
-            await mkdir(
-                path.join(tempRoot, '.vercel/output/static/private-sourcemaps/sources'),
-                {recursive: true},
-            );
-            await writeFile(
-                path.join(tempRoot, '.vercel/output/static/private-sourcemaps/sources/app.ts'),
-                'private source',
-                'utf8',
-            );
+            await writeFile(path.join(tempRoot, '.vercel/output/static/_nuxt/app.js.map'), '{}', 'utf8');
+            await mkdir(path.join(tempRoot, '.vercel/output/static/private-sourcemaps/sources'), {recursive: true});
+            await writeFile(path.join(tempRoot, '.vercel/output/static/private-sourcemaps/sources/app.ts'), 'private source', 'utf8');
 
-            await expect(validateWebDeployAssets({
-                env: {VERCEL: '1'},
-                projectRoot: tempRoot,
-            })).rejects.toThrow('contains forbidden public artifacts');
+            await expect(
+                validateWebDeployAssets({
+                    env: {VERCEL: '1'},
+                    projectRoot: tempRoot,
+                }),
+            ).rejects.toThrow('contains forbidden public artifacts');
         } finally {
             await rm(tempRoot, {
                 force: true,
@@ -354,16 +326,14 @@ describe('web deploy assets check', () => {
         const tempRoot = await createTempProject();
         try {
             await mkdir(path.join(tempRoot, '.vercel/output/static/_nuxt'), {recursive: true});
-            await writeFile(
-                path.join(tempRoot, '.vercel/output/static/_nuxt/app.js'),
-                `const token="sntrys_${'a'.repeat(24)}";`,
-                'utf8',
-            );
+            await writeFile(path.join(tempRoot, '.vercel/output/static/_nuxt/app.js'), `const token="sntrys_${'a'.repeat(24)}";`, 'utf8');
 
-            await expect(validateWebDeployAssets({
-                env: {VERCEL: '1'},
-                projectRoot: tempRoot,
-            })).rejects.toThrow('contains forbidden public artifacts');
+            await expect(
+                validateWebDeployAssets({
+                    env: {VERCEL: '1'},
+                    projectRoot: tempRoot,
+                }),
+            ).rejects.toThrow('contains forbidden public artifacts');
         } finally {
             await rm(tempRoot, {
                 force: true,
@@ -387,12 +357,10 @@ describe('web deploy assets check', () => {
             outputRoots: ['nuxt-output/public'],
             vercelOutput: false,
         });
-        expect(() => parseWebDeployAssetOptions(['--unknown'], {}))
-            .toThrow('Unsupported web deploy asset option: --unknown');
-        expect(() => parseWebDeployAssetOptions([
-            '--vercel-output',
-            '--vercel-output',
-        ], {})).toThrow('Expected at most one --vercel-output option.');
+        expect(() => parseWebDeployAssetOptions(['--unknown'], {})).toThrow('Unsupported web deploy asset option: --unknown');
+        expect(() => parseWebDeployAssetOptions(['--vercel-output', '--vercel-output'], {})).toThrow(
+            'Expected at most one --vercel-output option.',
+        );
     });
 
     it('rejects forbidden dependencies reached through static initial imports', async () => {
@@ -400,34 +368,15 @@ describe('web deploy assets check', () => {
         const outputRoot = path.join(tempRoot, 'nuxt-output/public');
         try {
             await mkdir(path.join(outputRoot, '_nuxt'), {recursive: true});
-            await writeFile(
-                path.join(outputRoot, 'electron/index.html'),
-                '<link rel="modulepreload" href="/_nuxt/entry.js">',
-                'utf8',
-            );
-            await writeFile(
-                path.join(outputRoot, '_nuxt/entry.js'),
-                'import "./shared.js"; import("./lazy.js");',
-                'utf8',
-            );
-            await writeFile(
-                path.join(outputRoot, '_nuxt/shared.js'),
-                'export {value} from "./vendor.js";',
-                'utf8',
-            );
-            await writeFile(
-                path.join(outputRoot, '_nuxt/vendor.js'),
-                'export const value = "pdf-lib";',
-                'utf8',
-            );
-            await writeFile(
-                path.join(outputRoot, '_nuxt/lazy.js'),
-                'export const value = "utif";',
-                'utf8',
-            );
+            await writeFile(path.join(outputRoot, 'electron/index.html'), '<link rel="modulepreload" href="/_nuxt/entry.js">', 'utf8');
+            await writeFile(path.join(outputRoot, '_nuxt/entry.js'), 'import "./shared.js"; import("./lazy.js");', 'utf8');
+            await writeFile(path.join(outputRoot, '_nuxt/shared.js'), 'export {value} from "./vendor.js";', 'utf8');
+            await writeFile(path.join(outputRoot, '_nuxt/vendor.js'), 'export const value = "pdf-lib";', 'utf8');
+            await writeFile(path.join(outputRoot, '_nuxt/lazy.js'), 'export const value = "utif";', 'utf8');
 
-            await expect(assertInitialRendererDependencyGraph(outputRoot))
-                .rejects.toThrow('Initial renderer dependency graph contains pdf-lib: /_nuxt/vendor.js');
+            await expect(assertInitialRendererDependencyGraph(outputRoot)).rejects.toThrow(
+                'Initial renderer dependency graph contains pdf-lib: /_nuxt/vendor.js',
+            );
         } finally {
             await rm(tempRoot, {
                 force: true,
@@ -441,24 +390,13 @@ describe('web deploy assets check', () => {
         const outputRoot = path.join(tempRoot, 'nuxt-output/public');
         try {
             await mkdir(path.join(outputRoot, '_nuxt'), {recursive: true});
-            await writeFile(
-                path.join(outputRoot, 'electron/index.html'),
-                '<link rel="modulepreload" href="/_nuxt/entry.js">',
-                'utf8',
-            );
-            await writeFile(
-                path.join(outputRoot, '_nuxt/entry.js'),
-                'import "./sentry.js";',
-                'utf8',
-            );
-            await writeFile(
-                path.join(outputRoot, '_nuxt/sentry.js'),
-                'export const value = "@sentry/browser";',
-                'utf8',
-            );
+            await writeFile(path.join(outputRoot, 'electron/index.html'), '<link rel="modulepreload" href="/_nuxt/entry.js">', 'utf8');
+            await writeFile(path.join(outputRoot, '_nuxt/entry.js'), 'import "./sentry.js";', 'utf8');
+            await writeFile(path.join(outputRoot, '_nuxt/sentry.js'), 'export const value = "@sentry/browser";', 'utf8');
 
-            await expect(assertInitialRendererDependencyGraph(outputRoot))
-                .rejects.toThrow('Initial renderer dependency graph contains @sentry/: /_nuxt/sentry.js');
+            await expect(assertInitialRendererDependencyGraph(outputRoot)).rejects.toThrow(
+                'Initial renderer dependency graph contains @sentry/: /_nuxt/sentry.js',
+            );
         } finally {
             await rm(tempRoot, {
                 force: true,
@@ -472,21 +410,9 @@ describe('web deploy assets check', () => {
         const outputRoot = path.join(tempRoot, 'nuxt-output/public');
         try {
             await mkdir(path.join(outputRoot, '_nuxt'), {recursive: true});
-            await writeFile(
-                path.join(outputRoot, 'electron/index.html'),
-                '<link href="/_nuxt/entry.js" rel="modulepreload">',
-                'utf8',
-            );
-            await writeFile(
-                path.join(outputRoot, '_nuxt/entry.js'),
-                'import("./lazy.js");',
-                'utf8',
-            );
-            await writeFile(
-                path.join(outputRoot, '_nuxt/lazy.js'),
-                'export const value = "pako";',
-                'utf8',
-            );
+            await writeFile(path.join(outputRoot, 'electron/index.html'), '<link href="/_nuxt/entry.js" rel="modulepreload">', 'utf8');
+            await writeFile(path.join(outputRoot, '_nuxt/entry.js'), 'import("./lazy.js");', 'utf8');
+            await writeFile(path.join(outputRoot, '_nuxt/lazy.js'), 'export const value = "pako";', 'utf8');
 
             await expect(assertInitialRendererDependencyGraph(outputRoot)).resolves.toEqual({
                 modulePreloads: ['/_nuxt/entry.js'],
@@ -520,13 +446,8 @@ describe('web deploy assets check', () => {
         const functionRoot = path.join(tempRoot, '.vercel/output/functions/__fallback.func');
         try {
             await mkdir(functionRoot, {recursive: true});
-            await writeFile(
-                path.join(functionRoot, 'index.mjs'),
-                'import "./missing-dependency.mjs";\nexport default {};\n',
-                'utf8',
-            );
-            await expect(validateVercelFunctionBoot({projectRoot: tempRoot}))
-                .rejects.toThrow('Vercel server function failed to load');
+            await writeFile(path.join(functionRoot, 'index.mjs'), 'import "./missing-dependency.mjs";\nexport default {};\n', 'utf8');
+            await expect(validateVercelFunctionBoot({projectRoot: tempRoot})).rejects.toThrow('Vercel server function failed to load');
         } finally {
             await rm(tempRoot, {
                 force: true,
@@ -542,10 +463,12 @@ describe('web deploy assets check', () => {
                 force: true,
                 recursive: true,
             });
-            await expect(validateWebDeployAssets({
-                env: {},
-                projectRoot: tempRoot,
-            })).rejects.toThrow('Missing web build output nuxt-output/public');
+            await expect(
+                validateWebDeployAssets({
+                    env: {},
+                    projectRoot: tempRoot,
+                }),
+            ).rejects.toThrow('Missing web build output nuxt-output/public');
         } finally {
             await rm(tempRoot, {
                 force: true,
@@ -554,41 +477,39 @@ describe('web deploy assets check', () => {
         }
     });
 
-    it.each(REQUIRED_WEB_DEPLOY_ASSETS)(
-        'fails when required output asset $relativePath is absent',
-        async (asset) => {
-            const tempRoot = await createTempProject();
-            try {
-                await rm(path.join(tempRoot, 'nuxt-output/public', asset.relativePath));
-                await expect(validateWebDeployAssets({
+    it.each(REQUIRED_WEB_DEPLOY_ASSETS)('fails when required output asset $relativePath is absent', async (asset) => {
+        const tempRoot = await createTempProject();
+        try {
+            await rm(path.join(tempRoot, 'nuxt-output/public', asset.relativePath));
+            await expect(
+                validateWebDeployAssets({
                     env: {},
                     projectRoot: tempRoot,
-                })).rejects.toThrow(`Missing web build output nuxt-output/public asset: ${asset.relativePath}`);
-            } finally {
-                await rm(tempRoot, {
-                    force: true,
-                    recursive: true,
-                });
-            }
-        },
-    );
+                }),
+            ).rejects.toThrow(`Missing web build output nuxt-output/public asset: ${asset.relativePath}`);
+        } finally {
+            await rm(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
 
-    it.each(REQUIRED_WEB_OUTPUT_CONTRACTS)(
-        'fails when required output contract %s is absent',
-        async (relativePath) => {
-            const tempRoot = await createTempProject();
-            try {
-                await rm(path.join(tempRoot, 'nuxt-output/public', relativePath));
-                await expect(validateWebDeployAssets({
+    it.each(REQUIRED_WEB_OUTPUT_CONTRACTS)('fails when required output contract %s is absent', async (relativePath) => {
+        const tempRoot = await createTempProject();
+        try {
+            await rm(path.join(tempRoot, 'nuxt-output/public', relativePath));
+            await expect(
+                validateWebDeployAssets({
                     env: {},
                     projectRoot: tempRoot,
-                })).rejects.toThrow(`Missing web build output nuxt-output/public asset: ${relativePath}`);
-            } finally {
-                await rm(tempRoot, {
-                    force: true,
-                    recursive: true,
-                });
-            }
-        },
-    );
+                }),
+            ).rejects.toThrow(`Missing web build output nuxt-output/public asset: ${relativePath}`);
+        } finally {
+            await rm(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
 });

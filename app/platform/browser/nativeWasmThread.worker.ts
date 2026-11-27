@@ -30,17 +30,21 @@ export interface INativeWasmThreadStartMessage {
     faultPointer: number;
 }
 
-export type TNativeWasmThreadReply = {type: 'ready'} | {type: 'started'} | {
-    /** The thread could not be instantiated; the engine never started. */
-    type: 'failed';
-    message: string;
-} | {
-    /** The running thread trapped; the engine is faulted. */
-    type: 'fault';
-    message: string;
-};
+export type TNativeWasmThreadReply =
+    | {type: 'ready'}
+    | {type: 'started'}
+    | {
+          /** The thread could not be instantiated; the engine never started. */
+          type: 'failed';
+          message: string;
+      }
+    | {
+          /** The running thread trapped; the engine is faulted. */
+          type: 'fault';
+          message: string;
+      };
 
-const describe = (error: unknown) => error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+const describe = (error: unknown) => (error instanceof Error ? `${error.name}: ${error.message}` : String(error));
 
 let loaded: INativeWasmThreadLoadMessage | null = null;
 
@@ -51,20 +55,25 @@ self.addEventListener('message', (event: MessageEvent<INativeWasmThreadLoadMessa
         self.postMessage({type: 'ready'} satisfies TNativeWasmThreadReply);
         return;
     }
-    if (message.type !== 'start' || loaded === null) return;
-    const {
-        module, memory, label,
-    } = loaded;
+    if (message.type !== 'start' || loaded === null) {
+        return;
+    }
+    const {module, memory, label} = loaded;
     let start: (threadId: number, startArg: number) => void;
     try {
         // Instantiated before it reports started, so a thread that cannot
         // exist fails the engine's start instead of its first request.
-        const {exports} = new WebAssembly.Instance(module, createNativeWasmThreadImports({
-            memory,
-            spawnThread: () => -1,
-            writeOutput: createNativeWasmLineWriter(line => console.warn(`${label}: ${line}`)),
-        }));
-        if (typeof exports.wasi_thread_start !== 'function') throw new Error('The threaded module has no wasi_thread_start export');
+        const {exports} = new WebAssembly.Instance(
+            module,
+            createNativeWasmThreadImports({
+                memory,
+                spawnThread: () => -1,
+                writeOutput: createNativeWasmLineWriter((line) => console.warn(`${label}: ${line}`)),
+            }),
+        );
+        if (typeof exports.wasi_thread_start !== 'function') {
+            throw new Error('The threaded module has no wasi_thread_start export');
+        }
         start = exports.wasi_thread_start as typeof start;
     } catch (error) {
         self.postMessage({

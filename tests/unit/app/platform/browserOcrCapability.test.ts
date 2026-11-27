@@ -1,13 +1,4 @@
-import {
-    afterEach,
-    beforeAll,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    onTestFinished,
-    vi,
-} from 'vitest';
+import {afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi} from 'vitest';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireRequestId} from '@contracts/shared';
 import {requirePageNumber} from '@contracts/pageNumbers';
@@ -42,29 +33,32 @@ describe('browser OCR capability', {timeout: 20_000}, () => {
 
     it('closes every raster tile when allocating the assembled PPM fails', async () => {
         const {assembleBrowserPdfRasterPpm} = await import('@app/platform/browser-api/assembleBrowserPdfRasterPpm');
-        const states = [
-            {closed: false},
-            {closed: false},
-        ];
-        const tiles = states.map(state => cast<ImageBitmap>({
-            width: 1,
-            height: 1,
-            close() { state.closed = true; },
-        }));
-        vi.stubGlobal('OffscreenCanvas', class {
-            public width = 1;
-            public height = 1;
-        });
+        const states = [{closed: false}, {closed: false}];
+        const tiles = states.map((state) =>
+            cast<ImageBitmap>({
+                width: 1,
+                height: 1,
+                close() {
+                    state.closed = true;
+                },
+            }),
+        );
+        vi.stubGlobal(
+            'OffscreenCanvas',
+            class {
+                public width = 1;
+                public height = 1;
+            },
+        );
         try {
-            expect(() => assembleBrowserPdfRasterPpm({
-                width: Number.MAX_SAFE_INTEGER,
-                height: 2,
-                tiles,
-            })).toThrow(RangeError);
-            expect(states.map(state => state.closed)).toEqual([
-                true,
-                true,
-            ]);
+            expect(() =>
+                assembleBrowserPdfRasterPpm({
+                    width: Number.MAX_SAFE_INTEGER,
+                    height: 2,
+                    tiles,
+                }),
+            ).toThrow(RangeError);
+            expect(states.map((state) => state.closed)).toEqual([true, true]);
         } finally {
             vi.unstubAllGlobals();
         }
@@ -73,13 +67,21 @@ describe('browser OCR capability', {timeout: 20_000}, () => {
     it('refuses OCR with its reason when the browser cannot run the engine', async () => {
         vi.stubGlobal('Worker', undefined);
         try {
-            const { browserOcrCapability } = await import('@app/platform/browser-api/browserOcrCapability');
+            const {browserOcrCapability} = await import('@app/platform/browser-api/browserOcrCapability');
 
             await expect(browserOcrCapability.getLanguages()).resolves.toEqual([]);
-            await expect(browserOcrCapability.createSearchablePdf(requireDocumentRef('browser://documents/a/in.pdf'), [{
-                pageNumber: requirePageNumber(1),
-                languages: ['eng'],
-            }], requireRequestId('request-2'))).resolves.toMatchObject({
+            await expect(
+                browserOcrCapability.createSearchablePdf(
+                    requireDocumentRef('browser://documents/a/in.pdf'),
+                    [
+                        {
+                            pageNumber: requirePageNumber(1),
+                            languages: ['eng'],
+                        },
+                    ],
+                    requireRequestId('request-2'),
+                ),
+            ).resolves.toMatchObject({
                 started: false,
                 errorEnvelope: {
                     code: 'OCR_BROWSER_UNSUPPORTED',
@@ -101,22 +103,29 @@ describe('browser OCR capability', {timeout: 20_000}, () => {
         });
 
         it('offers every desktop language, each still to download', async () => {
-            const { browserOcrCapability } = await import('@app/platform/browser-api/browserOcrCapability');
-            const { AVAILABLE_OCR_LANGUAGES } = await import('@contracts/ocrLanguages');
+            const {browserOcrCapability} = await import('@app/platform/browser-api/browserOcrCapability');
+            const {AVAILABLE_OCR_LANGUAGES} = await import('@contracts/ocrLanguages');
 
             const languages = await browserOcrCapability.getLanguages();
-            expect(languages.map(language => language.code))
-                .toEqual(AVAILABLE_OCR_LANGUAGES.map(language => language.code));
-            expect(new Set(languages.map(language => language.modelState))).toEqual(new Set(['missing']));
+            expect(languages.map((language) => language.code)).toEqual(AVAILABLE_OCR_LANGUAGES.map((language) => language.code));
+            expect(new Set(languages.map((language) => language.modelState))).toEqual(new Set(['missing']));
         });
 
         it('refuses a language outside the registry', async () => {
-            const { browserOcrCapability } = await import('@app/platform/browser-api/browserOcrCapability');
+            const {browserOcrCapability} = await import('@app/platform/browser-api/browserOcrCapability');
 
-            await expect(browserOcrCapability.createSearchablePdf(requireDocumentRef('browser://documents/a/in.pdf'), [{
-                pageNumber: requirePageNumber(1),
-                languages: ['xyz'],
-            }], requireRequestId('request-3'))).resolves.toMatchObject({
+            await expect(
+                browserOcrCapability.createSearchablePdf(
+                    requireDocumentRef('browser://documents/a/in.pdf'),
+                    [
+                        {
+                            pageNumber: requirePageNumber(1),
+                            languages: ['xyz'],
+                        },
+                    ],
+                    requireRequestId('request-3'),
+                ),
+            ).resolves.toMatchObject({
                 started: false,
                 error: 'Unsupported OCR language: xyz',
                 errorEnvelope: {code: 'OCR_INVALID_PAYLOAD'},
@@ -125,25 +134,31 @@ describe('browser OCR capability', {timeout: 20_000}, () => {
     });
 
     it('reports unknown jobs and results without touching documents', async () => {
-        const { browserOcrCapability } = await import('@app/platform/browser-api/browserOcrCapability');
+        const {browserOcrCapability} = await import('@app/platform/browser-api/browserOcrCapability');
 
         await expect(browserOcrCapability.cancel(requireRequestId('request-5'))).resolves.toEqual({
             canceled: false,
             reason: 'not-found',
         });
-        await expect(browserOcrCapability.acknowledgeResultFile(
-            requireRequestId('request-5'),
-            requireDocumentRef('browser://documents/b/result.pdf'),
-        )).resolves.toEqual({cleaned: false});
+        await expect(
+            browserOcrCapability.acknowledgeResultFile(
+                requireRequestId('request-5'),
+                requireDocumentRef('browser://documents/b/result.pdf'),
+            ),
+        ).resolves.toEqual({cleaned: false});
     });
 
-    it('wires the browser platform to the browser OCR capability', async () => {
-        vi.spyOn(console, 'error').mockImplementation(() => undefined);
-        const { browserPlatformApi } = await import('@app/platform/browserPlatformApi');
-        const { browserOcrCapability } = await import('@app/platform/browser-api/browserOcrCapability');
+    it(
+        'wires the browser platform to the browser OCR capability',
+        async () => {
+            vi.spyOn(console, 'error').mockImplementation(() => undefined);
+            const {browserPlatformApi} = await import('@app/platform/browserPlatformApi');
+            const {browserOcrCapability} = await import('@app/platform/browser-api/browserOcrCapability');
 
-        expect(browserPlatformApi.ocr).toBe(browserOcrCapability);
-    }, browserPlatformWiringTimeoutMs);
+            expect(browserPlatformApi.ocr).toBe(browserOcrCapability);
+        },
+        browserPlatformWiringTimeoutMs,
+    );
 });
 
 interface IPendingRender {
@@ -156,33 +171,24 @@ const destroyed = {count: 0};
 
 /** The source boundary and the job's renders, settled by each test. */
 function mockScanCleanupPreviewSource() {
-    vi.doMock('@app/platform/browser-api/browserScanCleanupJob', () => ({renderBrowserScanCleanupWorkspacePreview: (input: IRenderBrowserScanCleanupPreviewInput) => new Promise<IBrowserScanCleanupPreviewRendering>((resolve, reject) => {
-        input.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), {once: true});
-        renders.pending.push({
-            input,
-            resolve,
-        });
-    })}));
+    vi.doMock('@app/platform/browser-api/browserScanCleanupJob', () => ({
+        renderBrowserScanCleanupWorkspacePreview: (input: IRenderBrowserScanCleanupPreviewInput) =>
+            new Promise<IBrowserScanCleanupPreviewRendering>((resolve, reject) => {
+                input.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), {once: true});
+                renders.pending.push({
+                    input,
+                    resolve,
+                });
+            }),
+    }));
     vi.doMock('@app/platform/browserDocumentStore', () => ({
         getBrowserDocumentFileName: () => 'scan.pdf',
         browserDocumentStore: {
             assertDocumentRevisionCurrent: vi.fn(async () => undefined),
-            read: vi.fn(async () => new Uint8Array([
-                1,
-                2,
-                3,
-            ])),
-            readableBlob: vi.fn(async () => new Blob([new Uint8Array([
-                1,
-                2,
-                3,
-            ])])),
+            read: vi.fn(async () => new Uint8Array([1, 2, 3])),
+            readableBlob: vi.fn(async () => new Blob([new Uint8Array([1, 2, 3])])),
             readableRevision: vi.fn(async (_ref: string, expected?: {token?: string}) => ({
-                blob: new Blob([new Uint8Array([
-                    1,
-                    2,
-                    3,
-                ])]),
+                blob: new Blob([new Uint8Array([1, 2, 3])]),
                 token: expected?.token ?? 'revision-1',
                 byteRevision: 1,
                 instance: Symbol('scan-preview-source'),
@@ -193,10 +199,7 @@ function mockScanCleanupPreviewSource() {
         evictBrowserPageOpsDocumentCache: vi.fn(),
         runBrowserPageOpsWorkerRequest: vi.fn(async () => ({
             pageCount: 2,
-            pages: [
-                1,
-                2,
-            ].map(pageNumber => ({
+            pages: [1, 2].map((pageNumber) => ({
                 pageNumber,
                 xPoints: 0,
                 yPoints: 0,
@@ -209,12 +212,16 @@ function mockScanCleanupPreviewSource() {
             })),
         })),
     }));
-    vi.doMock('@app/platform/browser-api/loadBrowserPdfjsDocument', () => ({loadBrowserPdfjsDocument: vi.fn(async () => ({
-        numPages: 2,
-        loadingTask: {destroy: vi.fn(async () => {
-            destroyed.count += 1;
-        })},
-    }))}));
+    vi.doMock('@app/platform/browser-api/loadBrowserPdfjsDocument', () => ({
+        loadBrowserPdfjsDocument: vi.fn(async () => ({
+            numPages: 2,
+            loadingTask: {
+                destroy: vi.fn(async () => {
+                    destroyed.count += 1;
+                }),
+            },
+        })),
+    }));
 }
 
 const scanCleanupPreviewOptions = {
@@ -268,7 +275,9 @@ function rendering(pageNumber: number, base: IBrowserScanCleanupPreviewBase | nu
 const retainedBase = cast<IBrowserScanCleanupPreviewBase>({pageSize: {pageNumber: 1}});
 
 async function settleTurns() {
-    for (let turn = 0; turn < 10; turn += 1) await Promise.resolve();
+    for (let turn = 0; turn < 10; turn += 1) {
+        await Promise.resolve();
+    }
 }
 
 describe('browser scan cleanup preview admission', () => {
@@ -285,7 +294,9 @@ describe('browser scan cleanup preview admission', () => {
             '@app/platform/browserDocumentStore',
             '@app/platform/browser-api/browserPageOpsWorkerClient',
             '@app/platform/browser-api/loadBrowserPdfjsDocument',
-        ]) vi.doUnmock(path);
+        ]) {
+            vi.doUnmock(path);
+        }
     });
 
     async function loadCapability() {
@@ -297,9 +308,7 @@ describe('browser scan cleanup preview admission', () => {
         {job: 'conversion', retire: false},
         {job: 'detection', retire: true},
         {job: 'conversion', retire: true},
-    ] as const)('answers a late browser $job subscriber with the terminal state or retirement (retire=$retire)', async ({
-        job, retire,
-    }) => {
+    ] as const)('answers a late browser $job subscriber with the terminal state or retirement (retire=$retire)', async ({job, retire}) => {
         const capability = await loadCapability();
         const {browserDocumentStore} = await import('@app/platform/browserDocumentStore');
         const failure = 'Fixture source went away';
@@ -311,7 +320,7 @@ describe('browser scan cleanup preview admission', () => {
         const listen = detection ? capability.onDetectionJobState : capability.onJobState;
         const subscribe = detection ? capability.subscribeDetectionJob : capability.subscribeJob;
         vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout', 'Date']});
-        const stop = listen(state => {
+        const stop = listen((state) => {
             events.push(state);
             if (state.status === 'failed' || state.status === 'completed' || state.status === 'canceled') {
                 terminal.resolve(state);
@@ -329,10 +338,12 @@ describe('browser scan cleanup preview admission', () => {
                 // Move only the owner's retention clock. Arrival of the
                 // retirement event should require no renderer state read.
                 await vi.advanceTimersByTimeAsync(60_000);
-                expect(events).toContainEqual(expect.objectContaining({
-                    jobId: started.jobId,
-                    status: 'retired',
-                }));
+                expect(events).toContainEqual(
+                    expect.objectContaining({
+                        jobId: started.jobId,
+                        status: 'retired',
+                    }),
+                );
             }
         } finally {
             stop();
@@ -360,10 +371,14 @@ describe('browser scan cleanup preview admission', () => {
         const visible = capability.preview(request());
         await vi.waitFor(() => expect(renders.pending).toHaveLength(1));
 
-        await expect(capability.preview(request({
-            visible: false,
-            pageNumber: requirePageNumber(2),
-        }))).resolves.toEqual({canceled: true});
+        await expect(
+            capability.preview(
+                request({
+                    visible: false,
+                    pageNumber: requirePageNumber(2),
+                }),
+            ),
+        ).resolves.toEqual({canceled: true});
 
         renders.pending[0]!.resolve(rendering(1));
         await expect(visible).resolves.toMatchObject({pageNumber: 1});
@@ -375,19 +390,23 @@ describe('browser scan cleanup preview admission', () => {
         const base = request();
         const basePreview = capability.preview(base);
         await vi.waitFor(() => expect(renders.pending).toHaveLength(1));
-        const detail = capability.preview(request({
-            visible: false,
-            detail: {
-                viewports: {full: {
-                    xNormalized: 0,
-                    yNormalized: 0,
-                    widthNormalized: 0.5,
-                    heightNormalized: 0.5,
-                    rotationDegrees: 0,
-                }},
-                outputMode: 'bw',
-            },
-        }));
+        const detail = capability.preview(
+            request({
+                visible: false,
+                detail: {
+                    viewports: {
+                        full: {
+                            xNormalized: 0,
+                            yNormalized: 0,
+                            widthNormalized: 0.5,
+                            heightNormalized: 0.5,
+                            rotationDegrees: 0,
+                        },
+                    },
+                    outputMode: 'bw',
+                },
+            }),
+        );
         await settleTurns();
         // The detail waits for its base instead of starting or retiring it.
         expect(renders.pending).toHaveLength(1);
@@ -411,13 +430,7 @@ describe('browser scan cleanup preview admission', () => {
         await settleTurns();
         expect(renders.pending).toHaveLength(1);
         renders.pending[0]!.resolve(rendering(1));
-        const [
-            firstResult,
-            secondResult,
-        ] = await Promise.all([
-            first,
-            second,
-        ]);
+        const [firstResult, secondResult] = await Promise.all([first, second]);
         expect(firstResult).toMatchObject({pageNumber: 1});
         expect(secondResult).toMatchObject({pageNumber: 1});
         expect('requestId' in firstResult && 'requestId' in secondResult && firstResult.requestId !== secondResult.requestId).toBe(true);
@@ -449,11 +462,8 @@ describe('browser scan cleanup preview admission', () => {
             for (const render of renders.pending) {
                 render.resolve(rendering(1));
             }
-            const results = await Promise.all([
-                first,
-                second,
-            ]);
-            expect(renders.pending.map(render => render.input.request.pageNumber)).toEqual([visible.pageNumber]);
+            const results = await Promise.all([first, second]);
+            expect(renders.pending.map((render) => render.input.request.pageNumber)).toEqual([visible.pageNumber]);
             expect(results).toMatchObject([
                 {pageNumber: visible.pageNumber, requestId: visible.requestId},
                 {pageNumber: visible.pageNumber, requestId: replacement.requestId},
@@ -464,10 +474,7 @@ describe('browser scan cleanup preview admission', () => {
                 retainPages: [],
                 invalidateRawCache: true,
             });
-            await Promise.allSettled([
-                first,
-                second,
-            ]);
+            await Promise.allSettled([first, second]);
         }
     });
 
@@ -484,36 +491,46 @@ describe('browser scan cleanup preview admission', () => {
 
     it('refuses a detail with no base of the same picture', async () => {
         const capability = await loadCapability();
-        await expect(capability.preview(request({
-            visible: false,
-            detail: {
-                viewports: {full: {
-                    xNormalized: 0,
-                    yNormalized: 0,
-                    widthNormalized: 1,
-                    heightNormalized: 1,
-                    rotationDegrees: 0,
-                }},
-                outputMode: 'bw',
-            },
-        }))).rejects.toThrow('rebuild the base preview');
+        await expect(
+            capability.preview(
+                request({
+                    visible: false,
+                    detail: {
+                        viewports: {
+                            full: {
+                                xNormalized: 0,
+                                yNormalized: 0,
+                                widthNormalized: 1,
+                                heightNormalized: 1,
+                                rotationDegrees: 0,
+                            },
+                        },
+                        outputMode: 'bw',
+                    },
+                }),
+            ),
+        ).rejects.toThrow('rebuild the base preview');
     });
 
-    it('cancels its own owner\'s work and releases the source when the raw cache is invalidated', async () => {
+    it("cancels its own owner's work and releases the source when the raw cache is invalidated", async () => {
         const capability = await loadCapability();
         const visible = capability.preview(request());
         await vi.waitFor(() => expect(renders.pending).toHaveLength(1));
-        await expect(capability.cancelPreview({
-            sourcePdfPath: requireDocumentRef('/docs/scan.pdf'),
-            ownerId: 'someone-else',
-            documentRevision: 'revision-1',
-        })).resolves.toBe(false);
-        await expect(capability.cancelPreview({
-            sourcePdfPath: requireDocumentRef('/docs/scan.pdf'),
-            ownerId: 'owner-1',
-            documentRevision: 'revision-1',
-            invalidateRawCache: true,
-        })).resolves.toBe(true);
+        await expect(
+            capability.cancelPreview({
+                sourcePdfPath: requireDocumentRef('/docs/scan.pdf'),
+                ownerId: 'someone-else',
+                documentRevision: 'revision-1',
+            }),
+        ).resolves.toBe(false);
+        await expect(
+            capability.cancelPreview({
+                sourcePdfPath: requireDocumentRef('/docs/scan.pdf'),
+                ownerId: 'owner-1',
+                documentRevision: 'revision-1',
+                invalidateRawCache: true,
+            }),
+        ).resolves.toBe(true);
         await expect(visible).resolves.toEqual({canceled: true});
         await vi.waitFor(() => expect(destroyed.count).toBe(1));
     });
@@ -525,15 +542,15 @@ describe('browser scan cleanup preview plan', () => {
             '@app/platform/browser-api/createIndexedDbScanCleanupDetectionResultStore',
             '@app/platform/browser-api/browserScanCleanupSources',
             '@app/platform/browser-api/runBrowserScanCleanupDetection',
-        ]) vi.doUnmock(path);
+        ]) {
+            vi.doUnmock(path);
+        }
     });
 
-    it.each([
-        2,
-        1025,
-    ])('retains the selected page evidence for an unmatched preview of %s pages', async pageCount => {
+    it.each([2, 1025])('retains the selected page evidence for an unmatched preview of %s pages', async (pageCount) => {
         vi.resetModules();
-        const {createMemoryScanCleanupDetectionResultStore} = await import('@evb/scan-cleanup/core/createMemoryScanCleanupDetectionResultStore');
+        const {createMemoryScanCleanupDetectionResultStore} =
+            await import('@evb/scan-cleanup/core/createMemoryScanCleanupDetectionResultStore');
         const store = createMemoryScanCleanupDetectionResultStore(pageCount);
         const pageNumber = requirePageNumber(1);
         const record = cast<IScanCleanupDetectionResult>({
@@ -564,7 +581,9 @@ describe('browser scan cleanup preview plan', () => {
                 renderBox: 'mediabox',
             },
         });
-        vi.doMock('@app/platform/browser-api/createIndexedDbScanCleanupDetectionResultStore', () => ({createIndexedDbScanCleanupDetectionResultStore: async () => store}));
+        vi.doMock('@app/platform/browser-api/createIndexedDbScanCleanupDetectionResultStore', () => ({
+            createIndexedDbScanCleanupDetectionResultStore: async () => store,
+        }));
         vi.doMock('@app/platform/browser-api/browserScanCleanupSources', () => ({
             borrowBrowserScanCleanupSource: () => ({
                 opened: Promise.resolve({pageSizes: Array.from({length: pageCount})}),
@@ -572,22 +591,26 @@ describe('browser scan cleanup preview plan', () => {
             }),
             awaitScanCleanupSource: (promise: Promise<unknown>) => promise,
         }));
-        vi.doMock('@app/platform/browser-api/runBrowserScanCleanupDetection', () => ({runBrowserScanCleanupDetection: async ({resultStore}: {resultStore: typeof store}) => {
-            await resultStore.append(record);
-            return {
-                resultStore,
-                results: [record],
-                blankPageCount: 0,
-            };
-        }}));
+        vi.doMock('@app/platform/browser-api/runBrowserScanCleanupDetection', () => ({
+            runBrowserScanCleanupDetection: async ({resultStore}: {resultStore: typeof store}) => {
+                await resultStore.append(record);
+                return {
+                    resultStore,
+                    results: [record],
+                    blankPageCount: 0,
+                };
+            },
+        }));
         const {createBrowserScanCleanupDetectionOwner} = await import('@app/platform/browser-api/createBrowserScanCleanupDetectionOwner');
         const {narrowScanCleanupPreviewRequestToPage} = await import('@contracts/scan-cleanup/narrowScanCleanupPreviewRequestToPage');
         const owner = createBrowserScanCleanupDetectionOwner();
-        const detection = request({options: {
-            ...scanCleanupPreviewOptions,
-            matchPageSize: false,
-            pageOverrides: {'2': cast({rotationDegrees: 90})},
-        }});
+        const detection = request({
+            options: {
+                ...scanCleanupPreviewOptions,
+                matchPageSize: false,
+                pageOverrides: {'2': cast({rotationDegrees: 90})},
+            },
+        });
         const job = await owner.detectAll(detection);
         await vi.waitFor(async () => expect((await owner.getDetectionJobState(job.jobId, detection))?.status).toBe('completed'));
         const preview = narrowScanCleanupPreviewRequestToPage(detection);
@@ -623,9 +646,13 @@ describe('browser scan cleanup preview plan', () => {
 
     it('keeps a live preview page plan and all layouts in one snapshot during reconciliation', async () => {
         vi.resetModules();
-        const {createMemoryScanCleanupDetectionResultStore} = await import('@evb/scan-cleanup/core/createMemoryScanCleanupDetectionResultStore');
+        const {createMemoryScanCleanupDetectionResultStore} =
+            await import('@evb/scan-cleanup/core/createMemoryScanCleanupDetectionResultStore');
         const store = createMemoryScanCleanupDetectionResultStore(2000, 1);
-        const result = (pageNumber: number, classification: IScanCleanupDetectionResult['classification']): IScanCleanupDetectionResult => ({
+        const result = (
+            pageNumber: number,
+            classification: IScanCleanupDetectionResult['classification'],
+        ): IScanCleanupDetectionResult => ({
             pageNumber: requirePageNumber(pageNumber),
             revision: 1,
             classification,
@@ -646,17 +673,20 @@ describe('browser scan cleanup preview plan', () => {
         await store.append(result(2000, 'two-page-spread'));
         const walk = store.forEachChunk;
         let reconciled = false;
-        store.forEachChunk = callback => walk(async (rows, firstPageNumber) => {
-            await callback(rows, firstPageNumber);
-            if (!reconciled) {
-                reconciled = true;
-                await store.replace(1, result(1, 'single-uncut-page'));
-                await store.replace(2000, result(2000, 'single-uncut-page'));
-            }
-        });
+        store.forEachChunk = (callback) =>
+            walk(async (rows, firstPageNumber) => {
+                await callback(rows, firstPageNumber);
+                if (!reconciled) {
+                    reconciled = true;
+                    await store.replace(1, result(1, 'single-uncut-page'));
+                    await store.replace(2000, result(2000, 'single-uncut-page'));
+                }
+            });
         const running = Promise.withResolvers<undefined>();
         const entered = Promise.withResolvers<undefined>();
-        vi.doMock('@app/platform/browser-api/createIndexedDbScanCleanupDetectionResultStore', () => ({createIndexedDbScanCleanupDetectionResultStore: async () => store}));
+        vi.doMock('@app/platform/browser-api/createIndexedDbScanCleanupDetectionResultStore', () => ({
+            createIndexedDbScanCleanupDetectionResultStore: async () => store,
+        }));
         vi.doMock('@app/platform/browser-api/browserScanCleanupSources', () => ({
             borrowBrowserScanCleanupSource: () => ({
                 opened: Promise.resolve({pageSizes: Array.from({length: 2000})}),
@@ -664,15 +694,17 @@ describe('browser scan cleanup preview plan', () => {
             }),
             awaitScanCleanupSource: (promise: Promise<unknown>) => promise,
         }));
-        vi.doMock('@app/platform/browser-api/runBrowserScanCleanupDetection', () => ({runBrowserScanCleanupDetection: async () => {
-            entered.resolve(undefined);
-            await running.promise;
-            return {
-                resultStore: store,
-                results: [],
-                blankPageCount: 0,
-            };
-        }}));
+        vi.doMock('@app/platform/browser-api/runBrowserScanCleanupDetection', () => ({
+            runBrowserScanCleanupDetection: async () => {
+                entered.resolve(undefined);
+                await running.promise;
+                return {
+                    resultStore: store,
+                    results: [],
+                    blankPageCount: 0,
+                };
+            },
+        }));
         const {createBrowserScanCleanupDetectionOwner} = await import('@app/platform/browser-api/createBrowserScanCleanupDetectionOwner');
         const owner = createBrowserScanCleanupDetectionOwner();
         const preview = request({layoutByPage: {'2000': 'single-uncut-page'}});
@@ -696,21 +728,25 @@ describe('browser scan cleanup preview plan', () => {
 
     it('reads a reconciled layout a running detection replaced since the last preview', async () => {
         vi.resetModules();
-        const {createMemoryScanCleanupDetectionResultStore} = await import('@evb/scan-cleanup/core/createMemoryScanCleanupDetectionResultStore');
-        const result = (classification: 'two-page-spread' | 'single-uncut-page') => cast<IScanCleanupDetectionResult>({
-            pageNumber: requirePageNumber(1),
-            revision: 2,
-            classification,
-            confidence: 1,
-            cutterXPx: 1275,
-            tier1Verdict: classification,
-            reconciled: true,
-            clusterAgreement: 1,
-            documentPrior: null,
-        });
+        const {createMemoryScanCleanupDetectionResultStore} =
+            await import('@evb/scan-cleanup/core/createMemoryScanCleanupDetectionResultStore');
+        const result = (classification: 'two-page-spread' | 'single-uncut-page') =>
+            cast<IScanCleanupDetectionResult>({
+                pageNumber: requirePageNumber(1),
+                revision: 2,
+                classification,
+                confidence: 1,
+                cutterXPx: 1275,
+                tier1Verdict: classification,
+                reconciled: true,
+                clusterAgreement: 1,
+                documentPrior: null,
+            });
         const running = Promise.withResolvers<undefined>();
         let liveStore: ReturnType<typeof createMemoryScanCleanupDetectionResultStore> | null = null;
-        vi.doMock('@app/platform/browser-api/createIndexedDbScanCleanupDetectionResultStore', () => ({createIndexedDbScanCleanupDetectionResultStore: async (count: number) => createMemoryScanCleanupDetectionResultStore(count)}));
+        vi.doMock('@app/platform/browser-api/createIndexedDbScanCleanupDetectionResultStore', () => ({
+            createIndexedDbScanCleanupDetectionResultStore: async (count: number) => createMemoryScanCleanupDetectionResultStore(count),
+        }));
         vi.doMock('@app/platform/browser-api/browserScanCleanupSources', () => ({
             borrowBrowserScanCleanupSource: () => ({
                 opened: Promise.resolve({pageSizes: Array.from({length: 2000})}),
@@ -718,22 +754,30 @@ describe('browser scan cleanup preview plan', () => {
             }),
             awaitScanCleanupSource: (promise: Promise<unknown>) => promise,
         }));
-        vi.doMock('@app/platform/browser-api/runBrowserScanCleanupDetection', () => ({runBrowserScanCleanupDetection: async ({resultStore}: {resultStore: ReturnType<typeof createMemoryScanCleanupDetectionResultStore>}) => {
-            liveStore = resultStore;
-            await resultStore.append(result('two-page-spread'));
-            await running.promise;
-            return {
+        vi.doMock('@app/platform/browser-api/runBrowserScanCleanupDetection', () => ({
+            runBrowserScanCleanupDetection: async ({
                 resultStore,
-                results: [],
-                blankPageCount: 0,
-            };
-        }}));
+            }: {
+                resultStore: ReturnType<typeof createMemoryScanCleanupDetectionResultStore>;
+            }) => {
+                liveStore = resultStore;
+                await resultStore.append(result('two-page-spread'));
+                await running.promise;
+                return {
+                    resultStore,
+                    results: [],
+                    blankPageCount: 0,
+                };
+            },
+        }));
         const {createBrowserScanCleanupDetectionOwner} = await import('@app/platform/browser-api/createBrowserScanCleanupDetectionOwner');
         const owner = createBrowserScanCleanupDetectionOwner();
-        const preview = request({options: {
-            ...scanCleanupPreviewOptions,
-            outputMode: 'bw',
-        }});
+        const preview = request({
+            options: {
+                ...scanCleanupPreviewOptions,
+                outputMode: 'bw',
+            },
+        });
         await owner.detectAll(preview);
         await vi.waitFor(() => expect(liveStore?.resultCount).toBe(1));
         expect((await owner.resolvePreviewPagePlan(preview)).layoutByPage?.['1']).toBe('two-page-spread');
@@ -748,24 +792,28 @@ describe('browser scan cleanup preview plan', () => {
     it('matches the canvas to every detected page, not only the ones the renderer still keeps', async () => {
         vi.resetModules();
         const pageCount = 1025;
-        const {createMemoryScanCleanupDetectionResultStore} = await import('@evb/scan-cleanup/core/createMemoryScanCleanupDetectionResultStore');
+        const {createMemoryScanCleanupDetectionResultStore} =
+            await import('@evb/scan-cleanup/core/createMemoryScanCleanupDetectionResultStore');
         const {
             addScanCleanupDocumentCanvasPage,
             createScanCleanupDocumentCanvasAccumulator,
             resolveScanCleanupProvisionalDocumentCanvasFromAccumulator,
         } = await import('@evb/scan-cleanup/core/policy/documentCanvas');
-        const spread = (pageNumber: number) => cast<IScanCleanupDetectionResult>({
-            pageNumber: requirePageNumber(pageNumber),
-            revision: 2,
-            classification: 'two-page-spread',
-            confidence: 1,
-            cutterXPx: 1275,
-            tier1Verdict: 'two-page-spread',
-            reconciled: true,
-            clusterAgreement: 1,
-            documentPrior: null,
-        });
-        vi.doMock('@app/platform/browser-api/createIndexedDbScanCleanupDetectionResultStore', () => ({createIndexedDbScanCleanupDetectionResultStore: async (count: number) => createMemoryScanCleanupDetectionResultStore(count)}));
+        const spread = (pageNumber: number) =>
+            cast<IScanCleanupDetectionResult>({
+                pageNumber: requirePageNumber(pageNumber),
+                revision: 2,
+                classification: 'two-page-spread',
+                confidence: 1,
+                cutterXPx: 1275,
+                tier1Verdict: 'two-page-spread',
+                reconciled: true,
+                clusterAgreement: 1,
+                documentPrior: null,
+            });
+        vi.doMock('@app/platform/browser-api/createIndexedDbScanCleanupDetectionResultStore', () => ({
+            createIndexedDbScanCleanupDetectionResultStore: async (count: number) => createMemoryScanCleanupDetectionResultStore(count),
+        }));
         vi.doMock('@app/platform/browser-api/browserScanCleanupSources', () => ({
             borrowBrowserScanCleanupSource: () => ({
                 opened: Promise.resolve({pageSizes: Array.from({length: pageCount})}),
@@ -773,27 +821,36 @@ describe('browser scan cleanup preview plan', () => {
             }),
             awaitScanCleanupSource: (promise: Promise<unknown>) => promise,
         }));
-        vi.doMock('@app/platform/browser-api/runBrowserScanCleanupDetection', () => ({runBrowserScanCleanupDetection: async ({resultStore}: {resultStore: ReturnType<typeof createMemoryScanCleanupDetectionResultStore>}) => {
-            for (let page = 1; page <= pageCount; page += 1) await resultStore.append(spread(page));
-            return {
+        vi.doMock('@app/platform/browser-api/runBrowserScanCleanupDetection', () => ({
+            runBrowserScanCleanupDetection: async ({
                 resultStore,
-                results: [],
-                blankPageCount: 0,
-            };
-        }}));
+            }: {
+                resultStore: ReturnType<typeof createMemoryScanCleanupDetectionResultStore>;
+            }) => {
+                for (let page = 1; page <= pageCount; page += 1) {
+                    await resultStore.append(spread(page));
+                }
+                return {
+                    resultStore,
+                    results: [],
+                    blankPageCount: 0,
+                };
+            },
+        }));
         const {createBrowserScanCleanupDetectionOwner} = await import('@app/platform/browser-api/createBrowserScanCleanupDetectionOwner');
         const owner = createBrowserScanCleanupDetectionOwner();
-        const preview = request({options: {
-            ...scanCleanupPreviewOptions,
-            outputMode: 'bw',
-        }});
+        const preview = request({
+            options: {
+                ...scanCleanupPreviewOptions,
+                outputMode: 'bw',
+            },
+        });
         const job = await owner.detectAll(preview);
         await vi.waitFor(async () => expect((await owner.getDetectionJobState(job.jobId, preview))?.status).toBe('completed'));
         // The renderer keeps only its last 256 layouts.
-        const kept = Object.fromEntries(Array.from({length: 256}, (_, index) => [
-            String(pageCount - 255 + index),
-            'two-page-spread' as const,
-        ]));
+        const kept = Object.fromEntries(
+            Array.from({length: 256}, (_, index) => [String(pageCount - 255 + index), 'two-page-spread' as const]),
+        );
 
         const planned = await owner.resolvePreviewPagePlan({
             ...preview,
@@ -803,14 +860,21 @@ describe('browser scan cleanup preview plan', () => {
 
         expect(Object.keys(planned.layoutByPage ?? {})).toHaveLength(pageCount);
         const accumulator = createScanCleanupDocumentCanvasAccumulator();
-        for (let page = 1; page <= pageCount; page += 1) addScanCleanupDocumentCanvasPage(accumulator, {
-            pageNumber: page,
-            xPoints: 0,
-            yPoints: 0,
-            widthPoints: 1224,
-            heightPoints: 792,
-            rotation: 0,
-        }, planned.options, planned.layoutByPage?.[String(page)]);
+        for (let page = 1; page <= pageCount; page += 1) {
+            addScanCleanupDocumentCanvasPage(
+                accumulator,
+                {
+                    pageNumber: page,
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 1224,
+                    heightPoints: 792,
+                    rotation: 0,
+                },
+                planned.options,
+                planned.layoutByPage?.[String(page)],
+            );
+        }
         expect(resolveScanCleanupProvisionalDocumentCanvasFromAccumulator(accumulator, 150, planned.options, true)?.widthPoints).toBe(612);
         owner.closeSource(requireDocumentRef('/docs/scan.pdf'));
     });
@@ -832,14 +896,7 @@ describe('browser OCR raster size', () => {
                 userUnit,
                 scale,
                 rotation: 0,
-                transform: [
-                    scale * userUnit,
-                    0,
-                    0,
-                    -scale * userUnit,
-                    0,
-                    792 * scale * userUnit,
-                ],
+                transform: [scale * userUnit, 0, 0, -scale * userUnit, 0, 792 * scale * userUnit],
                 clone: () => page.getViewport({scale}),
             }),
             render: ({viewport}: {viewport: {width: number}}) => {
@@ -851,7 +908,7 @@ describe('browser OCR raster size', () => {
         // 85 dpi over a 612x792 unit page is about 723x935 pixels, under the
         // guard; scaled by UserUnit it was 7225x9350 and refused.
         await expect(renderBrowserOcrRaster(page, 85, new AbortController().signal)).rejects.toThrow('rendered');
-        expect(renderedWidths).toEqual([612 * 85 / 72]);
+        expect(renderedWidths).toEqual([(612 * 85) / 72]);
     });
 });
 
@@ -873,51 +930,72 @@ describe('browser OCR lanes', () => {
     }
 
     it('runs more than eight lanes on a many-core device with memory for them', async () => {
-        expect(await resolveLanes({
-            hardwareConcurrency: 32,
-            deviceMemory: 8,
-        })).toEqual({
+        expect(
+            await resolveLanes({
+                hardwareConcurrency: 32,
+                deviceMemory: 8,
+            }),
+        ).toEqual({
             lanes: 21,
             preprocessLanes: 0,
         });
     });
 
     it('keeps one core free and stays within half the reported memory', async () => {
-        expect((await resolveLanes({
-            hardwareConcurrency: 12,
-            deviceMemory: 8,
-        })).lanes).toBe(11);
+        expect(
+            (
+                await resolveLanes({
+                    hardwareConcurrency: 12,
+                    deviceMemory: 8,
+                })
+            ).lanes,
+        ).toBe(11);
     });
 
     // A 300 DPI letter page with two 15 MB models: ~374 MiB a Tesseract lane, ~353 MiB a cleaning worker.
-    const letter = [
-        2_550 * 3_300,
-        30_000_000,
-    ] as const;
+    const letter = [2_550 * 3_300, 30_000_000] as const;
 
     it('gives cleaning as many workers as its lanes need, within the same memory', async () => {
         // Ten lanes would leave memory for one cleaning worker, which feeds two of them.
-        expect(await resolveLanes({
-            hardwareConcurrency: 32,
-            deviceMemory: 8,
-        }, ...letter, 'clean')).toEqual({
+        expect(
+            await resolveLanes(
+                {
+                    hardwareConcurrency: 32,
+                    deviceMemory: 8,
+                },
+                ...letter,
+                'clean',
+            ),
+        ).toEqual({
             lanes: 7,
             preprocessLanes: 4,
         });
-        expect(await resolveLanes({
-            hardwareConcurrency: 12,
-            deviceMemory: 32,
-        }, ...letter, 'clean')).toEqual({
+        expect(
+            await resolveLanes(
+                {
+                    hardwareConcurrency: 12,
+                    deviceMemory: 32,
+                },
+                ...letter,
+                'clean',
+            ),
+        ).toEqual({
             lanes: 10,
             preprocessLanes: 5,
         });
     });
 
     it('gives a polarity check a quarter of its lanes', async () => {
-        expect(await resolveLanes({
-            hardwareConcurrency: 10,
-            deviceMemory: 8,
-        }, ...letter, 'polarity-only')).toEqual({
+        expect(
+            await resolveLanes(
+                {
+                    hardwareConcurrency: 10,
+                    deviceMemory: 8,
+                },
+                ...letter,
+                'polarity-only',
+            ),
+        ).toEqual({
             lanes: 8,
             preprocessLanes: 2,
         });
@@ -932,10 +1010,16 @@ describe('browser OCR lanes', () => {
     });
 
     it('keeps a 4 GiB device to one lane', async () => {
-        expect(await resolveLanes({
-            hardwareConcurrency: 32,
-            deviceMemory: 4,
-        }, ...letter, 'clean')).toEqual({
+        expect(
+            await resolveLanes(
+                {
+                    hardwareConcurrency: 32,
+                    deviceMemory: 4,
+                },
+                ...letter,
+                'clean',
+            ),
+        ).toEqual({
             lanes: 1,
             preprocessLanes: 1,
         });
@@ -979,18 +1063,21 @@ describe('browser OCR worker WASM split', () => {
             public postMessage(message: {id: number; type: string}) {
                 this.record.messages.push(message);
                 queueMicrotask(() => {
-                    const data = message.type === 'preprocess'
-                        ? {
-                            image: new Uint8Array([80, 53, 10, 49, 32, 49, 10, 50, 53, 53, 10, 0]),
-                            width: 1,
-                            height: 1,
-                        }
-                        : {
-                            passes: [{
-                                stderr: '',
-                                outputs: [new Uint8Array([37, 80, 68, 70, 45])],
-                            }],
-                        };
+                    const data =
+                        message.type === 'preprocess'
+                            ? {
+                                  image: new Uint8Array([80, 53, 10, 49, 32, 49, 10, 50, 53, 53, 10, 0]),
+                                  width: 1,
+                                  height: 1,
+                              }
+                            : {
+                                  passes: [
+                                      {
+                                          stderr: '',
+                                          outputs: [new Uint8Array([37, 80, 68, 70, 45])],
+                                      },
+                                  ],
+                              };
                     for (const listener of this.record.listeners.get('message') ?? []) {
                         listener({
                             data: {
@@ -1009,26 +1096,31 @@ describe('browser OCR worker WASM split', () => {
         }
 
         vi.stubGlobal('Worker', FakeWorker);
-        const {
-            preprocessBrowserOcrRaster,
-            runBrowserOcrEngine,
-        } = await import('@app/platform/browser-api/browserOcrEngineClient');
+        const {preprocessBrowserOcrRaster, runBrowserOcrEngine} = await import('@app/platform/browser-api/browserOcrEngineClient');
 
-        const cleaned = await preprocessBrowserOcrRaster({
-            image: new Uint8Array([80, 54, 10, 49, 32, 49, 10, 50, 53, 53, 10, 0, 0, 0]),
-            mode: 'polarity-only',
-            dpi: 150,
-        }, new AbortController().signal);
+        const cleaned = await preprocessBrowserOcrRaster(
+            {
+                image: new Uint8Array([80, 54, 10, 49, 32, 49, 10, 50, 53, 53, 10, 0, 0, 0]),
+                mode: 'polarity-only',
+                dpi: 150,
+            },
+            new AbortController().signal,
+        );
         expect(cleaned.width).toBe(1);
 
-        const recognized = await runBrowserOcrEngine({
-            image: new Uint8Array([80, 53, 10, 49, 32, 49, 10, 50, 53, 53, 10, 0]),
-            models: ['eng'],
-            passes: [{
-                args: ['tesseract', '/work/page.ppm', '/work/out'],
-                outputs: ['/work/out.pdf'],
-            }],
-        }, new AbortController().signal);
+        const recognized = await runBrowserOcrEngine(
+            {
+                image: new Uint8Array([80, 53, 10, 49, 32, 49, 10, 50, 53, 53, 10, 0]),
+                models: ['eng'],
+                passes: [
+                    {
+                        args: ['tesseract', '/work/page.ppm', '/work/out'],
+                        outputs: ['/work/out.pdf'],
+                    },
+                ],
+            },
+            new AbortController().signal,
+        );
         expect(recognized.passes).toHaveLength(1);
 
         expect(spawned).toHaveLength(2);
@@ -1050,15 +1142,20 @@ describe('browser OCR request cancellation', () => {
         const controller = new AbortController();
         controller.abort(new DOMException('OCR was canceled', 'AbortError'));
 
-        await expect(preprocessBrowserOcrRaster({
-            image: {
-                width: 1,
-                height: 1,
-                tiles: [{close}],
-            } as never,
-            mode: 'clean',
-            dpi: 300,
-        }, controller.signal)).rejects.toThrow('OCR was canceled');
+        await expect(
+            preprocessBrowserOcrRaster(
+                {
+                    image: {
+                        width: 1,
+                        height: 1,
+                        tiles: [{close}],
+                    } as never,
+                    mode: 'clean',
+                    dpi: 300,
+                },
+                controller.signal,
+            ),
+        ).rejects.toThrow('OCR was canceled');
         expect(close).toHaveBeenCalledOnce();
     });
 });
@@ -1070,15 +1167,17 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
             files,
             async list(dir: string) {
                 const prefix = `${dir}/`;
-                return [...new Set(
-                    [...files.keys()]
-                        .filter(path => path.startsWith(prefix))
-                        .map(path => path.slice(prefix.length).split('/')[0]!),
-                )];
+                return [
+                    ...new Set(
+                        [...files.keys()].filter((path) => path.startsWith(prefix)).map((path) => path.slice(prefix.length).split('/')[0]!),
+                    ),
+                ];
             },
             async read(path: string) {
                 const bytes = files.get(path);
-                if (!bytes) throw new DOMException(`Missing ${path}`, 'NotFoundError');
+                if (!bytes) {
+                    throw new DOMException(`Missing ${path}`, 'NotFoundError');
+                }
                 return bytes.slice();
             },
             async writeAtomic(path: string, bytes: Uint8Array) {
@@ -1088,17 +1187,17 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
                 files.delete(path);
                 const prefix = `${path}/`;
                 for (const key of [...files.keys()]) {
-                    if (key.startsWith(prefix)) files.delete(key);
+                    if (key.startsWith(prefix)) {
+                        files.delete(key);
+                    }
                 }
             },
         };
     }
 
     it('stages per-page checkpoints in OPFS, reads bounded sorted chunks, sweeps stale dirs, and cleans up', async () => {
-        const {
-            createBrowserOcrCheckpointStore,
-            sweepStaleBrowserOcrCheckpoints,
-        } = await import('@app/platform/browser-api/browserOcrCheckpoints');
+        const {createBrowserOcrCheckpointStore, sweepStaleBrowserOcrCheckpoints} =
+            await import('@app/platform/browser-api/browserOcrCheckpoints');
         const port = createFakeOpfsPort();
         const staleCreatedAt = Date.now() - 25 * 60 * 60 * 1000;
         await port.writeAtomic(
@@ -1125,13 +1224,15 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
                 wordGeometry: {
                     rasterWidthPx: 100,
                     rasterHeightPx: 100,
-                    words: [{
-                        text: `word${pageNumber}`,
-                        x: 10,
-                        y: 10,
-                        width: 20,
-                        height: 12,
-                    }],
+                    words: [
+                        {
+                            text: `word${pageNumber}`,
+                            x: 10,
+                            y: 10,
+                            width: 20,
+                            height: 12,
+                        },
+                    ],
                 },
                 diagnostics: [],
             });
@@ -1142,7 +1243,7 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
 
         const chunks: number[][] = [];
         for await (const chunk of store.iterateChunks({maxPages: 2})) {
-            chunks.push(chunk.records.map(record => record.pageNumber));
+            chunks.push(chunk.records.map((record) => record.pageNumber));
             expect(chunk.pagePdfs).toHaveLength(chunk.records.length);
             chunk.records.forEach((record, index) => {
                 expect(chunk.pagePdfs[index]![5]).toBe(record.pageNumber);
@@ -1161,7 +1262,9 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
         port.writeAtomic = async (path, bytes) => {
             writes += 1;
             // Write 1 = meta.json, write 2 = page-1.pdf, write 3 = page-1.json; page 2 hits quota.
-            if (writes > 3) throw new DOMException('Quota exceeded', 'QuotaExceededError');
+            if (writes > 3) {
+                throw new DOMException('Quota exceeded', 'QuotaExceededError');
+            }
             port.files.set(path, bytes.slice());
         };
         const store = await createBrowserOcrCheckpointStore(port, 'job-quota');
@@ -1217,7 +1320,7 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
         const yielded: number[] = [];
         await expect(async () => {
             for await (const chunk of store.iterateChunks({maxPages: 1, signal: controller.signal})) {
-                yielded.push(...chunk.records.map(record => record.pageNumber));
+                yielded.push(...chunk.records.map((record) => record.pageNumber));
                 controller.abort(new DOMException('Canceled', 'AbortError'));
             }
         }).rejects.toThrow('Canceled');
@@ -1242,13 +1345,17 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
             }),
             preprocessBrowserOcrRaster: vi.fn(),
             runBrowserOcrEngine: vi.fn(async () => ({
-                passes: [{
-                    stderr: '',
-                    outputs: [
-                        new TextEncoder().encode('%PDF-1.5\n%%EOF\n'),
-                        new TextEncoder().encode('level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n5\t1\t1\t1\t1\t1\t10\t10\t20\t12\t95\thello\n'),
-                    ],
-                }],
+                passes: [
+                    {
+                        stderr: '',
+                        outputs: [
+                            new TextEncoder().encode('%PDF-1.5\n%%EOF\n'),
+                            new TextEncoder().encode(
+                                'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n5\t1\t1\t1\t1\t1\t10\t10\t20\t12\t95\thello\n',
+                            ),
+                        ],
+                    },
+                ],
             })),
         }));
         vi.doMock('@app/platform/browser-api/browserOcrModels', () => ({
@@ -1291,25 +1398,31 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
             },
         }));
         vi.doMock('@app/platform/browser/browserStorePort', () => ({
-            appendPdfMutationsToStoreFile: vi.fn(async (_file: unknown, base: number, request: {
-                instructions: {pages: Array<{pageNumber: number}>};
-                pagePdfs: Uint8Array[];
-            }) => {
-                appendChunks.push({
-                    base,
-                    pageNumbers: request.instructions.pages.map(page => page.pageNumber),
-                    pdfCount: request.pagePdfs.length,
-                });
-                if (abortAfterFirstChunk && appendChunks.length === 1) {
-                    jobAbort.abort(new DOMException('Canceled mid-merge', 'AbortError'));
-                }
-                return {
-                    pageCount: 20,
-                    length: base + 50,
-                    identityBindings: [],
-                    sha256: String(appendChunks.length).padStart(64, 'a'),
-                };
-            }),
+            appendPdfMutationsToStoreFile: vi.fn(
+                async (
+                    _file: unknown,
+                    base: number,
+                    request: {
+                        instructions: {pages: Array<{pageNumber: number}>};
+                        pagePdfs: Uint8Array[];
+                    },
+                ) => {
+                    appendChunks.push({
+                        base,
+                        pageNumbers: request.instructions.pages.map((page) => page.pageNumber),
+                        pdfCount: request.pagePdfs.length,
+                    });
+                    if (abortAfterFirstChunk && appendChunks.length === 1) {
+                        jobAbort.abort(new DOMException('Canceled mid-merge', 'AbortError'));
+                    }
+                    return {
+                        pageCount: 20,
+                        length: base + 50,
+                        identityBindings: [],
+                        sha256: String(appendChunks.length).padStart(64, 'a'),
+                    };
+                },
+            ),
         }));
 
         try {
@@ -1342,13 +1455,15 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
             // Abort between chunk 1 and chunk 2 must stop finalization and clean up OPFS checkpoints.
             appendChunks.length = 0;
             abortAfterFirstChunk = true;
-            await expect(runBrowserOcrJob({
-                sourceRef: requireDocumentRef('browser://documents/a/book.pdf'),
-                pages,
-                options: {renderDpi: 150, supersessionPolicy: 'replace-all', replaceAllAcknowledged: true},
-                signal: jobAbort.signal,
-                emit: () => undefined,
-            })).rejects.toThrow('Canceled mid-merge');
+            await expect(
+                runBrowserOcrJob({
+                    sourceRef: requireDocumentRef('browser://documents/a/book.pdf'),
+                    pages,
+                    options: {renderDpi: 150, supersessionPolicy: 'replace-all', replaceAllAcknowledged: true},
+                    signal: jobAbort.signal,
+                    emit: () => undefined,
+                }),
+            ).rejects.toThrow('Canceled mid-merge');
             expect(appendChunks).toHaveLength(1);
             expect([...opfs.files.keys()]).toEqual([]);
         } finally {
@@ -1360,7 +1475,9 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
                 '@app/platform/browser-api/loadBrowserPdfjsDocument',
                 '@app/platform/browserDocumentStore',
                 '@app/platform/browser/browserStorePort',
-            ]) vi.doUnmock(path);
+            ]) {
+                vi.doUnmock(path);
+            }
         }
     });
 });

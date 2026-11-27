@@ -1,12 +1,6 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { effectScope } from 'vue';
-import { useWindowDevicePixelRatio } from '@app/composables/useWindowDevicePixelRatio';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {effectScope} from 'vue';
+import {useWindowDevicePixelRatio} from '@app/composables/useWindowDevicePixelRatio';
 
 class FakeMediaQueryList extends EventTarget {
     listenerCount = 0;
@@ -91,10 +85,7 @@ describe('useWindowDevicePixelRatio', () => {
         expect(ssrRatio?.value).toBe(1);
         ssrScope.stop();
 
-        for (const rawDpr of [
-            0,
-            Number.NaN,
-        ]) {
+        for (const rawDpr of [0, Number.NaN]) {
             const fakeWindow = new FakeWindow(rawDpr);
             vi.stubGlobal('window', fakeWindow);
             const scope = effectScope();

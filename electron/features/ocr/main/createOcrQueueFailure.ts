@@ -1,9 +1,5 @@
-import type { TOcrErrorCode } from '@contracts/electronApiOcr';
-import {
-    requireJobId,
-    type TJobId,
-    type TRequestId,
-} from '@contracts/shared';
+import type {TOcrErrorCode} from '@contracts/electronApiOcr';
+import {requireJobId, type TJobId, type TRequestId} from '@contracts/shared';
 
 export interface IOcrQueueStartResult {
     started: boolean;

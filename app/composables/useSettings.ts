@@ -1,32 +1,22 @@
-import { useDebounceFn } from '@vueuse/core';
-import {
-    getCurrentInstance,
-    toRaw,
-} from 'vue';
-import {
-    normalizeLocale,
-    normalizeTheme,
-    sanitizeSettings,
-} from '@contracts/settings';
-import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
-import type { ISettingsData } from '@contracts/shared';
-import type { IPresentedFailureCapture } from '@app/utils/failureReporter';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { getErrorMessage } from '@app/utils/error';
+import {useDebounceFn} from '@vueuse/core';
+import {getCurrentInstance, toRaw} from 'vue';
+import {normalizeLocale, normalizeTheme, sanitizeSettings} from '@contracts/settings';
+import {getFailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import type {ISettingsData} from '@contracts/shared';
+import type {IPresentedFailureCapture} from '@app/utils/failureReporter';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getErrorMessage} from '@app/utils/error';
 import {
     BROWSER_LOCALE_COOKIE_KEY,
     BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS,
     BROWSER_THEME_COOKIE_KEY,
     parseBrowserSettingsPayload,
 } from '@app/utils/browserSettingsPersistence';
-import { getSettingsCapability } from '@app/utils/getSettingsCapability';
-import { getRawElectronPlatformApi } from '@app/utils/electronPlatformBridge';
-import {
-    captureFailureForPresentation,
-    setRendererDiagnosticsPreference,
-} from '@app/utils/failureReporter';
-import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedState';
-import { useTypedI18n } from '@app/composables/useTypedI18n';
+import {getSettingsCapability} from '@app/utils/getSettingsCapability';
+import {getRawElectronPlatformApi} from '@app/utils/electronPlatformBridge';
+import {captureFailureForPresentation, setRendererDiagnosticsPreference} from '@app/utils/failureReporter';
+import {usePlatformHydratedState} from '@app/composables/usePlatformHydratedState';
+import {useTypedI18n} from '@app/composables/useTypedI18n';
 import {
     createSettingsPersistenceQueue,
     type ISettingsPersistenceQueue,
@@ -119,11 +109,12 @@ function resolveSettingsAppKey(): object {
 
 function registerSettingsAppUnmountCleanup(appKey: object, cleanup: () => void) {
     const candidate = appKey as IAppWithUnmountHook;
-    const onUnmount = typeof candidate.onUnmount === 'function'
-        ? candidate.onUnmount.bind(candidate)
-        : typeof candidate.vueApp?.onUnmount === 'function'
-            ? candidate.vueApp.onUnmount.bind(candidate.vueApp)
-            : null;
+    const onUnmount =
+        typeof candidate.onUnmount === 'function'
+            ? candidate.onUnmount.bind(candidate)
+            : typeof candidate.vueApp?.onUnmount === 'function'
+              ? candidate.vueApp.onUnmount.bind(candidate.vueApp)
+              : null;
     onUnmount?.(cleanup);
 }
 
@@ -134,11 +125,7 @@ function createSettingsRuntimeOwner(handoff?: ISettingsHmrHandoff): ISettingsRun
 
     function detachListenersAndTimers(owner: ISettingsRuntimeOwner) {
         owner.debouncedSave.cancel();
-        if (
-            owner.flushListener !== null
-            && typeof window !== 'undefined'
-            && typeof window.removeEventListener === 'function'
-        ) {
+        if (owner.flushListener !== null && typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
             window.removeEventListener('pagehide', owner.flushListener);
         }
         owner.flushListener = null;
@@ -166,9 +153,7 @@ function getSettingsRuntimeOwner(): ISettingsRuntimeOwner {
     let owner = settingsOwnersByApp.get(appKey);
     if (!owner) {
         const hotDisposers = getHotSettingsDisposersByApp();
-        const handoff = hotDisposers && appKey !== fallbackSettingsAppKey
-            ? hotDisposers.get(appKey)?.handoffForHmr()
-            : undefined;
+        const handoff = hotDisposers && appKey !== fallbackSettingsAppKey ? hotDisposers.get(appKey)?.handoffForHmr() : undefined;
         const created = createSettingsRuntimeOwner(handoff);
         const baseDispose = created.dispose;
         const detachRegistration = () => {
@@ -195,11 +180,7 @@ function getSettingsRuntimeOwner(): ISettingsRuntimeOwner {
                 };
                 detachRegistration();
                 created.debouncedSave.cancel();
-                if (
-                    created.flushListener !== null
-                    && typeof window !== 'undefined'
-                    && typeof window.removeEventListener === 'function'
-                ) {
+                if (created.flushListener !== null && typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
                     window.removeEventListener('pagehide', created.flushListener);
                 }
                 created.flushListener = null;
@@ -235,13 +216,13 @@ function captureSettingsPersistenceFailure(
     const presentation = existingFailure
         ? {failure: existingFailure}
         : captureFailureForPresentation({
-            code,
-            local: {
-                source: 'settings',
-                message,
-                cause: error,
-            },
-        });
+              code,
+              local: {
+                  source: 'settings',
+                  message,
+                  cause: error,
+              },
+          });
     BrowserLogger.error('settings', message, error, presentation.failure);
     return presentation;
 }
@@ -261,9 +242,7 @@ export function selectAdoptedSettings(
     const adopted: Partial<ISettingsData> = {};
     for (const key of Object.keys(committed) as Array<keyof ISettingsData>) {
         const withdrawal = key === 'clientDiagnosticsPreference' && committed[key] === 'denied';
-        if (withdrawal || (pendingIntent?.has(key)
-            ? pendingIntent.get(key) === committed[key]
-            : current[key] === lastSaved?.[key])) {
+        if (withdrawal || (pendingIntent?.has(key) ? pendingIntent.get(key) === committed[key] : current[key] === lastSaved?.[key])) {
             Object.assign(adopted, {[key]: committed[key]});
         }
     }
@@ -272,23 +251,13 @@ export function selectAdoptedSettings(
 
 export const useSettings = () => {
     const owner = getSettingsRuntimeOwner();
-    const {
-        locale,
-        setLocale,
-    } = useTypedI18n();
+    const {locale, setLocale} = useTypedI18n();
     const colorMode = useColorMode();
-    const localeCookie = useCookie(
-        BROWSER_LOCALE_COOKIE_KEY,
-        PERSISTENT_SETTINGS_COOKIE_OPTIONS,
-    );
-    const themeCookie = useCookie(
-        BROWSER_THEME_COOKIE_KEY,
-        PERSISTENT_SETTINGS_COOKIE_OPTIONS,
-    );
+    const localeCookie = useCookie(BROWSER_LOCALE_COOKIE_KEY, PERSISTENT_SETTINGS_COOKIE_OPTIONS);
+    const themeCookie = useCookie(BROWSER_THEME_COOKIE_KEY, PERSISTENT_SETTINGS_COOKIE_OPTIONS);
     const hasSettingsCookieSnapshot = useState(
         'settings:has-cookie-snapshot',
-        () => localeCookie.value != null
-            || themeCookie.value != null,
+        () => localeCookie.value != null || themeCookie.value != null,
     );
     const fallbackSettings: Partial<ISettingsData> = {};
     if (localeCookie.value != null) {
@@ -303,18 +272,14 @@ export const useSettings = () => {
         fallbackSettings.uiScale = startupUiScalePreference;
     }
     const initialSettings = parseBrowserSettingsPayload(null, fallbackSettings);
-    const lastSavedSettings = useState<ISettingsData | null>(
-        'settings:last-saved',
-        () => null,
-    );
+    const lastSavedSettings = useState<ISettingsData | null>('settings:last-saved', () => null);
     const settingsSaveStatus = useState<TSettingsPersistenceStatus>('settings:save-status', () => 'idle');
     const settingsSaveError = useState<ISettingsSaveError | null>('settings:save-error', () => null);
     const settingsLoadFailure = useState<IPresentedFailureCapture | null>('settings:load-failure', () => null);
     const settingsSaveFailure = useState<IPresentedFailureCapture | null>('settings:save-failure', () => null);
 
     function refreshSettingsBootstrapCookieSnapshot() {
-        hasSettingsCookieSnapshot.value = localeCookie.value != null
-            || themeCookie.value != null;
+        hasSettingsCookieSnapshot.value = localeCookie.value != null || themeCookie.value != null;
     }
 
     const {
@@ -348,11 +313,7 @@ export const useSettings = () => {
             settingsLoadFailure.value = null;
         },
         onError(loadError) {
-            settingsLoadFailure.value ??= captureSettingsPersistenceFailure(
-                'SETTINGS_LOAD_FAILED',
-                loadError,
-                'Failed to load settings',
-            );
+            settingsLoadFailure.value ??= captureSettingsPersistenceFailure('SETTINGS_LOAD_FAILED', loadError, 'Failed to load settings');
         },
     });
 
@@ -399,26 +360,22 @@ export const useSettings = () => {
         owner.persistenceQueue = createSettingsPersistenceQueue({
             getSettingsSnapshot: () => toRaw(settings.value),
             getLastSavedSettings: () => lastSavedSettings.value,
-            savePatch: patch => getSettingsCapability().save(patch),
+            savePatch: (patch) => getSettingsCapability().save(patch),
             onSaved() {
                 refreshSettingsBootstrapCookieSnapshot();
                 settingsSaveFailure.value = null;
             },
             onSaveError(error) {
-                settingsSaveFailure.value ??= captureSettingsPersistenceFailure(
-                    'SETTINGS_SAVE_FAILED',
-                    error,
-                    'Failed to save settings',
-                );
+                settingsSaveFailure.value ??= captureSettingsPersistenceFailure('SETTINGS_SAVE_FAILED', error, 'Failed to save settings');
             },
             onStatusChanged(status, error) {
                 settingsSaveStatus.value = status === 'idle' && owner.pendingIntent.size > 0 ? 'saving' : status;
-                settingsSaveError.value = error ? {
-                    name: typeof error === 'object' && 'name' in error && typeof error.name === 'string'
-                        ? error.name
-                        : 'Error',
-                    message: getErrorMessage(error),
-                } : null;
+                settingsSaveError.value = error
+                    ? {
+                          name: typeof error === 'object' && 'name' in error && typeof error.name === 'string' ? error.name : 'Error',
+                          message: getErrorMessage(error),
+                      }
+                    : null;
             },
         });
         return owner.persistenceQueue;

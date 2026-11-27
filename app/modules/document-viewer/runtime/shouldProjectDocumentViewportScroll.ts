@@ -10,9 +10,11 @@ export function shouldProjectDocumentViewportScroll(
     snapshot: IDocumentOpenSurfaceProjectionSnapshot,
     viewportSession: IDocumentViewportSessionState,
 ) {
-    return snapshot.phase === 'ready'
-        && snapshot.presentation === 'committed'
-        && viewportSession.lifecycle === 'ready'
-        && viewportSession.committedPage !== null
-        && viewportSession.requestedPage === viewportSession.committedPage;
+    return (
+        snapshot.phase === 'ready' &&
+        snapshot.presentation === 'committed' &&
+        viewportSession.lifecycle === 'ready' &&
+        viewportSession.committedPage !== null &&
+        viewportSession.requestedPage === viewportSession.committedPage
+    );
 }

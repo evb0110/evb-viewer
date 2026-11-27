@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 import {
     createDefaultScanCleanupSettingsFile,
@@ -25,18 +21,14 @@ function sourceHash(index: number) {
 }
 
 function pageOverrides(count: number) {
-    return Object.fromEntries(Array.from({length: count}, (_, index) => [
-        String(index + 1),
-        pageOverride,
-    ]));
+    return Object.fromEntries(Array.from({length: count}, (_, index) => [String(index + 1), pageOverride]));
 }
 
 describe('scan-cleanup settings file decoder', () => {
     it('defaults new preferences to ink placement', () => {
         expect(createDefaultScanCleanupSettingsFile().settings.pageAlignment).toBe('ink');
         expect(decodeScanCleanupGlobalPreferences({}).pageAlignment).toBe('ink');
-        expect(decodeScanCleanupGlobalPreferences({pageAlignment: 'top-center'}).pageAlignment)
-            .toBe('top-center');
+        expect(decodeScanCleanupGlobalPreferences({pageAlignment: 'top-center'}).pageAlignment).toBe('top-center');
     });
 
     it('migrates persisted thickness to the executable integer range', () => {
@@ -60,17 +52,20 @@ describe('scan-cleanup settings file decoder', () => {
             schemaVersion: SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION,
             settings: {pageAlignment: 'ink'},
         });
-        expect(decodeScanCleanupSettingsFile(preInk('bottom-right')).settings.pageAlignment)
-            .toBe('bottom-right');
+        expect(decodeScanCleanupSettingsFile(preInk('bottom-right')).settings.pageAlignment).toBe('bottom-right');
         // Schema 2 already knows `ink`, so a stored top-center is a real choice.
-        expect(decodeScanCleanupSettingsFile({
-            ...preInk('top-center'),
-            schemaVersion: SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION,
-        }).settings.pageAlignment).toBe('top-center');
-        expect(() => decodeScanCleanupSettingsFile({
-            ...base,
-            schemaVersion: 0,
-        })).toThrow('Unsupported scan-cleanup settings schema version: 0');
+        expect(
+            decodeScanCleanupSettingsFile({
+                ...preInk('top-center'),
+                schemaVersion: SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION,
+            }).settings.pageAlignment,
+        ).toBe('top-center');
+        expect(() =>
+            decodeScanCleanupSettingsFile({
+                ...base,
+                schemaVersion: 0,
+            }),
+        ).toThrow('Unsupported scan-cleanup settings schema version: 0');
     });
 
     it('drops one corrupt document entry while preserving valid siblings', () => {
@@ -113,17 +108,21 @@ describe('scan-cleanup settings file decoder', () => {
         const sourceSha256 = 'a'.repeat(64);
         const decoded = decodeScanCleanupSettingsFileWithDiagnostics({
             ...createDefaultScanCleanupSettingsFile(),
-            documentOverrides: {[sourceSha256.toUpperCase()]: {
-                outputMode: 'grayscale',
-                lastUsedAtMs: 10,
-            }},
+            documentOverrides: {
+                [sourceSha256.toUpperCase()]: {
+                    outputMode: 'grayscale',
+                    lastUsedAtMs: 10,
+                },
+            },
         });
 
         expect(decoded.repaired).toBe(true);
-        expect(decoded.settingsFile.documentOverrides).toEqual({[sourceSha256]: {
-            outputMode: 'grayscale',
-            lastUsedAtMs: 10,
-        }});
+        expect(decoded.settingsFile.documentOverrides).toEqual({
+            [sourceSha256]: {
+                outputMode: 'grayscale',
+                lastUsedAtMs: 10,
+            },
+        });
     });
 
     it('reports repaired unknown stored margin keys after normalization drops them', () => {
@@ -144,32 +143,27 @@ describe('scan-cleanup settings file decoder', () => {
     });
 
     it('gives every legal document entry its own page budget', () => {
-        const pagesPerDocument = Math.floor(
-            SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES / SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES,
-        ) + 1;
+        const pagesPerDocument = Math.floor(SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES / SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES) + 1;
         const overrides = pageOverrides(pagesPerDocument);
-        const documentOverrides = Object.fromEntries(Array.from(
-            {length: SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES},
-            (_, index) => [
+        const documentOverrides = Object.fromEntries(
+            Array.from({length: SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES}, (_, index) => [
                 sourceHash(index),
                 {
                     overrides,
                     lastUsedAtMs: index,
                 },
-            ],
-        ));
+            ]),
+        );
 
         const decoded = decodeScanCleanupSettingsFile({
             ...createDefaultScanCleanupSettingsFile(),
             documentOverrides,
         });
 
-        expect(Object.keys(decoded.documentOverrides))
-            .toHaveLength(SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES);
-        expect(Object.keys(decoded.documentOverrides[sourceHash(0)]!.overrides!))
-            .toHaveLength(pagesPerDocument);
-        expect(Object.keys(decoded.documentOverrides[
-            sourceHash(SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES - 1)
-        ]!.overrides!)).toHaveLength(pagesPerDocument);
+        expect(Object.keys(decoded.documentOverrides)).toHaveLength(SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES);
+        expect(Object.keys(decoded.documentOverrides[sourceHash(0)]!.overrides!)).toHaveLength(pagesPerDocument);
+        expect(Object.keys(decoded.documentOverrides[sourceHash(SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES - 1)]!.overrides!)).toHaveLength(
+            pagesPerDocument,
+        );
     });
 });

@@ -1,27 +1,20 @@
-import type { IElectronAPI } from '@contracts/electronApi';
-import type { IDiagnosticsRendererCapability } from '@contracts/diagnostics/diagnosticsPreference';
-import {
-    createPlatformApiFixture,
-    type TDeepPartial,
-    type TPlatformApiFixtureOverrides,
-} from '@tests/helpers/createPlatformApiFixture';
+import type {IElectronAPI} from '@contracts/electronApi';
+import type {IDiagnosticsRendererCapability} from '@contracts/diagnostics/diagnosticsPreference';
+import {createPlatformApiFixture, type TDeepPartial, type TPlatformApiFixtureOverrides} from '@tests/helpers/createPlatformApiFixture';
 
-export type TElectronPlatformApiFixtureOverrides = TPlatformApiFixtureOverrides
-    & Partial<Pick<IElectronAPI, 'startupHostEnvironment' | 'startupUiScalePreference'>>
-    & {diagnostics?: TDeepPartial<IDiagnosticsRendererCapability>;};
+export type TElectronPlatformApiFixtureOverrides = TPlatformApiFixtureOverrides &
+    Partial<Pick<IElectronAPI, 'startupHostEnvironment' | 'startupUiScalePreference'>> & {
+        diagnostics?: TDeepPartial<IDiagnosticsRendererCapability>;
+    };
 
 const DEFAULT_DIAGNOSTICS: IDiagnosticsRendererCapability = {startupPolicy: Object.freeze({mode: 'unknown'})};
 
-export function createElectronPlatformApiFixture<TOverrides extends TElectronPlatformApiFixtureOverrides = TElectronPlatformApiFixtureOverrides>(
-    overrides: TOverrides = {} as TOverrides,
-) {
+export function createElectronPlatformApiFixture<
+    TOverrides extends TElectronPlatformApiFixtureOverrides = TElectronPlatformApiFixtureOverrides,
+>(overrides: TOverrides = {} as TOverrides) {
     const diagnosticsOverrides = overrides.diagnostics;
     const platformOverrides = {...overrides};
-    for (const electronKey of [
-        'diagnostics',
-        'startupHostEnvironment',
-        'startupUiScalePreference',
-    ] as const) {
+    for (const electronKey of ['diagnostics', 'startupHostEnvironment', 'startupUiScalePreference'] as const) {
         Reflect.deleteProperty(platformOverrides, electronKey);
     }
     const platformApi = createPlatformApiFixture({
@@ -33,10 +26,12 @@ export function createElectronPlatformApiFixture<TOverrides extends TElectronPla
     }
     const electronApi: IElectronAPI = {
         ...platformApi,
-        diagnostics: {startupPolicy: {
-            ...DEFAULT_DIAGNOSTICS.startupPolicy,
-            ...diagnosticsOverrides?.startupPolicy,
-        }},
+        diagnostics: {
+            startupPolicy: {
+                ...DEFAULT_DIAGNOSTICS.startupPolicy,
+                ...diagnosticsOverrides?.startupPolicy,
+            },
+        },
         startupHostEnvironment: overrides.startupHostEnvironment ?? null,
         startupUiScalePreference: overrides.startupUiScalePreference ?? null,
         updates: platformApi.updates,

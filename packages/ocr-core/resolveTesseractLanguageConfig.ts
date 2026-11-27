@@ -1,13 +1,5 @@
-import {
-    compact,
-    partition,
-    uniq,
-} from 'es-toolkit/array';
-import {
-    isRtlOcrLanguage,
-    OCR_MODEL_SUBLANGUAGES,
-    type TOcrModelCode,
-} from '@contracts/ocrLanguages';
+import {compact, partition, uniq} from 'es-toolkit/array';
+import {isRtlOcrLanguage, OCR_MODEL_SUBLANGUAGES, type TOcrModelCode} from '@contracts/ocrLanguages';
 
 const LATIN_WORD_BOUNDARY_CONFIG = [
     '-c',
@@ -26,12 +18,7 @@ const LATIN_WORD_BOUNDARY_CONFIG = [
     'tosp_kern_gap_factor2=1.0',
 ] as const satisfies readonly string[];
 
-const LATIN_DICTIONARY_DISABLED_CONFIG = [
-    '-c',
-    'load_system_dawg=0',
-    '-c',
-    'load_freq_dawg=0',
-] as const satisfies readonly string[];
+const LATIN_DICTIONARY_DISABLED_CONFIG = ['-c', 'load_system_dawg=0', '-c', 'load_freq_dawg=0'] as const satisfies readonly string[];
 
 const RTL_CONFIG = [] as const satisfies readonly string[];
 
@@ -41,7 +28,9 @@ interface ITesseractLanguageConfig {
     hasRtl: boolean;
 }
 
-interface ITesseractLanguageConfigOptions { preserveDictionaries?: boolean; }
+interface ITesseractLanguageConfigOptions {
+    preserveDictionaries?: boolean;
+}
 
 export function resolveTesseractLanguageConfig(
     languages: string[],
@@ -49,28 +38,21 @@ export function resolveTesseractLanguageConfig(
 ): ITesseractLanguageConfig {
     const deduped = uniq(compact(languages));
     // Keep out the sub-languages the registry excludes, such as Serbian's Latin recognizer.
-    deduped.push(...deduped.flatMap(code => (OCR_MODEL_SUBLANGUAGES[code as TOcrModelCode] ?? []).filter(entry => entry.startsWith('~'))));
+    deduped.push(
+        ...deduped.flatMap((code) => (OCR_MODEL_SUBLANGUAGES[code as TOcrModelCode] ?? []).filter((entry) => entry.startsWith('~'))),
+    );
     const hasRtl = deduped.some(isRtlOcrLanguage);
 
     if (!hasRtl) {
         return {
             orderedLanguages: deduped,
-            extraConfigArgs: [
-                ...LATIN_WORD_BOUNDARY_CONFIG,
-                ...(options.preserveDictionaries ? [] : LATIN_DICTIONARY_DISABLED_CONFIG),
-            ],
+            extraConfigArgs: [...LATIN_WORD_BOUNDARY_CONFIG, ...(options.preserveDictionaries ? [] : LATIN_DICTIONARY_DISABLED_CONFIG)],
             hasRtl: false,
         };
     }
 
-    const [
-        rtlLanguages,
-        nonRtlLanguages,
-    ] = partition(deduped, isRtlOcrLanguage);
-    const rtlFirst = [
-        ...rtlLanguages,
-        ...nonRtlLanguages,
-    ];
+    const [rtlLanguages, nonRtlLanguages] = partition(deduped, isRtlOcrLanguage);
+    const rtlFirst = [...rtlLanguages, ...nonRtlLanguages];
 
     return {
         orderedLanguages: rtlFirst,

@@ -1,12 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    normalizeBoundedString,
-    truncateForIpc,
-} from '@electron/utils/ipcLimits';
+import {describe, expect, it} from 'vitest';
+import {normalizeBoundedString, truncateForIpc} from '@electron/utils/ipcLimits';
 
 describe('ipcLimits', () => {
     it('normalizes non-empty bounded strings', () => {

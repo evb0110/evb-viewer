@@ -1,4 +1,4 @@
-import type { IWorkspacePdfViewerForAnnotationUtils } from '@app/modules/workspace-shell/annotations/workspaceAnnotationTypes';
+import type {IWorkspacePdfViewerForAnnotationUtils} from '@app/modules/workspace-shell/annotations/workspaceAnnotationTypes';
 
 export function hasViewerShapeChanges(
     viewer: Pick<IWorkspacePdfViewerForAnnotationUtils, 'hasCanonicalShapeChanges' | 'hasShapes'> | null | undefined,

@@ -1,21 +1,11 @@
-import {
-    existsSync,
-    mkdirSync,
-    readFileSync,
-    readdirSync,
-    unlinkSync,
-    writeFileSync,
-} from 'node:fs';
-import { delay } from 'es-toolkit/promise';
-import { safeJsonParse } from '@contracts/safeJsonParse';
-import { isTimeoutError } from '@contracts/isTimeoutError';
-import { DEFAULT_NUXT_PORT } from '@scripts/electron-run/electronRunPortConfig';
-import { SESSION_WAIT_TIMEOUT_MS } from '@scripts/electron-run/electronRunTimeouts';
-import {
-    parseElectronRunCommandResponse,
-    type TElectronRunCommand,
-} from '@scripts/electron-run/electronRunProtocol';
-import { isJsonRecord } from '@scripts/electron-run/isJsonRecord';
+import {existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync} from 'node:fs';
+import {delay} from 'es-toolkit/promise';
+import {safeJsonParse} from '@contracts/safeJsonParse';
+import {isTimeoutError} from '@contracts/isTimeoutError';
+import {DEFAULT_NUXT_PORT} from '@scripts/electron-run/electronRunPortConfig';
+import {SESSION_WAIT_TIMEOUT_MS} from '@scripts/electron-run/electronRunTimeouts';
+import {parseElectronRunCommandResponse, type TElectronRunCommand} from '@scripts/electron-run/electronRunProtocol';
+import {isJsonRecord} from '@scripts/electron-run/isJsonRecord';
 import {
     getCurrentSessionName,
     sessionDir,
@@ -25,7 +15,7 @@ import {
     sessionStartingFilePath,
     sessionsBaseDir,
 } from '@scripts/electron-run/electronRunSessionPaths';
-import { E2E_RUN_ID_ENV } from '@scripts/electron-run/electronRunRunId';
+import {E2E_RUN_ID_ENV} from '@scripts/electron-run/electronRunRunId';
 import {isProcessAlive} from '@scripts/electron-run/electronRunProcessTree';
 import {
     findSessionOwnedElectronPids,
@@ -35,14 +25,8 @@ import {
     type IProcessIdentitySnapshot,
     type ISessionProcessIdentityExpectation,
 } from '@scripts/electron-run/electronRunProcessIdentity';
-import {
-    cleanupSessionAppTempIfUnowned,
-    hasWorkspaceRecoveryEvidence,
-} from '@scripts/electron-run/electronRunSessionCleanup';
-import type {
-    ISessionInfo,
-    ISessionStartingInfo,
-} from '@scripts/electron-run/electronRunSessionTypes';
+import {cleanupSessionAppTempIfUnowned, hasWorkspaceRecoveryEvidence} from '@scripts/electron-run/electronRunSessionCleanup';
+import type {ISessionInfo, ISessionStartingInfo} from '@scripts/electron-run/electronRunSessionTypes';
 
 function isPositiveInt(value: unknown): value is number {
     return typeof value === 'number' && Number.isInteger(value) && value > 0;
@@ -81,11 +65,13 @@ export interface INuxtSessionOwnerCheck {
     reason: string | null;
 }
 
-export interface ICleanupStaleSessionArtifactsOptions extends IClassifySessionControllerOwnershipOptions { nuxtOwnerProbe?: (
-    sessionName: string,
-    nuxtPid: number,
-    nuxtPort: number | null,
-) => INuxtSessionOwnerCheck | Promise<INuxtSessionOwnerCheck>; }
+export interface ICleanupStaleSessionArtifactsOptions extends IClassifySessionControllerOwnershipOptions {
+    nuxtOwnerProbe?: (
+        sessionName: string,
+        nuxtPid: number,
+        nuxtPort: number | null,
+    ) => INuxtSessionOwnerCheck | Promise<INuxtSessionOwnerCheck>;
+}
 
 export type TStaleSessionArtifactsCleanupKind = 'clean' | 'preserved-recovery' | 'retained-unsafe';
 
@@ -112,11 +98,11 @@ function isSessionInfo(value: unknown): value is ISessionInfo {
         return false;
     }
     if (
-        !isPositiveInt(value.port)
-        || !isPositiveInt(value.pid)
-        || !isPositiveInt(value.cdpPort)
-        || !isNullablePositiveInt(value.electronPid)
-        || !isNullablePositiveInt(value.nuxtPid)
+        !isPositiveInt(value.port) ||
+        !isPositiveInt(value.pid) ||
+        !isPositiveInt(value.cdpPort) ||
+        !isNullablePositiveInt(value.electronPid) ||
+        !isNullablePositiveInt(value.nuxtPid)
     ) {
         return false;
     }
@@ -143,20 +129,15 @@ function isSessionStartingInfo(value: unknown): value is ISessionStartingInfo {
 }
 
 function normalizeSessionStartingInfo(raw: ISessionStartingInfo): ISessionStartingInfo {
-    const electronPids = Array.isArray(raw.electronPids)
-        ? raw.electronPids.filter(isPositiveInt)
-        : [];
-    const cdpPorts = Array.isArray(raw.cdpPorts)
-        ? raw.cdpPorts.filter(isPositiveInt)
-        : [];
+    const electronPids = Array.isArray(raw.electronPids) ? raw.electronPids.filter(isPositiveInt) : [];
+    const cdpPorts = Array.isArray(raw.cdpPorts) ? raw.cdpPorts.filter(isPositiveInt) : [];
     return {
         pid: raw.pid,
         startedAt: raw.startedAt,
         electronPids,
         cdpPorts,
-        electronUserDataDir: typeof raw.electronUserDataDir === 'string' && raw.electronUserDataDir.length > 0
-            ? raw.electronUserDataDir
-            : null,
+        electronUserDataDir:
+            typeof raw.electronUserDataDir === 'string' && raw.electronUserDataDir.length > 0 ? raw.electronUserDataDir : null,
         nuxtPid: isNullablePositiveInt(raw.nuxtPid) ? raw.nuxtPid : null,
         nuxtPort: isNullablePositiveInt(raw.nuxtPort) ? raw.nuxtPort : null,
         runId: typeof raw.runId === 'string' ? raw.runId : null,
@@ -177,8 +158,9 @@ function classifyControllerProcess(
         kind: 'controller' as const,
         sessionName,
     } satisfies ISessionProcessIdentityExpectation;
-    const ambiguousReason = `[Session '${sessionName}'] ${label} PID ${pid} is live but its ownership could not be verified. `
-        + 'The identity probe failed or the PID may have been reused. Inspect the process and session artifacts, then retry cleanup.';
+    const ambiguousReason =
+        `[Session '${sessionName}'] ${label} PID ${pid} is live but its ownership could not be verified. ` +
+        'The identity probe failed or the PID may have been reused. Inspect the process and session artifacts, then retry cleanup.';
 
     let alive: boolean;
     try {
@@ -281,7 +263,7 @@ export function classifySessionControllerOwnership(
         });
     }
 
-    const active = controllers.find(controller => controller.status === 'active');
+    const active = controllers.find((controller) => controller.status === 'active');
     if (active) {
         return {
             status: 'active',
@@ -289,7 +271,7 @@ export function classifySessionControllerOwnership(
             controllers,
         };
     }
-    const ambiguous = controllers.find(controller => controller.status === 'ambiguous');
+    const ambiguous = controllers.find((controller) => controller.status === 'ambiguous');
     if (ambiguous) {
         return {
             status: 'ambiguous',
@@ -324,50 +306,52 @@ export function readSessionLogTail(maxLines = 80) {
     try {
         const text = readFileSync(sessionLogFilePath(), 'utf8');
         const lines = text.split('\n');
-        return lines.slice(Math.max(0, lines.length - maxLines)).join('\n').trim();
+        return lines
+            .slice(Math.max(0, lines.length - maxLines))
+            .join('\n')
+            .trim();
     } catch {
         return '';
     }
 }
 
 export function markSessionStarting(pid: number) {
-    mkdirSync(sessionDir(), { recursive: true });
-    writeFileSync(sessionStartingFilePath(), JSON.stringify({
-        pid,
-        startedAt: Date.now(),
-        electronPids: [],
-        cdpPorts: [],
-        electronUserDataDir: electronUserDataPath(),
-        nuxtPid: null,
-        nuxtPort: null,
-        runId: process.env[E2E_RUN_ID_ENV] ?? null,
-    }));
+    mkdirSync(sessionDir(), {recursive: true});
+    writeFileSync(
+        sessionStartingFilePath(),
+        JSON.stringify({
+            pid,
+            startedAt: Date.now(),
+            electronPids: [],
+            cdpPorts: [],
+            electronUserDataDir: electronUserDataPath(),
+            nuxtPid: null,
+            nuxtPort: null,
+            runId: process.env[E2E_RUN_ID_ENV] ?? null,
+        }),
+    );
 }
 
-export function recordSessionStartingAttempt(update: Partial<Pick<
-    ISessionStartingInfo,
-    'electronPids' | 'cdpPorts' | 'electronUserDataDir' | 'nuxtPid' | 'nuxtPort'
->>) {
+export function recordSessionStartingAttempt(
+    update: Partial<Pick<ISessionStartingInfo, 'electronPids' | 'cdpPorts' | 'electronUserDataDir' | 'nuxtPid' | 'nuxtPort'>>,
+) {
     const current = getSessionStartingInfo();
     if (!current) {
         return;
     }
-    const electronPids = [
-        ...current.electronPids,
-        ...(update.electronPids ?? []),
-    ].filter(isPositiveInt);
-    const cdpPorts = [
-        ...current.cdpPorts,
-        ...(update.cdpPorts ?? []),
-    ].filter(isPositiveInt);
-    writeFileSync(sessionStartingFilePath(), JSON.stringify({
-        ...current,
-        electronPids: [...new Set(electronPids)],
-        cdpPorts: [...new Set(cdpPorts)],
-        electronUserDataDir: update.electronUserDataDir ?? current.electronUserDataDir,
-        nuxtPid: update.nuxtPid ?? current.nuxtPid,
-        nuxtPort: update.nuxtPort ?? current.nuxtPort,
-    }));
+    const electronPids = [...current.electronPids, ...(update.electronPids ?? [])].filter(isPositiveInt);
+    const cdpPorts = [...current.cdpPorts, ...(update.cdpPorts ?? [])].filter(isPositiveInt);
+    writeFileSync(
+        sessionStartingFilePath(),
+        JSON.stringify({
+            ...current,
+            electronPids: [...new Set(electronPids)],
+            cdpPorts: [...new Set(cdpPorts)],
+            electronUserDataDir: update.electronUserDataDir ?? current.electronUserDataDir,
+            nuxtPid: update.nuxtPid ?? current.nuxtPid,
+            nuxtPort: update.nuxtPort ?? current.nuxtPort,
+        }),
+    );
 }
 
 export function clearSessionStarting(name = getCurrentSessionName()) {
@@ -381,11 +365,7 @@ interface IVerifiedTerminationCandidate {
     expectation: ISessionProcessIdentityExpectation;
 }
 
-function collectSessionElectronCandidates(
-    name: string,
-    info: ISessionInfo | null,
-    starting: ISessionStartingInfo | null,
-) {
+function collectSessionElectronCandidates(name: string, info: ISessionInfo | null, starting: ISessionStartingInfo | null) {
     const candidates: IVerifiedTerminationCandidate[] = [];
     const seen = new Set<string>();
     const add = (pid: number, expectation: ISessionProcessIdentityExpectation) => {
@@ -443,10 +423,7 @@ function collectSessionElectronCandidates(
     return candidates;
 }
 
-async function terminateVerifiedCandidates(
-    candidates: IVerifiedTerminationCandidate[],
-    graceMs: number,
-) {
+async function terminateVerifiedCandidates(candidates: IVerifiedTerminationCandidate[], graceMs: number) {
     const remaining = new Set<number>();
     const stopped = new Set<number>();
     for (const candidate of candidates) {
@@ -491,10 +468,7 @@ async function terminateVerifiedCandidates(
     return [...remaining];
 }
 
-function collectSessionNuxtCandidates(
-    info: ISessionInfo | null,
-    starting: ISessionStartingInfo | null,
-) {
+function collectSessionNuxtCandidates(info: ISessionInfo | null, starting: ISessionStartingInfo | null) {
     const candidates: Array<{
         pid: number;
         nuxtPort: number | null;
@@ -503,15 +477,15 @@ function collectSessionNuxtCandidates(
     for (const candidate of [
         info && info.nuxtPid
             ? {
-                pid: info.nuxtPid,
-                nuxtPort: info.nuxtPort,
-            }
+                  pid: info.nuxtPid,
+                  nuxtPort: info.nuxtPort,
+              }
             : null,
         starting && starting.nuxtPid
             ? {
-                pid: starting.nuxtPid,
-                nuxtPort: starting.nuxtPort,
-            }
+                  pid: starting.nuxtPid,
+                  nuxtPort: starting.nuxtPort,
+              }
             : null,
     ]) {
         if (!candidate || seen.has(candidate.pid)) {
@@ -547,14 +521,7 @@ let nuxtOwnerProbe: TNuxtOwnerProbe = (sessionName, nuxtPid, nuxtPort) => {
         }
         const info = getSessionInfo(otherName);
         const starting = getSessionStartingInfo(otherName);
-        if ([
-            info?.nuxtPid,
-            starting?.nuxtPid,
-        ].includes(nuxtPid)
-            || [
-                info?.nuxtPort,
-                starting?.nuxtPort,
-            ].includes(nuxtPort)) {
+        if ([info?.nuxtPid, starting?.nuxtPid].includes(nuxtPid) || [info?.nuxtPort, starting?.nuxtPort].includes(nuxtPort)) {
             return {
                 known: true,
                 shared: true,
@@ -576,12 +543,9 @@ export function registerNuxtOwnerProbe(probe: TNuxtOwnerProbe) {
 async function killRecordedStartingProcesses(
     name: string,
     starting: ISessionStartingInfo,
-    options: { killNuxt?: boolean } = {},
+    options: {killNuxt?: boolean} = {},
 ): Promise<number[]> {
-    const remaining = new Set(await terminateVerifiedCandidates(
-        collectSessionElectronCandidates(name, null, starting),
-        800,
-    ));
+    const remaining = new Set(await terminateVerifiedCandidates(collectSessionElectronCandidates(name, null, starting), 800));
 
     if (options.killNuxt !== false && starting.nuxtPid && isProcessAlive(starting.nuxtPid)) {
         let didStop = false;
@@ -619,9 +583,7 @@ export async function cleanupSessionStartingAttempt(
         nuxtOwnerProbe?: ICleanupStaleSessionArtifactsOptions['nuxtOwnerProbe'];
     } = {},
 ): Promise<ISessionStartingCleanupResult> {
-    const starting = options.starting === undefined
-        ? getSessionStartingInfo(name)
-        : options.starting;
+    const starting = options.starting === undefined ? getSessionStartingInfo(name) : options.starting;
     if (!starting) {
         return {
             completed: true,
@@ -632,11 +594,7 @@ export async function cleanupSessionStartingAttempt(
 
     let killNuxt = options.killNuxt !== false;
     if (killNuxt && starting.nuxtPid && isProcessAlive(starting.nuxtPid)) {
-        const ownerCheck = await (options.nuxtOwnerProbe ?? nuxtOwnerProbe)(
-            name,
-            starting.nuxtPid,
-            starting.nuxtPort,
-        );
+        const ownerCheck = await (options.nuxtOwnerProbe ?? nuxtOwnerProbe)(name, starting.nuxtPid, starting.nuxtPort);
         if (!ownerCheck.known) {
             return {
                 completed: false,
@@ -651,17 +609,14 @@ export async function cleanupSessionStartingAttempt(
     }
 
     if (killNuxt && starting.nuxtPid && isProcessAlive(starting.nuxtPid)) {
-        const boundaryOwnerCheck = await (options.nuxtOwnerProbe ?? nuxtOwnerProbe)(
-            name,
-            starting.nuxtPid,
-            starting.nuxtPort,
-        );
+        const boundaryOwnerCheck = await (options.nuxtOwnerProbe ?? nuxtOwnerProbe)(name, starting.nuxtPid, starting.nuxtPort);
         if (!boundaryOwnerCheck.known || boundaryOwnerCheck.shared) {
             return {
                 completed: false,
                 remainingPids: [starting.nuxtPid],
-                reason: boundaryOwnerCheck.reason
-                    ?? `[Session '${name}'] shared Nuxt ownership changed before termination; the server was retained.`,
+                reason:
+                    boundaryOwnerCheck.reason ??
+                    `[Session '${name}'] shared Nuxt ownership changed before termination; the server was retained.`,
             };
         }
     }
@@ -695,7 +650,9 @@ export function isSessionStarting(name = getCurrentSessionName()) {
         return true;
     }
     if (ownership.status === 'ambiguous') {
-        console.warn(`${ownership.reason ?? 'Controller ownership is ambiguous.'} Startup metadata was retained because age cannot prove abandonment.`);
+        console.warn(
+            `${ownership.reason ?? 'Controller ownership is ambiguous.'} Startup metadata was retained because age cannot prove abandonment.`,
+        );
         return true;
     }
     if (ownership.status === 'abandoned') {
@@ -732,10 +689,7 @@ export async function cleanupStaleSessionArtifacts(
         };
     }
 
-    const remainingElectronPids = await terminateVerifiedCandidates(
-        collectSessionElectronCandidates(name, info, starting),
-        800,
-    );
+    const remainingElectronPids = await terminateVerifiedCandidates(collectSessionElectronCandidates(name, info, starting), 800);
     if (remainingElectronPids.length > 0) {
         const reason = `[Session '${name}'] stale-artifact cleanup retained its metadata because Electron process(es) remain alive: ${remainingElectronPids.join(', ')}.`;
         console.warn(reason);
@@ -751,11 +705,7 @@ export async function cleanupStaleSessionArtifacts(
         if (!isProcessAlive(candidate.pid)) {
             continue;
         }
-        const ownerCheck = await (options.nuxtOwnerProbe ?? nuxtOwnerProbe)(
-            name,
-            candidate.pid,
-            candidate.nuxtPort,
-        );
+        const ownerCheck = await (options.nuxtOwnerProbe ?? nuxtOwnerProbe)(name, candidate.pid, candidate.nuxtPort);
         if (!ownerCheck.known) {
             const reason = ownerCheck.reason ?? `[Session '${name}'] Nuxt ownership could not be established.`;
             console.warn(reason);
@@ -769,14 +719,11 @@ export async function cleanupStaleSessionArtifacts(
             console.log(`[Session '${name}'] Left Nuxt PID ${candidate.pid} running because another live session owns the shared server.`);
             continue;
         }
-        const boundaryOwnerCheck = await (options.nuxtOwnerProbe ?? nuxtOwnerProbe)(
-            name,
-            candidate.pid,
-            candidate.nuxtPort,
-        );
+        const boundaryOwnerCheck = await (options.nuxtOwnerProbe ?? nuxtOwnerProbe)(name, candidate.pid, candidate.nuxtPort);
         if (!boundaryOwnerCheck.known || boundaryOwnerCheck.shared) {
-            const reason = boundaryOwnerCheck.reason
-                ?? `[Session '${name}'] shared Nuxt ownership changed before termination; the server was retained.`;
+            const reason =
+                boundaryOwnerCheck.reason ??
+                `[Session '${name}'] shared Nuxt ownership changed before termination; the server was retained.`;
             console.warn(reason);
             return {
                 retained: true,
@@ -870,10 +817,7 @@ export async function cleanupStaleSessionArtifacts(
     };
 }
 
-export async function isSessionRunning(
-    name = getCurrentSessionName(),
-    signal?: AbortSignal,
-) {
+export async function isSessionRunning(name = getCurrentSessionName(), signal?: AbortSignal) {
     const info = getSessionInfo(name);
     if (!info) {
         return false;
@@ -896,7 +840,7 @@ export async function isSessionRunning(
     try {
         const res = await fetch(`http://localhost:${info.port}`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
                 command: 'ping' satisfies TElectronRunCommand,
                 args: [],
@@ -926,12 +870,7 @@ export async function waitForSessionReady(timeoutMs = SESSION_WAIT_TIMEOUT_MS, s
     while (Date.now() < deadline) {
         const remainingMs = deadline - Date.now();
         const timeoutSignal = AbortSignal.timeout(remainingMs);
-        const probeSignal = signal
-            ? AbortSignal.any([
-                signal,
-                timeoutSignal,
-            ])
-            : timeoutSignal;
+        const probeSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
         try {
             if (await isSessionRunning(getCurrentSessionName(), probeSignal)) {
                 return true;
@@ -952,7 +891,7 @@ export async function waitForSessionReady(timeoutMs = SESSION_WAIT_TIMEOUT_MS, s
 
 export function listAllSessionNames() {
     try {
-        return readdirSync(sessionsBaseDir).filter(name => {
+        return readdirSync(sessionsBaseDir).filter((name) => {
             try {
                 return existsSync(sessionFilePath(name)) || existsSync(sessionStartingFilePath(name));
             } catch {
@@ -969,10 +908,13 @@ export function listRunningSessions(): string[] {
     const running: string[] = [];
     for (const name of all) {
         const info = getSessionInfo(name);
-        if (info && classifySessionControllerOwnership(name, {
-            info,
-            starting: null,
-        }).status !== 'abandoned') {
+        if (
+            info &&
+            classifySessionControllerOwnership(name, {
+                info,
+                starting: null,
+            }).status !== 'abandoned'
+        ) {
             running.push(name);
         }
     }

@@ -1,9 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {validateTargetedPdfObjects} from '@electron/features/documents/main/validateTargetedPdfObjects';
 
 describe('targeted PDF object validation', () => {
@@ -16,12 +11,7 @@ describe('targeted PDF object validation', () => {
             };
         });
 
-        await expect(validateTargetedPdfObjects(
-            '/tmp/staged.pdf',
-            '/usr/bin/qpdf',
-            ['1 0 R'],
-            run,
-        )).resolves.toBeUndefined();
+        await expect(validateTargetedPdfObjects('/tmp/staged.pdf', '/usr/bin/qpdf', ['1 0 R'], run)).resolves.toBeUndefined();
     });
 
     it('rejects a missing changed object', async () => {
@@ -31,11 +21,6 @@ describe('targeted PDF object validation', () => {
             exitCode: 0,
         }));
 
-        await expect(validateTargetedPdfObjects(
-            '/tmp/staged.pdf',
-            '/usr/bin/qpdf',
-            ['12 0 R'],
-            run,
-        )).rejects.toThrow('12 0 R is missing');
+        await expect(validateTargetedPdfObjects('/tmp/staged.pdf', '/usr/bin/qpdf', ['12 0 R'], run)).rejects.toThrow('12 0 R is missing');
     });
 });

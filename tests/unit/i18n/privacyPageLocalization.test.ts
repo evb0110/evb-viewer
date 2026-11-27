@@ -1,11 +1,6 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { LOCALE_CODES } from '@i18n-core/localeCodes';
-import { PRIVACY_MESSAGES } from '@i18n-core';
-
+import {describe, expect, it} from 'vitest';
+import {LOCALE_CODES} from '@i18n-core/localeCodes';
+import {PRIVACY_MESSAGES} from '@i18n-core';
 
 function asRecord(value: unknown): Record<string, unknown> {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -16,10 +11,7 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function flattenLeafPaths(tree: unknown, prefix = ''): string[] {
-    return Object.entries(asRecord(tree)).flatMap(([
-        key,
-        value,
-    ]) => {
+    return Object.entries(asRecord(tree)).flatMap(([key, value]) => {
         const path = prefix ? `${prefix}.${key}` : key;
         return typeof value === 'string' ? [path] : flattenLeafPaths(value, path);
     });
@@ -79,9 +71,7 @@ describe('privacy localization', () => {
             expect(PRIVACY_MESSAGES[locale].contact.body, locale).not.toMatch(
                 /github|issue|tracker|seguimiento|suivi|tracciamento|rastreador|трекер/iu,
             );
-            expect(diagnostics.body, locale).not.toMatch(
-                /issue|tracker|seguimiento|suivi|tracciamento|rastreador|трекер/iu,
-            );
+            expect(diagnostics.body, locale).not.toMatch(/issue|tracker|seguimiento|suivi|tracciamento|rastreador|трекер/iu);
         }
     });
 });

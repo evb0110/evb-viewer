@@ -1,22 +1,12 @@
 import {matchPdfSearchPageWindow} from '@pdf-core/pdfSearchCore';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import type {
-    IPdfSearchProgress,
-    IPdfSearchResponse,
-    TSearchResultOffset,
-} from '@contracts/search';
+import type {IPdfSearchProgress, IPdfSearchResponse, TSearchResultOffset} from '@contracts/search';
 import type {PdfCombineCapabilityError} from '@electron/image/pdfCombineErrors';
 import type {TDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireRequestId} from '@contracts/shared';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     createWorker: vi.fn(),
@@ -28,9 +18,7 @@ vi.mock('@app/platform/browser-api/createDjvuWorkerFromPath', () => ({
     searchDjvuWorkerText: mocks.searchWorkerText,
 }));
 
-const { browserDjvuTextSearchCapability } = await import(
-    '@app/platform/browser-api/browserDjvuTextSearchCapability'
-);
+const {browserDjvuTextSearchCapability} = await import('@app/platform/browser-api/browserDjvuTextSearchCapability');
 
 interface ISearchWorkerOptionsForTest {
     resultOffset?: TSearchResultOffset;
@@ -82,10 +70,7 @@ describe('browserDjvuTextSearchCapability', () => {
             source,
             terminate: vi.fn(),
         }));
-        mocks.searchWorkerText.mockImplementation((
-            worker: IWorkerForTest,
-            options: ISearchWorkerOptionsForTest,
-        ) => {
+        mocks.searchWorkerText.mockImplementation((worker: IWorkerForTest, options: ISearchWorkerOptionsForTest) => {
             const deferred = createDeferred<IPdfSearchResponse>();
             calls.push({
                 deferred,
@@ -96,14 +81,11 @@ describe('browserDjvuTextSearchCapability', () => {
         });
     });
 
-    it.each([
-        500,
-        'last',
-    ] as const)('returns the requested DjVu window at %s', async resultOffset => {
+    it.each([500, 'last'] as const)('returns the requested DjVu window at %s', async (resultOffset) => {
         mocks.searchWorkerText.mockImplementation((_worker, options: ISearchWorkerOptionsForTest) => {
             const response = matchPdfSearchPageWindow('valve '.repeat(561), 'valve', {}, 500, options.resultOffset);
             return {
-                results: response.matches.map(match => ({
+                results: response.matches.map((match) => ({
                     ...match,
                     pageNumber: requirePageNumber(1),
                     matchIndex: match.pageMatchIndex,
@@ -137,8 +119,7 @@ describe('browserDjvuTextSearchCapability', () => {
 
         expect(calls[0]!.options.signal.aborted).toBe(false);
         expect(calls[1]!.options.signal.aborted).toBe(false);
-        await expect(browserDjvuTextSearchCapability.cancelTextSearch(requestId))
-            .resolves.toEqual({canceled: true});
+        await expect(browserDjvuTextSearchCapability.cancelTextSearch(requestId)).resolves.toEqual({canceled: true});
         expect(calls[0]!.options.signal.aborted).toBe(true);
         expect(calls[1]!.options.signal.aborted).toBe(true);
 
@@ -156,25 +137,17 @@ describe('browserDjvuTextSearchCapability', () => {
             results: [],
             truncated: false,
         });
-        await Promise.all([
-            firstRun,
-            secondRun,
-        ]);
+        await Promise.all([firstRun, secondRun]);
 
         expect(calls[2]!.options.signal.aborted).toBe(false);
-        await expect(browserDjvuTextSearchCapability.cancelTextSearch(requestId))
-            .resolves.toEqual({canceled: true});
+        await expect(browserDjvuTextSearchCapability.cancelTextSearch(requestId)).resolves.toEqual({canceled: true});
         expect(calls[2]!.options.signal.aborted).toBe(true);
         calls[2]!.deferred.resolve({
             results: [],
             truncated: false,
         });
         await replacementRun;
-        expect(calls.map(call => call.worker.terminate.mock.calls.length)).toEqual([
-            1,
-            1,
-            1,
-        ]);
+        expect(calls.map((call) => call.worker.terminate.mock.calls.length)).toEqual([1, 1, 1]);
     });
 
     it('supersedes only the same source generation and suppresses its late progress', async () => {
@@ -220,11 +193,8 @@ describe('browserDjvuTextSearchCapability', () => {
                 results: [],
                 truncated: false,
             });
-            await Promise.all([
-                firstRun,
-                currentRun,
-            ]);
-            expect(progress.map(event => event.processed)).toEqual([1]);
+            await Promise.all([firstRun, currentRun]);
+            expect(progress.map((event) => event.processed)).toEqual([1]);
         } finally {
             unsubscribe();
         }
@@ -236,11 +206,13 @@ describe('browserDjvuTextSearchCapability', () => {
         vi.stubGlobal('window', {electronAPI: electronApi});
         mocks.createWorker.mockRejectedValue(new Error('browser DjVu worker must not be created'));
 
-        await expect(browserDjvuTextSearchCapability.searchText(
-            requireDocumentRef('/tmp/native.djvu'),
-            'needle',
-            createSearchOptions(requireRequestId('native-bridge-missing')),
-        )).rejects.toMatchObject({
+        await expect(
+            browserDjvuTextSearchCapability.searchText(
+                requireDocumentRef('/tmp/native.djvu'),
+                'needle',
+                createSearchOptions(requireRequestId('native-bridge-missing')),
+            ),
+        ).rejects.toMatchObject({
             code: 'native-unavailable',
             name: 'PdfCombineCapabilityError',
             operation: 'djvu-text-search',

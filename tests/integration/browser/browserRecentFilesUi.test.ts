@@ -1,29 +1,27 @@
-import {
-    createHash, randomBytes,
-} from 'node:crypto';
-import {
-    readFileSync, writeFileSync, mkdirSync, mkdtempSync, openSync, rmSync, writeSync, closeSync, ftruncateSync,
-} from 'node:fs';
+import {createHash, randomBytes} from 'node:crypto';
+import {readFileSync, writeFileSync, mkdirSync, mkdtempSync, openSync, rmSync, writeSync, closeSync, ftruncateSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {
-    basename, resolve,
-} from 'node:path';
+import {basename, resolve} from 'node:path';
 import {PDFDocument} from 'pdf-lib';
 import {build} from 'esbuild';
 import type {Download} from 'playwright';
-import {
-    describe, expect, it,
-} from 'vitest';
-import {
-    closeChromiumBrowser, connectOrLaunchChromium, readDownloadBytes,
-} from './browserIntegrationChromium';
+import {describe, expect, it} from 'vitest';
+import {closeChromiumBrowser, connectOrLaunchChromium, readDownloadBytes} from './browserIntegrationChromium';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
-    openPdfFromChooser, lifecycle, readPersistedDocumentBytes, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, addNote, noteTexts, readBrowserPayloadCounts, readRecoveries, settleActiveOpen,
+    openPdfFromChooser,
+    lifecycle,
+    readPersistedDocumentBytes,
+    waitForOpenFileReady,
+    collectConsoleProblems,
+    keepFileChooserInterceptionEnabled,
+    addNote,
+    noteTexts,
+    readBrowserPayloadCounts,
+    readRecoveries,
+    settleActiveOpen,
 } from './documentLifecycleTestHelpers';
-import {
-    createReadingBook, readReadingView,
-} from './documentReadingTestHelpers';
+import {createReadingBook, readReadingView} from './documentReadingTestHelpers';
 
 describe('browser document lifecycle UI', () => {
     // T6: Recent follows desktop's ten-document MRU, without a browser byte budget. A store with no room for a
@@ -33,10 +31,7 @@ describe('browser document lifecycle UI', () => {
         mkdirSync(evidence, {recursive: true});
         // About 540 MiB of books per run, removed when the run ends.
         const fixtures = mkdtempSync(resolve(tmpdir(), 'evb-c07-'));
-        const books = [
-            'Amber',
-            'Cobalt',
-        ].map(label => {
+        const books = ['Amber', 'Cobalt'].map((label) => {
             // A valid one-page PDF with a referenced, sparse embedded file.
             // Real file sizes exercise retention; random payload bytes add only I/O.
             const path = resolve(fixtures, `c07-${label.toLowerCase()}.pdf`);
@@ -56,7 +51,10 @@ describe('browser document lifecycle UI', () => {
                 write('%PDF-1.7\n');
                 object(1, '<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles << /Names [(payload.bin) 6 0 R] >> >> >>');
                 object(2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
-                object(3, '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 600] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R /Annots [8 0 R] >>');
+                object(
+                    3,
+                    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 600] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R /Annots [8 0 R] >>',
+                );
                 const content = `BT /F1 24 Tf 40 500 Td (${label} page 1) Tj ET\n`;
                 object(4, `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}endstream`);
                 object(5, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
@@ -68,7 +66,12 @@ describe('browser document lifecycle UI', () => {
                 ftruncateSync(file, size);
                 write('\nendstream\nendobj\n');
                 const xref = size;
-                write(`xref\n0 9\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size 9 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+                write(
+                    `xref\n0 9\n0000000000 65535 f \n${offsets
+                        .slice(1)
+                        .map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`)
+                        .join('')}trailer\n<< /Size 9 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`,
+                );
             } finally {
                 closeSync(file);
             }
@@ -81,44 +84,54 @@ describe('browser document lifecycle UI', () => {
         });
         writeFileSync(resolve(evidence, 'fixtures.json'), JSON.stringify(books, null, 2));
         try {
-            for (const journey of [
-                'large',
-                'memory',
-                'count',
-            ] as const) {
-                const context = await lifecycle.browser.newContext({viewport: {
-                    width: 1280,
-                    height: 900,
-                }});
+            for (const journey of ['large', 'memory', 'count'] as const) {
+                const context = await lifecycle.browser.newContext({
+                    viewport: {
+                        width: 1280,
+                        height: 900,
+                    },
+                });
                 const page = await context.newPage();
                 // Storing two books and the open one's working copy takes 810 MiB at most. An incognito context
                 // draws its origin's quota afresh, physical memory × 15-20 % / 3, so on a 16 GB runner it is
                 // sometimes smaller. Each journey sets the room it needs: a normal profile's, or the memory
                 // journey's 700 MiB, which holds both books but no working copy beside them.
-                await (await context.newCDPSession(page)).send('Storage.overrideQuotaForOrigin', {
+                await (
+                    await context.newCDPSession(page)
+                ).send('Storage.overrideQuotaForOrigin', {
                     origin: lifecycle.origin,
                     quotaSize: journey === 'memory' ? 700 * 1024 ** 2 : 2 * 1024 ** 3,
                 });
                 const problems = collectConsoleProblems(page);
                 const paintings = new Map<string, string>();
-                const recentNames = () => page.locator('.recent-file-name').allTextContents().then(names => names.map(name => name.trim()));
+                const recentNames = () =>
+                    page
+                        .locator('.recent-file-name')
+                        .allTextContents()
+                        .then((names) => names.map((name) => name.trim()));
                 const paintedText = async (label: string) => {
                     await settleActiveOpen(page);
                     await page.locator('.page_container--rendered canvas').first().waitFor();
                     await expect.poll(async () => (await readReadingView(page)).visibleText).toBe(`${label} page 1`);
                     // Verify painted ink as well as the text layer: an empty canvas is not a reopen.
-                    const painting = await page.locator('.page_container--rendered canvas').first().evaluate(async (canvas: HTMLCanvasElement) => {
-                        const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
-                        const ink = pixels.some((channel, index) => index % 4 !== 3 && channel < 100 && pixels[index - index % 4 + 3]! > 0);
-                        const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', pixels));
-                        return {
-                            ink,
-                            hash: Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join(''),
-                        };
-                    });
+                    const painting = await page
+                        .locator('.page_container--rendered canvas')
+                        .first()
+                        .evaluate(async (canvas: HTMLCanvasElement) => {
+                            const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+                            const ink = pixels.some(
+                                (channel, index) => index % 4 !== 3 && channel < 100 && pixels[index - (index % 4) + 3]! > 0,
+                            );
+                            const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', pixels));
+                            return {
+                                ink,
+                                hash: Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join(''),
+                            };
+                        });
                     expect(painting.ink).toBe(true);
-                    if (paintings.has(label)) expect(painting.hash).toBe(paintings.get(label));
-                    else {
+                    if (paintings.has(label)) {
+                        expect(painting.hash).toBe(paintings.get(label));
+                    } else {
                         expect(Array.from(paintings.values())).not.toContain(painting.hash);
                         paintings.set(label, painting.hash);
                     }
@@ -127,35 +140,56 @@ describe('browser document lifecycle UI', () => {
                 // The books the store holds beside nothing else once no tab is open.
                 const storedBooks = new Set<unknown>();
                 const open = async (fixture: Parameters<typeof openPdfFromChooser>[1]) => {
-                    if (journey !== 'count') storedBooks.add(fixture);
+                    if (journey !== 'count') {
+                        storedBooks.add(fixture);
+                    }
                     const chooser = page.waitForEvent('filechooser');
-                    await page.getByRole('button', {
-                        name: 'Open File',
-                        exact: true,
-                    }).first().click();
+                    await page
+                        .getByRole('button', {
+                            name: 'Open File',
+                            exact: true,
+                        })
+                        .first()
+                        .click();
                     await (await chooser).setFiles(fixture);
                 };
                 const close = async () => {
-                    await page.getByRole('button', {
-                        name: 'Close Tab',
-                        exact: true,
-                    }).click();
+                    await page
+                        .getByRole('button', {
+                            name: 'Close Tab',
+                            exact: true,
+                        })
+                        .click();
                     await page.locator('.workspace-host[data-workspace-active="true"] .workspace-host__start').waitFor();
                     // The start screen returns before the closed tab's working copy has left the store. The next
                     // book is stored once it has, as a person's next open would find it.
-                    if (journey !== 'count') await expect.poll(async () => (await readBrowserPayloadCounts(page)).documents).toBe(storedBooks.size);
+                    if (journey !== 'count') {
+                        await expect.poll(async () => (await readBrowserPayloadCounts(page)).documents).toBe(storedBooks.size);
+                    }
                 };
                 const assertRecent = async (names: string[]) => {
                     await expect.poll(recentNames).toEqual(names);
-                    await page.getByRole('button', {
-                        name: 'Menu',
-                        exact: true,
-                    }).click();
-                    await page.getByRole('menuitem', {
-                        name: 'Open Recent',
-                        exact: true,
-                    }).click();
-                    await expect.poll(() => page.getByRole('menuitem').filter({hasText: /^c07-.*\.pdf$/u}).allTextContents().then(items => items.map(item => item.trim()))).toEqual(names);
+                    await page
+                        .getByRole('button', {
+                            name: 'Menu',
+                            exact: true,
+                        })
+                        .click();
+                    await page
+                        .getByRole('menuitem', {
+                            name: 'Open Recent',
+                            exact: true,
+                        })
+                        .click();
+                    await expect
+                        .poll(() =>
+                            page
+                                .getByRole('menuitem')
+                                .filter({hasText: /^c07-.*\.pdf$/u})
+                                .allTextContents()
+                                .then((items) => items.map((item) => item.trim())),
+                        )
+                        .toEqual(names);
                     await page.screenshot({
                         animations: 'disabled',
                         path: resolve(evidence, `${journey}-open-recent.png`),
@@ -182,38 +216,51 @@ describe('browser document lifecycle UI', () => {
                         await page.reload({waitUntil: 'domcontentloaded'});
                         await waitForOpenFileReady(page);
                         // Each book keeps its stored copy for Recent Files; nothing else stays stored.
-                        const storedFiles = (await readBrowserPayloadCounts(page)).sizes.map(fileSize => ({fileSize}));
+                        const storedFiles = (await readBrowserPayloadCounts(page)).sizes.map((fileSize) => ({fileSize}));
                         const recordedBytes = storedFiles.reduce((sum, file) => sum + file.fileSize, 0);
-                        writeFileSync(resolve(evidence, `${journey}-storage.json`), JSON.stringify({
-                            storedFiles,
-                            recordedBytes,
-                            estimate: await page.evaluate(() => navigator.storage.estimate()),
-                            browser: lifecycle.browser.version(),
-                        }, null, 2));
+                        writeFileSync(
+                            resolve(evidence, `${journey}-storage.json`),
+                            JSON.stringify(
+                                {
+                                    storedFiles,
+                                    recordedBytes,
+                                    estimate: await page.evaluate(() => navigator.storage.estimate()),
+                                    browser: lifecycle.browser.version(),
+                                },
+                                null,
+                                2,
+                            ),
+                        );
                         // This is the baseline's reported symptom: the older large book disappears.
-                        await assertRecent([
-                            'c07-cobalt.pdf',
-                            'c07-amber.pdf',
-                        ]);
+                        await assertRecent(['c07-cobalt.pdf', 'c07-amber.pdf']);
                         expect(storedFiles).toHaveLength(books.length);
-                        expect(storedFiles).toEqual(expect.arrayContaining(books.map(book => ({fileSize: book.size}))));
+                        expect(storedFiles).toEqual(expect.arrayContaining(books.map((book) => ({fileSize: book.size}))));
                         expect(recordedBytes).toBeGreaterThan(512 * 1024 * 1024);
                         for (const book of books) {
                             if (book.label === 'Amber') {
-                                await page.locator('[data-recent-open-actionable="true"] .recent-open').filter({hasText: book.name}).click();
+                                await page
+                                    .locator('[data-recent-open-actionable="true"] .recent-open')
+                                    .filter({hasText: book.name})
+                                    .click();
                             } else {
-                                await page.getByRole('button', {
-                                    name: 'Menu',
-                                    exact: true,
-                                }).click();
-                                await page.getByRole('menuitem', {
-                                    name: 'Open Recent',
-                                    exact: true,
-                                }).click();
-                                await page.getByRole('menuitem', {
-                                    name: book.name,
-                                    exact: true,
-                                }).click();
+                                await page
+                                    .getByRole('button', {
+                                        name: 'Menu',
+                                        exact: true,
+                                    })
+                                    .click();
+                                await page
+                                    .getByRole('menuitem', {
+                                        name: 'Open Recent',
+                                        exact: true,
+                                    })
+                                    .click();
+                                await page
+                                    .getByRole('menuitem', {
+                                        name: book.name,
+                                        exact: true,
+                                    })
+                                    .click();
                             }
                             await paintedText(book.label);
                             // The book's own note is listed: its annotations were read from the reopened bytes.
@@ -221,14 +268,18 @@ describe('browser document lifecycle UI', () => {
                                 name: 'Annotations',
                                 exact: true,
                             });
-                            if (!await annotationsTab.isVisible()) {
-                                await page.getByRole('button', {
-                                    name: 'Toggle Sidebar',
-                                    exact: true,
-                                }).click();
+                            if (!(await annotationsTab.isVisible())) {
+                                await page
+                                    .getByRole('button', {
+                                        name: 'Toggle Sidebar',
+                                        exact: true,
+                                    })
+                                    .click();
                             }
                             await annotationsTab.click();
-                            await expect.poll(() => page.locator('.notes-list .note-item-text').allTextContents()).toEqual([`${book.label} note`]);
+                            await expect
+                                .poll(() => page.locator('.notes-list .note-item-text').allTextContents())
+                                .toEqual([`${book.label} note`]);
                             await page.screenshot({
                                 animations: 'disabled',
                                 path: resolve(evidence, `${journey}-${book.label.toLowerCase()}-reopened.png`),
@@ -255,7 +306,10 @@ describe('browser document lifecycle UI', () => {
                             'c07-small-3.pdf',
                             'c07-small-2.pdf',
                         ]);
-                        await page.locator('[data-recent-open-actionable="true"] .recent-open').filter({hasText: 'c07-small-4.pdf'}).click();
+                        await page
+                            .locator('[data-recent-open-actionable="true"] .recent-open')
+                            .filter({hasText: 'c07-small-4.pdf'})
+                            .click();
                         await paintedText('Small 4');
                         await close();
                         await assertRecent([
@@ -272,13 +326,13 @@ describe('browser document lifecycle UI', () => {
                         ]);
                     }
                     // Only the working copies the memory journey's store has no room for stay in memory, as said.
-                    expect(problems.map(problem => /\[browser-storage\] Document remains available only in memory \{fileName: ([^,]+),/u.exec(problem)?.[1] ?? problem)).toEqual(journey === 'memory'
-                        ? [
-                            'c07-cobalt.pdf',
-                            'c07-amber.pdf',
-                            'c07-cobalt.pdf',
-                        ]
-                        : []);
+                    expect(
+                        problems.map(
+                            (problem) =>
+                                /\[browser-storage\] Document remains available only in memory \{fileName: ([^,]+),/u.exec(problem)?.[1] ??
+                                problem,
+                        ),
+                    ).toEqual(journey === 'memory' ? ['c07-cobalt.pdf', 'c07-amber.pdf', 'c07-cobalt.pdf'] : []);
                 } finally {
                     writeFileSync(resolve(evidence, `${journey}-console.json`), JSON.stringify(problems, null, 2));
                     writeFileSync(resolve(evidence, `${journey}-paintings.json`), JSON.stringify(Object.fromEntries(paintings), null, 2));
@@ -352,17 +406,16 @@ describe('browser document lifecycle UI', () => {
             define: {'import.meta.dev': 'false'},
         });
         const context = await lifecycle.browser.newContext();
-        await context.route('**/b02-preferences', route => route.fulfill({
-            contentType: 'text/html',
-            body: '<!doctype html><title>Scan Cleanup preference integration</title>',
-        }));
+        await context.route('**/b02-preferences', (route) =>
+            route.fulfill({
+                contentType: 'text/html',
+                body: '<!doctype html><title>Scan Cleanup preference integration</title>',
+            }),
+        );
         const pageA = await context.newPage();
         const pageB = await context.newPage();
         try {
-            for (const page of [
-                pageA,
-                pageB,
-            ]) {
+            for (const page of [pageA, pageB]) {
                 await page.goto(`${lifecycle.origin}/b02-preferences`);
                 await page.addScriptTag({content: bundle.outputFiles[0]!.text});
             }
@@ -370,72 +423,80 @@ describe('browser document lifecycle UI', () => {
                 kind: string;
                 run: number;
                 margin: number | null;
-                peer: unknown
+                peer: unknown;
             }> = [];
-            for (const kind of [
-                'same-document',
-                'other-document',
-                'global',
-                'override-edits',
-                'copy',
-                'adopt',
-                'reset',
-            ]) {
+            for (const kind of ['same-document', 'other-document', 'global', 'override-edits', 'copy', 'adopt', 'reset']) {
                 for (let run = 0; run < 3; run += 1) {
                     await pageA.evaluate(() => {
                         localStorage.removeItem('evb.scanCleanup.documentOverrides.v1');
                         localStorage.removeItem('evb.scanCleanup.settings.v1');
                     });
-                    await pageA.evaluate(async race => Reflect.get(window, '__b02Race')(race), kind);
+                    await pageA.evaluate(async (race) => Reflect.get(window, '__b02Race')(race), kind);
                     // Reload the peer to read persisted state after storage-event delivery.
                     await pageB.reload();
                     await pageB.addScriptTag({content: bundle.outputFiles[0]!.text});
-                    const saved = await pageB.evaluate(race => JSON.parse(localStorage.getItem(race === 'global'
-                        ? 'evb.scanCleanup.settings.v1' : 'evb.scanCleanup.documentOverrides.v1') ?? '{}'), kind);
+                    const saved = await pageB.evaluate(
+                        (race) =>
+                            JSON.parse(
+                                localStorage.getItem(
+                                    race === 'global' ? 'evb.scanCleanup.settings.v1' : 'evb.scanCleanup.documentOverrides.v1',
+                                ) ?? '{}',
+                            ),
+                        kind,
+                    );
                     observations.push({
                         kind,
                         run,
-                        margin: (kind === 'global' ? saved.marginsMm?.leftMm : saved[kind === 'adopt' ? 'a'.repeat(64) : kind === 'copy' ? 'copy' : 'book']?.marginsMm?.leftMm) ?? null,
-                        peer: kind === 'global' ? saved.firstRunGuidanceDismissed
-                            : kind === 'override-edits' ? Boolean(saved.book?.overrides?.['1'] && saved.book?.overrides?.['2'])
-                                : saved[kind === 'adopt' ? 'a'.repeat(64) : [
-                                    'other-document',
-                                    'copy',
-                                    'reset',
-                                ].includes(kind) ? 'peer' : 'book']?.outputMode,
+                        margin:
+                            (kind === 'global'
+                                ? saved.marginsMm?.leftMm
+                                : saved[kind === 'adopt' ? 'a'.repeat(64) : kind === 'copy' ? 'copy' : 'book']?.marginsMm?.leftMm) ?? null,
+                        peer:
+                            kind === 'global'
+                                ? saved.firstRunGuidanceDismissed
+                                : kind === 'override-edits'
+                                  ? Boolean(saved.book?.overrides?.['1'] && saved.book?.overrides?.['2'])
+                                  : saved[
+                                        kind === 'adopt'
+                                            ? 'a'.repeat(64)
+                                            : ['other-document', 'copy', 'reset'].includes(kind)
+                                              ? 'peer'
+                                              : 'book'
+                                    ]?.outputMode,
                     });
                 }
             }
             console.info('B02 controlled preference interleavings', JSON.stringify(observations));
-            expect(observations).toEqual([
-                'same-document',
-                'other-document',
-                'global',
-                'override-edits',
-                'copy',
-                'adopt',
-                'reset',
-            ].flatMap(kind => Array.from({length: 3}, (_value, run) => ({
-                kind,
-                run,
-                margin: 3,
-                peer: [
-                    'global',
-                    'override-edits',
-                ].includes(kind) ? true : 'color',
-            }))));
+            expect(observations).toEqual(
+                ['same-document', 'other-document', 'global', 'override-edits', 'copy', 'adopt', 'reset'].flatMap((kind) =>
+                    Array.from({length: 3}, (_value, run) => ({
+                        kind,
+                        run,
+                        margin: 3,
+                        peer: ['global', 'override-edits'].includes(kind) ? true : 'color',
+                    })),
+                ),
+            );
             // Independent renderer contexts share the very same transaction owner.
             await Promise.all([
-                pageA.evaluate(async () => Reflect.get(window, '__b02Preferences').saveScanCleanupDocumentPreferences('cross-page', {outputMode: 'color'})),
-                pageB.evaluate(async () => Reflect.get(window, '__b02Preferences').saveScanCleanupDocumentPreferences('cross-page', {marginsMm: {
-                    leftMm: 7,
-                    rightMm: 7,
-                    topMm: 7,
-                    bottomMm: 7,
-                }})),
+                pageA.evaluate(async () =>
+                    Reflect.get(window, '__b02Preferences').saveScanCleanupDocumentPreferences('cross-page', {outputMode: 'color'}),
+                ),
+                pageB.evaluate(async () =>
+                    Reflect.get(window, '__b02Preferences').saveScanCleanupDocumentPreferences('cross-page', {
+                        marginsMm: {
+                            leftMm: 7,
+                            rightMm: 7,
+                            topMm: 7,
+                            bottomMm: 7,
+                        },
+                    }),
+                ),
             ]);
             await pageA.reload();
-            expect(await pageA.evaluate(() => JSON.parse(localStorage.getItem('evb.scanCleanup.documentOverrides.v1') ?? '{}')['cross-page'])).toMatchObject({
+            expect(
+                await pageA.evaluate(() => JSON.parse(localStorage.getItem('evb.scanCleanup.documentOverrides.v1') ?? '{}')['cross-page']),
+            ).toMatchObject({
                 outputMode: 'color',
                 marginsMm: {leftMm: 7},
             });
@@ -445,56 +506,60 @@ describe('browser document lifecycle UI', () => {
     });
 
     // A committed producer target must survive peer collection until its consumer adopts it.
-    it.each([
-        'conversion',
-        'save-as',
-    ] as const)('retains pending %s bytes through peer Recent clearing', async operation => {
-        const browser = await connectOrLaunchChromium();
-        const context = await browser.newContext({viewport: {
-            width: 1_280,
-            height: 900,
-        }});
-        const page = await context.newPage();
-        const peer = await context.newPage();
-        const problems = collectConsoleProblems(page);
-        let savedDigest: number[] | null = null;
-        try {
-            for (const participant of [
-                page,
-                peer,
-            ]) {
-                await participant.addInitScript(() => {
-                    Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
-                    Reflect.set(window, 'showSaveFilePicker', undefined);
-                    sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
-                });
-                await participant.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
-                await waitForOpenFileReady(participant);
-                keepFileChooserInterceptionEnabled(participant);
-            }
-            const peerChooser = peer.waitForEvent('filechooser');
-            await peer.getByRole('button', {
-                name: 'Open File',
-                exact: true,
-            }).first().click();
-            await (await peerChooser).setFiles(resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf'));
-            await peer.locator('.page_container--rendered canvas').first().waitFor();
-            await peer.getByRole('button', {name: 'Close tab'}).last().click();
-            // Observe completion of the actual UI-triggered collection, not just the list repaint.
-            await peer.evaluate(`(async () => {
+    it.each(['conversion', 'save-as'] as const)(
+        'retains pending %s bytes through peer Recent clearing',
+        async (operation) => {
+            const browser = await connectOrLaunchChromium();
+            const context = await browser.newContext({
+                viewport: {
+                    width: 1_280,
+                    height: 900,
+                },
+            });
+            const page = await context.newPage();
+            const peer = await context.newPage();
+            const problems = collectConsoleProblems(page);
+            let savedDigest: number[] | null = null;
+            try {
+                for (const participant of [page, peer]) {
+                    await participant.addInitScript(() => {
+                        Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                        Reflect.set(window, 'showSaveFilePicker', undefined);
+                        sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+                    });
+                    await participant.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+                    await waitForOpenFileReady(participant);
+                    keepFileChooserInterceptionEnabled(participant);
+                }
+                const peerChooser = peer.waitForEvent('filechooser');
+                await peer
+                    .getByRole('button', {
+                        name: 'Open File',
+                        exact: true,
+                    })
+                    .first()
+                    .click();
+                await (await peerChooser).setFiles(resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf'));
+                await peer.locator('.page_container--rendered canvas').first().waitFor();
+                await peer.getByRole('button', {name: 'Close tab'}).last().click();
+                // Observe completion of the actual UI-triggered collection, not just the list repaint.
+                await peer.evaluate(`(async () => {
                 const {browserDocumentStore: store} = await import('/_nuxt/platform/browser/browserDocumentRepository.ts');
                 const clear = store.clearRecentFiles.bind(store);
                 store.clearRecentFiles = async () => {await clear(); window.__peerClearCompleted = true;};
             })()`);
-            const chooser = page.waitForEvent('filechooser');
-            await page.getByRole('button', {
-                name: 'Open File',
-                exact: true,
-            }).first().click();
-            if (operation === 'conversion') {
-                await (await chooser).setFiles(resolve(process.cwd(), 'tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu'));
-                await page.locator('[data-testid="document-page-source-image"]').first().waitFor({timeout: 90_000});
-                await page.evaluate(`(async () => {
+                const chooser = page.waitForEvent('filechooser');
+                await page
+                    .getByRole('button', {
+                        name: 'Open File',
+                        exact: true,
+                    })
+                    .first()
+                    .click();
+                if (operation === 'conversion') {
+                    await (await chooser).setFiles(resolve(process.cwd(), 'tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu'));
+                    await page.locator('[data-testid="document-page-source-image"]').first().waitFor({timeout: 90_000});
+                    await page.evaluate(`(async () => {
                     const {browserDocumentStore: store} = await import('/_nuxt/platform/browser/browserDocumentRepository.ts');
                     const retain = store.setRetention.bind(store);
                     store.setRetention = async (ref, retention) => {
@@ -506,13 +571,20 @@ describe('browser document lifecycle UI', () => {
                         return result;
                     };
                 })()`);
-                await page.getByRole('button', {name: /Convert to PDF/}).filter({visible: true}).first().click();
-                await page.getByRole('dialog').getByRole('button', {
-                    name: 'Convert',
-                    exact: true,
-                }).click();
-            } else {
-                await page.evaluate(`(async () => {
+                    await page
+                        .getByRole('button', {name: /Convert to PDF/})
+                        .filter({visible: true})
+                        .first()
+                        .click();
+                    await page
+                        .getByRole('dialog')
+                        .getByRole('button', {
+                            name: 'Convert',
+                            exact: true,
+                        })
+                        .click();
+                } else {
+                    await page.evaluate(`(async () => {
                     const {getDocumentPdfCapability} = await import('/_nuxt/utils/platformDocuments.ts');
                     const capability = getDocumentPdfCapability();
                     const analyze = capability.analyzePdfConformance.bind(capability);
@@ -527,15 +599,19 @@ describe('browser document lifecycle UI', () => {
                         return analyze(ref, options);
                     };
                 })()`);
-                const input = await PDFDocument.load(readFileSync(resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf')));
-                await input.attach(randomBytes(4 * 1024 * 1024 + 64 * 1024), 'public-padding.bin');
-                await (await chooser).setFiles({
-                    name: 'pending-save.pdf',
-                    mimeType: 'application/pdf',
-                    buffer: Buffer.from(await input.save()),
-                });
-                await page.locator('.page_container--rendered canvas').first().waitFor();
-                await page.evaluate(`(async () => {
+                    const input = await PDFDocument.load(
+                        readFileSync(resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf')),
+                    );
+                    await input.attach(randomBytes(4 * 1024 * 1024 + 64 * 1024), 'public-padding.bin');
+                    await (
+                        await chooser
+                    ).setFiles({
+                        name: 'pending-save.pdf',
+                        mimeType: 'application/pdf',
+                        buffer: Buffer.from(await input.save()),
+                    });
+                    await page.locator('.page_container--rendered canvas').first().waitFor();
+                    await page.evaluate(`(async () => {
                     const {browserDocumentStore: store} = await import('/_nuxt/platform/browser/browserDocumentRepository.ts');
                     const create = store.createStoredDocument.bind(store);
                     store.createStoredDocument = async (name, bytes, options) => {
@@ -547,185 +623,224 @@ describe('browser document lifecycle UI', () => {
                         return ref;
                     };
                 })()`);
-                await page.waitForFunction(() => Boolean(Reflect.get(window, '__resumeLateConformance')));
-                const download = page.waitForEvent('download');
-                await page.getByRole('button', {
-                    name: 'Save options',
-                    exact: true,
-                }).click();
-                await page.getByRole('menuitem', {name: /^Save As/u}).click();
-                const savedBytes = await readDownloadBytes(await download);
-                savedDigest = Array.from(createHash('sha256').update(savedBytes).digest());
-                expect((await PDFDocument.load(savedBytes)).getPageCount()).toBe(1);
+                    await page.waitForFunction(() => Boolean(Reflect.get(window, '__resumeLateConformance')));
+                    const download = page.waitForEvent('download');
+                    await page
+                        .getByRole('button', {
+                            name: 'Save options',
+                            exact: true,
+                        })
+                        .click();
+                    await page.getByRole('menuitem', {name: /^Save As/u}).click();
+                    const savedBytes = await readDownloadBytes(await download);
+                    savedDigest = Array.from(createHash('sha256').update(savedBytes).digest());
+                    expect((await PDFDocument.load(savedBytes)).getPageCount()).toBe(1);
+                }
+                await page.waitForFunction(() => Boolean(Reflect.get(window, '__resumeTarget')));
+                const ref: string = await page.evaluate(() => Reflect.get(window, '__pendingTargetRef'));
+                const before = await readPersistedDocumentBytes(peer, ref, operation === 'save-as');
+                if (operation === 'conversion') {
+                    expect(before.slice(0, 5)).toEqual([37, 80, 68, 70, 45]);
+                } else {
+                    expect(before).toEqual(savedDigest);
+                }
+                await peer
+                    .getByRole('button', {
+                        name: 'Clear Recent Files',
+                        exact: true,
+                    })
+                    .click();
+                await peer
+                    .getByRole('button', {
+                        name: 'Clear History',
+                        exact: true,
+                    })
+                    .click();
+                await peer.waitForFunction(() => Reflect.get(window, '__peerClearCompleted') === true);
+                const after = await readPersistedDocumentBytes(peer, ref, operation === 'save-as');
+                await page.evaluate(() => Reflect.get(window, '__resumeTarget')());
+                expect(
+                    createHash('sha256').update(Uint8Array.from(after)).digest('hex'),
+                    'Committed target bytes survive collection before adoption',
+                ).toBe(createHash('sha256').update(Uint8Array.from(before)).digest('hex'));
+                if (operation === 'conversion') {
+                    expect((await PDFDocument.load(Uint8Array.from(after))).getPageCount()).toBe(2);
+                }
+                await page.locator('.page_container--rendered .page_canvas canvas').first().waitFor({timeout: 60_000});
+                await expect
+                    .poll(
+                        async () =>
+                            (await page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').getAttribute('aria-description')) ??
+                            '',
+                        {timeout: 30_000},
+                    )
+                    .not.toMatch(/unsaved/iu);
+                if (operation === 'save-as') {
+                    await expect
+                        .poll(
+                            () =>
+                                page
+                                    .getByRole('button', {
+                                        name: 'Save options',
+                                        exact: true,
+                                    })
+                                    .isEnabled(),
+                            {timeout: 30_000},
+                        )
+                        .toBe(true);
+                }
+                await page.getByRole('button', {name: 'Close tab'}).last().click();
+                if (operation === 'save-as') {
+                    await page.evaluate(() => Reflect.get(window, '__resumeLateConformance')());
+                    await page.waitForFunction(() => Reflect.get(window, '__lateConformanceDone') === true);
+                }
+                const recentOpen = page
+                    .locator('[data-recent-open-actionable="true"] .recent-open')
+                    .filter({hasText: operation === 'conversion' ? 'bitonal-faint-pencil.pdf' : 'pending-save.pdf'});
+                // Recent registration and Close finish asynchronously. Wait for the
+                // saved document on Start before navigation can interrupt either.
+                await recentOpen.waitFor({state: 'visible'});
+                await page.reload({waitUntil: 'domcontentloaded'});
+                await recentOpen.click();
+                await page.locator('.page_container--rendered .page_canvas canvas').first().waitFor({timeout: 60_000});
+                if (operation === 'save-as') {
+                    await expect.poll(() => page.locator('.textLayer').first().innerText()).toContain('Hello Arabic world');
+                }
+                await page.screenshot({path: resolve(process.cwd(), `.devkit/browser-pending-${operation}-reloaded.png`)});
+                expect(problems).toEqual([]);
+            } finally {
+                await closeChromiumBrowser(browser);
             }
-            await page.waitForFunction(() => Boolean(Reflect.get(window, '__resumeTarget')));
-            const ref: string = await page.evaluate(() => Reflect.get(window, '__pendingTargetRef'));
-            const before = await readPersistedDocumentBytes(peer, ref, operation === 'save-as');
-            if (operation === 'conversion') expect(before.slice(0, 5)).toEqual([
-                37,
-                80,
-                68,
-                70,
-                45,
-            ]);
-            else {
-                expect(before).toEqual(savedDigest);
-            }
-            await peer.getByRole('button', {
-                name: 'Clear Recent Files',
-                exact: true,
-            }).click();
-            await peer.getByRole('button', {
-                name: 'Clear History',
-                exact: true,
-            }).click();
-            await peer.waitForFunction(() => Reflect.get(window, '__peerClearCompleted') === true);
-            const after = await readPersistedDocumentBytes(peer, ref, operation === 'save-as');
-            await page.evaluate(() => Reflect.get(window, '__resumeTarget')());
-            expect(createHash('sha256').update(Uint8Array.from(after)).digest('hex'),
-                'Committed target bytes survive collection before adoption')
-                .toBe(createHash('sha256').update(Uint8Array.from(before)).digest('hex'));
-            if (operation === 'conversion') expect((await PDFDocument.load(Uint8Array.from(after))).getPageCount()).toBe(2);
-            await page.locator('.page_container--rendered .page_canvas canvas').first().waitFor({timeout: 60_000});
-            await expect.poll(async () => await page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').getAttribute('aria-description') ?? '', {timeout: 30_000}).not.toMatch(/unsaved/iu);
-            if (operation === 'save-as') {
-                await expect.poll(() => page.getByRole('button', {
-                    name: 'Save options',
-                    exact: true,
-                }).isEnabled(), {timeout: 30_000}).toBe(true);
-            }
-            await page.getByRole('button', {name: 'Close tab'}).last().click();
-            if (operation === 'save-as') {
-                await page.evaluate(() => Reflect.get(window, '__resumeLateConformance')());
-                await page.waitForFunction(() => Reflect.get(window, '__lateConformanceDone') === true);
-            }
-            const recentOpen = page.locator('[data-recent-open-actionable="true"] .recent-open')
-                .filter({hasText: operation === 'conversion' ? 'bitonal-faint-pencil.pdf' : 'pending-save.pdf'});
-            // Recent registration and Close finish asynchronously. Wait for the
-            // saved document on Start before navigation can interrupt either.
-            await recentOpen.waitFor({state: 'visible'});
-            await page.reload({waitUntil: 'domcontentloaded'});
-            await recentOpen.click();
-            await page.locator('.page_container--rendered .page_canvas canvas').first().waitFor({timeout: 60_000});
-            if (operation === 'save-as') {
-                await expect.poll(() => page.locator('.textLayer').first().innerText()).toContain('Hello Arabic world');
-            }
-            await page.screenshot({path: resolve(process.cwd(), `.devkit/browser-pending-${operation}-reloaded.png`)});
-            expect(problems).toEqual([]);
-        } finally {
-            await closeChromiumBrowser(browser);
-        }
-    }, 120_000);
+        },
+        120_000,
+    );
 
-    it.each([
-        'clean-open',
-        'clear-recent',
-    ])('keeps the saved copy source and both notes after Clear Recent Files and Save (mode=%s)', async (mode) => {
-        try {
-            const context=await lifecycle.browser.newContext({
-                viewport:{
-                    width:1280,
-                    height:900,
-                },
-                acceptDownloads:true,
-            });
-            const page=await context.newPage();
-            const problems = [collectConsoleProblems(page)];
-            await openPdfFromChooser(page, {
-                name: 'review-saved.pdf',
-                mimeType: 'application/pdf',
-                buffer: readFileSync(resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf')),
-            });
-            await page.locator('.page_container--rendered canvas').first().waitFor({timeout:30000});
-            await addNote(page,'review first saved note',{
-                x:160,
-                y:180,
-            });
-            const recoveryCount = async () => (await readRecoveries(page)).length;
-            await expect.poll(recoveryCount, {timeout: 30_000}).toBe(1);
-            const firstDownload=page.waitForEvent('download');
-            await page.getByRole('button',{
-                name:'Save options',
-                exact:true,
-            }).click();
-            await page.getByRole('menuitem', {name: /^Save As/u}).click();
-            const firstBytes = await readDownloadBytes(await firstDownload);
-            expect(Array.from(noteTexts(await PDFDocument.load(firstBytes))))
-                .toContain('review first saved note');
-            await page.evaluate(async () => {
-                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
-                await api.waitForActiveDocumentOpenSettled?.();
-            });
-            await expect.poll(recoveryCount, {timeout: 30_000}).toBe(0);
-            if (mode === 'clear-recent') {
-                const sourceRef = await page.evaluate(() => {
+    it.each(['clean-open', 'clear-recent'])(
+        'keeps the saved copy source and both notes after Clear Recent Files and Save (mode=%s)',
+        async (mode) => {
+            try {
+                const context = await lifecycle.browser.newContext({
+                    viewport: {
+                        width: 1280,
+                        height: 900,
+                    },
+                    acceptDownloads: true,
+                });
+                const page = await context.newPage();
+                const problems = [collectConsoleProblems(page)];
+                await openPdfFromChooser(page, {
+                    name: 'review-saved.pdf',
+                    mimeType: 'application/pdf',
+                    buffer: readFileSync(resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf')),
+                });
+                await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30000});
+                await addNote(page, 'review first saved note', {
+                    x: 160,
+                    y: 180,
+                });
+                const recoveryCount = async () => (await readRecoveries(page)).length;
+                await expect.poll(recoveryCount, {timeout: 30_000}).toBe(1);
+                const firstDownload = page.waitForEvent('download');
+                await page
+                    .getByRole('button', {
+                        name: 'Save options',
+                        exact: true,
+                    })
+                    .click();
+                await page.getByRole('menuitem', {name: /^Save As/u}).click();
+                const firstBytes = await readDownloadBytes(await firstDownload);
+                expect(Array.from(noteTexts(await PDFDocument.load(firstBytes)))).toContain('review first saved note');
+                await page.evaluate(async () => {
+                    const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                    await api.waitForActiveDocumentOpenSettled?.();
+                });
+                await expect.poll(recoveryCount, {timeout: 30_000}).toBe(0);
+                if (mode === 'clear-recent') {
+                    const sourceRef = await page.evaluate(() => {
+                        const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                        return api.readActiveWorkspaceStateValues?.<{originalPath: string}>(['originalPath']).originalPath;
+                    });
+                    const tabId = await page.locator('.tab.is-active[data-tab-id]').first().getAttribute('data-tab-id');
+                    await page
+                        .getByRole('button', {
+                            name: 'New Tab',
+                            exact: true,
+                        })
+                        .click();
+                    await page
+                        .getByRole('button', {
+                            name: 'Clear Recent Files',
+                            exact: true,
+                        })
+                        .click();
+                    await page
+                        .getByRole('button', {
+                            name: 'Clear History',
+                            exact: true,
+                        })
+                        .click();
+                    await expect
+                        .poll(() =>
+                            page
+                                .getByRole('button', {
+                                    name: 'Remove from Recent',
+                                    exact: true,
+                                })
+                                .count(),
+                        )
+                        .toBe(0);
+                    expect(
+                        await page.evaluate(`(async () => {
+                    const {browserDocumentStore} = await import('/_nuxt/platform/browser/browserDocumentRepository.ts');
+                    return browserDocumentStore.isStored(${JSON.stringify(sourceRef)});
+                })()`),
+                    ).toBe(true);
+                    await page.locator(`.tab[data-tab-id="${tabId}"]`).click();
+                    await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30000});
+                }
+                await addNote(page, 'review second saved note', {
+                    x: 260,
+                    y: 280,
+                });
+                const downloads: Download[] = [];
+                page.on('download', (download) => downloads.push(download));
+                await page
+                    .getByRole('button', {
+                        name: 'Save',
+                        exact: true,
+                    })
+                    .click();
+                const workingRef = await page.evaluate(() => {
+                    const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                    return api.readActiveWorkspaceStateValues?.<{workingCopyPath: string}>(['workingCopyPath']).workingCopyPath;
+                });
+                const savedSource = await page.evaluate(() => {
                     const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
                     return api.readActiveWorkspaceStateValues?.<{originalPath: string}>(['originalPath']).originalPath;
                 });
-                const tabId=await page.locator('.tab.is-active[data-tab-id]').first().getAttribute('data-tab-id');
-                await page.getByRole('button',{
-                    name:'New Tab',
-                    exact:true,
-                }).click();
-                await page.getByRole('button',{
-                    name:'Clear Recent Files',
-                    exact:true,
-                }).click();
-                await page.getByRole('button',{
-                    name:'Clear History',
-                    exact:true,
-                }).click();
-                await expect.poll(()=>page.getByRole('button',{
-                    name:'Remove from Recent',
-                    exact:true,
-                }).count()).toBe(0);
-                expect(await page.evaluate(`(async () => {
-                    const {browserDocumentStore} = await import('/_nuxt/platform/browser/browserDocumentRepository.ts');
-                    return browserDocumentStore.isStored(${JSON.stringify(sourceRef)});
-                })()`)).toBe(true);
-                await page.locator(`.tab[data-tab-id="${tabId}"]`).click();
-                await page.locator('.page_container--rendered canvas').first().waitFor({timeout:30000});
+                await expect
+                    .poll(
+                        async () =>
+                            Array.from(
+                                noteTexts(await PDFDocument.load(Uint8Array.from(await readPersistedDocumentBytes(page, savedSource!)))),
+                            ),
+                        {timeout: 15_000},
+                    )
+                    .toEqual(expect.arrayContaining(['review first saved note', 'review second saved note']));
+                await expect.poll(() => downloads.length, {timeout: 15_000}).toBe(1);
+                const downloadedBytes = await readDownloadBytes(downloads[0]!);
+                expect(Array.from(noteTexts(await PDFDocument.load(downloadedBytes)))).toEqual(
+                    expect.arrayContaining(['review first saved note', 'review second saved note']),
+                );
+                const savedBytes = await readPersistedDocumentBytes(page, workingRef!);
+                const savedTexts = Array.from(noteTexts(await PDFDocument.load(Uint8Array.from(savedBytes))));
+                expect(savedTexts).toEqual(expect.arrayContaining(['review first saved note', 'review second saved note']));
+                expect(await page.locator('.app-toast-failure').count()).toBe(0);
+                expect(problems.flat()).toEqual([]);
+            } finally {
+                await Promise.all(lifecycle.browser.contexts().map((context) => context.close()));
             }
-            await addNote(page,'review second saved note',{
-                x:260,
-                y:280,
-            });
-            const downloads: Download[] = [];
-            page.on('download', download => downloads.push(download));
-            await page.getByRole('button', {
-                name: 'Save',
-                exact: true,
-            }).click();
-            const workingRef = await page.evaluate(() => {
-                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
-                return api.readActiveWorkspaceStateValues?.<{workingCopyPath: string}>(['workingCopyPath']).workingCopyPath;
-            });
-            const savedSource = await page.evaluate(() => {
-                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
-                return api.readActiveWorkspaceStateValues?.<{originalPath: string}>(['originalPath']).originalPath;
-            });
-            await expect.poll(async () => Array.from(noteTexts(await PDFDocument.load(Uint8Array.from(
-                await readPersistedDocumentBytes(page, savedSource!),
-            )))), {timeout: 15_000}).toEqual(expect.arrayContaining([
-                'review first saved note',
-                'review second saved note',
-            ]));
-            await expect.poll(() => downloads.length, {timeout: 15_000}).toBe(1);
-            const downloadedBytes = await readDownloadBytes(downloads[0]!);
-            expect(Array.from(noteTexts(await PDFDocument.load(downloadedBytes)))).toEqual(expect.arrayContaining([
-                'review first saved note',
-                'review second saved note',
-            ]));
-            const savedBytes = await readPersistedDocumentBytes(page, workingRef!);
-            const savedTexts = Array.from(noteTexts(await PDFDocument.load(Uint8Array.from(savedBytes))));
-            expect(savedTexts).toEqual(expect.arrayContaining([
-                'review first saved note',
-                'review second saved note',
-            ]));
-            expect(await page.locator('.app-toast-failure').count()).toBe(0);
-            expect(problems.flat()).toEqual([]);
-        } finally {
-            await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
-        }
-    }, 240_000);
+        },
+        240_000,
+    );
 });

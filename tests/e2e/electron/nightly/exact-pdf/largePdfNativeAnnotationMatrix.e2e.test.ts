@@ -1,27 +1,8 @@
-import {
-    afterAll,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    constants,
-    copyFileSync,
-    mkdtempSync,
-    readFileSync,
-    realpathSync,
-    rmSync,
-    writeFileSync,
-} from 'node:fs';
+import {afterAll, describe, expect, it} from 'vitest';
+import {constants, copyFileSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {
-    dirname,
-    join,
-} from 'node:path';
-import {
-    readPdfAnnotationIndex,
-    type IPdfAnnotationIndexEntry,
-} from '@tests/e2e/electron/helpers/readPdfAnnotationIndex';
+import {dirname, join} from 'node:path';
+import {readPdfAnnotationIndex, type IPdfAnnotationIndexEntry} from '@tests/e2e/electron/helpers/readPdfAnnotationIndex';
 import {resolveLargePdfFixtureAvailability} from '@tests/e2e/electron/helpers/fixtures';
 import {
     PLACED_IMAGE_JPEG,
@@ -48,10 +29,7 @@ import {
     waitForToolbarCurrentPage,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {
-    callWorkspaceCommand,
-    readWorkspaceStateValues,
-} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {callWorkspaceCommand, readWorkspaceStateValues} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {readWorkspaceRecoveryRecords} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import {
     readExactPdfFixtureIdentity,
@@ -59,10 +37,10 @@ import {
     validateExactPdfFixtureIdentity,
 } from '@scripts/ci/stageExactPdfFixture';
 import type {Page} from 'puppeteer-core';
-import { runDesktopQpdfWasm } from '@electron/native-tools/qpdfWasmWorkerClient';
-import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import { resolvePdfPageOpsWasmPath } from '@node-runtime/pdfPageOpsWasmRunner';
-import { electronAppTempDirPath } from '@scripts/electron-run/electronRunSessionPaths';
+import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import {resolvePdfPageOpsWasmPath} from '@node-runtime/pdfPageOpsWasmRunner';
+import {electronAppTempDirPath} from '@scripts/electron-run/electronRunSessionPaths';
 
 const MATRIX_TIMEOUT_MS = 15 * 60_000;
 const NATIVE_SAVE_TIMEOUT_MS = 120_000;
@@ -101,10 +79,7 @@ function refKey(ref: Pick<IAnnotationRef, 'objectNumber' | 'generationNumber'>) 
 }
 
 function toPdfUtf16BeHex(value: string) {
-    const bytes = [
-        0xfe,
-        0xff,
-    ];
+    const bytes = [0xfe, 0xff];
     for (const character of value) {
         const codePoint = character.codePointAt(0);
         if (codePoint === undefined) {
@@ -119,7 +94,7 @@ function toPdfUtf16BeHex(value: string) {
         const low = 0xdc00 + (adjusted & 0x3ff);
         bytes.push(high >> 8, high & 0xff, low >> 8, low & 0xff);
     }
-    return bytes.map(byte => byte.toString(16).padStart(2, '0')).join('');
+    return bytes.map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 function qpdfObjectContainsText(value: string, text: string) {
@@ -141,16 +116,20 @@ function copyExactFixture(sourcePath: string) {
 async function waitForCrashCheckpoint(sessionName: string, expectedPath: string) {
     const expectedRealPath = realpathSync(expectedPath);
     const readMatchingCheckpointTab = () => {
-        const stored = (readWorkspaceRecoveryRecords(sessionName)[0] ?? {}) as {checkpoint?: {tabs?: Array<{
-            isDirty?: boolean;
-            sourceRef?: string | null;
-            workingCopyRef?: string | null;
-        }>;};};
-        return stored.checkpoint?.tabs?.find(tab => (
-            tab.isDirty === false
-            && typeof tab.sourceRef === 'string'
-            && realpathSync(tab.sourceRef) === expectedRealPath
-        )) ?? null;
+        const stored = (readWorkspaceRecoveryRecords(sessionName)[0] ?? {}) as {
+            checkpoint?: {
+                tabs?: Array<{
+                    isDirty?: boolean;
+                    sourceRef?: string | null;
+                    workingCopyRef?: string | null;
+                }>;
+            };
+        };
+        return (
+            stored.checkpoint?.tabs?.find(
+                (tab) => tab.isDirty === false && typeof tab.sourceRef === 'string' && realpathSync(tab.sourceRef) === expectedRealPath,
+            ) ?? null
+        );
     };
     await expect.poll(readMatchingCheckpointTab, {timeout: 60_000}).toMatchObject({isDirty: false});
     const checkpointTab = readMatchingCheckpointTab();
@@ -168,21 +147,14 @@ async function readShapeIndex(page: Page, documentPath: string) {
     const directory = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'evb-shape-index-'));
     const outputPath = join(directory, 'index.jsonl');
     try {
-        await runNativeToolCommand(pageOps, [
-            'embedded-shape-index',
-            '--input',
-            documentPath,
-            '--output',
-            outputPath,
-        ], {commandLabel: 'pdf-page-ops E2E embedded shape index'});
-        const [
-            ,
-            ...chunks
-        ] = readFileSync(outputPath, 'utf8')
+        await runNativeToolCommand(pageOps, ['embedded-shape-index', '--input', documentPath, '--output', outputPath], {
+            commandLabel: 'pdf-page-ops E2E embedded shape index',
+        });
+        const [, ...chunks] = readFileSync(outputPath, 'utf8')
             .split('\n')
-            .filter(line => line.trim().length > 0)
-            .map(line => JSON.parse(line) as {entries?: IShapeIndexEntry[]});
-        return chunks.flatMap(chunk => chunk.entries ?? []);
+            .filter((line) => line.trim().length > 0)
+            .map((line) => JSON.parse(line) as {entries?: IShapeIndexEntry[]});
+        return chunks.flatMap((chunk) => chunk.entries ?? []);
     } finally {
         rmSync(directory, {
             force: true,
@@ -192,142 +164,121 @@ async function readShapeIndex(page: Page, documentPath: string) {
 }
 
 async function readObject(documentPath: string, ref: IAnnotationRef) {
-    const {stdout} = await runDesktopQpdfWasm([
-        `--show-object=${ref.objectNumber},${ref.generationNumber}`,
-        '--raw-stream-data',
-        documentPath,
-    ], {
-        timeoutMs: 30_000,
-        commandLabel: 'qpdf(e2e-matrix-read-object)',
-    });
+    const {stdout} = await runDesktopQpdfWasm(
+        [`--show-object=${ref.objectNumber},${ref.generationNumber}`, '--raw-stream-data', documentPath],
+        {
+            timeoutMs: 30_000,
+            commandLabel: 'qpdf(e2e-matrix-read-object)',
+        },
+    );
     return stdout;
 }
 
-function diffAnnotationEntries(
-    before: IPdfAnnotationIndexEntry[],
-    after: IPdfAnnotationIndexEntry[],
-) {
+function diffAnnotationEntries(before: IPdfAnnotationIndexEntry[], after: IPdfAnnotationIndexEntry[]) {
     const beforeRefs = new Set(before.map(refKey));
-    return after.filter(entry => !beforeRefs.has(refKey(entry)));
+    return after.filter((entry) => !beforeRefs.has(refKey(entry)));
 }
 
 function countAnnotationSubtype(entries: IPdfAnnotationIndexEntry[], subtype: string) {
-    return entries.filter(entry => (
-        entry.pageIndex === MATRIX_PAGE_INDEX
-        && entry.subtype === subtype
-    )).length;
+    return entries.filter((entry) => entry.pageIndex === MATRIX_PAGE_INDEX && entry.subtype === subtype).length;
 }
 
-function countAddedAnnotationSubtype(
-    before: IPdfAnnotationIndexEntry[],
-    after: IPdfAnnotationIndexEntry[],
-    subtype: string,
-) {
-    return diffAnnotationEntries(before, after).filter(entry => (
-        entry.pageIndex === MATRIX_PAGE_INDEX
-        && entry.subtype === subtype
-    )).length;
+function countAddedAnnotationSubtype(before: IPdfAnnotationIndexEntry[], after: IPdfAnnotationIndexEntry[], subtype: string) {
+    return diffAnnotationEntries(before, after).filter((entry) => entry.pageIndex === MATRIX_PAGE_INDEX && entry.subtype === subtype)
+        .length;
 }
 
 function pageShapes(entries: IShapeIndexEntry[]) {
-    return entries.filter(entry => entry.pageIndex === MATRIX_PAGE_INDEX);
+    return entries.filter((entry) => entry.pageIndex === MATRIX_PAGE_INDEX);
 }
 
-function addedPageShapes(
-    before: IShapeIndexEntry[],
-    after: IShapeIndexEntry[],
-) {
+function addedPageShapes(before: IShapeIndexEntry[], after: IShapeIndexEntry[]) {
     const beforeRefs = new Set(pageShapes(before).map(refKey));
-    return pageShapes(after).filter(entry => !beforeRefs.has(refKey(entry)));
+    return pageShapes(after).filter((entry) => !beforeRefs.has(refKey(entry)));
 }
 
 async function readCanonicalEntities(page: Page, pageNumber: number) {
-    return page.evaluate((targetPageNumber: number) => (
-        Array.from(document.querySelectorAll<HTMLElement>(
-            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind]',
-        ))
-            .map((entity) => {
-                const pageContainer = entity.closest<HTMLElement>('.page_container');
-                const rect = entity.getBoundingClientRect();
-                return {
-                    id: entity.dataset.annotationId ?? '',
-                    kind: entity.dataset.annotationKind ?? '',
-                    height: rect.height,
-                    left: rect.left,
-                    pageNumber: Number(pageContainer?.dataset.page ?? 0),
-                    top: rect.top,
-                    width: rect.width,
-                };
-            })
-            .filter(entity => entity.pageNumber === targetPageNumber)
-    ), pageNumber) as Promise<ICanonicalEntitySnapshot[]>;
+    return page.evaluate(
+        (targetPageNumber: number) =>
+            Array.from(
+                document.querySelectorAll<HTMLElement>(
+                    '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind]',
+                ),
+            )
+                .map((entity) => {
+                    const pageContainer = entity.closest<HTMLElement>('.page_container');
+                    const rect = entity.getBoundingClientRect();
+                    return {
+                        id: entity.dataset.annotationId ?? '',
+                        kind: entity.dataset.annotationKind ?? '',
+                        height: rect.height,
+                        left: rect.left,
+                        pageNumber: Number(pageContainer?.dataset.page ?? 0),
+                        top: rect.top,
+                        width: rect.width,
+                    };
+                })
+                .filter((entity) => entity.pageNumber === targetPageNumber),
+        pageNumber,
+    ) as Promise<ICanonicalEntitySnapshot[]>;
 }
 
-async function readTopmostCanonicalTextMarkupId(
-    page: Page,
-    pageNumber: number,
-    annotationIds: readonly string[],
-) {
-    return page.evaluate((input: {
-        annotationIds: string[];
-        pageNumber: number;
-    }) => {
-        const ids = new Set(input.annotationIds);
-        const pageContainer = document.querySelector<HTMLElement>(
-            `.editor-pane.is-active .page_container[data-page="${input.pageNumber}"]`,
-        );
-        const entity = Array.from(pageContainer?.querySelectorAll<HTMLElement>(
-            '[data-annotation-id][data-annotation-kind="text-markup"]',
-        ) ?? []).find(candidate => {
-            const rect = candidate.getBoundingClientRect();
-            return rect.width > 0 && rect.height > 0;
-        });
-        if (!entity) {
-            return null;
-        }
-        const rect = entity.getBoundingClientRect();
-        const hitStack = document.elementsFromPoint(
-            rect.left + rect.width / 2,
-            rect.top + rect.height / 2,
-        ).map(candidate => ({
-            annotationId: candidate.closest<HTMLElement>('[data-annotation-id]')?.dataset.annotationId ?? null,
-            className: candidate.getAttribute('class'),
-            kind: candidate.closest<HTMLElement>('[data-annotation-kind]')?.dataset.annotationKind ?? null,
-            page: candidate.closest<HTMLElement>('.page_container')?.dataset.page ?? null,
-            tag: candidate.tagName,
-        }));
-        return hitStack.map(candidate => candidate.annotationId)
-            .find(candidate => candidate !== null && ids.has(candidate))
-            ?? null;
-    }, {
-        annotationIds: [...annotationIds],
-        pageNumber,
-    });
+async function readTopmostCanonicalTextMarkupId(page: Page, pageNumber: number, annotationIds: readonly string[]) {
+    return page.evaluate(
+        (input: {annotationIds: string[]; pageNumber: number}) => {
+            const ids = new Set(input.annotationIds);
+            const pageContainer = document.querySelector<HTMLElement>(
+                `.editor-pane.is-active .page_container[data-page="${input.pageNumber}"]`,
+            );
+            const entity = Array.from(
+                pageContainer?.querySelectorAll<HTMLElement>('[data-annotation-id][data-annotation-kind="text-markup"]') ?? [],
+            ).find((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0;
+            });
+            if (!entity) {
+                return null;
+            }
+            const rect = entity.getBoundingClientRect();
+            const hitStack = document.elementsFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2).map((candidate) => ({
+                annotationId: candidate.closest<HTMLElement>('[data-annotation-id]')?.dataset.annotationId ?? null,
+                className: candidate.getAttribute('class'),
+                kind: candidate.closest<HTMLElement>('[data-annotation-kind]')?.dataset.annotationKind ?? null,
+                page: candidate.closest<HTMLElement>('.page_container')?.dataset.page ?? null,
+                tag: candidate.tagName,
+            }));
+            return (
+                hitStack.map((candidate) => candidate.annotationId).find((candidate) => candidate !== null && ids.has(candidate)) ?? null
+            );
+        },
+        {
+            annotationIds: [...annotationIds],
+            pageNumber,
+        },
+    );
 }
 
-async function waitForNewCanonicalEntity(
-    page: Page,
-    pageNumber: number,
-    kind: TCanonicalKind,
-    beforeIds: ReadonlySet<string>,
-) {
-    await page.waitForFunction((input: {
-        beforeIds: string[];
-        kind: TCanonicalKind;
-        pageNumber: number;
-    }) => Array.from(document.querySelectorAll<HTMLElement>(
-        '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind]',
-    )).some((entity) => (
-        entity.dataset.annotationKind === input.kind
-        && !input.beforeIds.includes(entity.dataset.annotationId ?? '')
-        && Number(entity.closest<HTMLElement>('.page_container')?.dataset.page ?? 0) === input.pageNumber
-    )), {timeout: 20_000}, {
-        beforeIds: [...beforeIds],
-        kind,
-        pageNumber,
-    });
-    const created = (await readCanonicalEntities(page, pageNumber))
-        .find(entity => entity.kind === kind && !beforeIds.has(entity.id));
+async function waitForNewCanonicalEntity(page: Page, pageNumber: number, kind: TCanonicalKind, beforeIds: ReadonlySet<string>) {
+    await page.waitForFunction(
+        (input: {beforeIds: string[]; kind: TCanonicalKind; pageNumber: number}) =>
+            Array.from(
+                document.querySelectorAll<HTMLElement>(
+                    '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind]',
+                ),
+            ).some(
+                (entity) =>
+                    entity.dataset.annotationKind === input.kind &&
+                    !input.beforeIds.includes(entity.dataset.annotationId ?? '') &&
+                    Number(entity.closest<HTMLElement>('.page_container')?.dataset.page ?? 0) === input.pageNumber,
+            ),
+        {timeout: 20_000},
+        {
+            beforeIds: [...beforeIds],
+            kind,
+            pageNumber,
+        },
+    );
+    const created = (await readCanonicalEntities(page, pageNumber)).find((entity) => entity.kind === kind && !beforeIds.has(entity.id));
     if (!created) {
         throw new Error(`Canonical ${kind} entity did not appear on page ${pageNumber}`);
     }
@@ -339,98 +290,93 @@ async function resolveEditorLayerPoints(
     pageNumber: number,
     ratios: ReadonlyArray<{
         x: number;
-        y: number
+        y: number;
     }>,
 ) {
     await waitForViewerInteractive(page, 30_000);
-    await page.waitForFunction((targetPageNumber: number) => Boolean(
-        globalThis.__evbE2E.getActiveWorkspaceHost(
-            `.page_container[data-page="${targetPageNumber}"]`,
-        )?.querySelector(
-            `.page_container[data-page="${targetPageNumber}"] .pdf-annotation-editor-layer`,
-        ),
-    ), {timeout: 30_000}, pageNumber);
-    return page.evaluate(async (input: {
-        pageNumber: number;
-        ratios: ReadonlyArray<{
-            x: number;
-            y: number
-        }>;
-    }) => {
-        const pageSelector = `.page_container[data-page="${input.pageNumber}"]`;
-        const host = globalThis.__evbE2E.getActiveWorkspaceHost(pageSelector);
-        const pageContainer = host?.querySelector<HTMLElement>(pageSelector) ?? null;
-        const layer = pageContainer?.querySelector<HTMLElement>('.pdf-annotation-editor-layer');
-        if (!host || !pageContainer || !layer) {
-            return null;
-        }
-        pageContainer.scrollIntoView({
-            block: 'center',
-            inline: 'center',
-        });
-        await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-
-        const scrollViewport = layer.closest<HTMLElement>('[data-document-viewer-chassis-viewport]');
-        if (scrollViewport) {
-            const layerRect = layer.getBoundingClientRect();
-            const hostRect = host.getBoundingClientRect();
-            const visibleTop = Math.max(hostRect.top, 24);
-            const visibleBottom = Math.min(hostRect.bottom, window.innerHeight - 24);
-            if (visibleBottom > visibleTop) {
-                const targetY = layerRect.top + layerRect.height * (input.ratios[0]?.y ?? 0.5);
-                scrollViewport.scrollTop += targetY - ((visibleTop + visibleBottom) / 2);
-                await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-            }
-        }
-
-        const rect = layer.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) {
-            return null;
-        }
-        const minX = Math.min(...input.ratios.map(ratio => ratio.x));
-        const minY = Math.min(...input.ratios.map(ratio => ratio.y));
-        const maxX = Math.max(...input.ratios.map(ratio => ratio.x));
-        const maxY = Math.max(...input.ratios.map(ratio => ratio.y));
-        const width = maxX - minX;
-        const height = maxY - minY;
-        const origins = (maximum: number) => Array.from(
-            {length: Math.floor((0.96 - maximum - 0.04) / 0.08) + 1},
-            (_, index) => 0.04 + index * 0.08,
-        );
-        const toClientPoints = (origin: {
-            x: number;
-            y: number
-        }) => input.ratios.map(ratio => ({
-            x: rect.left + rect.width * (origin.x + ratio.x - minX),
-            y: rect.top + rect.height * (origin.y + ratio.y - minY),
-        }));
-        const isAvailable = (point: {
-            x: number;
-            y: number
+    await page.waitForFunction(
+        (targetPageNumber: number) =>
+            Boolean(
+                globalThis.__evbE2E
+                    .getActiveWorkspaceHost(`.page_container[data-page="${targetPageNumber}"]`)
+                    ?.querySelector(`.page_container[data-page="${targetPageNumber}"] .pdf-annotation-editor-layer`),
+            ),
+        {timeout: 30_000},
+        pageNumber,
+    );
+    return page.evaluate(
+        async (input: {
+            pageNumber: number;
+            ratios: ReadonlyArray<{
+                x: number;
+                y: number;
+            }>;
         }) => {
-            const target = document.elementFromPoint(point.x, point.y);
-            return Boolean(
-                target
-                && layer.contains(target)
-                && !target.closest('[data-annotation-id]'),
-            );
-        };
-        for (const originY of origins(height)) {
-            for (const originX of origins(width)) {
-                const candidate = toClientPoints({
-                    x: originX,
-                    y: originY,
-                });
-                if (candidate.every(isAvailable)) {
-                    return candidate;
+            const pageSelector = `.page_container[data-page="${input.pageNumber}"]`;
+            const host = globalThis.__evbE2E.getActiveWorkspaceHost(pageSelector);
+            const pageContainer = host?.querySelector<HTMLElement>(pageSelector) ?? null;
+            const layer = pageContainer?.querySelector<HTMLElement>('.pdf-annotation-editor-layer');
+            if (!host || !pageContainer || !layer) {
+                return null;
+            }
+            pageContainer.scrollIntoView({
+                block: 'center',
+                inline: 'center',
+            });
+            await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+
+            const scrollViewport = layer.closest<HTMLElement>('[data-document-viewer-chassis-viewport]');
+            if (scrollViewport) {
+                const layerRect = layer.getBoundingClientRect();
+                const hostRect = host.getBoundingClientRect();
+                const visibleTop = Math.max(hostRect.top, 24);
+                const visibleBottom = Math.min(hostRect.bottom, window.innerHeight - 24);
+                if (visibleBottom > visibleTop) {
+                    const targetY = layerRect.top + layerRect.height * (input.ratios[0]?.y ?? 0.5);
+                    scrollViewport.scrollTop += targetY - (visibleTop + visibleBottom) / 2;
+                    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
                 }
             }
-        }
-        throw new Error('Could not find an unobstructed canonical shape area on the page');
-    }, {
-        pageNumber,
-        ratios,
-    });
+
+            const rect = layer.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) {
+                return null;
+            }
+            const minX = Math.min(...input.ratios.map((ratio) => ratio.x));
+            const minY = Math.min(...input.ratios.map((ratio) => ratio.y));
+            const maxX = Math.max(...input.ratios.map((ratio) => ratio.x));
+            const maxY = Math.max(...input.ratios.map((ratio) => ratio.y));
+            const width = maxX - minX;
+            const height = maxY - minY;
+            const origins = (maximum: number) =>
+                Array.from({length: Math.floor((0.96 - maximum - 0.04) / 0.08) + 1}, (_, index) => 0.04 + index * 0.08);
+            const toClientPoints = (origin: {x: number; y: number}) =>
+                input.ratios.map((ratio) => ({
+                    x: rect.left + rect.width * (origin.x + ratio.x - minX),
+                    y: rect.top + rect.height * (origin.y + ratio.y - minY),
+                }));
+            const isAvailable = (point: {x: number; y: number}) => {
+                const target = document.elementFromPoint(point.x, point.y);
+                return Boolean(target && layer.contains(target) && !target.closest('[data-annotation-id]'));
+            };
+            for (const originY of origins(height)) {
+                for (const originX of origins(width)) {
+                    const candidate = toClientPoints({
+                        x: originX,
+                        y: originY,
+                    });
+                    if (candidate.every(isAvailable)) {
+                        return candidate;
+                    }
+                }
+            }
+            throw new Error('Could not find an unobstructed canonical shape area on the page');
+        },
+        {
+            pageNumber,
+            ratios,
+        },
+    );
 }
 
 async function createCanonicalShape(
@@ -438,7 +384,7 @@ async function createCanonicalShape(
     tool: TCanonicalShapeTool,
     ratios: ReadonlyArray<{
         x: number;
-        y: number
+        y: number;
     }>,
     pageNumber = MATRIX_PAGE_NUMBER,
 ) {
@@ -455,12 +401,7 @@ async function createCanonicalShape(
         await page.mouse.move(point.x, point.y, {steps: 6});
     }
     await page.mouse.up();
-    return waitForNewCanonicalEntity(
-        page,
-        pageNumber,
-        'shape',
-        new Set(before.map(entity => entity.id)),
-    );
+    return waitForNewCanonicalEntity(page, pageNumber, 'shape', new Set(before.map((entity) => entity.id)));
 }
 
 async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) {
@@ -471,127 +412,131 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
     await clickAnnotationTool(page, 'Select');
     await setupScrollToPage(page, pageNumber);
     const pageSelector = `.editor-pane.is-active .page_container[data-page="${pageNumber}"]`;
-    const markerRect = await page.$eval(
-        `${pageSelector} .pdf-annotation-editor-layer [data-annotation-id="${id}"]`,
-        (element) => {
-            const entityRect = element.getBoundingClientRect();
-            const pageRect = element.closest<HTMLElement>('.page_container')?.getBoundingClientRect();
-            if (!pageRect || pageRect.width <= 0 || pageRect.height <= 0) {
-                return null;
-            }
-            return {
-                left: (entityRect.left - pageRect.left) / pageRect.width,
-                top: (entityRect.top - pageRect.top) / pageRect.height,
-                width: entityRect.width / pageRect.width,
-                height: entityRect.height / pageRect.height,
-            };
-        },
-    );
+    const markerRect = await page.$eval(`${pageSelector} .pdf-annotation-editor-layer [data-annotation-id="${id}"]`, (element) => {
+        const entityRect = element.getBoundingClientRect();
+        const pageRect = element.closest<HTMLElement>('.page_container')?.getBoundingClientRect();
+        if (!pageRect || pageRect.width <= 0 || pageRect.height <= 0) {
+            return null;
+        }
+        return {
+            left: (entityRect.left - pageRect.left) / pageRect.width,
+            top: (entityRect.top - pageRect.top) / pageRect.height,
+            width: entityRect.width / pageRect.width,
+            height: entityRect.height / pageRect.height,
+        };
+    });
     if (!markerRect) {
         throw new Error(`Canonical entity page geometry was unavailable: ${id}`);
     }
-    const annotationNavigation = await callWorkspaceCommand(
-        page,
-        'handleGoToPage',
-        [
-            pageNumber,
-            {
-                navigationSource: 'annotation',
-                markerRect,
-            },
-        ],
-    );
+    const annotationNavigation = await callWorkspaceCommand(page, 'handleGoToPage', [
+        pageNumber,
+        {
+            navigationSource: 'annotation',
+            markerRect,
+        },
+    ]);
     if (annotationNavigation.called) {
         await waitForToolbarCurrentPage(page, pageNumber, 5_000);
         await waitForViewerInteractive(page, 10_000);
     }
-    const kind = await page.$eval(
-        `${pageSelector} .pdf-annotation-editor-layer [data-annotation-id="${id}"]`,
-        element => element.getAttribute('data-annotation-kind'),
+    const kind = await page.$eval(`${pageSelector} .pdf-annotation-editor-layer [data-annotation-id="${id}"]`, (element) =>
+        element.getAttribute('data-annotation-kind'),
     );
     if (kind === 'note') {
         await page.focus(`.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${id}"]`);
         await page.keyboard.press('Enter');
-        await page.waitForFunction((annotationId: string) => Array.from(document.querySelectorAll<HTMLElement>(
-            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id].is-selected',
-        )).some(candidate => candidate.dataset.annotationId === annotationId), {timeout: 10_000}, id);
+        await page.waitForFunction(
+            (annotationId: string) =>
+                Array.from(
+                    document.querySelectorAll<HTMLElement>(
+                        '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id].is-selected',
+                    ),
+                ).some((candidate) => candidate.dataset.annotationId === annotationId),
+            {timeout: 10_000},
+            id,
+        );
         await clickLatestVisibleNoteWindowClose(page);
         await waitForNoOpenNoteWindows(page);
         return;
     }
     try {
-        await page.waitForFunction((selection: {
-            id: string;
-            pageNumber: number
-        }) => {
-            const entity = Array.from(document.querySelectorAll<HTMLElement>(
-                '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind]',
-            )).find(candidate => (
-                candidate.dataset.annotationId === selection.id
-                && Number(candidate.closest<HTMLElement>('.page_container')?.dataset.page ?? 0) === selection.pageNumber
-            ));
-            if (!entity) {
-                return false;
-            }
-            const layer = entity.closest<HTMLElement>('.pdf-annotation-editor-layer');
-            const viewer = layer?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]');
-            const rect = entity.getBoundingClientRect();
-            return rect.width > 0
-                && rect.height > 0
-                && rect.top >= 0
-                && rect.bottom <= window.innerHeight
-                && viewer !== null
-                && layer !== null
-                && getComputedStyle(entity).pointerEvents !== 'none';
-        }, {timeout: 10_000}, input);
-    } catch (error) {
-        const diagnostics = await page.evaluate((selection: {
-            id: string;
-            pageNumber: number
-        }) => {
-            const activeLayers = Array.from(document.querySelectorAll<HTMLElement>(
-                '.editor-pane.is-active .pdf-annotation-editor-layer',
-            ));
-            const candidates = activeLayers.flatMap(layer => Array.from(layer.querySelectorAll<HTMLElement>(
-                '[data-annotation-id][data-annotation-kind]',
-            )).map(entity => {
+        await page.waitForFunction(
+            (selection: {id: string; pageNumber: number}) => {
+                const entity = Array.from(
+                    document.querySelectorAll<HTMLElement>(
+                        '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind]',
+                    ),
+                ).find(
+                    (candidate) =>
+                        candidate.dataset.annotationId === selection.id &&
+                        Number(candidate.closest<HTMLElement>('.page_container')?.dataset.page ?? 0) === selection.pageNumber,
+                );
+                if (!entity) {
+                    return false;
+                }
+                const layer = entity.closest<HTMLElement>('.pdf-annotation-editor-layer');
+                const viewer = layer?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]');
                 const rect = entity.getBoundingClientRect();
-                const page = entity.closest<HTMLElement>('.page_container');
-                const styles = getComputedStyle(entity);
-                return {
-                    annotationId: entity.dataset.annotationId ?? null,
-                    bounds: {
-                        bottom: rect.bottom,
-                        height: rect.height,
-                        left: rect.left,
-                        right: rect.right,
-                        top: rect.top,
-                        width: rect.width,
-                    },
-                    className: entity.className,
-                    isSelected: entity.classList.contains('is-selected'),
-                    kind: entity.dataset.annotationKind ?? null,
-                    page: page?.dataset.page ?? null,
-                    pointerEvents: styles.pointerEvents,
-                    visibility: {
-                        display: styles.display,
-                        opacity: styles.opacity,
-                        visibility: styles.visibility,
-                    },
-                };
-            }));
-            const target = candidates.find(candidate => candidate.annotationId === selection.id);
+                return (
+                    rect.width > 0 &&
+                    rect.height > 0 &&
+                    rect.top >= 0 &&
+                    rect.bottom <= window.innerHeight &&
+                    viewer !== null &&
+                    layer !== null &&
+                    getComputedStyle(entity).pointerEvents !== 'none'
+                );
+            },
+            {timeout: 10_000},
+            input,
+        );
+    } catch (error) {
+        const diagnostics = await page.evaluate((selection: {id: string; pageNumber: number}) => {
+            const activeLayers = Array.from(document.querySelectorAll<HTMLElement>('.editor-pane.is-active .pdf-annotation-editor-layer'));
+            const candidates = activeLayers.flatMap((layer) =>
+                Array.from(layer.querySelectorAll<HTMLElement>('[data-annotation-id][data-annotation-kind]')).map((entity) => {
+                    const rect = entity.getBoundingClientRect();
+                    const page = entity.closest<HTMLElement>('.page_container');
+                    const styles = getComputedStyle(entity);
+                    return {
+                        annotationId: entity.dataset.annotationId ?? null,
+                        bounds: {
+                            bottom: rect.bottom,
+                            height: rect.height,
+                            left: rect.left,
+                            right: rect.right,
+                            top: rect.top,
+                            width: rect.width,
+                        },
+                        className: entity.className,
+                        isSelected: entity.classList.contains('is-selected'),
+                        kind: entity.dataset.annotationKind ?? null,
+                        page: page?.dataset.page ?? null,
+                        pointerEvents: styles.pointerEvents,
+                        visibility: {
+                            display: styles.display,
+                            opacity: styles.opacity,
+                            visibility: styles.visibility,
+                        },
+                    };
+                }),
+            );
+            const target = candidates.find((candidate) => candidate.annotationId === selection.id);
             const point = target
                 ? {
-                    x: target.bounds.left + target.bounds.width / 2,
-                    y: target.bounds.top + target.bounds.height / 2,
-                }
+                      x: target.bounds.left + target.bounds.width / 2,
+                      y: target.bounds.top + target.bounds.height / 2,
+                  }
                 : null;
             const hit = point ? document.elementFromPoint(point.x, point.y) : null;
-            const scrollContainers = Array.from(new Set([
-                ...activeLayers.map(layer => layer.closest<HTMLElement>('[data-document-viewer-chassis-viewport]')),
-                ...activeLayers.map(layer => layer.closest<HTMLElement>('[data-document-viewer-chassis-viewport]')),
-            ].filter((element): element is HTMLElement => element !== null)));
+            const scrollContainers = Array.from(
+                new Set(
+                    [
+                        ...activeLayers.map((layer) => layer.closest<HTMLElement>('[data-document-viewer-chassis-viewport]')),
+                        ...activeLayers.map((layer) => layer.closest<HTMLElement>('[data-document-viewer-chassis-viewport]')),
+                    ].filter((element): element is HTMLElement => element !== null),
+                ),
+            );
             const describeContainer = (element: HTMLElement | null) => {
                 if (!element) {
                     return null;
@@ -618,15 +563,13 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
                 activeLayerCandidates: candidates,
                 elementFromPoint: hit
                     ? {
-                        annotationId: hit.closest<HTMLElement>('[data-annotation-id]')?.dataset.annotationId ?? null,
-                        className: hit.className,
-                        tagName: hit.tagName,
-                    }
+                          annotationId: hit.closest<HTMLElement>('[data-annotation-id]')?.dataset.annotationId ?? null,
+                          className: hit.className,
+                          tagName: hit.tagName,
+                      }
                     : null,
                 expected: selection,
-                pageContainers: Array.from(document.querySelectorAll<HTMLElement>(
-                    '.editor-pane.is-active .page_container',
-                )).map(page => {
+                pageContainers: Array.from(document.querySelectorAll<HTMLElement>('.editor-pane.is-active .page_container')).map((page) => {
                     const rect = page.getBoundingClientRect();
                     return {
                         bounds: {
@@ -652,15 +595,12 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
         }, input);
         throw new Error(`Canonical entity failed pre-click visibility: ${JSON.stringify(diagnostics)}`, {cause: error});
     }
-    const point = await page.evaluate((selection: {
-        id: string;
-        pageNumber: number
-    }) => {
-        const entity = Array.from(document.querySelectorAll<HTMLElement>(
-            `.editor-pane.is-active .page_container[data-page="${selection.pageNumber}"] .pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind]`,
-        )).find(candidate => (
-            candidate.dataset.annotationId === selection.id
-        ));
+    const point = await page.evaluate((selection: {id: string; pageNumber: number}) => {
+        const entity = Array.from(
+            document.querySelectorAll<HTMLElement>(
+                `.editor-pane.is-active .page_container[data-page="${selection.pageNumber}"] .pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind]`,
+            ),
+        ).find((candidate) => candidate.dataset.annotationId === selection.id);
         if (!entity) {
             return null;
         }
@@ -675,130 +615,145 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
     }
     await page.mouse.click(point.x, point.y);
     try {
-        await page.waitForFunction((selection: {
-            id: string;
-            pageNumber: number
-        }) => {
-            const pageContainer = document.querySelector<HTMLElement>(
-                `.editor-pane.is-active .page_container[data-page="${selection.pageNumber}"]`,
-            );
-            return Array.from(pageContainer?.querySelectorAll<HTMLElement>(
-                '.pdf-annotation-editor-layer [data-annotation-id].is-selected',
-            ) ?? []).some(entity => entity.dataset.annotationId === selection.id);
-        }, {timeout: 10_000}, {
-            id,
-            pageNumber,
-        });
+        await page.waitForFunction(
+            (selection: {id: string; pageNumber: number}) => {
+                const pageContainer = document.querySelector<HTMLElement>(
+                    `.editor-pane.is-active .page_container[data-page="${selection.pageNumber}"]`,
+                );
+                return Array.from(
+                    pageContainer?.querySelectorAll<HTMLElement>('.pdf-annotation-editor-layer [data-annotation-id].is-selected') ?? [],
+                ).some((entity) => entity.dataset.annotationId === selection.id);
+            },
+            {timeout: 10_000},
+            {
+                id,
+                pageNumber,
+            },
+        );
     } catch (error) {
-        const diagnostics = await page.evaluate((selection: {
-            id: string;
-            pageNumber: number;
-            point: {
-                x: number;
-                y: number
-            }
-        }) => {
-            const pageContainer = document.querySelector<HTMLElement>(
-                `.editor-pane.is-active .page_container[data-page="${selection.pageNumber}"]`,
-            );
-            const layer = pageContainer?.querySelector<HTMLElement>('.pdf-annotation-editor-layer');
-            const entity = layer
-                ? Array.from(layer.querySelectorAll<HTMLElement>('[data-annotation-id][data-annotation-kind]'))
-                    .find(candidate => candidate.dataset.annotationId === selection.id)
-                : null;
-            const actualPageContainer = entity?.closest<HTMLElement>('.page_container');
-            const viewer = layer?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]');
-            const rect = entity?.getBoundingClientRect();
-            const hit = document.elementFromPoint(selection.point.x, selection.point.y);
-            return {
-                entity: entity
-                    ? {
-                        bounds: rect ? {
-                            bottom: rect.bottom,
-                            height: rect.height,
-                            left: rect.left,
-                            right: rect.right,
-                            top: rect.top,
-                            width: rect.width,
-                        } : null,
-                        className: entity.className,
-                        datasetKind: entity.dataset.annotationKind,
-                        isSelected: entity.classList.contains('is-selected'),
-                        pointerEvents: getComputedStyle(entity).pointerEvents,
-                    }
-                    : null,
-                hit: hit
-                    ? {
-                        annotationId: (hit.closest<HTMLElement>('[data-annotation-id]'))?.dataset.annotationId ?? null,
-                        className: hit.className,
-                        tagName: hit.tagName,
-                    }
-                    : null,
-                page: {
-                    bounds: actualPageContainer?.getBoundingClientRect().toJSON() ?? null,
-                    expectedPage: selection.pageNumber,
-                    reportedPage: pageContainer?.dataset.page ?? null,
-                },
-                point: selection.point,
-                viewport: {
-                    devicePixelRatio: window.devicePixelRatio,
-                    height: window.innerHeight,
-                    width: window.innerWidth,
-                },
-                viewer: {
-                    bounds: viewer?.getBoundingClientRect().toJSON() ?? null,
-                    scrollHeight: viewer?.scrollHeight ?? null,
-                    scrollLeft: viewer?.scrollLeft ?? null,
-                    scrollTop: viewer?.scrollTop ?? null,
-                    scrollWidth: viewer?.scrollWidth ?? null,
-                },
-            };
-        }, {
-            id,
-            pageNumber,
-            point,
-        });
+        const diagnostics = await page.evaluate(
+            (selection: {
+                id: string;
+                pageNumber: number;
+                point: {
+                    x: number;
+                    y: number;
+                };
+            }) => {
+                const pageContainer = document.querySelector<HTMLElement>(
+                    `.editor-pane.is-active .page_container[data-page="${selection.pageNumber}"]`,
+                );
+                const layer = pageContainer?.querySelector<HTMLElement>('.pdf-annotation-editor-layer');
+                const entity = layer
+                    ? Array.from(layer.querySelectorAll<HTMLElement>('[data-annotation-id][data-annotation-kind]')).find(
+                          (candidate) => candidate.dataset.annotationId === selection.id,
+                      )
+                    : null;
+                const actualPageContainer = entity?.closest<HTMLElement>('.page_container');
+                const viewer = layer?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]');
+                const rect = entity?.getBoundingClientRect();
+                const hit = document.elementFromPoint(selection.point.x, selection.point.y);
+                return {
+                    entity: entity
+                        ? {
+                              bounds: rect
+                                  ? {
+                                        bottom: rect.bottom,
+                                        height: rect.height,
+                                        left: rect.left,
+                                        right: rect.right,
+                                        top: rect.top,
+                                        width: rect.width,
+                                    }
+                                  : null,
+                              className: entity.className,
+                              datasetKind: entity.dataset.annotationKind,
+                              isSelected: entity.classList.contains('is-selected'),
+                              pointerEvents: getComputedStyle(entity).pointerEvents,
+                          }
+                        : null,
+                    hit: hit
+                        ? {
+                              annotationId: hit.closest<HTMLElement>('[data-annotation-id]')?.dataset.annotationId ?? null,
+                              className: hit.className,
+                              tagName: hit.tagName,
+                          }
+                        : null,
+                    page: {
+                        bounds: actualPageContainer?.getBoundingClientRect().toJSON() ?? null,
+                        expectedPage: selection.pageNumber,
+                        reportedPage: pageContainer?.dataset.page ?? null,
+                    },
+                    point: selection.point,
+                    viewport: {
+                        devicePixelRatio: window.devicePixelRatio,
+                        height: window.innerHeight,
+                        width: window.innerWidth,
+                    },
+                    viewer: {
+                        bounds: viewer?.getBoundingClientRect().toJSON() ?? null,
+                        scrollHeight: viewer?.scrollHeight ?? null,
+                        scrollLeft: viewer?.scrollLeft ?? null,
+                        scrollTop: viewer?.scrollTop ?? null,
+                        scrollWidth: viewer?.scrollWidth ?? null,
+                    },
+                };
+            },
+            {
+                id,
+                pageNumber,
+                point,
+            },
+        );
         throw new Error(`Canonical entity did not become selected: ${JSON.stringify(diagnostics)}`, {cause: error});
     }
 }
 
 async function focusCanonicalLayer(page: Page, pageNumber: number) {
     const selector = `.editor-pane.is-active .page_container[data-page="${pageNumber}"] .pdf-annotation-editor-layer`;
-    await page.$eval(selector, element => (element as HTMLElement).focus({preventScroll: true}));
-    await page.waitForFunction((expectedSelector: string) => (
-        document.activeElement?.matches(expectedSelector) === true
-    ), {timeout: 10_000}, selector);
+    await page.$eval(selector, (element) => (element as HTMLElement).focus({preventScroll: true}));
+    await page.waitForFunction(
+        (expectedSelector: string) => document.activeElement?.matches(expectedSelector) === true,
+        {timeout: 10_000},
+        selector,
+    );
 }
 
 async function moveCanonicalEntityWithKeyboard(page: Page, entity: ICanonicalEntitySnapshot) {
     await clickCanonicalEntity(page, entity.id, entity.pageNumber);
     const currentLeft = await page.$eval(
         `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${entity.id}"]`,
-        element => element.getBoundingClientRect().left,
+        (element) => element.getBoundingClientRect().left,
     );
     await focusCanonicalLayer(page, entity.pageNumber);
     await page.keyboard.press('ArrowRight');
-    await page.waitForFunction((input: {
-        id: string;
-        left: number
-    }) => {
-        const current = Array.from(document.querySelectorAll<HTMLElement>(
-            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id]',
-        )).find(candidate => candidate.dataset.annotationId === input.id);
-        return (current?.getBoundingClientRect().left ?? input.left) > input.left + 0.05;
-    }, {timeout: 10_000}, {
-        id: entity.id,
-        left: currentLeft,
-    });
+    await page.waitForFunction(
+        (input: {id: string; left: number}) => {
+            const current = Array.from(
+                document.querySelectorAll<HTMLElement>('.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id]'),
+            ).find((candidate) => candidate.dataset.annotationId === input.id);
+            return (current?.getBoundingClientRect().left ?? input.left) > input.left + 0.05;
+        },
+        {timeout: 10_000},
+        {
+            id: entity.id,
+            left: currentLeft,
+        },
+    );
 }
 
 async function deleteCanonicalEntityWithKeyboard(page: Page, entity: ICanonicalEntitySnapshot) {
     await clickCanonicalEntity(page, entity.id, entity.pageNumber);
     await focusCanonicalLayer(page, entity.pageNumber);
     await page.keyboard.press('Backspace');
-    await page.waitForFunction((annotationId: string) => !Array.from(document.querySelectorAll<HTMLElement>(
-        '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id]',
-    )).some(candidate => candidate.dataset.annotationId === annotationId), {timeout: 10_000}, entity.id);
+    await page.waitForFunction(
+        (annotationId: string) =>
+            !Array.from(
+                document.querySelectorAll<HTMLElement>('.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id]'),
+            ).some((candidate) => candidate.dataset.annotationId === annotationId),
+        {timeout: 10_000},
+        entity.id,
+    );
 }
 
 async function dragCanonicalEntity(
@@ -806,22 +761,22 @@ async function dragCanonicalEntity(
     entity: ICanonicalEntitySnapshot,
     delta: {
         x: number;
-        y: number
+        y: number;
     },
 ) {
     await clickCanonicalEntity(page, entity.id, entity.pageNumber);
     const point = await page.evaluate((annotationId: string) => {
-        const current = Array.from(document.querySelectorAll<HTMLElement>(
-            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id]',
-        )).find(candidate => candidate.dataset.annotationId === annotationId);
+        const current = Array.from(
+            document.querySelectorAll<HTMLElement>('.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id]'),
+        ).find((candidate) => candidate.dataset.annotationId === annotationId);
         const rect = current?.getBoundingClientRect();
         return rect
             ? {
-                x: rect.left + rect.width / 2,
-                y: rect.top + rect.height / 2,
-                left: rect.left,
-                top: rect.top,
-            }
+                  x: rect.left + rect.width / 2,
+                  y: rect.top + rect.height / 2,
+                  left: rect.left,
+                  top: rect.top,
+              }
             : null;
     }, entity.id);
     if (!point) {
@@ -831,42 +786,32 @@ async function dragCanonicalEntity(
     await page.mouse.down();
     await page.mouse.move(point.x + delta.x, point.y + delta.y, {steps: 8});
     await page.mouse.up();
-    await page.waitForFunction((input: {
-        id: string;
-        left: number;
-        top: number
-    }) => {
-        const current = Array.from(document.querySelectorAll<HTMLElement>(
-            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id]',
-        )).find(candidate => candidate.dataset.annotationId === input.id);
-        const rect = current?.getBoundingClientRect();
-        return rect !== undefined
-            && Math.abs(rect.left - input.left) > 4
-            && Math.abs(rect.top - input.top) > 4;
-    }, {timeout: 10_000}, {
-        id: entity.id,
-        left: point.left,
-        top: point.top,
-    });
+    await page.waitForFunction(
+        (input: {id: string; left: number; top: number}) => {
+            const current = Array.from(
+                document.querySelectorAll<HTMLElement>('.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id]'),
+            ).find((candidate) => candidate.dataset.annotationId === input.id);
+            const rect = current?.getBoundingClientRect();
+            return rect !== undefined && Math.abs(rect.left - input.left) > 4 && Math.abs(rect.top - input.top) > 4;
+        },
+        {timeout: 10_000},
+        {
+            id: entity.id,
+            left: point.left,
+            top: point.top,
+        },
+    );
 }
 
 async function assertAnnotationStoreClean(page: Page) {
-    const state = await readWorkspaceStateValues<{dirtyState?: {annotationDirtyEntityCount?: number;}}>(page, ['dirtyState']);
+    const state = await readWorkspaceStateValues<{dirtyState?: {annotationDirtyEntityCount?: number}}>(page, ['dirtyState']);
     expect(state.dirtyState?.annotationDirtyEntityCount ?? 0).toBe(0);
 }
 
 async function saveCanonicalRevision(page: Page, documentPath: string, label: string) {
-    const event = await saveViaVisibleToolbarWithDeadline(
-        page,
-        NATIVE_SAVE_TIMEOUT_MS,
-        documentPath,
-        {label},
-    );
+    const event = await saveViaVisibleToolbarWithDeadline(page, NATIVE_SAVE_TIMEOUT_MS, documentPath, {label});
     expect(event.detail.documentRevisionToken).toEqual(expect.any(String));
-    await runDesktopQpdfWasm([
-        '--check',
-        documentPath,
-    ], {
+    await runDesktopQpdfWasm(['--check', documentPath], {
         timeoutMs: 60_000,
         commandLabel: 'qpdf(e2e-matrix-check)',
     });
@@ -897,14 +842,14 @@ async function resizeCanonicalEntity(
     entity: ICanonicalEntitySnapshot,
     delta: {
         x: number;
-        y: number
+        y: number;
     },
 ) {
     await clickCanonicalEntity(page, entity.id, entity.pageNumber);
     const before = await page.$eval(
-        `.editor-pane.is-active .page_container[data-page="${entity.pageNumber}"] `
-        + `.pdf-annotation-editor-layer [data-annotation-id="${entity.id}"]`,
-        element => {
+        `.editor-pane.is-active .page_container[data-page="${entity.pageNumber}"] ` +
+            `.pdf-annotation-editor-layer [data-annotation-id="${entity.id}"]`,
+        (element) => {
             const rect = element.getBoundingClientRect();
             return {
                 height: rect.height,
@@ -912,9 +857,9 @@ async function resizeCanonicalEntity(
             };
         },
     );
-    const handleSelector = `.editor-pane.is-active .page_container[data-page="${entity.pageNumber}"] `
-        + '.pdf-annotation-selection-handle--se';
-    const point = await page.$eval(handleSelector, element => {
+    const handleSelector =
+        `.editor-pane.is-active .page_container[data-page="${entity.pageNumber}"] ` + '.pdf-annotation-selection-handle--se';
+    const point = await page.$eval(handleSelector, (element) => {
         const rect = element.getBoundingClientRect();
         return {
             x: rect.left + rect.width / 2,
@@ -925,20 +870,20 @@ async function resizeCanonicalEntity(
     await page.mouse.down();
     await page.mouse.move(point.x + delta.x, point.y + delta.y, {steps: 8});
     await page.mouse.up();
-    await page.waitForFunction((input: {
-        id: string;
-        pageNumber: number;
-        width: number;
-        height: number
-    }) => {
-        const selector = `.editor-pane.is-active .page_container[data-page="${input.pageNumber}"] `
-            + `.pdf-annotation-editor-layer [data-annotation-id="${input.id}"]`;
-        const rect = document.querySelector<HTMLElement>(selector)?.getBoundingClientRect();
-        return rect !== undefined && rect.width > input.width + 10 && rect.height > input.height + 5;
-    }, {timeout: 10_000}, {
-        ...entity,
-        ...before,
-    });
+    await page.waitForFunction(
+        (input: {id: string; pageNumber: number; width: number; height: number}) => {
+            const selector =
+                `.editor-pane.is-active .page_container[data-page="${input.pageNumber}"] ` +
+                `.pdf-annotation-editor-layer [data-annotation-id="${input.id}"]`;
+            const rect = document.querySelector<HTMLElement>(selector)?.getBoundingClientRect();
+            return rect !== undefined && rect.width > input.width + 10 && rect.height > input.height + 5;
+        },
+        {timeout: 10_000},
+        {
+            ...entity,
+            ...before,
+        },
+    );
 }
 
 describe('Electron E2E - exact large PDF canonical annotation matrix', () => {
@@ -956,175 +901,170 @@ describe('Electron E2E - exact large PDF canonical annotation matrix', () => {
         }
     });
 
-    it('creates, updates, deletes, recreates, saves, and hard-reopens canonical annotations', async () => {
-        const fixture = resolveLargePdfFixtureAvailability();
-        let session = sessionFixture.getSession();
-        if (!fixture.path) {
-            throw new Error(`Exact large fixture is unavailable: ${fixture.reason}`);
-        }
-        const sourceIdentity = await readExactPdfFixtureIdentity(fixture.path, {timeoutMs: MATRIX_TIMEOUT_MS});
-        validateExactPdfFixtureIdentity(sourceIdentity, exactFixtureExpectation);
-        expect(sourceIdentity.pages).toBe(882);
-        const documentPath = copyExactFixture(fixture.path);
-        await openPdfInApp(session.page, documentPath, MATRIX_TIMEOUT_MS);
-        await waitForPdfLoaded(session.page, MATRIX_TIMEOUT_MS);
-        await waitForViewerInteractive(session.page, MATRIX_TIMEOUT_MS);
-        await setupScrollToPage(session.page, MATRIX_PAGE_NUMBER);
-        await openAnnotationsTab(session.page, 30_000);
-        const initialIndex = await readPdfAnnotationIndex(documentPath);
-        const initialShapes = await readShapeIndex(session.page, documentPath);
+    it(
+        'creates, updates, deletes, recreates, saves, and hard-reopens canonical annotations',
+        async () => {
+            const fixture = resolveLargePdfFixtureAvailability();
+            let session = sessionFixture.getSession();
+            if (!fixture.path) {
+                throw new Error(`Exact large fixture is unavailable: ${fixture.reason}`);
+            }
+            const sourceIdentity = await readExactPdfFixtureIdentity(fixture.path, {timeoutMs: MATRIX_TIMEOUT_MS});
+            validateExactPdfFixtureIdentity(sourceIdentity, exactFixtureExpectation);
+            expect(sourceIdentity.pages).toBe(882);
+            const documentPath = copyExactFixture(fixture.path);
+            await openPdfInApp(session.page, documentPath, MATRIX_TIMEOUT_MS);
+            await waitForPdfLoaded(session.page, MATRIX_TIMEOUT_MS);
+            await waitForViewerInteractive(session.page, MATRIX_TIMEOUT_MS);
+            await setupScrollToPage(session.page, MATRIX_PAGE_NUMBER);
+            await openAnnotationsTab(session.page, 30_000);
+            const initialIndex = await readPdfAnnotationIndex(documentPath);
+            const initialShapes = await readShapeIndex(session.page, documentPath);
 
-        const beforeNote = await readCanonicalEntities(session.page, MATRIX_PAGE_NUMBER);
-        await createStickyNoteWithPointer(session.page, 'issue 192 canonical note', {
-            x: 0.78,
-            y: 0.78,
-        }, MATRIX_PAGE_NUMBER);
-        await clickLatestVisibleNoteWindowClose(session.page);
-        await waitForNoOpenNoteWindows(session.page);
-        const note = await waitForNewCanonicalEntity(
-            session.page,
-            MATRIX_PAGE_NUMBER,
-            'note',
-            new Set(beforeNote.map(entity => entity.id)),
-        );
-
-        const beforeTextBox = await readCanonicalEntities(session.page, MATRIX_PAGE_NUMBER);
-        await createCanonicalTextBoxWithPointer(
-            session.page,
-            'issue 192 canonical text box',
-            {
-                x: 0.22,
-                y: 0.76,
-            },
-            MATRIX_PAGE_NUMBER,
-        );
-        const textBox = await waitForNewCanonicalEntity(
-            session.page,
-            MATRIX_PAGE_NUMBER,
-            'text-box',
-            new Set(beforeTextBox.map(entity => entity.id)),
-        );
-        const textBoxId = textBox.id;
-        expect(textBoxId).toMatch(/^anno_/u);
-
-        const markupIds: string[] = [];
-        for (const tool of [
-            'Highlight',
-            'Underline',
-            'Strikethrough',
-            'Squiggly',
-        ] as const) {
-            const before = await readCanonicalEntities(session.page, MATRIX_PAGE_NUMBER);
-            await createCanonicalTextMarkup(session.page, tool, {
-                startPage: MATRIX_PAGE_NUMBER,
-                startSpan: 0,
-                endPage: MATRIX_PAGE_NUMBER,
-                endSpan: 0,
-            });
-            await clearTextSelection(session.page);
-            const markup = await waitForNewCanonicalEntity(
+            const beforeNote = await readCanonicalEntities(session.page, MATRIX_PAGE_NUMBER);
+            await createStickyNoteWithPointer(
+                session.page,
+                'issue 192 canonical note',
+                {
+                    x: 0.78,
+                    y: 0.78,
+                },
+                MATRIX_PAGE_NUMBER,
+            );
+            await clickLatestVisibleNoteWindowClose(session.page);
+            await waitForNoOpenNoteWindows(session.page);
+            const note = await waitForNewCanonicalEntity(
                 session.page,
                 MATRIX_PAGE_NUMBER,
-                'text-markup',
-                new Set(before.map(entity => entity.id)),
+                'note',
+                new Set(beforeNote.map((entity) => entity.id)),
             );
-            markupIds.push(markup.id);
-        }
 
-        const shapeIds: string[] = [];
-        const shapeCases: Array<{
-            tool: TCanonicalShapeTool;
-            ratios: ReadonlyArray<{
-                x: number;
-                y: number
-            }>
-        }> = [
-            {
-                tool: 'Rectangle',
-                ratios: [
-                    {
-                        x: 0.08,
-                        y: 0.42,
-                    },
-                    {
-                        x: 0.18,
-                        y: 0.5,
-                    },
-                ],
-            },
-            {
-                tool: 'Circle',
-                ratios: [
-                    {
-                        x: 0.24,
-                        y: 0.42,
-                    },
-                    {
-                        x: 0.34,
-                        y: 0.5,
-                    },
-                ],
-            },
-            {
-                tool: 'Line',
-                ratios: [
-                    {
-                        x: 0.42,
-                        y: 0.42,
-                    },
-                    {
-                        x: 0.56,
-                        y: 0.5,
-                    },
-                ],
-            },
-            {
-                tool: 'Arrow',
-                ratios: [
-                    {
-                        x: 0.64,
-                        y: 0.42,
-                    },
-                    {
-                        x: 0.78,
-                        y: 0.5,
-                    },
-                ],
-            },
-            {
-                tool: 'Draw',
-                ratios: [
-                    {
-                        x: 0.1,
-                        y: 0.58,
-                    },
-                    {
-                        x: 0.15,
-                        y: 0.63,
-                    },
-                    {
-                        x: 0.22,
-                        y: 0.59,
-                    },
-                ],
-            },
-        ];
-        for (const shapeCase of shapeCases) {
-            const shape = await createCanonicalShape(session.page, shapeCase.tool, shapeCase.ratios);
-            shapeIds.push(shape.id);
-        }
+            const beforeTextBox = await readCanonicalEntities(session.page, MATRIX_PAGE_NUMBER);
+            await createCanonicalTextBoxWithPointer(
+                session.page,
+                'issue 192 canonical text box',
+                {
+                    x: 0.22,
+                    y: 0.76,
+                },
+                MATRIX_PAGE_NUMBER,
+            );
+            const textBox = await waitForNewCanonicalEntity(
+                session.page,
+                MATRIX_PAGE_NUMBER,
+                'text-box',
+                new Set(beforeTextBox.map((entity) => entity.id)),
+            );
+            const textBoxId = textBox.id;
+            expect(textBoxId).toMatch(/^anno_/u);
 
-        await saveCanonicalRevision(
-            session.page,
-            documentPath,
-            'issue 192 canonical annotation create save',
-        );
-        const firstIndex = await readPdfAnnotationIndex(documentPath);
-        const firstShapes = await readShapeIndex(session.page, documentPath);
-        for (const [
-            subtype,
-            expectedDelta,
-        ] of Object.entries({
+            const markupIds: string[] = [];
+            for (const tool of ['Highlight', 'Underline', 'Strikethrough', 'Squiggly'] as const) {
+                const before = await readCanonicalEntities(session.page, MATRIX_PAGE_NUMBER);
+                await createCanonicalTextMarkup(session.page, tool, {
+                    startPage: MATRIX_PAGE_NUMBER,
+                    startSpan: 0,
+                    endPage: MATRIX_PAGE_NUMBER,
+                    endSpan: 0,
+                });
+                await clearTextSelection(session.page);
+                const markup = await waitForNewCanonicalEntity(
+                    session.page,
+                    MATRIX_PAGE_NUMBER,
+                    'text-markup',
+                    new Set(before.map((entity) => entity.id)),
+                );
+                markupIds.push(markup.id);
+            }
+
+            const shapeIds: string[] = [];
+            const shapeCases: Array<{
+                tool: TCanonicalShapeTool;
+                ratios: ReadonlyArray<{
+                    x: number;
+                    y: number;
+                }>;
+            }> = [
+                {
+                    tool: 'Rectangle',
+                    ratios: [
+                        {
+                            x: 0.08,
+                            y: 0.42,
+                        },
+                        {
+                            x: 0.18,
+                            y: 0.5,
+                        },
+                    ],
+                },
+                {
+                    tool: 'Circle',
+                    ratios: [
+                        {
+                            x: 0.24,
+                            y: 0.42,
+                        },
+                        {
+                            x: 0.34,
+                            y: 0.5,
+                        },
+                    ],
+                },
+                {
+                    tool: 'Line',
+                    ratios: [
+                        {
+                            x: 0.42,
+                            y: 0.42,
+                        },
+                        {
+                            x: 0.56,
+                            y: 0.5,
+                        },
+                    ],
+                },
+                {
+                    tool: 'Arrow',
+                    ratios: [
+                        {
+                            x: 0.64,
+                            y: 0.42,
+                        },
+                        {
+                            x: 0.78,
+                            y: 0.5,
+                        },
+                    ],
+                },
+                {
+                    tool: 'Draw',
+                    ratios: [
+                        {
+                            x: 0.1,
+                            y: 0.58,
+                        },
+                        {
+                            x: 0.15,
+                            y: 0.63,
+                        },
+                        {
+                            x: 0.22,
+                            y: 0.59,
+                        },
+                    ],
+                },
+            ];
+            for (const shapeCase of shapeCases) {
+                const shape = await createCanonicalShape(session.page, shapeCase.tool, shapeCase.ratios);
+                shapeIds.push(shape.id);
+            }
+
+            await saveCanonicalRevision(session.page, documentPath, 'issue 192 canonical annotation create save');
+            const firstIndex = await readPdfAnnotationIndex(documentPath);
+            const firstShapes = await readShapeIndex(session.page, documentPath);
+            for (const [subtype, expectedDelta] of Object.entries({
                 FreeText: 1,
                 Highlight: 1,
                 Squiggly: 1,
@@ -1132,80 +1072,77 @@ describe('Electron E2E - exact large PDF canonical annotation matrix', () => {
                 Text: 1,
                 Underline: 1,
             })) {
-            expect(countAddedAnnotationSubtype(initialIndex.entries, firstIndex.entries, subtype)).toBe(expectedDelta);
-        }
-        const addedEntries = diffAnnotationEntries(initialIndex.entries, firstIndex.entries)
-            .filter(entry => entry.pageIndex === MATRIX_PAGE_INDEX);
-        const noteEntry = addedEntries.find(entry => entry.subtype === 'Text');
-        const textBoxEntry = addedEntries.find(entry => entry.subtype === 'FreeText');
-        expect(noteEntry).toBeDefined();
-        expect(textBoxEntry).toBeDefined();
-        expect(qpdfObjectContainsText(
-            await readObject(documentPath, {
-                objectNumber: noteEntry!.objectNumber,
-                generationNumber: noteEntry!.generationNumber,
-            }),
-            'issue 192 canonical note',
-        )).toBe(true);
-        expect(qpdfObjectContainsText(
-            await readObject(documentPath, {
-                objectNumber: textBoxEntry!.objectNumber,
-                generationNumber: textBoxEntry!.generationNumber,
-            }),
-            'issue 192 canonical text box',
-        )).toBe(true);
-
-        const addedShapes = addedPageShapes(initialShapes, firstShapes);
-        expect(addedShapes).toHaveLength(5);
-        expect(addedShapes.filter(entry => entry.pdfSubtype === 'Square')).toHaveLength(1);
-        expect(addedShapes.filter(entry => entry.pdfSubtype === 'Circle')).toHaveLength(1);
-        expect(addedShapes.filter(entry => entry.pdfSubtype === 'Line')).toHaveLength(2);
-        expect(addedShapes.filter(entry => entry.pdfSubtype === 'Ink')).toHaveLength(1);
-        await assertAnnotationStoreClean(session.page);
-
-        session = await hardRestartAfterSave(sessionFixture, session, documentPath);
-        await setupScrollToPage(session.page, MATRIX_PAGE_NUMBER);
-        await openAnnotationsTab(session.page, 30_000);
-        let reopenedEntities = await readCanonicalEntities(session.page, MATRIX_PAGE_NUMBER);
-        expect(reopenedEntities.filter(entity => entity.kind === 'note')).not.toHaveLength(0);
-        expect(reopenedEntities.filter(entity => entity.kind === 'text-box')).not.toHaveLength(0);
-        expect(reopenedEntities.filter(entity => entity.kind === 'text-markup')).toHaveLength(4);
-        expect(reopenedEntities.filter(entity => entity.kind === 'shape')).toHaveLength(5);
-        await assertAnnotationStoreClean(session.page);
-
-        for (const kind of [
-            'note',
-            'text-box',
-            'text-markup',
-            'shape',
-        ] as const) {
-            let entity: ICanonicalEntitySnapshot | undefined;
-            if (kind === 'text-markup') {
-                await setupScrollToPage(session.page, MATRIX_PAGE_NUMBER);
-                const topmost = await readTopmostCanonicalTextMarkupId(
-                    session.page,
-                    MATRIX_PAGE_NUMBER,
-                    reopenedEntities.filter(candidate => candidate.kind === kind).map(candidate => candidate.id),
-                );
-                entity = reopenedEntities.find(candidate => candidate.id === topmost);
-            } else {
-                entity = reopenedEntities.find(candidate => candidate.kind === kind);
+                expect(countAddedAnnotationSubtype(initialIndex.entries, firstIndex.entries, subtype)).toBe(expectedDelta);
             }
-            if (!entity) {
-                throw new Error(`Reopened canonical ${kind} is missing`);
-            }
-            await moveCanonicalEntityWithKeyboard(session.page, entity);
-        }
+            const addedEntries = diffAnnotationEntries(initialIndex.entries, firstIndex.entries).filter(
+                (entry) => entry.pageIndex === MATRIX_PAGE_INDEX,
+            );
+            const noteEntry = addedEntries.find((entry) => entry.subtype === 'Text');
+            const textBoxEntry = addedEntries.find((entry) => entry.subtype === 'FreeText');
+            expect(noteEntry).toBeDefined();
+            expect(textBoxEntry).toBeDefined();
+            expect(
+                qpdfObjectContainsText(
+                    await readObject(documentPath, {
+                        objectNumber: noteEntry!.objectNumber,
+                        generationNumber: noteEntry!.generationNumber,
+                    }),
+                    'issue 192 canonical note',
+                ),
+            ).toBe(true);
+            expect(
+                qpdfObjectContainsText(
+                    await readObject(documentPath, {
+                        objectNumber: textBoxEntry!.objectNumber,
+                        generationNumber: textBoxEntry!.generationNumber,
+                    }),
+                    'issue 192 canonical text box',
+                ),
+            ).toBe(true);
 
-        const shapeToDelete = reopenedEntities.find(entity => entity.kind === 'shape');
-        if (!shapeToDelete) {
-            throw new Error('No reopened canonical shape was available for deletion');
-        }
-        await deleteCanonicalEntityWithKeyboard(session.page, shapeToDelete);
-        const replacementShape = await createCanonicalShape(
-            session.page,
-            'Rectangle',
-            [
+            const addedShapes = addedPageShapes(initialShapes, firstShapes);
+            expect(addedShapes).toHaveLength(5);
+            expect(addedShapes.filter((entry) => entry.pdfSubtype === 'Square')).toHaveLength(1);
+            expect(addedShapes.filter((entry) => entry.pdfSubtype === 'Circle')).toHaveLength(1);
+            expect(addedShapes.filter((entry) => entry.pdfSubtype === 'Line')).toHaveLength(2);
+            expect(addedShapes.filter((entry) => entry.pdfSubtype === 'Ink')).toHaveLength(1);
+            await assertAnnotationStoreClean(session.page);
+
+            session = await hardRestartAfterSave(sessionFixture, session, documentPath);
+            await setupScrollToPage(session.page, MATRIX_PAGE_NUMBER);
+            await openAnnotationsTab(session.page, 30_000);
+            let reopenedEntities = await readCanonicalEntities(session.page, MATRIX_PAGE_NUMBER);
+            expect(reopenedEntities.filter((entity) => entity.kind === 'note')).not.toHaveLength(0);
+            expect(reopenedEntities.filter((entity) => entity.kind === 'text-box')).not.toHaveLength(0);
+            expect(reopenedEntities.filter((entity) => entity.kind === 'text-markup')).toHaveLength(4);
+            expect(reopenedEntities.filter((entity) => entity.kind === 'shape')).toHaveLength(5);
+            await assertAnnotationStoreClean(session.page);
+
+            for (const kind of ['note', 'text-box', 'text-markup', 'shape'] as const) {
+                let entity: ICanonicalEntitySnapshot | undefined;
+                if (kind === 'text-markup') {
+                    await setupScrollToPage(session.page, MATRIX_PAGE_NUMBER);
+                    const topmost = await readTopmostCanonicalTextMarkupId(
+                        session.page,
+                        MATRIX_PAGE_NUMBER,
+                        reopenedEntities.filter((candidate) => candidate.kind === kind).map((candidate) => candidate.id),
+                    );
+                    entity = reopenedEntities.find((candidate) => candidate.id === topmost);
+                } else {
+                    entity = reopenedEntities.find((candidate) => candidate.kind === kind);
+                }
+                if (!entity) {
+                    throw new Error(`Reopened canonical ${kind} is missing`);
+                }
+                await moveCanonicalEntityWithKeyboard(session.page, entity);
+            }
+
+            const shapeToDelete = reopenedEntities.find((entity) => entity.kind === 'shape');
+            if (!shapeToDelete) {
+                throw new Error('No reopened canonical shape was available for deletion');
+            }
+            await deleteCanonicalEntityWithKeyboard(session.page, shapeToDelete);
+            const replacementShape = await createCanonicalShape(session.page, 'Rectangle', [
                 {
                     x: 0.82,
                     y: 0.62,
@@ -1214,152 +1151,145 @@ describe('Electron E2E - exact large PDF canonical annotation matrix', () => {
                     x: 0.92,
                     y: 0.72,
                 },
-            ],
-        );
-        expect(replacementShape.kind).toBe('shape');
+            ]);
+            expect(replacementShape.kind).toBe('shape');
 
-        await saveCanonicalRevision(
-            session.page,
-            documentPath,
-            'issue 192 canonical annotation update delete recreate save',
-        );
-        const secondIndex = await readPdfAnnotationIndex(documentPath);
-        const secondShapes = await readShapeIndex(session.page, documentPath);
-        expect(countAnnotationSubtype(secondIndex.entries, 'Text')).toBe(countAnnotationSubtype(firstIndex.entries, 'Text'));
-        expect(countAnnotationSubtype(secondIndex.entries, 'FreeText')).toBe(countAnnotationSubtype(firstIndex.entries, 'FreeText'));
-        expect(pageShapes(secondShapes)).toHaveLength(pageShapes(firstShapes).length);
-        await assertAnnotationStoreClean(session.page);
+            await saveCanonicalRevision(session.page, documentPath, 'issue 192 canonical annotation update delete recreate save');
+            const secondIndex = await readPdfAnnotationIndex(documentPath);
+            const secondShapes = await readShapeIndex(session.page, documentPath);
+            expect(countAnnotationSubtype(secondIndex.entries, 'Text')).toBe(countAnnotationSubtype(firstIndex.entries, 'Text'));
+            expect(countAnnotationSubtype(secondIndex.entries, 'FreeText')).toBe(countAnnotationSubtype(firstIndex.entries, 'FreeText'));
+            expect(pageShapes(secondShapes)).toHaveLength(pageShapes(firstShapes).length);
+            await assertAnnotationStoreClean(session.page);
 
-        session = await hardRestartAfterSave(sessionFixture, session, documentPath);
-        await setupScrollToPage(session.page, MATRIX_PAGE_NUMBER);
-        await openAnnotationsTab(session.page, 30_000);
-        reopenedEntities = await readCanonicalEntities(session.page, MATRIX_PAGE_NUMBER);
-        expect(reopenedEntities.filter(entity => entity.kind === 'shape')).toHaveLength(5);
-        expect(reopenedEntities.filter(entity => entity.id === shapeToDelete.id)).toHaveLength(0);
-        expect(reopenedEntities.filter(entity => entity.kind === 'text-markup')).toHaveLength(4);
-        await assertAnnotationStoreClean(session.page);
+            session = await hardRestartAfterSave(sessionFixture, session, documentPath);
+            await setupScrollToPage(session.page, MATRIX_PAGE_NUMBER);
+            await openAnnotationsTab(session.page, 30_000);
+            reopenedEntities = await readCanonicalEntities(session.page, MATRIX_PAGE_NUMBER);
+            expect(reopenedEntities.filter((entity) => entity.kind === 'shape')).toHaveLength(5);
+            expect(reopenedEntities.filter((entity) => entity.id === shapeToDelete.id)).toHaveLength(0);
+            expect(reopenedEntities.filter((entity) => entity.kind === 'text-markup')).toHaveLength(4);
+            await assertAnnotationStoreClean(session.page);
 
-        expect(textBoxId).toMatch(/^anno_/u);
-        expect(note.id).toMatch(/^anno_/u);
-        expect(markupIds).toHaveLength(4);
-        expect(shapeIds).toHaveLength(5);
-    }, MATRIX_TIMEOUT_MS);
+            expect(textBoxId).toMatch(/^anno_/u);
+            expect(note.id).toMatch(/^anno_/u);
+            expect(markupIds).toHaveLength(4);
+            expect(shapeIds).toHaveLength(5);
+        },
+        MATRIX_TIMEOUT_MS,
+    );
 
-    it('creates, moves, deletes, saves, and hard-reopens a placed image through the canonical layer', async () => {
-        const fixture = resolveLargePdfFixtureAvailability();
-        let session = await sessionFixture.restart({clean: true});
-        if (!fixture.path) {
-            throw new Error(`Exact large fixture is unavailable: ${fixture.reason}`);
-        }
-        const sourceIdentity = await readExactPdfFixtureIdentity(fixture.path, {timeoutMs: MATRIX_TIMEOUT_MS});
-        validateExactPdfFixtureIdentity(sourceIdentity, exactFixtureExpectation);
-        expect(sourceIdentity.pages).toBe(882);
-        const documentPath = copyExactFixture(fixture.path);
-        const hardRestartAndReopen = async () => {
-            session = await sessionFixture.restart({
-                clean: false,
-                hard: true,
-            });
+    it(
+        'creates, moves, deletes, saves, and hard-reopens a placed image through the canonical layer',
+        async () => {
+            const fixture = resolveLargePdfFixtureAvailability();
+            let session = await sessionFixture.restart({clean: true});
+            if (!fixture.path) {
+                throw new Error(`Exact large fixture is unavailable: ${fixture.reason}`);
+            }
+            const sourceIdentity = await readExactPdfFixtureIdentity(fixture.path, {timeoutMs: MATRIX_TIMEOUT_MS});
+            validateExactPdfFixtureIdentity(sourceIdentity, exactFixtureExpectation);
+            expect(sourceIdentity.pages).toBe(882);
+            const documentPath = copyExactFixture(fixture.path);
+            const hardRestartAndReopen = async () => {
+                session = await sessionFixture.restart({
+                    clean: false,
+                    hard: true,
+                });
+                await openPdfInApp(session.page, documentPath, MATRIX_TIMEOUT_MS);
+                await waitForPdfLoaded(session.page, MATRIX_TIMEOUT_MS);
+                await waitForViewerInteractive(session.page, MATRIX_TIMEOUT_MS);
+            };
+
             await openPdfInApp(session.page, documentPath, MATRIX_TIMEOUT_MS);
             await waitForPdfLoaded(session.page, MATRIX_TIMEOUT_MS);
             await waitForViewerInteractive(session.page, MATRIX_TIMEOUT_MS);
-        };
+            await setupScrollToPage(session.page, PLACED_IMAGE_PAGE_NUMBER);
+            await openAnnotationsTab(session.page, 30_000);
+            const initialIndex = await readPdfAnnotationIndex(documentPath);
+            const appTempDirectory = electronAppTempDirPath(session.name);
+            const imagePath = join(appTempDirectory, `issue-192-placed-image-${process.pid}.jpg`);
+            writeFileSync(imagePath, PLACED_IMAGE_JPEG);
+            exactFixtureArtifactDirectories.push(imagePath);
+            await installManagedJpegClipboard(session.page, imagePath);
 
-        await openPdfInApp(session.page, documentPath, MATRIX_TIMEOUT_MS);
-        await waitForPdfLoaded(session.page, MATRIX_TIMEOUT_MS);
-        await waitForViewerInteractive(session.page, MATRIX_TIMEOUT_MS);
-        await setupScrollToPage(session.page, PLACED_IMAGE_PAGE_NUMBER);
-        await openAnnotationsTab(session.page, 30_000);
-        const initialIndex = await readPdfAnnotationIndex(documentPath);
-        const appTempDirectory = electronAppTempDirPath(session.name);
-        const imagePath = join(appTempDirectory, `issue-192-placed-image-${process.pid}.jpg`);
-        writeFileSync(imagePath, PLACED_IMAGE_JPEG);
-        exactFixtureArtifactDirectories.push(imagePath);
-        await installManagedJpegClipboard(session.page, imagePath);
+            const beforeImage = await readCanonicalEntities(session.page, PLACED_IMAGE_PAGE_NUMBER);
+            await pasteImageFromVisibleMenu(session.page, PLACED_IMAGE_PAGE_NUMBER);
+            await finalizeImagePlacement(session.page);
+            const image = await waitForNewCanonicalEntity(
+                session.page,
+                PLACED_IMAGE_PAGE_NUMBER,
+                'placed-image',
+                new Set(beforeImage.map((entity) => entity.id)),
+            );
+            await dragCanonicalEntity(session.page, image, {
+                x: 52,
+                y: 34,
+            });
+            await resizeCanonicalEntity(session.page, image, {
+                x: 46,
+                y: 28,
+            });
 
-        const beforeImage = await readCanonicalEntities(session.page, PLACED_IMAGE_PAGE_NUMBER);
-        await pasteImageFromVisibleMenu(session.page, PLACED_IMAGE_PAGE_NUMBER);
-        await finalizeImagePlacement(session.page);
-        const image = await waitForNewCanonicalEntity(
-            session.page,
-            PLACED_IMAGE_PAGE_NUMBER,
-            'placed-image',
-            new Set(beforeImage.map(entity => entity.id)),
-        );
-        await dragCanonicalEntity(session.page, image, {
-            x: 52,
-            y: 34,
-        });
-        await resizeCanonicalEntity(session.page, image, {
-            x: 46,
-            y: 28,
-        });
+            await saveCanonicalRevision(session.page, documentPath, 'issue 192 canonical placed-image create save');
+            const firstIndex = await readPdfAnnotationIndex(documentPath);
+            const addedStamps = diffAnnotationEntries(initialIndex.entries, firstIndex.entries).filter(
+                (entry) => entry.pageIndex === PLACED_IMAGE_PAGE_INDEX && entry.subtype === 'Stamp',
+            );
+            expect(addedStamps).toHaveLength(1);
+            const stampEntry = addedStamps[0]!;
+            const stampObject = await readObject(documentPath, {
+                objectNumber: stampEntry.objectNumber,
+                generationNumber: stampEntry.generationNumber,
+            });
+            expect(stampObject).toContain('/Subtype /Stamp');
+            await assertAnnotationStoreClean(session.page);
 
-        await saveCanonicalRevision(
-            session.page,
-            documentPath,
-            'issue 192 canonical placed-image create save',
-        );
-        const firstIndex = await readPdfAnnotationIndex(documentPath);
-        const addedStamps = diffAnnotationEntries(initialIndex.entries, firstIndex.entries)
-            .filter(entry => entry.pageIndex === PLACED_IMAGE_PAGE_INDEX && entry.subtype === 'Stamp');
-        expect(addedStamps).toHaveLength(1);
-        const stampEntry = addedStamps[0]!;
-        const stampObject = await readObject(documentPath, {
-            objectNumber: stampEntry.objectNumber,
-            generationNumber: stampEntry.generationNumber,
-        });
-        expect(stampObject).toContain('/Subtype /Stamp');
-        await assertAnnotationStoreClean(session.page);
+            await hardRestartAndReopen();
+            await setupScrollToPage(session.page, PLACED_IMAGE_PAGE_NUMBER);
+            await openAnnotationsTab(session.page, 30_000);
+            let reopenedImage = (await readCanonicalEntities(session.page, PLACED_IMAGE_PAGE_NUMBER)).find(
+                (entity) => entity.kind === 'placed-image',
+            );
+            if (!reopenedImage) {
+                throw new Error('Placed image did not reopen in the canonical editor layer');
+            }
+            await dragCanonicalEntity(session.page, reopenedImage, {
+                x: 32,
+                y: 22,
+            });
+            await saveCanonicalRevision(session.page, documentPath, 'issue 192 canonical placed-image update save');
+            const secondIndex = await readPdfAnnotationIndex(documentPath);
+            expect(
+                secondIndex.entries.filter(
+                    (entry) => entry.pageIndex === PLACED_IMAGE_PAGE_INDEX && entry.subtype === 'Stamp' && entry.name === stampEntry.name,
+                ),
+            ).toHaveLength(1);
+            await assertAnnotationStoreClean(session.page);
 
-        await hardRestartAndReopen();
-        await setupScrollToPage(session.page, PLACED_IMAGE_PAGE_NUMBER);
-        await openAnnotationsTab(session.page, 30_000);
-        let reopenedImage = (await readCanonicalEntities(session.page, PLACED_IMAGE_PAGE_NUMBER))
-            .find(entity => entity.kind === 'placed-image');
-        if (!reopenedImage) {
-            throw new Error('Placed image did not reopen in the canonical editor layer');
-        }
-        await dragCanonicalEntity(session.page, reopenedImage, {
-            x: 32,
-            y: 22,
-        });
-        await saveCanonicalRevision(
-            session.page,
-            documentPath,
-            'issue 192 canonical placed-image update save',
-        );
-        const secondIndex = await readPdfAnnotationIndex(documentPath);
-        expect(secondIndex.entries.filter(entry => (
-            entry.pageIndex === PLACED_IMAGE_PAGE_INDEX
-            && entry.subtype === 'Stamp'
-            && entry.name === stampEntry.name
-        ))).toHaveLength(1);
-        await assertAnnotationStoreClean(session.page);
+            await hardRestartAndReopen();
+            await setupScrollToPage(session.page, PLACED_IMAGE_PAGE_NUMBER);
+            await openAnnotationsTab(session.page, 30_000);
+            reopenedImage = (await readCanonicalEntities(session.page, PLACED_IMAGE_PAGE_NUMBER)).find(
+                (entity) => entity.kind === 'placed-image',
+            );
+            if (!reopenedImage) {
+                throw new Error('Updated placed image did not reopen in the canonical editor layer');
+            }
+            await deleteCanonicalEntityWithKeyboard(session.page, reopenedImage);
+            await saveCanonicalRevision(session.page, documentPath, 'issue 192 canonical placed-image delete save');
+            const deletedIndex = await readPdfAnnotationIndex(documentPath);
+            expect(deletedIndex.entries.filter((entry) => entry.name === stampEntry.name)).toHaveLength(0);
+            await assertAnnotationStoreClean(session.page);
 
-        await hardRestartAndReopen();
-        await setupScrollToPage(session.page, PLACED_IMAGE_PAGE_NUMBER);
-        await openAnnotationsTab(session.page, 30_000);
-        reopenedImage = (await readCanonicalEntities(session.page, PLACED_IMAGE_PAGE_NUMBER))
-            .find(entity => entity.kind === 'placed-image');
-        if (!reopenedImage) {
-            throw new Error('Updated placed image did not reopen in the canonical editor layer');
-        }
-        await deleteCanonicalEntityWithKeyboard(session.page, reopenedImage);
-        await saveCanonicalRevision(
-            session.page,
-            documentPath,
-            'issue 192 canonical placed-image delete save',
-        );
-        const deletedIndex = await readPdfAnnotationIndex(documentPath);
-        expect(deletedIndex.entries.filter(entry => entry.name === stampEntry.name)).toHaveLength(0);
-        await assertAnnotationStoreClean(session.page);
-
-        await hardRestartAndReopen();
-        await setupScrollToPage(session.page, PLACED_IMAGE_PAGE_NUMBER);
-        await openAnnotationsTab(session.page, 30_000);
-        expect((await readCanonicalEntities(session.page, PLACED_IMAGE_PAGE_NUMBER))
-            .filter(entity => entity.kind === 'placed-image')).toHaveLength(0);
-        await assertAnnotationStoreClean(session.page);
-    }, MATRIX_TIMEOUT_MS);
+            await hardRestartAndReopen();
+            await setupScrollToPage(session.page, PLACED_IMAGE_PAGE_NUMBER);
+            await openAnnotationsTab(session.page, 30_000);
+            expect(
+                (await readCanonicalEntities(session.page, PLACED_IMAGE_PAGE_NUMBER)).filter((entity) => entity.kind === 'placed-image'),
+            ).toHaveLength(0);
+            await assertAnnotationStoreClean(session.page);
+        },
+        MATRIX_TIMEOUT_MS,
+    );
 });

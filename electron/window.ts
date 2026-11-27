@@ -1,45 +1,30 @@
-import {
-    BrowserWindow,
-    app,
-    dialog,
-    ipcMain,
-} from 'electron';
-import {
-    dirname,
-    join,
-} from 'path';
-import { fileURLToPath } from 'url';
-import { config } from '@electron/config';
+import {BrowserWindow, app, dialog, ipcMain} from 'electron';
+import {dirname, join} from 'path';
+import {fileURLToPath} from 'url';
+import {config} from '@electron/config';
 import {runtimeConfig} from '@electron/runtimeConfig';
-import { te } from '@electron/te';
-import { createLogger } from '@electron/utils/createLogger';
-import { createWindowSecurity } from '@electron/window/createWindowSecurity';
-import { setupContentSecurityPolicy } from '@electron/security/csp';
-import { getErrorMessage } from '@electron/utils/error';
-import {
-    getWindowStartupPhase,
-    publishWindowStartupPhase,
-    waitForInitialRendererReady,
-} from '@electron/window/rendererReady';
-import { loadStartupPlaceholder } from '@electron/window/loadStartupPlaceholder';
-import {
-    getAllRegisteredAppWindows,
-    getRegisteredMainWindow,
-    registerAppWindow,
-} from '@electron/window/registry';
-import { attachShowLifecycle } from '@electron/window/attachShowLifecycle';
-import { attachNativeWindowCloseHandshake } from '@electron/window/windowCloseHandshake';
+import {te} from '@electron/te';
+import {createLogger} from '@electron/utils/createLogger';
+import {createWindowSecurity} from '@electron/window/createWindowSecurity';
+import {setupContentSecurityPolicy} from '@electron/security/csp';
+import {getErrorMessage} from '@electron/utils/error';
+import {getWindowStartupPhase, publishWindowStartupPhase, waitForInitialRendererReady} from '@electron/window/rendererReady';
+import {loadStartupPlaceholder} from '@electron/window/loadStartupPlaceholder';
+import {getAllRegisteredAppWindows, getRegisteredMainWindow, registerAppWindow} from '@electron/window/registry';
+import {attachShowLifecycle} from '@electron/window/attachShowLifecycle';
+import {attachNativeWindowCloseHandshake} from '@electron/window/windowCloseHandshake';
 import type {IRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
-import { captureMainFailure } from '@electron/features/diagnostics/public';
-import { createWindowStartupOptions } from '@electron/window/createWindowStartupOptions';
+import {captureMainFailure} from '@electron/features/diagnostics/public';
+import {createWindowStartupOptions} from '@electron/window/createWindowStartupOptions';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import type {TRendererStartupFailure} from '@contracts/windowTabsPlatformFeature';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const windowIconPath = !app.isPackaged && !config.isMac
-    ? join(__dirname, '..', 'resources', process.platform === 'win32' ? 'icon.ico' : 'icon.png')
-    : undefined;
+const windowIconPath =
+    !app.isPackaged && !config.isMac
+        ? join(__dirname, '..', 'resources', process.platform === 'win32' ? 'icon.ico' : 'icon.png')
+        : undefined;
 
 const logger = createLogger('window');
 const windowStartupStartedAt = Date.now();
@@ -48,16 +33,16 @@ const UNRESPONSIVE_RECOVERY_DELAY_MS = 15_000;
 const RENDERER_RECOVERY_WINDOW_MS = 5 * 60_000;
 const RENDERER_RECOVERY_MAX_ATTEMPTS = 3;
 
-function reportWindowFailure(
-    code: string,
-    message: string,
-    cause?: unknown,
-) {
-    return logger.error('Window operation failed', captureMainFailure({
-        code,
-        message,
-        cause,
-    }), {message});
+function reportWindowFailure(code: string, message: string, cause?: unknown) {
+    return logger.error(
+        'Window operation failed',
+        captureMainFailure({
+            code,
+            message,
+            cause,
+        }),
+        {message},
+    );
 }
 
 function logWindowStartup(phase: string, details?: Record<string, unknown>) {
@@ -150,10 +135,14 @@ function createWindowLoadFailureOwner(): IWindowLoadFailureOwner {
             }
 
             attempt.reported = true;
-            const receipt = logger.error('Renderer load failed', {
-                code: 'MAIN_WINDOW_OPERATION_FAILED',
-                cause: error,
-            }, {message: error.message});
+            const receipt = logger.error(
+                'Renderer load failed',
+                {
+                    code: 'MAIN_WINDOW_OPERATION_FAILED',
+                    cause: error,
+                },
+                {message: error.message},
+            );
             if (receipt) {
                 attempt.receipt = receipt;
             }
@@ -216,7 +205,7 @@ function showAndFocusMaximizedWindow(window: BrowserWindow) {
     }
 
     if (process.platform === 'darwin') {
-        app.focus({ steal: true });
+        app.focus({steal: true});
     }
     window.focus();
     window.webContents.focus();
@@ -232,11 +221,7 @@ async function lockRendererZoom(window: BrowserWindow) {
     }
 }
 
-async function promptUnresponsiveRendererRecovery(
-    window: BrowserWindow,
-    windowId: number,
-    recoverRenderer: (reason: string) => void,
-) {
+async function promptUnresponsiveRendererRecovery(window: BrowserWindow, windowId: number, recoverRenderer: (reason: string) => void) {
     if (window.isDestroyed()) {
         return;
     }
@@ -250,15 +235,12 @@ async function promptUnresponsiveRendererRecovery(
     const BUTTON_RELOAD = 1;
 
     try {
-        const { response } = await dialog.showMessageBox(window, {
+        const {response} = await dialog.showMessageBox(window, {
             type: 'warning',
             title: te('dialogs.unresponsiveRenderer.title'),
             message: te('dialogs.unresponsiveRenderer.message'),
             detail: te('dialogs.unresponsiveRenderer.detail'),
-            buttons: [
-                te('dialogs.unresponsiveRenderer.wait'),
-                te('dialogs.unresponsiveRenderer.reload'),
-            ],
+            buttons: [te('dialogs.unresponsiveRenderer.wait'), te('dialogs.unresponsiveRenderer.reload')],
             defaultId: BUTTON_WAIT,
             cancelId: BUTTON_WAIT,
             noLink: true,
@@ -275,11 +257,7 @@ async function promptUnresponsiveRendererRecovery(
                 error: getErrorMessage(error),
             });
         } else {
-            reportWindowFailure(
-                'MAIN_UNRESPONSIVE_RECOVERY_FAILED',
-                message,
-                error,
-            );
+            reportWindowFailure('MAIN_UNRESPONSIVE_RECOVERY_FAILED', message, error);
         }
         recoverRenderer('unresponsive-dialog-fallback');
     }
@@ -312,34 +290,36 @@ async function promptFailedRendererRecovery(
     const BUTTON_RELOAD = 1;
 
     // A dialog that cannot be shown closes the window rather than leave it blank.
-    const response = await dialog.showMessageBox(window, {
-        type: 'error',
-        ...(reason === 'renderer-gone'
-            ? {
-                title: te('dialogs.rendererCrashed.title'),
-                message: te('dialogs.rendererCrashed.message'),
-                detail: te('dialogs.rendererCrashed.detail'),
-            }
-            : {
-                title: te('errors.runtime.startupTitle'),
-                message: te('errors.runtime.startupTitle'),
-                detail: te('errors.runtime.startupDescription'),
-            }),
-        buttons: [
-            te('dialogs.rendererCrashed.close'),
-            te('dialogs.rendererCrashed.reload'),
-        ],
-        defaultId: BUTTON_RELOAD,
-        cancelId: BUTTON_CLOSE,
-        noLink: true,
-    }).then(result => result.response, (error: unknown) => {
-        reportWindowFailure(
-            'MAIN_RENDERER_RECOVERY_FAILED',
-            `Failed to prompt after renderer recovery ran out (windowId=${windowId}): ${getErrorMessage(error)}`,
-            error,
+    const response = await dialog
+        .showMessageBox(window, {
+            type: 'error',
+            ...(reason === 'renderer-gone'
+                ? {
+                      title: te('dialogs.rendererCrashed.title'),
+                      message: te('dialogs.rendererCrashed.message'),
+                      detail: te('dialogs.rendererCrashed.detail'),
+                  }
+                : {
+                      title: te('errors.runtime.startupTitle'),
+                      message: te('errors.runtime.startupTitle'),
+                      detail: te('errors.runtime.startupDescription'),
+                  }),
+            buttons: [te('dialogs.rendererCrashed.close'), te('dialogs.rendererCrashed.reload')],
+            defaultId: BUTTON_RELOAD,
+            cancelId: BUTTON_CLOSE,
+            noLink: true,
+        })
+        .then(
+            (result) => result.response,
+            (error: unknown) => {
+                reportWindowFailure(
+                    'MAIN_RENDERER_RECOVERY_FAILED',
+                    `Failed to prompt after renderer recovery ran out (windowId=${windowId}): ${getErrorMessage(error)}`,
+                    error,
+                );
+                return BUTTON_CLOSE;
+            },
         );
-        return BUTTON_CLOSE;
-    });
     if (window.isDestroyed() || getWindowStartupPhase(windowId) !== failure) {
         return;
     }
@@ -350,10 +330,7 @@ async function promptFailedRendererRecovery(
     }
 }
 
-function attachRendererDiagnostics(
-    window: BrowserWindow,
-    options: IRendererDiagnosticsOptions = {},
-): IRendererDiagnosticsHandle {
+function attachRendererDiagnostics(window: BrowserWindow, options: IRendererDiagnosticsOptions = {}): IRendererDiagnosticsHandle {
     const webContents = window.webContents;
     const windowId = window.id;
     let recoveryInFlight = false;
@@ -368,13 +345,13 @@ function attachRendererDiagnostics(
 
     const isRecoveryUnavailable = (includePrompt = false) => {
         const now = Date.now();
-        recentRecoveryAttempts = recentRecoveryAttempts.filter(
-            attemptedAt => now - attemptedAt < RENDERER_RECOVERY_WINDOW_MS,
+        recentRecoveryAttempts = recentRecoveryAttempts.filter((attemptedAt) => now - attemptedAt < RENDERER_RECOVERY_WINDOW_MS);
+        return (
+            recoveryInFlight ||
+            window.isDestroyed() ||
+            recentRecoveryAttempts.length >= RENDERER_RECOVERY_MAX_ATTEMPTS ||
+            (includePrompt && unresponsivePromptInFlight)
         );
-        return recoveryInFlight
-            || window.isDestroyed()
-            || recentRecoveryAttempts.length >= RENDERER_RECOVERY_MAX_ATTEMPTS
-            || (includePrompt && unresponsivePromptInFlight);
     };
 
     const clearUnresponsiveRecoveryTimer = () => {
@@ -392,9 +369,7 @@ function attachRendererDiagnostics(
         }
 
         failure.reported = true;
-        const message = `Renderer recovery load failed (${failure.reason}, windowId=${windowId}): ${
-            getErrorMessage(error)
-        }`;
+        const message = `Renderer recovery load failed (${failure.reason}, windowId=${windowId}): ${getErrorMessage(error)}`;
         let receipt: FailureReceipt | undefined;
         if (window.isDestroyed()) {
             logger.info('Renderer recovery load failed after window destruction', {
@@ -404,9 +379,7 @@ function attachRendererDiagnostics(
             });
         } else {
             receipt = reportWindowFailure(
-                failure.reason.startsWith('unresponsive-')
-                    ? 'MAIN_UNRESPONSIVE_RECOVERY_FAILED'
-                    : 'MAIN_RENDERER_RECOVERY_FAILED',
+                failure.reason.startsWith('unresponsive-') ? 'MAIN_UNRESPONSIVE_RECOVERY_FAILED' : 'MAIN_RENDERER_RECOVERY_FAILED',
                 message,
                 error,
             );
@@ -470,10 +443,7 @@ function attachRendererDiagnostics(
             });
             return;
         }
-        reportWindowFailure(
-            'MAIN_RENDERER_PROCESS_GONE',
-            message,
-        );
+        reportWindowFailure('MAIN_RENDERER_PROCESS_GONE', message);
         // Development runs no recovery, so its renderer is as gone as one out of attempts.
         if (config.isDev || (!recoveryInFlight && isRecoveryUnavailable())) {
             publishWindowStartupPhase(windowId, {
@@ -486,9 +456,7 @@ function attachRendererDiagnostics(
     });
 
     webContents.on('preload-error', (_event, preloadPath, error) => {
-        const message = `[renderer] preload-error (windowId=${windowId}, preload=${preloadPath}): ${
-            error.stack ?? getErrorMessage(error)
-        }`;
+        const message = `[renderer] preload-error (windowId=${windowId}, preload=${preloadPath}): ${error.stack ?? getErrorMessage(error)}`;
         if (window.isDestroyed()) {
             logger.info('Renderer preload failed after window destruction', {
                 windowId,
@@ -497,11 +465,7 @@ function attachRendererDiagnostics(
             });
             return;
         }
-        reportWindowFailure(
-            'MAIN_PRELOAD_ERROR',
-            message,
-            error,
-        );
+        reportWindowFailure('MAIN_PRELOAD_ERROR', message, error);
     });
 
     window.on('unresponsive', () => {
@@ -517,21 +481,12 @@ function attachRendererDiagnostics(
             }
 
             unresponsivePromptInFlight = true;
-            const message = `[renderer] window remained unresponsive after ${UNRESPONSIVE_RECOVERY_DELAY_MS}ms `
-                + `(windowId=${windowId})`;
-            reportWindowFailure(
-                'MAIN_UNRESPONSIVE_RENDERER',
-                message,
-            );
+            const message = `[renderer] window remained unresponsive after ${UNRESPONSIVE_RECOVERY_DELAY_MS}ms ` + `(windowId=${windowId})`;
+            reportWindowFailure('MAIN_UNRESPONSIVE_RENDERER', message);
             logger.warn('Prompting recovery for unresponsive renderer', {windowId});
-            void promptUnresponsiveRendererRecovery(
-                window,
-                windowId,
-                recoverRenderer,
-            )
-                .finally(() => {
-                    unresponsivePromptInFlight = false;
-                });
+            void promptUnresponsiveRendererRecovery(window, windowId, recoverRenderer).finally(() => {
+                unresponsivePromptInFlight = false;
+            });
         }, UNRESPONSIVE_RECOVERY_DELAY_MS);
         unresponsiveRecoveryTimer.unref();
     });
@@ -579,7 +534,6 @@ function attachRendererDiagnostics(
     return rendererDiagnostics;
 }
 
-
 export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     const createStart = Date.now();
     const preloadPath = join(__dirname, 'preload.cjs');
@@ -589,7 +543,7 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     const window = new BrowserWindow({
         ...startupOptions.bounds,
         title: config.window.title,
-        ...(windowIconPath ? { icon: windowIconPath } : {}),
+        ...(windowIconPath ? {icon: windowIconPath} : {}),
         autoHideMenuBar: false,
         show: false,
         ...(keepAutomationRendererActive ? {paintWhenInitiallyHidden: true} : {}),
@@ -606,18 +560,19 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     const windowWebContents = window.webContents;
     let lastFrameSubscriptionAtMs: number | null = null;
     if (keepAutomationRendererActive) {
-        const logPaintState = (renderer: string) => logger.info('Automation first-paint window state', {
-            renderer,
-            windowId: window.id,
-            visible: window.isVisible(),
-            minimized: window.isMinimized(),
-            nativeFrameVisibility: windowWebContents.mainFrame.visibilityState,
-            // Electron exposes no window occlusion query or presentation timestamp.
-            occluded: null,
-            lastPresentedFrameAtMs: null,
-            lastFrameSubscriptionAtMs,
-        });
-        windowWebContents.on('console-message', event => {
+        const logPaintState = (renderer: string) =>
+            logger.info('Automation first-paint window state', {
+                renderer,
+                windowId: window.id,
+                visible: window.isVisible(),
+                minimized: window.isMinimized(),
+                nativeFrameVisibility: windowWebContents.mainFrame.visibilityState,
+                // Electron exposes no window occlusion query or presentation timestamp.
+                occluded: null,
+                lastPresentedFrameAtMs: null,
+                lastFrameSubscriptionAtMs,
+            });
+        windowWebContents.on('console-message', (event) => {
             if (event.message.startsWith('[automation-first-paint] ')) {
                 logPaintState(event.message);
             }
@@ -629,7 +584,7 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
         window.on('close', () => logPaintState('window:close'));
     }
 
-    registerAppWindow(window, {...(options.setAsMain === undefined ? {} : { setAsMain: options.setAsMain })});
+    registerAppWindow(window, {...(options.setAsMain === undefined ? {} : {setAsMain: options.setAsMain})});
     attachNativeWindowCloseHandshake(window, {
         ipcMain,
         logger,
@@ -649,7 +604,7 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     windowSecurity.hardenWindowWebContents(window);
     const rendererDiagnostics = attachRendererDiagnostics(window, {
         onRendererGone: markInitialRendererGone,
-        onRecoveryFailure: receipt => {
+        onRecoveryFailure: (receipt) => {
             windowLoadFailureOwner.adopt(windowLoadFailureOwner.getCurrentAttempt(), receipt);
         },
     });
@@ -657,7 +612,7 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     // deadline; its timeout belongs to the current load.
     const loadRenderer = (beforeLoad: Promise<unknown>) => ({
         readyPromise: waitForInitialRendererReady(window, {
-            onInitialLoadFailure: error => {
+            onInitialLoadFailure: (error) => {
                 windowLoadFailureOwner.report(windowLoadFailureOwner.getCurrentAttempt(), error);
             },
         }),
@@ -679,16 +634,11 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
         blockShowUntilRendererReady: shouldWaitForInitialRendererReady,
         logger,
         showAndFocusMaximizedWindow,
-        presentStartupFailure: failure => rendererDiagnostics.presentFailure(failure, reloadAfterFailure),
+        presentStartupFailure: (failure) => rendererDiagnostics.presentFailure(failure, reloadAfterFailure),
         logWindowStartup,
     });
 
-    const handleTopLevelNavigationStart = (
-        _event: unknown,
-        url: string,
-        isInPlace: boolean,
-        isMainFrame: boolean,
-    ) => {
+    const handleTopLevelNavigationStart = (_event: unknown, url: string, isInPlace: boolean, isMainFrame: boolean) => {
         windowLoadFailureOwner.observeTopLevelNavigation(url, isInPlace, isMainFrame);
     };
     const handleMainFrameLoadFailure = (
@@ -720,10 +670,14 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
         }
         // An aborted load (-3) was replaced by another navigation, which reports its own outcome.
         if (errorCode !== -3) {
-            publishWindowStartupPhase(window.id, {
-                phase: 'failed',
-                reason: 'load-failed',
-            }, error);
+            publishWindowStartupPhase(
+                window.id,
+                {
+                    phase: 'failed',
+                    reason: 'load-failed',
+                },
+                error,
+            );
         }
     };
     windowWebContents.on('did-start-navigation', handleTopLevelNavigationStart);
@@ -738,29 +692,29 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
 
     const startupPlaceholderPromise = shouldShowStartupPlaceholder
         ? loadStartupPlaceholder(window, {
-            title: config.window.title,
-            logger,
-        })
+              title: config.window.title,
+              logger,
+          })
         : Promise.resolve();
     const runtimeReadyPromise = ensureWindowRuntimeReady();
     // A navigation's failure arrives as did-fail-load; without a runtime none starts.
     void runtimeReadyPromise.catch((error) => {
-        publishWindowStartupPhase(window.id, {
-            phase: 'failed',
-            reason: 'load-failed',
-        }, new Error(`Initial loadURL failed: ${getErrorMessage(error)}`));
+        publishWindowStartupPhase(
+            window.id,
+            {
+                phase: 'failed',
+                reason: 'load-failed',
+            },
+            new Error(`Initial loadURL failed: ${getErrorMessage(error)}`),
+        );
     });
 
-    const {
-        readyPromise: initialRendererReadyPromise,
-        loadPromise: initialLoadPromise,
-    } = loadRenderer(runtimeReadyPromise.then(() => startupPlaceholderPromise.catch(() => {})));
+    const {readyPromise: initialRendererReadyPromise, loadPromise: initialLoadPromise} = loadRenderer(
+        runtimeReadyPromise.then(() => startupPlaceholderPromise.catch(() => {})),
+    );
     void initialLoadPromise.catch((error) => {
         if (!initialRendererGone) {
-            windowLoadFailureOwner.report(
-                initialLoadAttempt,
-                new Error(`Initial loadURL failed: ${getErrorMessage(error)}`),
-            );
+            windowLoadFailureOwner.report(initialLoadAttempt, new Error(`Initial loadURL failed: ${getErrorMessage(error)}`));
         }
     });
     if (!shouldWaitForInitialRendererReady) {
@@ -801,10 +755,12 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     return window;
 }
 
-export async function createWindow(options: {
-    showStartupPlaceholder?: boolean;
-    waitForInitialRendererReady?: boolean;
-} = {}) {
+export async function createWindow(
+    options: {
+        showStartupPlaceholder?: boolean;
+        waitForInitialRendererReady?: boolean;
+    } = {},
+) {
     const existingMainWindow = getRegisteredMainWindow();
     if (existingMainWindow) {
         return existingMainWindow;
@@ -816,12 +772,8 @@ export async function createWindow(options: {
 
     createMainWindowPromise = createAppWindow({
         setAsMain: true,
-        ...(options.waitForInitialRendererReady === undefined
-            ? {}
-            : { waitForInitialRendererReady: options.waitForInitialRendererReady }),
-        ...(options.showStartupPlaceholder === undefined
-            ? {}
-            : { showStartupPlaceholder: options.showStartupPlaceholder }),
+        ...(options.waitForInitialRendererReady === undefined ? {} : {waitForInitialRendererReady: options.waitForInitialRendererReady}),
+        ...(options.showStartupPlaceholder === undefined ? {} : {showStartupPlaceholder: options.showStartupPlaceholder}),
     });
     try {
         return await createMainWindowPromise;

@@ -1,14 +1,6 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { ZOOM } from '@app/constants/pdfLayout';
-import {
-    clampPdfFitScale,
-    clampPdfManualZoom,
-    resolvePdfZoomScale,
-} from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
+import {describe, expect, it} from 'vitest';
+import {ZOOM} from '@app/constants/pdfLayout';
+import {clampPdfFitScale, clampPdfManualZoom, resolvePdfZoomScale} from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
 
 describe('resolvePdfZoomScale', () => {
     it('clamps finite manual zoom values before the allowed range to the minimum', () => {
@@ -35,12 +27,14 @@ describe('resolvePdfZoomScale', () => {
     });
 
     it('applies the same manual clamp through the zoom resolver', () => {
-        expect(resolvePdfZoomScale({
-            zoomMode: 'custom',
-            fitMode: 'width',
-            manualZoom: 0,
-            fitScale: 1,
-        })).toEqual({
+        expect(
+            resolvePdfZoomScale({
+                zoomMode: 'custom',
+                fitMode: 'width',
+                manualZoom: 0,
+                fitScale: 1,
+            }),
+        ).toEqual({
             mode: 'custom',
             fitMode: 'width',
             effectiveScale: ZOOM.MIN,

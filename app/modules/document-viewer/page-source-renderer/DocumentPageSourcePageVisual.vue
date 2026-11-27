@@ -22,7 +22,12 @@
         role="alert"
     >
         <span>{{ errorPresentation ? formatFailurePresentationDescription(errorPresentation, t) : errorMessage }}</span>
-        <UButton color="neutral" variant="outline" :label="t('common.retry')" @click="emit('retry')" />
+        <UButton
+            color="neutral"
+            variant="outline"
+            :label="t('common.retry')"
+            @click="emit('retry')"
+        />
     </div>
     <img
         v-if="surface"
@@ -39,7 +44,7 @@
         :data-open-surface-generation="openSurfaceGeneration ?? ''"
         @load="emit('surfaceLoad', surface, $event)"
         @error="emit('surfaceError', surface, $event)"
-    >
+    />
     <DocumentPageSourceSearchLayer
         v-if="visual === 'fresh'"
         :page-number="pageNumber"
@@ -50,14 +55,11 @@
 
 <script setup lang="ts">
 import {useTypedI18n} from '@app/composables/useTypedI18n';
-import {
-    formatFailurePresentationDescription,
-    type IFailurePresentation,
-} from '@app/composables/useFailureToast';
-import type { IDocumentSearchMatch } from '@app/modules/document-viewer/search/documentSearch';
+import {formatFailurePresentationDescription, type IFailurePresentation} from '@app/composables/useFailureToast';
+import type {IDocumentSearchMatch} from '@app/modules/document-viewer/search/documentSearch';
 import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
 import DocumentPageSourceSearchLayer from '@app/modules/document-viewer/page-source-renderer/DocumentPageSourceSearchLayer.vue';
-import type { TDocumentPageSourceVisual } from '@app/modules/document-viewer/page-source-renderer/documentPageSourcePresentation';
+import type {TDocumentPageSourceVisual} from '@app/modules/document-viewer/page-source-renderer/documentPageSourcePresentation';
 
 const {
     contentHeight,

@@ -1,17 +1,8 @@
-import type { IpcRenderer } from 'electron';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
-import {
-    DOCX_EXPORT_STREAM_CHANNELS,
-    DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES,
-} from '@contracts/docxExport';
-import { createDocumentsPreloadStreams } from '@electron/features/documents/createDocumentsPreloadStreams';
+import type {IpcRenderer} from 'electron';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {DOCUMENTS_CHANNELS} from '@electron/features/documents/contract';
+import {DOCX_EXPORT_STREAM_CHANNELS, DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES} from '@contracts/docxExport';
+import {createDocumentsPreloadStreams} from '@electron/features/documents/createDocumentsPreloadStreams';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {waitForCondition} from '@tests/unit/electron/waitForCondition';
@@ -77,22 +68,9 @@ describe('createDocumentsPreloadStreams', () => {
         await expect(client.writeDocxFileStreamChunk(session.sessionId, Uint8Array.of(3, 4))).resolves.toBe(true);
         await expect(client.commitDocxFileStream(session.sessionId)).resolves.toBe(true);
 
-        expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(
-            1,
-            DOCX_EXPORT_STREAM_CHANNELS.begin,
-            '/tmp/export.docx',
-        );
-        expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(
-            2,
-            DOCX_EXPORT_STREAM_CHANNELS.writeChunk,
-            'docx-session',
-            Uint8Array.of(1, 2),
-        );
-        expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(
-            4,
-            DOCX_EXPORT_STREAM_CHANNELS.commit,
-            'docx-session',
-        );
+        expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(1, DOCX_EXPORT_STREAM_CHANNELS.begin, '/tmp/export.docx');
+        expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(2, DOCX_EXPORT_STREAM_CHANNELS.writeChunk, 'docx-session', Uint8Array.of(1, 2));
+        expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(4, DOCX_EXPORT_STREAM_CHANNELS.commit, 'docx-session');
     });
 
     it('cancels a DOCX stream when a chunk exceeds its IPC bound', async () => {
@@ -109,21 +87,25 @@ describe('createDocumentsPreloadStreams', () => {
         const client = createDocumentsPreloadStreams(ipcRenderer);
 
         const session = await client.beginDocxFileStream(requireDocumentRef('/tmp/export.docx'));
-        await expect(Promise.resolve().then(() => client.writeDocxFileStreamChunk(session.sessionId, new Uint8Array(DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES + 1)))).rejects.toThrow('writeDocxFileStreamChunk chunk exceeds maximum size');
+        await expect(
+            Promise.resolve().then(() =>
+                client.writeDocxFileStreamChunk(session.sessionId, new Uint8Array(DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES + 1)),
+            ),
+        ).rejects.toThrow('writeDocxFileStreamChunk chunk exceeds maximum size');
         await expect(client.cancelDocxFileStream(session.sessionId)).resolves.toBe(true);
     });
 
     it('cancels exactly once when the renderer aborts during a DOCX chunk write', async () => {
         let resolveWriteStarted: (() => void) | undefined;
-        const writeStarted = new Promise<void>(resolve => {
+        const writeStarted = new Promise<void>((resolve) => {
             resolveWriteStarted = resolve;
         });
         let resolveCancelStarted: (() => void) | undefined;
-        const cancelStarted = new Promise<void>(resolve => {
+        const cancelStarted = new Promise<void>((resolve) => {
             resolveCancelStarted = resolve;
         });
         let resolveWrite: (() => void) | undefined;
-        const writeRelease = new Promise<void>(resolve => {
+        const writeRelease = new Promise<void>((resolve) => {
             resolveWrite = resolve;
         });
         const ipcRenderer = {
@@ -158,19 +140,20 @@ describe('createDocumentsPreloadStreams', () => {
         resolveWrite?.();
 
         await expect(writePromise).resolves.toBe(true);
-        expect(ipcRenderer.invoke.mock.calls.filter(([channel]) => (
-            channel === DOCX_EXPORT_STREAM_CHANNELS.cancel
-        ))).toHaveLength(1);
+        expect(ipcRenderer.invoke.mock.calls.filter(([channel]) => channel === DOCX_EXPORT_STREAM_CHANNELS.cancel)).toHaveLength(1);
         expect(ipcRenderer.invoke).not.toHaveBeenCalledWith(DOCX_EXPORT_STREAM_CHANNELS.commit, session.sessionId);
     });
 
     it('streams PDF persistence chunks with tight backing buffers without transferring ArrayBuffers', async () => {
         const port1 = new FakeMessagePort();
         const port2 = new FakeMessagePort();
-        vi.stubGlobal('MessageChannel', class {
-            readonly port1 = port1;
-            readonly port2 = port2;
-        });
+        vi.stubGlobal(
+            'MessageChannel',
+            class {
+                readonly port1 = port1;
+                readonly port2 = port2;
+            },
+        );
         const ipcRenderer = {
             invoke: vi.fn(async (channel: string) => {
                 if (channel === DOCUMENTS_CHANNELS.fileSavePdfDataBegin) {
@@ -218,9 +201,9 @@ describe('createDocumentsPreloadStreams', () => {
         };
         const client = createDocumentsPreloadStreams(ipcRenderer);
 
-        await expect(client.savePdfData(requireDocumentRef('/tmp/working.pdf'), sourceBytes, revisionOptions))
-            .resolves
-            .toMatchObject({isValid: true});
+        await expect(client.savePdfData(requireDocumentRef('/tmp/working.pdf'), sourceBytes, revisionOptions)).resolves.toMatchObject({
+            isValid: true,
+        });
 
         const chunks = port1.postedMessages.filter(isChunkMessage);
         expect(chunks).toHaveLength(2);
@@ -247,21 +230,24 @@ describe('createDocumentsPreloadStreams', () => {
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         const client = createDocumentsPreloadStreams(ipcRenderer);
 
-        await expect(client.savePdfData(
-            requireDocumentRef('/tmp/working.pdf'),
-            Uint8Array.of(1),
-            {expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-save')},
-        )).rejects.toThrow('workingCopyOnly must be true');
+        await expect(
+            client.savePdfData(requireDocumentRef('/tmp/working.pdf'), Uint8Array.of(1), {
+                expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-save'),
+            }),
+        ).rejects.toThrow('workingCopyOnly must be true');
         expect(ipcRenderer.invoke).not.toHaveBeenCalled();
     });
 
     it('keeps a bounded pair of PDF persistence chunks in flight', async () => {
         const port1 = new FakeMessagePort();
         const port2 = new FakeMessagePort();
-        vi.stubGlobal('MessageChannel', class {
-            readonly port1 = port1;
-            readonly port2 = port2;
-        });
+        vi.stubGlobal(
+            'MessageChannel',
+            class {
+                readonly port1 = port1;
+                readonly port2 = port2;
+            },
+        );
         const ipcRenderer = {
             invoke: vi.fn(async (channel: string) => {
                 if (channel === DOCUMENTS_CHANNELS.fileSavePdfDataBegin) {
@@ -277,19 +263,19 @@ describe('createDocumentsPreloadStreams', () => {
             }),
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
         const client = createDocumentsPreloadStreams(ipcRenderer);
-        const sourceBytes = new Uint8Array((8 * 1024 * 1024) + 1);
+        const sourceBytes = new Uint8Array(8 * 1024 * 1024 + 1);
 
         const savePromise = client.savePdfData(requireDocumentRef('/tmp/working.pdf'), sourceBytes, revisionOptions);
         await waitForPostedChunkCount(port1, 2);
 
-        expect(port1.postedMessages.some(message => isPortMessage(message, 'complete'))).toBe(false);
+        expect(port1.postedMessages.some((message) => isPortMessage(message, 'complete'))).toBe(false);
 
         port1.emit({
             type: 'ack',
             seq: 0,
         });
         await Promise.resolve();
-        expect(port1.postedMessages.some(message => isPortMessage(message, 'complete'))).toBe(false);
+        expect(port1.postedMessages.some((message) => isPortMessage(message, 'complete'))).toBe(false);
 
         port1.emit({
             type: 'ack',
@@ -311,17 +297,17 @@ describe('createDocumentsPreloadStreams', () => {
     });
 
     it('starts the negotiated final-result deadline only after complete is sent', async () => {
-        vi.useFakeTimers({toFake: [
-            'setTimeout',
-            'clearTimeout',
-        ]});
+        vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']});
         try {
             const port1 = new FakeMessagePort();
             const port2 = new FakeMessagePort();
-            vi.stubGlobal('MessageChannel', class {
-                readonly port1 = port1;
-                readonly port2 = port2;
-            });
+            vi.stubGlobal(
+                'MessageChannel',
+                class {
+                    readonly port1 = port1;
+                    readonly port2 = port2;
+                },
+            );
             const ipcRenderer = {
                 invoke: vi.fn(async (channel: string) => {
                     if (channel === DOCUMENTS_CHANNELS.fileSavePdfDataBegin) {
@@ -344,14 +330,14 @@ describe('createDocumentsPreloadStreams', () => {
                 }),
             } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
             let resolveChunk!: () => void;
-            const chunkPosted = new Promise<void>(resolve => {
+            const chunkPosted = new Promise<void>((resolve) => {
                 resolveChunk = resolve;
             });
             let resolveComplete!: () => void;
-            const completePosted = new Promise<void>(resolve => {
+            const completePosted = new Promise<void>((resolve) => {
                 resolveComplete = resolve;
             });
-            port1.onPostMessage = message => {
+            port1.onPostMessage = (message) => {
                 if (isChunkMessage(message)) {
                     resolveChunk();
                 }
@@ -360,16 +346,12 @@ describe('createDocumentsPreloadStreams', () => {
                 }
             };
             const client = createDocumentsPreloadStreams(ipcRenderer);
-            const savePromise = client.savePdfData(
-                requireDocumentRef('/tmp/working.pdf'),
-                new Uint8Array([1]),
-                revisionOptions,
-            );
+            const savePromise = client.savePdfData(requireDocumentRef('/tmp/working.pdf'), new Uint8Array([1]), revisionOptions);
             await Promise.resolve();
             await Promise.resolve();
             await chunkPosted;
             vi.advanceTimersByTime(25);
-            expect(port1.postedMessages.some(message => isPortMessage(message, 'complete'))).toBe(false);
+            expect(port1.postedMessages.some((message) => isPortMessage(message, 'complete'))).toBe(false);
             port1.emit({
                 type: 'ack',
                 seq: 0,
@@ -382,7 +364,6 @@ describe('createDocumentsPreloadStreams', () => {
             vi.useRealTimers();
         }
     });
-
 });
 function isChunkMessage(message: unknown): message is {
     type: 'chunk';
@@ -390,24 +371,19 @@ function isChunkMessage(message: unknown): message is {
     bytes: Uint8Array;
 } {
     return Boolean(
-        message
-        && typeof message === 'object'
-        && 'type' in message
-        && message.type === 'chunk'
-        && 'seq' in message
-        && typeof message.seq === 'number'
-        && 'bytes' in message
-        && message.bytes instanceof Uint8Array,
+        message &&
+        typeof message === 'object' &&
+        'type' in message &&
+        message.type === 'chunk' &&
+        'seq' in message &&
+        typeof message.seq === 'number' &&
+        'bytes' in message &&
+        message.bytes instanceof Uint8Array,
     );
 }
 
 function isPortMessage(message: unknown, type: string) {
-    return Boolean(
-        message
-        && typeof message === 'object'
-        && 'type' in message
-        && message.type === type,
-    );
+    return Boolean(message && typeof message === 'object' && 'type' in message && message.type === type);
 }
 
 async function waitForPostedChunkCount(port: FakeMessagePort, expectedCount: number) {
@@ -418,6 +394,6 @@ async function waitForPostedChunkCount(port: FakeMessagePort, expectedCount: num
 
 async function waitForPortMessage(port: FakeMessagePort, type: string) {
     await waitForCondition(() => {
-        expect(port.postedMessages.some(message => isPortMessage(message, type))).toBe(true);
+        expect(port.postedMessages.some((message) => isPortMessage(message, type))).toBe(true);
     });
 }

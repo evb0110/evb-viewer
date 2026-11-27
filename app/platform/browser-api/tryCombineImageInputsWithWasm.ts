@@ -1,4 +1,4 @@
-import { getErrorMessage } from '@app/utils/error';
+import {getErrorMessage} from '@app/utils/error';
 import type {
     IBrowserPdfCombineInput,
     IBrowserPdfCombinePageSize,
@@ -6,15 +6,12 @@ import type {
     IBrowserPdfCombineWasmPageSpec,
     TBrowserPdfCombineWasmPageKind,
 } from '@contracts/browserPdfCombineWorker';
-import { getBrowserFileExtension } from '@app/platform/browser-api/browserPlatformHelpers';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { createNativeWasmToolLoader } from '@app/platform/browser/nativeWasmTool';
-import type { INativeErrorEnvelope } from '@contracts/nativeErrors';
+import {getBrowserFileExtension} from '@app/platform/browser-api/browserPlatformHelpers';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {createNativeWasmToolLoader} from '@app/platform/browser/nativeWasmTool';
+import type {INativeErrorEnvelope} from '@contracts/nativeErrors';
 import {PDF_COMBINE_OUTPUT_POLICY} from '@contracts/pdfCombineOutputPolicy';
-import {
-    BROWSER_PDF_COMBINE_MAX_IMAGE_PIXELS,
-    BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES,
-} from '@contracts/browserPdfCombineWorker';
+import {BROWSER_PDF_COMBINE_MAX_IMAGE_PIXELS, BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES} from '@contracts/browserPdfCombineWorker';
 import {createBrowserPdfCombineOutputErrorEnvelope} from '@app/platform/browser-api/browserPdfCombineLimits';
 
 const REQUEST_MAGIC = 'EPIC';
@@ -32,33 +29,15 @@ const WASM_PAGE_KIND_CODES: Record<TBrowserPdfCombineWasmPageKind, number> = {
 };
 const DEFAULT_DPI = 0;
 const MAX_TIFF_FRAMES = 250;
-const REQUEST_HEADER_BYTES = 4 + (6 * 4);
+const REQUEST_HEADER_BYTES = 4 + 6 * 4;
 const INPUT_HEADER_BYTES = 8;
-const PAGE_SPEC_HEADER_BYTES = 4 + (2 * 8) + (2 * 4);
+const PAGE_SPEC_HEADER_BYTES = 4 + 2 * 8 + 2 * 4;
 const PAGE_SPEC_TRANSFORM_HEADER_BYTES = PAGE_SPEC_HEADER_BYTES + 4;
 const PAGE_SPEC_FOREGROUND_COLOR_BYTES = 3 * 4;
 export const PDF_IMAGE_COMBINE_WASM_PATH = '/wasm/evb-pdf-image-combine.wasm';
-const WASM_IMAGE_EXTENSIONS = new Set([
-    '.jpeg',
-    '.jpg',
-    '.jp2',
-    '.pgm',
-    '.png',
-    '.ppm',
-    '.tif',
-    '.tiff',
-]);
-const WASM_PREPROCESSABLE_IMAGE_EXTENSIONS = new Set([
-    '.pgm',
-    '.ppm',
-]);
-const WASM_LAYER_IMAGE_EXTENSIONS = new Set([
-    '.jpeg',
-    '.jpg',
-    '.pgm',
-    '.png',
-    '.ppm',
-]);
+const WASM_IMAGE_EXTENSIONS = new Set(['.jpeg', '.jpg', '.jp2', '.pgm', '.png', '.ppm', '.tif', '.tiff']);
+const WASM_PREPROCESSABLE_IMAGE_EXTENSIONS = new Set(['.pgm', '.ppm']);
+const WASM_LAYER_IMAGE_EXTENSIONS = new Set(['.jpeg', '.jpg', '.pgm', '.png', '.ppm']);
 const WASM_MASK_EXTENSIONS = new Set(['.pbm']);
 const WASM_GRAY_RENDER_EXTENSIONS = new Set(['.pgm']);
 
@@ -76,14 +55,14 @@ const imageCombineWasm = createNativeWasmToolLoader({
 
 export type TBrowserPdfCombineWasmOutcome =
     | {
-        status: 'success';
-        data: Uint8Array
-    }
+          status: 'success';
+          data: Uint8Array;
+      }
     | {status: 'unsupported' | 'unavailable'}
     | {
-        status: 'fatal';
-        error: INativeErrorEnvelope
-    };
+          status: 'fatal';
+          error: INativeErrorEnvelope;
+      };
 
 function hasNetpbmJpegProcessing(options: IBrowserPdfCombineWasmImagePreprocessing | undefined) {
     return (options?.ppiCap ?? 0) > 0 || (options?.jpegQuality ?? 0) > 0;
@@ -114,23 +93,14 @@ function pageSpecInputs(spec: IBrowserPdfCombineWasmPageSpec): IBrowserPdfCombin
         case 'mask':
             return spec.mask ? [spec.mask] : [];
         case 'layered':
-            return spec.background && spec.mask ? [
-                spec.background,
-                spec.mask,
-            ] : [];
+            return spec.background && spec.mask ? [spec.background, spec.mask] : [];
         case 'layered-color':
-            return spec.background && spec.mask
-                ? [
-                    spec.background,
-                    spec.mask,
-                ]
-                : [];
+            return spec.background && spec.mask ? [spec.background, spec.mask] : [];
     }
 }
 
 function isValidForegroundColor(value: readonly number[] | undefined) {
-    return value?.length === 3
-        && value.every(channel => Number.isInteger(channel) && channel >= 0 && channel <= 255);
+    return value?.length === 3 && value.every((channel) => Number.isInteger(channel) && channel >= 0 && channel <= 255);
 }
 
 function canUsePageSpec(spec: IBrowserPdfCombineWasmPageSpec) {
@@ -154,25 +124,14 @@ function canUsePageSpec(spec: IBrowserPdfCombineWasmPageSpec) {
     if (spec.kind === 'layered') {
         return isSupportedLayerColorInput(spec.background) && isSupportedMaskInput(spec.mask);
     }
-    return (
-        isSupportedLayerColorInput(spec.background)
-        && isSupportedMaskInput(spec.mask)
-        && isValidForegroundColor(spec.foregroundColor)
-    );
+    return isSupportedLayerColorInput(spec.background) && isSupportedMaskInput(spec.mask) && isValidForegroundColor(spec.foregroundColor);
 }
 
 function shouldBuildGeneratedImagePageSpecs(
     inputs: IBrowserPdfCombineInput[],
     options: IBrowserPdfCombineWasmImagePreprocessing | undefined,
 ) {
-    return inputs.length > 0
-        && Boolean(
-            options
-            && (
-                hasNetpbmJpegProcessing(options)
-                || (options.pageSizes?.length ?? 0) > 0
-            ),
-        );
+    return inputs.length > 0 && Boolean(options && (hasNetpbmJpegProcessing(options) || (options.pageSizes?.length ?? 0) > 0));
 }
 
 function resolveRequestPageSpecs(
@@ -191,10 +150,7 @@ function resolveRequestPageSpecs(
     const pageSizes = options.pageSizes;
 
     const specs: IBrowserPdfCombineWasmPageSpec[] = [];
-    for (const [
-        index,
-        input,
-    ] of inputs.entries()) {
+    for (const [index, input] of inputs.entries()) {
         const pageSize = pageSizes[index];
         if (!pageSize) {
             return null;
@@ -210,16 +166,12 @@ function resolveRequestPageSpecs(
     return specs;
 }
 
-function canUsePdfImageCombineWasm(
-    inputs: IBrowserPdfCombineInput[],
-    options: IBrowserPdfCombineWasmImagePreprocessing | undefined,
-) {
+function canUsePdfImageCombineWasm(inputs: IBrowserPdfCombineInput[], options: IBrowserPdfCombineWasmImagePreprocessing | undefined) {
     if (typeof WebAssembly === 'undefined' || typeof fetch !== 'function') {
         return false;
     }
     if (options?.compactManifestLines !== undefined) {
-        return options.compactManifestLines.length > 0
-            && new Set(inputs.map(input => input.fileName)).size === inputs.length;
+        return options.compactManifestLines.length > 0 && new Set(inputs.map((input) => input.fileName)).size === inputs.length;
     }
     const pageSpecs = resolveRequestPageSpecs(inputs, options);
     if (pageSpecs) {
@@ -243,71 +195,55 @@ interface IEncodedWasmInput {
 }
 
 function resolvePageSpecRequestVersion(pageSpecs: IBrowserPdfCombineWasmPageSpec[]) {
-    return pageSpecs.some(spec => spec.rotationDegrees !== undefined)
-        ? REQUEST_VERSION_PAGE_TRANSFORMS
-        : REQUEST_VERSION_PAGE_SPECS;
+    return pageSpecs.some((spec) => spec.rotationDegrees !== undefined) ? REQUEST_VERSION_PAGE_TRANSFORMS : REQUEST_VERSION_PAGE_SPECS;
 }
 
-function getV1RequestLength(
-    inputs: IBrowserPdfCombineInput[],
-    encodedNames: Uint8Array[],
-) {
+function getV1RequestLength(inputs: IBrowserPdfCombineInput[], encodedNames: Uint8Array[]) {
     return inputs.reduce(
-        (total, input, index) => total
-            + INPUT_HEADER_BYTES
-            + (encodedNames[index]?.byteLength ?? 0)
-            + input.data.byteLength,
+        (total, input, index) => total + INPUT_HEADER_BYTES + (encodedNames[index]?.byteLength ?? 0) + input.data.byteLength,
         REQUEST_HEADER_BYTES,
     );
 }
 
-function getV4RequestLength(
-    pageSpecs: IBrowserPdfCombineWasmPageSpec[],
-    encodedPageInputs: IEncodedWasmInput[][],
-    version: number,
-) {
+function getV4RequestLength(pageSpecs: IBrowserPdfCombineWasmPageSpec[], encodedPageInputs: IEncodedWasmInput[][], version: number) {
     return encodedPageInputs.reduce(
-        (total, inputs, index) => total
-            + (version === REQUEST_VERSION_PAGE_TRANSFORMS
-                ? PAGE_SPEC_TRANSFORM_HEADER_BYTES
-                : PAGE_SPEC_HEADER_BYTES)
-            + (pageSpecs[index]?.kind === 'layered-color' ? PAGE_SPEC_FOREGROUND_COLOR_BYTES : 0)
-            + inputs.reduce(
-                (pageTotal, input) => pageTotal
-                    + INPUT_HEADER_BYTES
-                    + input.name.byteLength
-                    + input.input.data.byteLength,
-                0,
-            ),
+        (total, inputs, index) =>
+            total +
+            (version === REQUEST_VERSION_PAGE_TRANSFORMS ? PAGE_SPEC_TRANSFORM_HEADER_BYTES : PAGE_SPEC_HEADER_BYTES) +
+            (pageSpecs[index]?.kind === 'layered-color' ? PAGE_SPEC_FOREGROUND_COLOR_BYTES : 0) +
+            inputs.reduce((pageTotal, input) => pageTotal + INPUT_HEADER_BYTES + input.name.byteLength + input.input.data.byteLength, 0),
         REQUEST_HEADER_BYTES,
     );
 }
 
-function getWasmRequestLength(
-    inputs: IBrowserPdfCombineInput[],
-    options: IBrowserPdfCombineWasmImagePreprocessing | undefined,
-) {
+function getWasmRequestLength(inputs: IBrowserPdfCombineInput[], options: IBrowserPdfCombineWasmImagePreprocessing | undefined) {
     if (options?.compactManifestLines !== undefined) {
         const encoder = new TextEncoder();
-        return getV1RequestLength(inputs, inputs.map(input => getEncodedName(input, encoder)))
-            + 4
-            + options.compactManifestLines.reduce((total, line) => total + 4 + encoder.encode(line).byteLength, 0);
+        return (
+            getV1RequestLength(
+                inputs,
+                inputs.map((input) => getEncodedName(input, encoder)),
+            ) +
+            4 +
+            options.compactManifestLines.reduce((total, line) => total + 4 + encoder.encode(line).byteLength, 0)
+        );
     }
     const pageSpecs = resolveRequestPageSpecs(inputs, options);
     if (pageSpecs) {
         const encoder = new TextEncoder();
-        const encodedPageInputs = pageSpecs.map(spec => pageSpecInputs(spec).map(input => ({
-            input,
-            name: getEncodedName(input, encoder),
-        })));
-        return getV4RequestLength(
-            pageSpecs,
-            encodedPageInputs,
-            resolvePageSpecRequestVersion(pageSpecs),
+        const encodedPageInputs = pageSpecs.map((spec) =>
+            pageSpecInputs(spec).map((input) => ({
+                input,
+                name: getEncodedName(input, encoder),
+            })),
         );
+        return getV4RequestLength(pageSpecs, encodedPageInputs, resolvePageSpecRequestVersion(pageSpecs));
     }
     const encoder = new TextEncoder();
-    return getV1RequestLength(inputs, inputs.map(input => getEncodedName(input, encoder)));
+    return getV1RequestLength(
+        inputs,
+        inputs.map((input) => getEncodedName(input, encoder)),
+    );
 }
 
 function writeU32(view: DataView, offset: number, value: number) {
@@ -331,23 +267,18 @@ function boundedU32OrDefault(value: number | undefined, defaultValue: number) {
 
 function isValidPageSize(pageSize: IBrowserPdfCombinePageSize | undefined) {
     if (
-        !pageSize
-        || !Number.isFinite(pageSize.widthPoints)
-        || !Number.isFinite(pageSize.heightPoints)
-        || pageSize.widthPoints <= 0
-        || pageSize.heightPoints <= 0
+        !pageSize ||
+        !Number.isFinite(pageSize.widthPoints) ||
+        !Number.isFinite(pageSize.heightPoints) ||
+        pageSize.widthPoints <= 0 ||
+        pageSize.heightPoints <= 0
     ) {
         return false;
     }
     return true;
 }
 
-function writeRequestHeader(
-    request: Uint8Array,
-    view: DataView,
-    version: number,
-    itemCount: number,
-) {
+function writeRequestHeader(request: Uint8Array, view: DataView, version: number, itemCount: number) {
     const encoder = new TextEncoder();
     let offset = 0;
 
@@ -364,12 +295,7 @@ function writeRequestHeader(
     return offset;
 }
 
-function writeInput(
-    request: Uint8Array,
-    view: DataView,
-    offset: number,
-    input: IEncodedWasmInput,
-) {
+function writeInput(request: Uint8Array, view: DataView, offset: number, input: IEncodedWasmInput) {
     offset = writeU32(view, offset, input.name.byteLength);
     offset = writeU32(view, offset, input.input.data.byteLength);
     request.set(input.name, offset);
@@ -378,19 +304,14 @@ function writeInput(
     return offset + input.input.data.byteLength;
 }
 
-function buildV1WasmRequest(
-    inputs: IBrowserPdfCombineInput[],
-) {
+function buildV1WasmRequest(inputs: IBrowserPdfCombineInput[]) {
     const encoder = new TextEncoder();
-    const encodedNames = inputs.map(input => getEncodedName(input, encoder));
+    const encodedNames = inputs.map((input) => getEncodedName(input, encoder));
     const request = new Uint8Array(getV1RequestLength(inputs, encodedNames));
     const view = new DataView(request.buffer);
     let offset = writeRequestHeader(request, view, REQUEST_VERSION, inputs.length);
 
-    for (const [
-        index,
-        input,
-    ] of inputs.entries()) {
+    for (const [index, input] of inputs.entries()) {
         const name = encodedNames[index];
         if (name === undefined) {
             throw new Error('Missing encoded PDF combine input name');
@@ -404,28 +325,20 @@ function buildV1WasmRequest(
     return request;
 }
 
-function buildV3WasmRequest(
-    pageSpecs: IBrowserPdfCombineWasmPageSpec[],
-    options?: IBrowserPdfCombineWasmImagePreprocessing,
-) {
+function buildV3WasmRequest(pageSpecs: IBrowserPdfCombineWasmPageSpec[], options?: IBrowserPdfCombineWasmImagePreprocessing) {
     const encoder = new TextEncoder();
-    const encodedPageInputs = pageSpecs.map(spec => pageSpecInputs(spec).map(input => ({
-        input,
-        name: getEncodedName(input, encoder),
-    })));
+    const encodedPageInputs = pageSpecs.map((spec) =>
+        pageSpecInputs(spec).map((input) => ({
+            input,
+            name: getEncodedName(input, encoder),
+        })),
+    );
     const version = resolvePageSpecRequestVersion(pageSpecs);
-    const request = new Uint8Array(getV4RequestLength(
-        pageSpecs,
-        encodedPageInputs,
-        version,
-    ));
+    const request = new Uint8Array(getV4RequestLength(pageSpecs, encodedPageInputs, version));
     const view = new DataView(request.buffer);
     let offset = writeRequestHeader(request, view, version, pageSpecs.length);
 
-    for (const [
-        index,
-        spec,
-    ] of pageSpecs.entries()) {
+    for (const [index, spec] of pageSpecs.entries()) {
         if (!isValidPageSize(spec.pageSize)) {
             throw new Error('Invalid WASM page spec size');
         }
@@ -434,24 +347,17 @@ function buildV3WasmRequest(
         offset = writeF64(view, offset, spec.pageSize.heightPoints);
         // The Optimize kinds carry exactly their own options, never the request defaults.
         const ownsOptions = spec.kind === 'image-bw' || spec.kind === 'image-jpeg-with-flate-fallback';
-        offset = writeU32(view, offset, ownsOptions
-            ? boundedU32OrDefault(spec.jpegQuality, 0)
-            : boundedU32OrDefault(spec.jpegQuality, integerOrDefault(options?.jpegQuality, 0)));
-        offset = writeU32(view, offset, ownsOptions
-            ? 0
-            : boundedU32OrDefault(spec.ppiCap, integerOrDefault(options?.ppiCap, 0)));
+        offset = writeU32(
+            view,
+            offset,
+            ownsOptions
+                ? boundedU32OrDefault(spec.jpegQuality, 0)
+                : boundedU32OrDefault(spec.jpegQuality, integerOrDefault(options?.jpegQuality, 0)),
+        );
+        offset = writeU32(view, offset, ownsOptions ? 0 : boundedU32OrDefault(spec.ppiCap, integerOrDefault(options?.ppiCap, 0)));
         if (version === REQUEST_VERSION_PAGE_TRANSFORMS) {
             const rotationDegrees = spec.rotationDegrees ?? 0;
-            if (![
-                0,
-                90,
-                180,
-                270,
-                360,
-                450,
-                540,
-                630,
-            ].includes(rotationDegrees)) {
+            if (![0, 90, 180, 270, 360, 450, 540, 630].includes(rotationDegrees)) {
                 throw new Error('Invalid WASM page spec rotation');
             }
             offset = writeU32(view, offset, rotationDegrees);
@@ -460,11 +366,7 @@ function buildV3WasmRequest(
             offset = writeInput(request, view, offset, input);
         }
         if (spec.kind === 'layered-color') {
-            const color = spec.foregroundColor ?? [
-                0,
-                0,
-                0,
-            ];
+            const color = spec.foregroundColor ?? [0, 0, 0];
             offset = writeU32(view, offset, boundedU32OrDefault(color[0], 0));
             offset = writeU32(view, offset, boundedU32OrDefault(color[1], 0));
             offset = writeU32(view, offset, boundedU32OrDefault(color[2], 0));
@@ -480,18 +382,15 @@ function buildV3WasmRequest(
  */
 function buildCompactManifestWasmRequest(inputs: IBrowserPdfCombineInput[], lines: readonly string[]) {
     const encoder = new TextEncoder();
-    const encodedNames = inputs.map(input => getEncodedName(input, encoder));
-    const encodedLines = lines.map(line => encoder.encode(line));
-    const request = new Uint8Array(getV1RequestLength(inputs, encodedNames)
-        + 4
-        + encodedLines.reduce((total, line) => total + 4 + line.byteLength, 0));
+    const encodedNames = inputs.map((input) => getEncodedName(input, encoder));
+    const encodedLines = lines.map((line) => encoder.encode(line));
+    const request = new Uint8Array(
+        getV1RequestLength(inputs, encodedNames) + 4 + encodedLines.reduce((total, line) => total + 4 + line.byteLength, 0),
+    );
     const view = new DataView(request.buffer);
     let offset = writeRequestHeader(request, view, REQUEST_VERSION_COMPACT_MANIFEST, lines.length);
     offset = writeU32(view, offset, inputs.length);
-    for (const [
-        index,
-        input,
-    ] of inputs.entries()) {
+    for (const [index, input] of inputs.entries()) {
         offset = writeInput(request, view, offset, {
             input,
             name: encodedNames[index]!,
@@ -505,10 +404,7 @@ function buildCompactManifestWasmRequest(inputs: IBrowserPdfCombineInput[], line
     return request;
 }
 
-function buildWasmRequest(
-    inputs: IBrowserPdfCombineInput[],
-    options?: IBrowserPdfCombineWasmImagePreprocessing,
-) {
+function buildWasmRequest(inputs: IBrowserPdfCombineInput[], options?: IBrowserPdfCombineWasmImagePreprocessing) {
     if (options?.compactManifestLines !== undefined) {
         return buildCompactManifestWasmRequest(inputs, options.compactManifestLines);
     }
@@ -523,11 +419,7 @@ function throwIfAborted(signal: AbortSignal | undefined) {
     if (!signal?.aborted) {
         return;
     }
-    const error = new Error(
-        signal.reason instanceof Error
-            ? signal.reason.message
-            : 'Browser PDF combine was canceled',
-    );
+    const error = new Error(signal.reason instanceof Error ? signal.reason.message : 'Browser PDF combine was canceled');
     error.name = 'AbortError';
     throw error;
 }
@@ -565,9 +457,9 @@ export async function tryCombineImageInputsWithWasm(
         };
     }
     if (
-        !Number.isSafeInteger(estimatedRequestLength)
-        || estimatedRequestLength <= 0
-        || estimatedRequestLength > BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES
+        !Number.isSafeInteger(estimatedRequestLength) ||
+        estimatedRequestLength <= 0 ||
+        estimatedRequestLength > BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES
     ) {
         return createWasmRequestTooLargeOutcome();
     }
@@ -601,10 +493,7 @@ export async function tryCombineImageInputsWithWasm(
             data: called.output,
         };
     }
-    if (
-        called.error.code === 'invalid-request'
-        && called.error.message.endsWith('returned an invalid output envelope')
-    ) {
+    if (called.error.code === 'invalid-request' && called.error.message.endsWith('returned an invalid output envelope')) {
         return {
             status: 'fatal',
             error: createBrowserPdfCombineOutputErrorEnvelope(),

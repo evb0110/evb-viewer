@@ -1,19 +1,10 @@
-import type { Page } from 'puppeteer-core';
-import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
-import type { IPdfRenderTraceEntry } from '@contracts/pdfDiagnostics';
-import {
-    areTimingBudgetsEnforced,
-    reportTimingBudgetMiss,
-} from '@tests/e2e/electron/helpers/timingBudget';
+import type {Page} from 'puppeteer-core';
+import {evaluateInPage} from '@tests/e2e/electron/helpers/pageRuntime';
+import type {IPdfRenderTraceEntry} from '@contracts/pdfDiagnostics';
+import {areTimingBudgetsEnforced, reportTimingBudgetMiss} from '@tests/e2e/electron/helpers/timingBudget';
 
 export type TCommittedSurfaceKind =
-    | 'blank'
-    | 'committed-canvas'
-    | 'committed-empty'
-    | 'loader'
-    | 'opening-progress'
-    | 'page-shell'
-    | 'tool-surface';
+    'blank' | 'committed-canvas' | 'committed-empty' | 'loader' | 'opening-progress' | 'page-shell' | 'tool-surface';
 
 type TCommittedEmptySource = 'live-empty-state';
 
@@ -126,7 +117,9 @@ export interface ICommittedSurfaceTrace {
     frames: ICommittedSurfaceFrame[];
 }
 
-export interface ICommittedSurfaceSamplerOptions {sampleCanvasPixels?: boolean;}
+export interface ICommittedSurfaceSamplerOptions {
+    sampleCanvasPixels?: boolean;
+}
 
 export interface ICommittedSurfaceSampleWaitOptions {
     interactionCheckpoint?: string;
@@ -161,38 +154,34 @@ export interface ICommittedSurfaceInteractionTailContract {
     stableCheckpoints: readonly string[];
 }
 
-function sameRect(
-    left: ICommittedSurfaceRect | null,
-    right: ICommittedSurfaceRect | null,
-    tolerance = 1,
-) {
+function sameRect(left: ICommittedSurfaceRect | null, right: ICommittedSurfaceRect | null, tolerance = 1) {
     return Boolean(
-        left
-        && right
-        && Math.abs(left.height - right.height) <= tolerance
-        && Math.abs(left.left - right.left) <= tolerance
-        && Math.abs(left.top - right.top) <= tolerance
-        && Math.abs(left.width - right.width) <= tolerance,
+        left &&
+        right &&
+        Math.abs(left.height - right.height) <= tolerance &&
+        Math.abs(left.left - right.left) <= tolerance &&
+        Math.abs(left.top - right.top) <= tolerance &&
+        Math.abs(left.width - right.width) <= tolerance,
     );
 }
 
 function sameStyle(left: ICommittedSurfaceStyle | null, right: ICommittedSurfaceStyle | null) {
     return Boolean(
-        left
-        && right
-        && left.backgroundColor === right.backgroundColor
-        && left.borderRadius === right.borderRadius
-        && left.boxShadow === right.boxShadow,
+        left &&
+        right &&
+        left.backgroundColor === right.backgroundColor &&
+        left.borderRadius === right.borderRadius &&
+        left.boxShadow === right.boxShadow,
     );
 }
 
 function ownsPageFrameStyle(style: ICommittedSurfaceStyle | null) {
     return Boolean(
-        style
-        && style.backgroundColor !== 'rgba(0, 0, 0, 0)'
-        && style.backgroundColor !== 'transparent'
-        && style.borderRadius !== '0px'
-        && style.boxShadow !== 'none',
+        style &&
+        style.backgroundColor !== 'rgba(0, 0, 0, 0)' &&
+        style.backgroundColor !== 'transparent' &&
+        style.borderRadius !== '0px' &&
+        style.boxShadow !== 'none',
     );
 }
 
@@ -201,12 +190,14 @@ function ownsPageFrameStyle(style: ICommittedSurfaceStyle | null) {
  * It may precede the chassis's open claim, but cannot replace a known page shape.
  */
 export function isOpeningBeforePageGeometry(frame: ICommittedSurfaceFrame) {
-    return frame.kind === 'opening-progress'
-        && (frame.openingProgressRect?.width ?? 0) > 0
-        && (frame.openingProgressRect?.height ?? 0) > 0
-        && (frame.openSurfacePhase === 'pending' || frame.openSurfacePhase === 'idle' || frame.openSurfacePhase == null)
-        && frame.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry !== 'true'
-        && frame.openSurfaceDiagnostic?.openSurfaceHasGeometry !== 'true';
+    return (
+        frame.kind === 'opening-progress' &&
+        (frame.openingProgressRect?.width ?? 0) > 0 &&
+        (frame.openingProgressRect?.height ?? 0) > 0 &&
+        (frame.openSurfacePhase === 'pending' || frame.openSurfacePhase === 'idle' || frame.openSurfacePhase == null) &&
+        frame.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry !== 'true' &&
+        frame.openSurfaceDiagnostic?.openSurfaceHasGeometry !== 'true'
+    );
 }
 
 /**
@@ -216,11 +207,14 @@ export function isOpeningBeforePageGeometry(frame: ICommittedSurfaceFrame) {
  * frame stays in the trace, including a blank before the chassis mounts.
  */
 export function selectClaimedOpenTrace(trace: ICommittedSurfaceTrace): ICommittedSurfaceTrace {
-    const claimIndex = trace.frames.findIndex(frame => !(
-        frame.openSurfacePhase === 'idle'
-        && frame.openSurfaceDiagnostic?.openSurfaceGeneration === '0'
-        && frame.openSurfaceDiagnostic.openSurfaceDocumentId === ''
-    ));
+    const claimIndex = trace.frames.findIndex(
+        (frame) =>
+            !(
+                frame.openSurfacePhase === 'idle' &&
+                frame.openSurfaceDiagnostic?.openSurfaceGeneration === '0' &&
+                frame.openSurfaceDiagnostic.openSurfaceDocumentId === ''
+            ),
+    );
     if (claimIndex >= 0) {
         return {
             ...trace,
@@ -233,7 +227,7 @@ export function selectClaimedOpenTrace(trace: ICommittedSurfaceTrace): ICommitte
     return {
         ...trace,
         errors: [
-            ...trace.errors ?? [],
+            ...(trace.errors ?? []),
             {
                 checkpoint: null,
                 elapsedMs: lastFrame?.elapsedMs ?? 0,
@@ -245,39 +239,34 @@ export function selectClaimedOpenTrace(trace: ICommittedSurfaceTrace): ICommitte
 }
 
 /** Returns release-blocking contract violations, keeping Vitest assertions out of the helper. */
-export function findCommittedSurfaceContractViolations(
-    trace: ICommittedSurfaceTrace,
-    options: {allowDeferredOpening?: boolean} = {},
-) {
-    const violations = trace.errors?.map(error => (
-        `surface sampler failed at frame ${String(error.frame)} (${error.checkpoint ?? 'unmarked'}): ${error.message}`
-    )) ?? [];
+export function findCommittedSurfaceContractViolations(trace: ICommittedSurfaceTrace, options: {allowDeferredOpening?: boolean} = {}) {
+    const violations =
+        trace.errors?.map(
+            (error) => `surface sampler failed at frame ${String(error.frame)} (${error.checkpoint ?? 'unmarked'}): ${error.message}`,
+        ) ?? [];
     const frames = trace.frames;
     if (frames.length < 2) {
-        return [
-            ...violations,
-            'fewer than two animation frames were sampled',
-        ];
+        return [...violations, 'fewer than two animation frames were sampled'];
     }
 
     // An open never goes back a step: once it has shown its page shape, the
     // progress alone in that same open is a regression, not the opening.
     const openingsWithShell = new Set<string>();
-    const openingKey = (frame: ICommittedSurfaceFrame) => (
-        `${frame.openSurfaceDiagnostic?.openSurfaceDocumentId ?? ''}#${frame.openSurfaceDiagnostic?.openSurfaceGeneration ?? ''}`
-    );
+    const openingKey = (frame: ICommittedSurfaceFrame) =>
+        `${frame.openSurfaceDiagnostic?.openSurfaceDocumentId ?? ''}#${frame.openSurfaceDiagnostic?.openSurfaceGeneration ?? ''}`;
     for (const frame of frames) {
-        const isExplicitDeferredOpening = options.allowDeferredOpening === true
-            && frame.kind === 'blank'
-            && frame.openSurfacePhase === 'pending'
-            && frame.pdfNavigationDiagnostic?.openingSurfaceDeferred === 'true';
+        const isExplicitDeferredOpening =
+            options.allowDeferredOpening === true &&
+            frame.kind === 'blank' &&
+            frame.openSurfacePhase === 'pending' &&
+            frame.pdfNavigationDiagnostic?.openingSurfaceDeferred === 'true';
         if (frame.kind === 'page-shell' || frame.kind === 'committed-canvas') {
             openingsWithShell.add(openingKey(frame));
         }
         const isOpeningProgress = isOpeningBeforePageGeometry(frame) && !openingsWithShell.has(openingKey(frame));
         if (
-            (frame.kind === 'blank' || frame.kind === 'loader' || frame.kind === 'opening-progress' && !isOpeningProgress)
-            && !isExplicitDeferredOpening
+            (frame.kind === 'blank' || frame.kind === 'loader' || (frame.kind === 'opening-progress' && !isOpeningProgress)) &&
+            !isExplicitDeferredOpening
         ) {
             violations.push(`frame ${String(frame.frame)} exposed ${frame.kind}`);
         }
@@ -294,24 +283,18 @@ export function findCommittedSurfaceContractViolations(
             violations.push(`frame ${String(frame.frame)} retained a skeleton over the committed visual`);
         }
         if (
-            frame.kind === 'page-shell'
-            && (
-                frame.shellId === null
-                || frame.skeletonCount > 1
-                || frame.skeletonCount === 1 && !frame.skeletonSharesShell
-            )
+            frame.kind === 'page-shell' &&
+            (frame.shellId === null || frame.skeletonCount > 1 || (frame.skeletonCount === 1 && !frame.skeletonSharesShell))
         ) {
             violations.push(`frame ${String(frame.frame)} did not keep its skeleton inside the actual page shell`);
         }
         if (
-            frame.kind === 'page-shell'
-            && frame.skeletonCount === 1
-            && (
-                !sameRect(frame.skeletonRect, frame.shellRect)
-                || frame.skeletonStyle?.backgroundColor !== frame.shellStyle?.backgroundColor
-                || frame.skeletonStyle?.borderRadius !== frame.shellStyle?.borderRadius
-                || frame.skeletonStyle?.boxShadow !== 'none'
-            )
+            frame.kind === 'page-shell' &&
+            frame.skeletonCount === 1 &&
+            (!sameRect(frame.skeletonRect, frame.shellRect) ||
+                frame.skeletonStyle?.backgroundColor !== frame.shellStyle?.backgroundColor ||
+                frame.skeletonStyle?.borderRadius !== frame.shellStyle?.borderRadius ||
+                frame.skeletonStyle?.boxShadow !== 'none')
         ) {
             violations.push(`frame ${String(frame.frame)} skeleton did not fill the wrapper without a competing frame`);
         }
@@ -323,9 +306,7 @@ export function findCommittedSurfaceContractViolations(
         }
     }
 
-    const overflowStates = frames
-        .map(frame => frame.viewportHasHorizontalOverflow)
-        .filter((value): value is boolean => value !== null);
+    const overflowStates = frames.map((frame) => frame.viewportHasHorizontalOverflow).filter((value): value is boolean => value !== null);
     let overflowTransitions = 0;
     for (let index = 1; index < overflowStates.length; index += 1) {
         if (overflowStates[index] !== overflowStates[index - 1]) {
@@ -336,11 +317,9 @@ export function findCommittedSurfaceContractViolations(
         violations.push(`viewer horizontal-overflow state pulsed ${String(overflowTransitions)} times`);
     }
 
-    const finalCanvas = frames.findLast(frame => frame.kind === 'committed-canvas');
+    const finalCanvas = frames.findLast((frame) => frame.kind === 'committed-canvas');
     const firstCanvasIndex = finalCanvas
-        ? frames.findIndex(frame => (
-            frame.kind === 'committed-canvas' && frame.shellId === finalCanvas.shellId
-        ))
+        ? frames.findIndex((frame) => frame.kind === 'committed-canvas' && frame.shellId === finalCanvas.shellId)
         : -1;
     if (firstCanvasIndex < 0) {
         violations.push('no committed canvas became visible');
@@ -356,8 +335,7 @@ export function findCommittedSurfaceContractViolations(
 
     // The opening shell appears only at the page's final geometry, so every
     // shell frame must already match the canvas that replaces it.
-    const shellFrames = frames.slice(0, firstCanvasIndex)
-        .filter(frame => frame.kind === 'page-shell');
+    const shellFrames = frames.slice(0, firstCanvasIndex).filter((frame) => frame.kind === 'page-shell');
     const firstShell = shellFrames[0];
     if (firstShell) {
         for (const shell of shellFrames.slice(1)) {
@@ -403,50 +381,46 @@ export function findCommittedSurfaceContractViolations(
     // The first canvas is the hand-off boundary, not the beginning of a grace
     // period. Compare every subsequent RAF for this exact wrapper so a
     // one-frame widen/snapback cannot hide before the stable-tail sample.
-    const committedCanvasFrames = frames.slice(firstCanvasIndex).filter(frame => (
-        frame.kind === 'committed-canvas' && frame.shellId === firstCanvas.shellId
-    ));
+    const committedCanvasFrames = frames
+        .slice(firstCanvasIndex)
+        .filter((frame) => frame.kind === 'committed-canvas' && frame.shellId === firstCanvas.shellId);
     for (const canvasFrame of committedCanvasFrames.slice(1)) {
-        if (
-            !sameRect(canvasFrame.shellRect, firstCanvas.shellRect)
-            || !sameStyle(canvasFrame.shellStyle, firstCanvas.shellStyle)
-        ) {
+        if (!sameRect(canvasFrame.shellRect, firstCanvas.shellRect) || !sameStyle(canvasFrame.shellStyle, firstCanvas.shellStyle)) {
             violations.push(`committed canvas geometry or style changed after first paint at frame ${String(canvasFrame.frame)}`);
         }
     }
 
-    const oldCommittedCanvas = frames.slice(0, firstCanvasIndex).find(frame => (
-        frame.kind === 'committed-canvas'
-        && frame.shellId !== firstCanvas.shellId
-    ));
+    const oldCommittedCanvas = frames
+        .slice(0, firstCanvasIndex)
+        .find((frame) => frame.kind === 'committed-canvas' && frame.shellId !== firstCanvas.shellId);
     if (oldCommittedCanvas) {
-        const oldFrames = frames.slice(0, firstCanvasIndex).filter(frame => (
-            frame.kind === 'committed-canvas' && frame.shellId === oldCommittedCanvas.shellId
-        ));
+        const oldFrames = frames
+            .slice(0, firstCanvasIndex)
+            .filter((frame) => frame.kind === 'committed-canvas' && frame.shellId === oldCommittedCanvas.shellId);
         for (const oldFrame of oldFrames) {
             if (
-                !sameRect(oldFrame.shellRect, oldCommittedCanvas.shellRect)
-                || !sameStyle(oldFrame.shellStyle, oldCommittedCanvas.shellStyle)
+                !sameRect(oldFrame.shellRect, oldCommittedCanvas.shellRect) ||
+                !sameStyle(oldFrame.shellStyle, oldCommittedCanvas.shellStyle)
             ) {
                 violations.push(`old committed surface changed before swap (frame ${String(oldFrame.frame)})`);
             }
         }
-        if (frames.slice(firstCanvasIndex + 1).some(frame => frame.shellId === oldCommittedCanvas.shellId)) {
+        if (frames.slice(firstCanvasIndex + 1).some((frame) => frame.shellId === oldCommittedCanvas.shellId)) {
             violations.push('old committed surface returned after the new surface swap');
         }
     }
 
-    const stableTail = frames.filter(frame => frame.kind === 'committed-canvas').slice(-10);
+    const stableTail = frames.filter((frame) => frame.kind === 'committed-canvas').slice(-10);
     if (stableTail.length < 10) {
         violations.push('fewer than ten committed-canvas RAFs were observed');
     } else {
         const baseline = stableTail[0]!;
         for (const frame of stableTail.slice(1)) {
             if (
-                frame.shellId !== baseline.shellId
-                || !sameRect(frame.shellRect, baseline.shellRect)
-                || !sameStyle(frame.shellStyle, baseline.shellStyle)
-                || frame.viewportHasHorizontalOverflow !== baseline.viewportHasHorizontalOverflow
+                frame.shellId !== baseline.shellId ||
+                !sameRect(frame.shellRect, baseline.shellRect) ||
+                !sameStyle(frame.shellStyle, baseline.shellStyle) ||
+                frame.viewportHasHorizontalOverflow !== baseline.viewportHasHorizontalOverflow
             ) {
                 violations.push(`committed canvas was not stable through frame ${String(frame.frame)}`);
             }
@@ -460,19 +434,14 @@ export function findCommittedSurfaceContractViolations(
  * Adds the causal empty-to-document timing and authority checks used by the
  * release lane. Every open uses the same canonical page-shell-to-canvas handoff.
  */
-export function findCommittedSurfaceCausalOpenViolations(
-    trace: ICommittedSurfaceTrace,
-    contract: ICommittedSurfaceCausalOpenContract,
-) {
+export function findCommittedSurfaceCausalOpenViolations(trace: ICommittedSurfaceTrace, contract: ICommittedSurfaceCausalOpenContract) {
     const violations = findCommittedSurfaceContractViolations(
         trace,
-        contract.allowDeferredOpening === undefined
-            ? {}
-            : {allowDeferredOpening: contract.allowDeferredOpening},
+        contract.allowDeferredOpening === undefined ? {} : {allowDeferredOpening: contract.allowDeferredOpening},
     );
     const frames = trace.frames;
-    const firstPageShell = frames.find(frame => frame.kind === 'page-shell');
-    const firstCanvas = frames.find(frame => frame.kind === 'committed-canvas');
+    const firstPageShell = frames.find((frame) => frame.kind === 'page-shell');
+    const firstCanvas = frames.find((frame) => frame.kind === 'committed-canvas');
 
     if (contract.requirePageShell && !firstPageShell) {
         violations.push('no in-frame page shell was presented before the first canvas');
@@ -480,29 +449,20 @@ export function findCommittedSurfaceCausalOpenViolations(
     // Budget misses are timing, not ordering: they fail only where budgets are
     // enforced and are reported everywhere else.
     const budgetMisses: string[] = [];
-    if (
-        firstPageShell
-        && firstPageShell.elapsedMs > contract.maxFirstPageShellMs
-    ) {
+    if (firstPageShell && firstPageShell.elapsedMs > contract.maxFirstPageShellMs) {
         budgetMisses.push(
             `first page shell missed its ${String(contract.maxFirstPageShellMs)}ms budget (${String(firstPageShell.elapsedMs)}ms)`,
         );
     }
-    if (
-        firstCanvas
-        && firstCanvas.elapsedMs > contract.maxFirstCanvasMs
-    ) {
-        budgetMisses.push(
-            `first canvas missed its ${String(contract.maxFirstCanvasMs)}ms budget (${String(firstCanvas.elapsedMs)}ms)`,
-        );
+    if (firstCanvas && firstCanvas.elapsedMs > contract.maxFirstCanvasMs) {
+        budgetMisses.push(`first canvas missed its ${String(contract.maxFirstCanvasMs)}ms budget (${String(firstCanvas.elapsedMs)}ms)`);
     }
 
     if (firstCanvas) {
-        const readyFrame = frames.find(frame => (
-            frame.frame >= firstCanvas.frame
-            && frame.openSurfacePhase === 'ready'
-            && frame.openSurfacePresentation === 'committed'
-        ));
+        const readyFrame = frames.find(
+            (frame) =>
+                frame.frame >= firstCanvas.frame && frame.openSurfacePhase === 'ready' && frame.openSurfacePresentation === 'committed',
+        );
         if (!readyFrame) {
             violations.push('open surface did not reach ready/committed after the first canvas');
         } else {
@@ -524,18 +484,18 @@ export function findCommittedSurfaceCausalOpenViolations(
         ready: 5,
     };
     const observedPhases = frames
-        .map(frame => ({
+        .map((frame) => ({
             frame: frame.frame,
             phase: frame.openSurfacePhase,
         }))
-        .filter((entry): entry is {
-            frame: number;
-            phase: string;
-        } => (
-            entry.phase !== null
-            && entry.phase !== undefined
-            && phaseRanks[entry.phase] !== undefined
-        ));
+        .filter(
+            (
+                entry,
+            ): entry is {
+                frame: number;
+                phase: string;
+            } => entry.phase !== null && entry.phase !== undefined && phaseRanks[entry.phase] !== undefined,
+        );
     for (let index = 1; index < observedPhases.length; index += 1) {
         const previous = observedPhases[index - 1]!;
         const current = observedPhases[index]!;
@@ -554,24 +514,19 @@ export function findCommittedSurfaceCausalOpenViolations(
     return violations;
 }
 
-export function summarizeCommittedSurfaceTiming(
-    trace: ICommittedSurfaceTrace,
-): ICommittedSurfaceTiming {
-    const firstPageShell = trace.frames.find(frame => frame.kind === 'page-shell');
-    const firstCanvas = trace.frames.find(frame => frame.kind === 'committed-canvas');
+export function summarizeCommittedSurfaceTiming(trace: ICommittedSurfaceTrace): ICommittedSurfaceTiming {
+    const firstPageShell = trace.frames.find((frame) => frame.kind === 'page-shell');
+    const firstCanvas = trace.frames.find((frame) => frame.kind === 'committed-canvas');
     const readyFrame = firstCanvas
-        ? trace.frames.find(frame => (
-            frame.frame >= firstCanvas.frame
-            && frame.openSurfacePhase === 'ready'
-            && frame.openSurfacePresentation === 'committed'
-        ))
+        ? trace.frames.find(
+              (frame) =>
+                  frame.frame >= firstCanvas.frame && frame.openSurfacePhase === 'ready' && frame.openSurfacePresentation === 'committed',
+          )
         : undefined;
     return {
         firstCanvasMs: firstCanvas?.elapsedMs ?? null,
         firstPageShellMs: firstPageShell?.elapsedMs ?? null,
-        readyAfterCanvasMs: firstCanvas && readyFrame
-            ? readyFrame.elapsedMs - firstCanvas.elapsedMs
-            : null,
+        readyAfterCanvasMs: firstCanvas && readyFrame ? readyFrame.elapsedMs - firstCanvas.elapsedMs : null,
     };
 }
 
@@ -585,9 +540,10 @@ export function findCommittedSurfaceInteractionTailViolations(
     trace: ICommittedSurfaceTrace,
     contract: ICommittedSurfaceInteractionTailContract,
 ) {
-    const violations = trace.errors?.map(error => (
-        `surface sampler failed at frame ${String(error.frame)} (${error.checkpoint ?? 'unmarked'}): ${error.message}`
-    )) ?? [];
+    const violations =
+        trace.errors?.map(
+            (error) => `surface sampler failed at frame ${String(error.frame)} (${error.checkpoint ?? 'unmarked'}): ${error.message}`,
+        ) ?? [];
     const frames = trace.frames;
     const minStableFrames = contract.minStableFrames ?? 10;
     const allowedSkeletonCheckpoints = new Set(contract.allowedSkeletonCheckpoints ?? []);
@@ -598,14 +554,8 @@ export function findCommittedSurfaceInteractionTailViolations(
         }
         const checkpoint = frame.interactionCheckpoint ?? '';
         const allowsSkeleton = allowedSkeletonCheckpoints.has(checkpoint);
-        if (
-            frame.kind === 'blank'
-            || frame.kind === 'loader'
-            || (frame.kind === 'page-shell' && !allowsSkeleton)
-        ) {
-            violations.push(
-                `frame ${String(frame.frame)} exposed ${frame.kind} after the first canvas committed`,
-            );
+        if (frame.kind === 'blank' || frame.kind === 'loader' || (frame.kind === 'page-shell' && !allowsSkeleton)) {
+            violations.push(`frame ${String(frame.frame)} exposed ${frame.kind} after the first canvas committed`);
         }
         if ((frame.skeletonCount > 0 || frame.outOfFrameSkeletonCount > 0) && !allowsSkeleton) {
             violations.push(`frame ${String(frame.frame)} reintroduced a skeleton during interaction`);
@@ -615,24 +565,21 @@ export function findCommittedSurfaceInteractionTailViolations(
             // The debounce window intentionally presents the exact target page
             // frame without a skeleton. Once the skeleton appears, it must be
             // the sole in-frame visual owned by that same frame.
-            if (frame.kind !== 'page-shell' || frame.outOfFrameSkeletonCount !== 0 || (
-                frame.skeletonCount > 0
-                && (frame.skeletonCount !== 1 || !frame.skeletonSharesShell)
-            )) {
-                violations.push(
-                    `frame ${String(frame.frame)} exposed a non-canonical skeleton during ${checkpoint}`,
-                );
+            if (
+                frame.kind !== 'page-shell' ||
+                frame.outOfFrameSkeletonCount !== 0 ||
+                (frame.skeletonCount > 0 && (frame.skeletonCount !== 1 || !frame.skeletonSharesShell))
+            ) {
+                violations.push(`frame ${String(frame.frame)} exposed a non-canonical skeleton during ${checkpoint}`);
             }
             // A cleared zero-sized canvas node is inert DOM, not a degraded or
             // stale presented raster. Only nonzero backing stores violate the
             // page-not-ready contract.
             if (
-                (frame.pageCanvasNonzeroCanvasCount ?? 0) > 0
-                || ((frame.canvasPixelWidth ?? 0) > 0 && (frame.canvasPixelHeight ?? 0) > 0)
+                (frame.pageCanvasNonzeroCanvasCount ?? 0) > 0 ||
+                ((frame.canvasPixelWidth ?? 0) > 0 && (frame.canvasPixelHeight ?? 0) > 0)
             ) {
-                violations.push(
-                    `frame ${String(frame.frame)} retained an obsolete canvas during ${checkpoint}`,
-                );
+                violations.push(`frame ${String(frame.frame)} retained an obsolete canvas during ${checkpoint}`);
             }
             if (expectedPage !== undefined && frame.pageNumber !== expectedPage) {
                 violations.push(
@@ -648,7 +595,7 @@ export function findCommittedSurfaceInteractionTailViolations(
         }
     }
 
-    const canvasFrames = frames.filter(frame => frame.kind === 'committed-canvas');
+    const canvasFrames = frames.filter((frame) => frame.kind === 'committed-canvas');
     const baselineStyle = canvasFrames[0]?.shellStyle ?? null;
     const shellIdsByPage = new Map<number, Set<number>>();
     for (const frame of canvasFrames.slice(1)) {
@@ -664,20 +611,15 @@ export function findCommittedSurfaceInteractionTailViolations(
         shellIds.add(frame.shellId);
         shellIdsByPage.set(frame.pageNumber, shellIds);
     }
-    for (const [
-        pageNumber,
-        shellIds,
-    ] of shellIdsByPage) {
+    for (const [pageNumber, shellIds] of shellIdsByPage) {
         if (shellIds.size > 1) {
-            violations.push(
-                `page ${String(pageNumber)} swapped shell identity during interaction (${[...shellIds].join(', ')})`,
-            );
+            violations.push(`page ${String(pageNumber)} swapped shell identity during interaction (${[...shellIds].join(', ')})`);
         }
     }
 
     const stableFramesByCheckpoint = new Map<string, ICommittedSurfaceFrame[]>();
     for (const checkpoint of contract.stableCheckpoints) {
-        const checkpointFrames = frames.filter(frame => frame.interactionCheckpoint === checkpoint);
+        const checkpointFrames = frames.filter((frame) => frame.interactionCheckpoint === checkpoint);
         stableFramesByCheckpoint.set(checkpoint, checkpointFrames);
         if (checkpointFrames.length < minStableFrames) {
             violations.push(
@@ -693,9 +635,7 @@ export function findCommittedSurfaceInteractionTailViolations(
                 violations.push(`checkpoint ${checkpoint} exposed ${frame.kind} at frame ${String(frame.frame)}`);
             }
             if (expectedPage !== undefined && frame.pageNumber !== expectedPage) {
-                violations.push(
-                    `checkpoint ${checkpoint} showed page ${String(frame.pageNumber)} instead of ${String(expectedPage)}`,
-                );
+                violations.push(`checkpoint ${checkpoint} showed page ${String(frame.pageNumber)} instead of ${String(expectedPage)}`);
             }
             if (frame.shellId !== baseline.shellId) {
                 violations.push(`checkpoint ${checkpoint} swapped page-shell identity at frame ${String(frame.frame)}`);
@@ -707,8 +647,8 @@ export function findCommittedSurfaceInteractionTailViolations(
                 violations.push(`checkpoint ${checkpoint} changed page-shell style at frame ${String(frame.frame)}`);
             }
             if (
-                Math.abs((frame.viewportScrollHeight ?? 0) - (baseline.viewportScrollHeight ?? 0)) > 1
-                || Math.abs((frame.viewportScrollWidth ?? 0) - (baseline.viewportScrollWidth ?? 0)) > 1
+                Math.abs((frame.viewportScrollHeight ?? 0) - (baseline.viewportScrollHeight ?? 0)) > 1 ||
+                Math.abs((frame.viewportScrollWidth ?? 0) - (baseline.viewportScrollWidth ?? 0)) > 1
             ) {
                 violations.push(`checkpoint ${checkpoint} changed its settled scroll extent at frame ${String(frame.frame)}`);
             }
@@ -716,7 +656,7 @@ export function findCommittedSurfaceInteractionTailViolations(
     }
 
     for (const group of contract.preserveShellIdentityAcross) {
-        const baselines = group.map(checkpoint => stableFramesByCheckpoint.get(checkpoint)?.at(-1));
+        const baselines = group.map((checkpoint) => stableFramesByCheckpoint.get(checkpoint)?.at(-1));
         const baseline = baselines[0];
         for (let index = 1; index < baselines.length; index += 1) {
             const frame = baselines[index];
@@ -727,15 +667,11 @@ export function findCommittedSurfaceInteractionTailViolations(
         }
     }
     for (const group of contract.preserveWidthAcross) {
-        const baselines = group.map(checkpoint => stableFramesByCheckpoint.get(checkpoint)?.at(-1));
+        const baselines = group.map((checkpoint) => stableFramesByCheckpoint.get(checkpoint)?.at(-1));
         const baselineWidth = baselines[0]?.shellRect?.width;
         for (let index = 1; index < baselines.length; index += 1) {
             const width = baselines[index]?.shellRect?.width;
-            if (
-                baselineWidth !== undefined
-                && width !== undefined
-                && Math.abs(width - baselineWidth) > 1
-            ) {
+            if (baselineWidth !== undefined && width !== undefined && Math.abs(width - baselineWidth) > 1) {
                 violations.push(`page-shell width changed across ${group.join(' -> ')}`);
                 break;
             }
@@ -747,19 +683,13 @@ export function findCommittedSurfaceInteractionTailViolations(
         violations.push(`missing horizontal-overflow checkpoint ${contract.horizontalOverflowCheckpoint}`);
         return violations;
     }
-    const preZoomCanvasFrames = canvasFrames.filter(frame => {
-        const checkpointIndex = frame.interactionCheckpoint
-            ? checkpointOrder.get(frame.interactionCheckpoint)
-            : undefined;
+    const preZoomCanvasFrames = canvasFrames.filter((frame) => {
+        const checkpointIndex = frame.interactionCheckpoint ? checkpointOrder.get(frame.interactionCheckpoint) : undefined;
         return (checkpointIndex ?? -1) < overflowCheckpointIndex;
     });
     const preZoomWidth = preZoomCanvasFrames[0]?.shellRect?.width;
     for (const frame of preZoomCanvasFrames.slice(1)) {
-        if (
-            preZoomWidth !== undefined
-            && frame.shellRect
-            && Math.abs(frame.shellRect.width - preZoomWidth) > 1
-        ) {
+        if (preZoomWidth !== undefined && frame.shellRect && Math.abs(frame.shellRect.width - preZoomWidth) > 1) {
             violations.push(`page-shell width pulsed before high zoom at frame ${String(frame.frame)}`);
         }
     }
@@ -767,9 +697,7 @@ export function findCommittedSurfaceInteractionTailViolations(
     let overflowTransitions = 0;
     let previousOverflow: boolean | null = null;
     for (const frame of frames) {
-        const checkpointIndex = frame.interactionCheckpoint
-            ? checkpointOrder.get(frame.interactionCheckpoint)
-            : undefined;
+        const checkpointIndex = frame.interactionCheckpoint ? checkpointOrder.get(frame.interactionCheckpoint) : undefined;
         const overflow = frame.viewportHasHorizontalOverflow;
         if (overflow === null) {
             continue;
@@ -795,40 +723,33 @@ export function findCommittedSurfaceInteractionTailViolations(
     return violations;
 }
 
-export function findInitialRenderAuthorityViolations(
-    entries: readonly IPdfRenderTraceEntry[],
-    targetPage: number,
-) {
-    const firstCanvasMountIndex = entries.findIndex(entry => (
-        entry.event === 'renderer-canvas-mounted'
-        && entry.payload.pageNumber === targetPage
-    ));
+export function findInitialRenderAuthorityViolations(entries: readonly IPdfRenderTraceEntry[], targetPage: number) {
+    const firstCanvasMountIndex = entries.findIndex(
+        (entry) => entry.event === 'renderer-canvas-mounted' && entry.payload.pageNumber === targetPage,
+    );
     if (firstCanvasMountIndex < 0) {
         return [`no render trace canvas mount was recorded for page ${String(targetPage)}`];
     }
 
     const violations: string[] = [];
     const preCanvasEntries = entries.slice(0, firstCanvasMountIndex + 1);
-    const requestIds = new Set(preCanvasEntries
-        .filter(entry => (
-            entry.event === 'renderer-single-page-begin'
-            && entry.payload.pageNumber === targetPage
-        ))
-        .map(entry => entry.payload.requestId)
-        .filter((requestId): requestId is number => typeof requestId === 'number'));
+    const requestIds = new Set(
+        preCanvasEntries
+            .filter((entry) => entry.event === 'renderer-single-page-begin' && entry.payload.pageNumber === targetPage)
+            .map((entry) => entry.payload.requestId)
+            .filter((requestId): requestId is number => typeof requestId === 'number'),
+    );
     if (requestIds.size !== 1) {
         violations.push(
             `expected one page-${String(targetPage)} render authority before first canvas, observed request IDs ${JSON.stringify([...requestIds])}`,
         );
     }
 
-    const competingEvents = preCanvasEntries.filter(entry => (
-        (
-            entry.event === 'renderer-canvas-render-cancel-existing-task'
-            && entry.payload.pageNumber === targetPage
-        )
-        || entry.event === 'navigation-viewport-authority-retry'
-    ));
+    const competingEvents = preCanvasEntries.filter(
+        (entry) =>
+            (entry.event === 'renderer-canvas-render-cancel-existing-task' && entry.payload.pageNumber === targetPage) ||
+            entry.event === 'navigation-viewport-authority-retry',
+    );
     if (competingEvents.length > 0) {
         violations.push(`competing pre-canvas authority events: ${JSON.stringify(competingEvents)}`);
     }
@@ -841,620 +762,574 @@ export function findInitialRenderAuthorityViolations(
  * entry a browser-presentable frame and prevents mutation-only intermediate DOM
  * states from being mistaken for a flash the user could see.
  */
-export async function installCommittedSurfaceSampler(
-    page: Page,
-    options: ICommittedSurfaceSamplerOptions = {},
-) {
-    await evaluateInPage(page, (sampleCanvasPixels: boolean) => {
-        const testWindow = window as typeof window & {
-            __committedSurfaceAnimationFrame?: number;
-            __committedSurfaceElementIds?: WeakMap<Element, number>;
-            __committedSurfaceErrors?: ICommittedSurfaceSamplerError[];
-            __committedSurfaceFrames?: ICommittedSurfaceFrame[];
-            __committedSurfaceInteractionCheckpoint?: string | null;
-        };
-        if (testWindow.__committedSurfaceAnimationFrame !== undefined) {
-            window.cancelAnimationFrame(testWindow.__committedSurfaceAnimationFrame);
-        }
-
-        const startedAt = performance.now();
-        let frame = 0;
-        let nextElementId = 1;
-        testWindow.__committedSurfaceElementIds = new WeakMap<Element, number>();
-        testWindow.__committedSurfaceErrors = [];
-        testWindow.__committedSurfaceFrames = [];
-        testWindow.__committedSurfaceInteractionCheckpoint = null;
-
-        const isVisible = (element: HTMLElement | null) => {
-            if (!element?.isConnected) {
-                return false;
+export async function installCommittedSurfaceSampler(page: Page, options: ICommittedSurfaceSamplerOptions = {}) {
+    await evaluateInPage(
+        page,
+        (sampleCanvasPixels: boolean) => {
+            const testWindow = window as typeof window & {
+                __committedSurfaceAnimationFrame?: number;
+                __committedSurfaceElementIds?: WeakMap<Element, number>;
+                __committedSurfaceErrors?: ICommittedSurfaceSamplerError[];
+                __committedSurfaceFrames?: ICommittedSurfaceFrame[];
+                __committedSurfaceInteractionCheckpoint?: string | null;
+            };
+            if (testWindow.__committedSurfaceAnimationFrame !== undefined) {
+                window.cancelAnimationFrame(testWindow.__committedSurfaceAnimationFrame);
             }
-            let ancestor: HTMLElement | null = element;
-            while (ancestor) {
-                const ancestorStyle = window.getComputedStyle(ancestor);
-                if (
-                    ancestorStyle.display === 'none'
-                    || ancestorStyle.visibility === 'hidden'
-                    || Number(ancestorStyle.opacity || '1') === 0
-                ) {
+
+            const startedAt = performance.now();
+            let frame = 0;
+            let nextElementId = 1;
+            testWindow.__committedSurfaceElementIds = new WeakMap<Element, number>();
+            testWindow.__committedSurfaceErrors = [];
+            testWindow.__committedSurfaceFrames = [];
+            testWindow.__committedSurfaceInteractionCheckpoint = null;
+
+            const isVisible = (element: HTMLElement | null) => {
+                if (!element?.isConnected) {
                     return false;
                 }
-                ancestor = ancestor.parentElement;
-            }
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return rect.width > 0
-                && rect.height > 0
-                && rect.bottom > 0
-                && rect.right > 0
-                && rect.top < window.innerHeight
-                && rect.left < window.innerWidth
-                && style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0;
-        };
-        const toRect = (element: HTMLElement | null): ICommittedSurfaceRect | null => {
-            if (!element) {
-                return null;
-            }
-            const rect = element.getBoundingClientRect();
-            return {
-                height: Math.round(rect.height * 100) / 100,
-                left: Math.round(rect.left * 100) / 100,
-                top: Math.round(rect.top * 100) / 100,
-                width: Math.round(rect.width * 100) / 100,
+                let ancestor: HTMLElement | null = element;
+                while (ancestor) {
+                    const ancestorStyle = window.getComputedStyle(ancestor);
+                    if (
+                        ancestorStyle.display === 'none' ||
+                        ancestorStyle.visibility === 'hidden' ||
+                        Number(ancestorStyle.opacity || '1') === 0
+                    ) {
+                        return false;
+                    }
+                    ancestor = ancestor.parentElement;
+                }
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return (
+                    rect.width > 0 &&
+                    rect.height > 0 &&
+                    rect.bottom > 0 &&
+                    rect.right > 0 &&
+                    rect.top < window.innerHeight &&
+                    rect.left < window.innerWidth &&
+                    style.display !== 'none' &&
+                    style.visibility !== 'hidden' &&
+                    Number(style.opacity || '1') > 0
+                );
             };
-        };
-        const toStyle = (element: HTMLElement | null): ICommittedSurfaceStyle | null => {
-            if (!element) {
-                return null;
-            }
-            const style = window.getComputedStyle(element);
-            return {
-                backgroundColor: style.backgroundColor,
-                borderRadius: style.borderRadius,
-                boxShadow: style.boxShadow,
+            const toRect = (element: HTMLElement | null): ICommittedSurfaceRect | null => {
+                if (!element) {
+                    return null;
+                }
+                const rect = element.getBoundingClientRect();
+                return {
+                    height: Math.round(rect.height * 100) / 100,
+                    left: Math.round(rect.left * 100) / 100,
+                    top: Math.round(rect.top * 100) / 100,
+                    width: Math.round(rect.width * 100) / 100,
+                };
             };
-        };
-        // Keep every predicate used by the injected callback in this browser
-        // closure. Puppeteer serializes the callback without module scope, so
-        // referencing the contract-side helper would terminate sampling only
-        // when a transition first exercises this fallback branch.
-        const browserOwnsPageFrameStyle = (style: ICommittedSurfaceStyle | null) => Boolean(
-            style
-            && style.backgroundColor !== 'rgba(0, 0, 0, 0)'
-            && style.backgroundColor !== 'transparent'
-            && style.borderRadius !== '0px'
-            && style.boxShadow !== 'none',
-        );
-        const getElementId = (element: Element | null) => {
-            if (!element) {
-                return null;
-            }
-            const ids = testWindow.__committedSurfaceElementIds!;
-            const existing = ids.get(element);
-            if (existing !== undefined) {
-                return existing;
-            }
-            const id = nextElementId++;
-            ids.set(element, id);
-            return id;
-        };
-        const ownsVisibleCenter = (element: HTMLElement | null) => {
-            if (!element || !isVisible(element)) {
-                return false;
-            }
-            const rect = element.getBoundingClientRect();
-            const left = Math.max(0, rect.left);
-            const right = Math.min(window.innerWidth, rect.right);
-            const top = Math.max(0, rect.top);
-            const bottom = Math.min(window.innerHeight, rect.bottom);
-            if (right <= left || bottom <= top) {
-                return false;
-            }
-            const topElement = document.elementFromPoint(
-                left + ((right - left) / 2),
-                top + ((bottom - top) / 2),
-            );
-            if (topElement && element.contains(topElement)) {
-                return true;
-            }
-            // Visual transition shells deliberately ignore pointer input so the
-            // stable chassis remains interactive. `elementFromPoint` omits such
-            // elements even when they are the visible surface, so geometry is
-            // the appropriate ownership proof for a pointer-transparent shell.
-            return window.getComputedStyle(element).pointerEvents === 'none';
-        };
-        const describeElementPath = (element: Element | null) => {
-            const parts: string[] = [];
-            let current = element;
-            while (current && parts.length < 8) {
-                const htmlElement = current as HTMLElement;
-                const id = htmlElement.id ? `#${htmlElement.id}` : '';
-                const classes = Array.from(htmlElement.classList).slice(0, 6).map(name => `.${name}`).join('');
-                const state = [
-                    htmlElement.dataset.openSurfacePhase
-                        ? `[data-open-surface-phase=${htmlElement.dataset.openSurfacePhase}]`
-                        : '',
-                    htmlElement.dataset.openSurfacePresentation
-                        ? `[data-open-surface-presentation=${htmlElement.dataset.openSurfacePresentation}]`
-                        : '',
-                    htmlElement.dataset.loading ? `[data-loading=${htmlElement.dataset.loading}]` : '',
-                ].join('');
-                parts.push(`${current.tagName.toLowerCase()}${id}${classes}${state}`);
-                current = current.parentElement;
-            }
-            return parts.join(' > ');
-        };
-        const canvasHasNonblankPixels = (canvas: HTMLCanvasElement | null) => {
-            if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
-                return false;
-            }
-            try {
-                const context = canvas.getContext('2d', {willReadFrequently: true});
-                if (!context) {
+            const toStyle = (element: HTMLElement | null): ICommittedSurfaceStyle | null => {
+                if (!element) {
+                    return null;
+                }
+                const style = window.getComputedStyle(element);
+                return {
+                    backgroundColor: style.backgroundColor,
+                    borderRadius: style.borderRadius,
+                    boxShadow: style.boxShadow,
+                };
+            };
+            // Keep every predicate used by the injected callback in this browser
+            // closure. Puppeteer serializes the callback without module scope, so
+            // referencing the contract-side helper would terminate sampling only
+            // when a transition first exercises this fallback branch.
+            const browserOwnsPageFrameStyle = (style: ICommittedSurfaceStyle | null) =>
+                Boolean(
+                    style &&
+                    style.backgroundColor !== 'rgba(0, 0, 0, 0)' &&
+                    style.backgroundColor !== 'transparent' &&
+                    style.borderRadius !== '0px' &&
+                    style.boxShadow !== 'none',
+                );
+            const getElementId = (element: Element | null) => {
+                if (!element) {
+                    return null;
+                }
+                const ids = testWindow.__committedSurfaceElementIds!;
+                const existing = ids.get(element);
+                if (existing !== undefined) {
+                    return existing;
+                }
+                const id = nextElementId++;
+                ids.set(element, id);
+                return id;
+            };
+            const ownsVisibleCenter = (element: HTMLElement | null) => {
+                if (!element || !isVisible(element)) {
                     return false;
                 }
-                const hasContrast = (pixels: Uint8ClampedArray) => {
-                    for (let offset = 0; offset < pixels.length; offset += 4) {
-                        if (
-                            (pixels[offset + 3] ?? 0) > 0
-                            && (
-                                (pixels[offset] ?? 255) < 252
-                                || (pixels[offset + 1] ?? 255) < 252
-                                || (pixels[offset + 2] ?? 255) < 252
-                            )
-                        ) {
+                const rect = element.getBoundingClientRect();
+                const left = Math.max(0, rect.left);
+                const right = Math.min(window.innerWidth, rect.right);
+                const top = Math.max(0, rect.top);
+                const bottom = Math.min(window.innerHeight, rect.bottom);
+                if (right <= left || bottom <= top) {
+                    return false;
+                }
+                const topElement = document.elementFromPoint(left + (right - left) / 2, top + (bottom - top) / 2);
+                if (topElement && element.contains(topElement)) {
+                    return true;
+                }
+                // Visual transition shells deliberately ignore pointer input so the
+                // stable chassis remains interactive. `elementFromPoint` omits such
+                // elements even when they are the visible surface, so geometry is
+                // the appropriate ownership proof for a pointer-transparent shell.
+                return window.getComputedStyle(element).pointerEvents === 'none';
+            };
+            const describeElementPath = (element: Element | null) => {
+                const parts: string[] = [];
+                let current = element;
+                while (current && parts.length < 8) {
+                    const htmlElement = current as HTMLElement;
+                    const id = htmlElement.id ? `#${htmlElement.id}` : '';
+                    const classes = Array.from(htmlElement.classList)
+                        .slice(0, 6)
+                        .map((name) => `.${name}`)
+                        .join('');
+                    const state = [
+                        htmlElement.dataset.openSurfacePhase ? `[data-open-surface-phase=${htmlElement.dataset.openSurfacePhase}]` : '',
+                        htmlElement.dataset.openSurfacePresentation
+                            ? `[data-open-surface-presentation=${htmlElement.dataset.openSurfacePresentation}]`
+                            : '',
+                        htmlElement.dataset.loading ? `[data-loading=${htmlElement.dataset.loading}]` : '',
+                    ].join('');
+                    parts.push(`${current.tagName.toLowerCase()}${id}${classes}${state}`);
+                    current = current.parentElement;
+                }
+                return parts.join(' > ');
+            };
+            const canvasHasNonblankPixels = (canvas: HTMLCanvasElement | null) => {
+                if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
+                    return false;
+                }
+                try {
+                    const context = canvas.getContext('2d', {willReadFrequently: true});
+                    if (!context) {
+                        return false;
+                    }
+                    const hasContrast = (pixels: Uint8ClampedArray) => {
+                        for (let offset = 0; offset < pixels.length; offset += 4) {
+                            if (
+                                (pixels[offset + 3] ?? 0) > 0 &&
+                                ((pixels[offset] ?? 255) < 252 || (pixels[offset + 1] ?? 255) < 252 || (pixels[offset + 2] ?? 255) < 252)
+                            ) {
+                                return true;
+                            }
+                        }
+                        return false;
+                    };
+                    const gridSize = 12;
+                    for (let index = 0; index < gridSize; index += 1) {
+                        const y = Math.min(canvas.height - 1, Math.floor(((index + 0.5) * canvas.height) / gridSize));
+                        if (hasContrast(context.getImageData(0, y, canvas.width, 1).data)) {
+                            return true;
+                        }
+                        const x = Math.min(canvas.width - 1, Math.floor(((index + 0.5) * canvas.width) / gridSize));
+                        if (hasContrast(context.getImageData(x, 0, 1, canvas.height).data)) {
                             return true;
                         }
                     }
+                } catch {
                     return false;
-                };
-                const gridSize = 12;
-                for (let index = 0; index < gridSize; index += 1) {
-                    const y = Math.min(
-                        canvas.height - 1,
-                        Math.floor(((index + 0.5) * canvas.height) / gridSize),
-                    );
-                    if (hasContrast(context.getImageData(0, y, canvas.width, 1).data)) {
-                        return true;
-                    }
-                    const x = Math.min(
-                        canvas.width - 1,
-                        Math.floor(((index + 0.5) * canvas.width) / gridSize),
-                    );
-                    if (hasContrast(context.getImageData(x, 0, 1, canvas.height).data)) {
-                        return true;
-                    }
                 }
-            } catch {
                 return false;
-            }
-            return false;
-        };
+            };
 
-        const capture = () => {
-            frame += 1;
-            try {
-                const activeHost = document.querySelector<HTMLElement>(
-                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-                ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-                const host = isVisible(activeHost)
-                    ? activeHost
-                    : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisible) ?? null;
-                const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]')
-                ?? host?.querySelector<HTMLElement>('#pdf-viewer')
-                ?? null;
-                const visibleLoader = Array.from(host?.querySelectorAll<HTMLElement>(
-                    '.workspace-host__loading, .document-loading, .pdf-loading, .pdf-loading-overlay',
-                ) ?? []).find(ownsVisibleCenter) ?? null;
-                const openingProgress = Array.from(host?.querySelectorAll<HTMLElement>(
-                    '.workspace-host__opening-progress [role="progressbar"]',
-                ) ?? []).find(ownsVisibleCenter) ?? null;
-                const visibleToolSurface = Array.from(host?.querySelectorAll<HTMLElement>(
-                    '.scan-cleanup-surface',
-                ) ?? []).find(ownsVisibleCenter) ?? null;
-                const outerPlaceholder = host?.querySelector<HTMLElement>('.workspace-host__start') ?? null;
-                const visibleLiveEmptyState = Array.from(
-                    outerPlaceholder?.querySelectorAll<HTMLElement>('.empty-state') ?? [],
-                ).find(ownsVisibleCenter) ?? null;
-                const committedEmptyElement = visibleLiveEmptyState;
-                const committedEmptySource: TCommittedEmptySource | null = visibleLiveEmptyState
-                    ? 'live-empty-state'
-                    : null;
-                const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis') ?? null;
-                const visiblePages = Array.from(host?.querySelectorAll<HTMLElement>(
-                    '.page_container[data-page], [data-testid="document-page-source-page"][data-page-number]',
-                ) ?? [])
-                    .filter(isVisible);
-                const pdfViewerHost = host?.querySelector<HTMLElement>('[data-pdf-viewer-host]') ?? null;
-                const requestedTargetPage = Number(
-                    chassis?.dataset.viewportRequestedPage
-                ?? pdfViewerHost?.dataset.pdfNavigationHandoffTarget
-                ?? 0,
-                ) || null;
-                // The requested page is the reading place the viewer committed
-                // to. A partially visible neighbor earlier in DOM order also
-                // owns its own clipped center, so track the requested page
-                // whenever it owns its own clipped center. If something covers
-                // it, the page that does own the center is sampled instead, so
-                // the covering surface is reported. Neighbors stay checked
-                // through visiblePdfPageVisuals.
-                const requestedVisiblePage = requestedTargetPage === null
-                    ? null
-                    : visiblePages.find(candidate => (
-                        Number(candidate.dataset.page ?? candidate.dataset.pageNumber ?? 0) === requestedTargetPage
-                        && ownsVisibleCenter(candidate)
-                    )) ?? null;
-                const page = requestedVisiblePage ?? visiblePages.find(ownsVisibleCenter) ?? visiblePages.find(candidate => {
-                    const rect = candidate.getBoundingClientRect();
-                    return rect.top < window.innerHeight && rect.bottom > 0;
-                }) ?? visiblePages[0] ?? null;
-                const isPageSource = page?.matches('[data-testid="document-page-source-page"]') ?? false;
-                const pageCanvas = page?.querySelector<HTMLElement>('.page_canvas')
-                ?? (isPageSource ? page : null);
-                const pageCanvasRenderLayer = pageCanvas?.querySelector<HTMLElement>(
-                    ':scope > .page_canvas__render-layer',
-                ) ?? null;
-                const canvas = page?.querySelector<HTMLCanvasElement>(
-                    '.page_canvas__render-layer canvas',
-                ) ?? null;
-                const pageSourceImage = page?.querySelector<HTMLImageElement>(
-                    ':scope > [data-testid="document-page-source-image"]',
-                ) ?? null;
-                const canvasRect = canvas?.getBoundingClientRect() ?? null;
-                const pageSourceImageRect = pageSourceImage?.getBoundingClientRect() ?? null;
-                const skeletonCandidates = Array.from(host?.querySelectorAll<HTMLElement>(
-                    '.document-page-skeleton, .document-source-viewer__skeleton',
-                ) ?? [])
-                    .filter(isVisible);
-                // The page-source skeleton wrapper renders the shared
-                // DocumentPageSkeleton inside itself, so both selectors match
-                // one logical skeleton. Keep only the outermost element of
-                // each nest; competing ownership means separate skeletons,
-                // not a wrapper and its own content.
-                const skeletons = skeletonCandidates.filter(candidate => !skeletonCandidates.some(
-                    other => other !== candidate && other.contains(candidate),
-                ));
-                const viewportRect = viewport?.getBoundingClientRect() ?? null;
-                const intersectsViewport = (candidate: HTMLElement) => {
-                    const rect = candidate.getBoundingClientRect();
-                    return Boolean(
-                        viewportRect
-                    && rect.right > viewportRect.left
-                    && rect.left < viewportRect.right
-                    && rect.bottom > viewportRect.top
-                    && rect.top < viewportRect.bottom,
-                    );
-                };
-                const viewportSkeletons = skeletons.filter(intersectsViewport);
-                const exactSkeletons = viewportSkeletons.filter(candidate => pageCanvas?.contains(candidate));
-                // A neighbor page's skeleton sliver can intersect the viewport
-                // edge in continuous scroll; it belongs to that page's own
-                // container. Out-of-frame counts true orphans that no page
-                // container owns, plus strays that claim the tracked page
-                // from a foreign container (a duplicate skeleton owner).
-                const trackedPageNumber = page
-                    ? Number(page.dataset.page ?? page.dataset.pageNumber ?? 0) || null
-                    : null;
-                const orphanSkeletons = viewportSkeletons.filter((candidate) => {
-                    if (pageCanvas?.contains(candidate)) {
-                        return false;
-                    }
-                    const owner = candidate.closest<HTMLElement>('.page_container, [data-testid="document-page-source-page"], .document-source-viewer__page');
-                    if (!owner) {
-                        return true;
-                    }
-                    const ownerPageNumber = Number(owner.dataset.page ?? owner.dataset.pageNumber ?? 0) || null;
-                    return trackedPageNumber !== null && ownerPageNumber === trackedPageNumber;
-                });
-                const skeleton = exactSkeletons[0] ?? null;
-                const canvasNonblank = sampleCanvasPixels && canvasHasNonblankPixels(canvas);
-                // `page_container--rendered` is applied by the render coordinator only
-                // after the render task commits; it is the white-page fallback where
-                // pixel contrast deliberately cannot prove readiness.
-                const renderAuthorityReady = Boolean(
-                    page?.classList.contains('page_container--rendered')
-                || page?.dataset.initialCanvasCommitted === 'true'
-                || canvas?.dataset.rendered === 'true',
-                );
-                // Runtime-owned presentation authority. A page is canonical only
-                // after the current render commits; replacement intent clears the
-                // previous bitmap instead of retaining stale pixels.
-                const pageVisualAuthorityReady = page?.dataset.pageVisual === 'ready';
-                const pageSourceAuthorityReady = Boolean(
-                    pageSourceImage?.isConnected
-                && pageSourceImage.complete
-                && pageSourceImage.naturalWidth > 0
-                && pageSourceImage.naturalHeight > 0
-                && pageSourceImageRect
-                && pageSourceImageRect.width > 0
-                && pageSourceImageRect.height > 0
-                && page?.dataset.pageSourceVisual === 'fresh',
-                );
-                const canvasAuthorityReady = pageSourceAuthorityReady || Boolean(
-                    canvas?.isConnected
-                && canvasRect
-                && canvas.width > 0
-                && canvas.height > 0
-                && canvasRect.width > 0
-                && canvasRect.height > 0
-                // Pixel contrast alone does not make an uncommitted canvas the
-                // current visual authority. Only the canonical render commit
-                // may coexist with the page presentation state.
-                && exactSkeletons.length === 0
-                && (renderAuthorityReady || pageVisualAuthorityReady),
-                );
-
-                let kind: TCommittedSurfaceKind = 'blank';
-                if (visibleLoader) {
-                    kind = 'loader';
-                } else if (visibleToolSurface) {
-                    kind = 'tool-surface';
-                } else if (canvasAuthorityReady && pageCanvas && ownsVisibleCenter(page)) {
-                    kind = 'committed-canvas';
-                } else if (
-                    page
-                && pageCanvas
-                && ownsVisibleCenter(page)
-                && (
-                    exactSkeletons.length > 0
-                    || page.classList.contains('document-viewer-chassis__opening-page')
-                        || browserOwnsPageFrameStyle(toStyle(pageCanvas))
-                )
-                ) {
-                    kind = 'page-shell';
-                } else if (committedEmptyElement) {
-                    kind = 'committed-empty';
-                } else if (openingProgress) {
-                    kind = 'opening-progress';
-                }
-
-                const hostRect = host?.getBoundingClientRect() ?? null;
-                const topElement = hostRect && hostRect.width > 0 && hostRect.height > 0
-                    ? document.elementFromPoint(
-                        Math.max(0, hostRect.left) + (
-                            (Math.min(window.innerWidth, hostRect.right) - Math.max(0, hostRect.left)) / 2
-                        ),
-                        Math.max(0, hostRect.top) + (
-                            (Math.min(window.innerHeight, hostRect.bottom) - Math.max(0, hostRect.top)) / 2
-                        ),
-                    )
-                    : null;
-                const loaderSelector = visibleLoader
-                    ? [
-                        '.workspace-host__loading',
-                        '.document-loading',
-                        '.pdf-loading',
-                        '.pdf-loading-overlay',
-                    ].find(selector => visibleLoader.matches(selector)) ?? null
-                    : null;
-
-                const pdfOpeningDiagnostic = document.querySelector<HTMLElement>('[data-pdf-opening-diagnostic="true"]');
-                const targetPage = requestedTargetPage === null
-                    ? null
-                    : host?.querySelector<HTMLElement>(`.page_container[data-page="${String(requestedTargetPage)}"]`) ?? null;
-                const targetCanvas = targetPage?.querySelector<HTMLCanvasElement>(
-                    '.page_canvas__render-layer canvas',
-                ) ?? null;
-                const targetCanvasRect = targetCanvas?.getBoundingClientRect() ?? null;
-                const visiblePdfPageVisuals = visiblePages
-                    .filter(candidate => (
-                        candidate.matches('.page_container[data-page]')
-                        && intersectsViewport(candidate)
-                    ))
-                    .map((candidate) => {
-                        const canonicalCanvas = candidate.querySelector<HTMLCanvasElement>(
-                            '.page_canvas__render-layer canvas',
-                        );
-                        const skeleton = candidate.querySelector<HTMLElement>(
-                            '.document-page-skeleton',
-                        );
-                        return {
-                            canonicalCanvasId: getElementId(canonicalCanvas),
-                            canonicalCanvasNonblank: sampleCanvasPixels
-                                && canvasHasNonblankPixels(canonicalCanvas),
-                            canonicalCanvasVisible: isVisible(canonicalCanvas),
-                            pageNumber: Number(candidate.dataset.page ?? 0) || null,
-                            skeletonVisible: isVisible(skeleton),
-                        };
-                    });
-                testWindow.__committedSurfaceFrames!.push({
-                    bodyOverflow: Math.max(0, Math.round(document.body.scrollWidth - document.body.clientWidth)),
-                    canvasAuthorityReady,
-                    canvasConnected: canvas?.isConnected ?? pageSourceImage?.isConnected ?? false,
-                    canvasId: getElementId(canvas ?? pageSourceImage),
-                    canvasNonblank: canvasNonblank || pageSourceAuthorityReady,
-                    canvasOuterHtml: canvas?.outerHTML ?? pageSourceImage?.outerHTML ?? null,
-                    canvasPixelHeight: canvas?.height ?? pageSourceImage?.naturalHeight ?? null,
-                    canvasPixelWidth: canvas?.width ?? pageSourceImage?.naturalWidth ?? null,
-                    canvasSharesRenderLayer: isPageSource
-                        ? Boolean(pageSourceImage && pageSourceImage.parentElement === pageCanvas)
-                        : Boolean(
-                            canvas
-                        && pageCanvasRenderLayer
-                        && canvas.closest('.page_canvas__render-layer') === pageCanvasRenderLayer,
-                        ),
-                    committedEmptyElementPath: committedEmptyElement
-                        ? describeElementPath(committedEmptyElement)
-                        : null,
-                    committedEmptySource,
-                    documentOverflow: Math.max(
-                        0,
-                        Math.round(document.documentElement.scrollWidth - document.documentElement.clientWidth),
-                    ),
-                    elapsedMs: Math.round(performance.now() - startedAt),
-                    emptyStateOwnsCenter: ownsVisibleCenter(visibleLiveEmptyState),
-                    frame,
-                    kind,
-                    interactionCheckpoint: testWindow.__committedSurfaceInteractionCheckpoint ?? null,
-                    loaderOuterHtml: visibleLoader?.outerHTML ?? null,
-                    loaderSelector,
-                    openSurfacePhase: viewport?.dataset.openSurfacePhase ?? null,
-                    openSurfacePresentation: chassis?.dataset.openSurfacePresentation ?? null,
-                    openingProgressRect: toRect(openingProgress),
-                    openSurfaceDiagnostic: chassis ? {...chassis.dataset} : undefined,
-                    pdfOpeningDiagnostic: pdfOpeningDiagnostic ? {...pdfOpeningDiagnostic.dataset} : undefined,
-                    pdfNavigationDiagnostic: pdfViewerHost ? {...pdfViewerHost.dataset} : undefined,
-                    outOfFrameSkeletonCount: orphanSkeletons.length,
-                    outerPlaceholderPresent: outerPlaceholder !== null,
-                    outerPlaceholderOwnsCenter: ownsVisibleCenter(outerPlaceholder),
-                    outerPlaceholderVisible: isVisible(outerPlaceholder),
-                    pageCanvasChildren: Array.from(pageCanvas?.children ?? []).map((child) => {
-                        const element = child as HTMLElement;
-                        const classes = Array.from(element.classList).join('.');
-                        const dimensions = child instanceof HTMLCanvasElement
-                            ? `[${String(child.width)}x${String(child.height)}]`
-                            : '';
-                        return `${child.tagName.toLowerCase()}${classes ? `.${classes}` : ''}${dimensions}`;
-                    }),
-                    pageCanvasNonzeroCanvasCount: Array.from(
-                        pageCanvas?.querySelectorAll<HTMLCanvasElement>(
-                            '.page_canvas__render-layer canvas',
+            const capture = () => {
+                frame += 1;
+                try {
+                    const activeHost =
+                        document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]') ??
+                        document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+                    const host = isVisible(activeHost)
+                        ? activeHost
+                        : (Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisible) ?? null);
+                    const viewport =
+                        host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]') ??
+                        host?.querySelector<HTMLElement>('#pdf-viewer') ??
+                        null;
+                    const visibleLoader =
+                        Array.from(
+                            host?.querySelectorAll<HTMLElement>(
+                                '.workspace-host__loading, .document-loading, .pdf-loading, .pdf-loading-overlay',
+                            ) ?? [],
+                        ).find(ownsVisibleCenter) ?? null;
+                    const openingProgress =
+                        Array.from(
+                            host?.querySelectorAll<HTMLElement>('.workspace-host__opening-progress [role="progressbar"]') ?? [],
+                        ).find(ownsVisibleCenter) ?? null;
+                    const visibleToolSurface =
+                        Array.from(host?.querySelectorAll<HTMLElement>('.scan-cleanup-surface') ?? []).find(ownsVisibleCenter) ?? null;
+                    const outerPlaceholder = host?.querySelector<HTMLElement>('.workspace-host__start') ?? null;
+                    const visibleLiveEmptyState =
+                        Array.from(outerPlaceholder?.querySelectorAll<HTMLElement>('.empty-state') ?? []).find(ownsVisibleCenter) ?? null;
+                    const committedEmptyElement = visibleLiveEmptyState;
+                    const committedEmptySource: TCommittedEmptySource | null = visibleLiveEmptyState ? 'live-empty-state' : null;
+                    const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis') ?? null;
+                    const visiblePages = Array.from(
+                        host?.querySelectorAll<HTMLElement>(
+                            '.page_container[data-page], [data-testid="document-page-source-page"][data-page-number]',
                         ) ?? [],
-                    ).filter((candidate) => {
+                    ).filter(isVisible);
+                    const pdfViewerHost = host?.querySelector<HTMLElement>('[data-pdf-viewer-host]') ?? null;
+                    const requestedTargetPage =
+                        Number(chassis?.dataset.viewportRequestedPage ?? pdfViewerHost?.dataset.pdfNavigationHandoffTarget ?? 0) || null;
+                    // The requested page is the reading place the viewer committed
+                    // to. A partially visible neighbor earlier in DOM order also
+                    // owns its own clipped center, so track the requested page
+                    // whenever it owns its own clipped center. If something covers
+                    // it, the page that does own the center is sampled instead, so
+                    // the covering surface is reported. Neighbors stay checked
+                    // through visiblePdfPageVisuals.
+                    const requestedVisiblePage =
+                        requestedTargetPage === null
+                            ? null
+                            : (visiblePages.find(
+                                  (candidate) =>
+                                      Number(candidate.dataset.page ?? candidate.dataset.pageNumber ?? 0) === requestedTargetPage &&
+                                      ownsVisibleCenter(candidate),
+                              ) ?? null);
+                    const page =
+                        requestedVisiblePage ??
+                        visiblePages.find(ownsVisibleCenter) ??
+                        visiblePages.find((candidate) => {
+                            const rect = candidate.getBoundingClientRect();
+                            return rect.top < window.innerHeight && rect.bottom > 0;
+                        }) ??
+                        visiblePages[0] ??
+                        null;
+                    const isPageSource = page?.matches('[data-testid="document-page-source-page"]') ?? false;
+                    const pageCanvas = page?.querySelector<HTMLElement>('.page_canvas') ?? (isPageSource ? page : null);
+                    const pageCanvasRenderLayer = pageCanvas?.querySelector<HTMLElement>(':scope > .page_canvas__render-layer') ?? null;
+                    const canvas = page?.querySelector<HTMLCanvasElement>('.page_canvas__render-layer canvas') ?? null;
+                    const pageSourceImage =
+                        page?.querySelector<HTMLImageElement>(':scope > [data-testid="document-page-source-image"]') ?? null;
+                    const canvasRect = canvas?.getBoundingClientRect() ?? null;
+                    const pageSourceImageRect = pageSourceImage?.getBoundingClientRect() ?? null;
+                    const skeletonCandidates = Array.from(
+                        host?.querySelectorAll<HTMLElement>('.document-page-skeleton, .document-source-viewer__skeleton') ?? [],
+                    ).filter(isVisible);
+                    // The page-source skeleton wrapper renders the shared
+                    // DocumentPageSkeleton inside itself, so both selectors match
+                    // one logical skeleton. Keep only the outermost element of
+                    // each nest; competing ownership means separate skeletons,
+                    // not a wrapper and its own content.
+                    const skeletons = skeletonCandidates.filter(
+                        (candidate) => !skeletonCandidates.some((other) => other !== candidate && other.contains(candidate)),
+                    );
+                    const viewportRect = viewport?.getBoundingClientRect() ?? null;
+                    const intersectsViewport = (candidate: HTMLElement) => {
                         const rect = candidate.getBoundingClientRect();
-                        return candidate.isConnected
-                        && candidate.width > 0
-                        && candidate.height > 0
-                        && rect.width > 0
-                        && rect.height > 0;
-                    }).length,
-                    pageClassName: page?.className ?? null,
-                    pageVisualState: page?.dataset.pageVisual ?? null,
-                    pageNumber: page
-                        ? Number(page.dataset.page ?? page.dataset.pageNumber ?? 0) || null
-                        : null,
-                    shellId: getElementId(pageCanvas),
-                    shellRect: toRect(pageCanvas),
-                    shellStyle: toStyle(pageCanvas),
-                    // Target-owned skeletons only: a neighbor page's skeleton
-                    // intersecting the viewport edge belongs to that page and
-                    // is not competing skeleton ownership for this frame.
-                    skeletonCount: exactSkeletons.length,
-                    skeletonPages: skeletons.map(candidate => {
-                        const owner = candidate.closest<HTMLElement>(
-                            '.page_container[data-page], [data-testid="document-page-source-page"][data-page-number]',
+                        return Boolean(
+                            viewportRect &&
+                            rect.right > viewportRect.left &&
+                            rect.left < viewportRect.right &&
+                            rect.bottom > viewportRect.top &&
+                            rect.top < viewportRect.bottom,
                         );
-                        return owner
-                            ? Number(owner.dataset.page ?? owner.dataset.pageNumber ?? 0) || null
+                    };
+                    const viewportSkeletons = skeletons.filter(intersectsViewport);
+                    const exactSkeletons = viewportSkeletons.filter((candidate) => pageCanvas?.contains(candidate));
+                    // A neighbor page's skeleton sliver can intersect the viewport
+                    // edge in continuous scroll; it belongs to that page's own
+                    // container. Out-of-frame counts true orphans that no page
+                    // container owns, plus strays that claim the tracked page
+                    // from a foreign container (a duplicate skeleton owner).
+                    const trackedPageNumber = page ? Number(page.dataset.page ?? page.dataset.pageNumber ?? 0) || null : null;
+                    const orphanSkeletons = viewportSkeletons.filter((candidate) => {
+                        if (pageCanvas?.contains(candidate)) {
+                            return false;
+                        }
+                        const owner = candidate.closest<HTMLElement>(
+                            '.page_container, [data-testid="document-page-source-page"], .document-source-viewer__page',
+                        );
+                        if (!owner) {
+                            return true;
+                        }
+                        const ownerPageNumber = Number(owner.dataset.page ?? owner.dataset.pageNumber ?? 0) || null;
+                        return trackedPageNumber !== null && ownerPageNumber === trackedPageNumber;
+                    });
+                    const skeleton = exactSkeletons[0] ?? null;
+                    const canvasNonblank = sampleCanvasPixels && canvasHasNonblankPixels(canvas);
+                    // `page_container--rendered` is applied by the render coordinator only
+                    // after the render task commits; it is the white-page fallback where
+                    // pixel contrast deliberately cannot prove readiness.
+                    const renderAuthorityReady = Boolean(
+                        page?.classList.contains('page_container--rendered') ||
+                        page?.dataset.initialCanvasCommitted === 'true' ||
+                        canvas?.dataset.rendered === 'true',
+                    );
+                    // Runtime-owned presentation authority. A page is canonical only
+                    // after the current render commits; replacement intent clears the
+                    // previous bitmap instead of retaining stale pixels.
+                    const pageVisualAuthorityReady = page?.dataset.pageVisual === 'ready';
+                    const pageSourceAuthorityReady = Boolean(
+                        pageSourceImage?.isConnected &&
+                        pageSourceImage.complete &&
+                        pageSourceImage.naturalWidth > 0 &&
+                        pageSourceImage.naturalHeight > 0 &&
+                        pageSourceImageRect &&
+                        pageSourceImageRect.width > 0 &&
+                        pageSourceImageRect.height > 0 &&
+                        page?.dataset.pageSourceVisual === 'fresh',
+                    );
+                    const canvasAuthorityReady =
+                        pageSourceAuthorityReady ||
+                        Boolean(
+                            canvas?.isConnected &&
+                            canvasRect &&
+                            canvas.width > 0 &&
+                            canvas.height > 0 &&
+                            canvasRect.width > 0 &&
+                            canvasRect.height > 0 &&
+                            // Pixel contrast alone does not make an uncommitted canvas the
+                            // current visual authority. Only the canonical render commit
+                            // may coexist with the page presentation state.
+                            exactSkeletons.length === 0 &&
+                            (renderAuthorityReady || pageVisualAuthorityReady),
+                        );
+
+                    let kind: TCommittedSurfaceKind = 'blank';
+                    if (visibleLoader) {
+                        kind = 'loader';
+                    } else if (visibleToolSurface) {
+                        kind = 'tool-surface';
+                    } else if (canvasAuthorityReady && pageCanvas && ownsVisibleCenter(page)) {
+                        kind = 'committed-canvas';
+                    } else if (
+                        page &&
+                        pageCanvas &&
+                        ownsVisibleCenter(page) &&
+                        (exactSkeletons.length > 0 ||
+                            page.classList.contains('document-viewer-chassis__opening-page') ||
+                            browserOwnsPageFrameStyle(toStyle(pageCanvas)))
+                    ) {
+                        kind = 'page-shell';
+                    } else if (committedEmptyElement) {
+                        kind = 'committed-empty';
+                    } else if (openingProgress) {
+                        kind = 'opening-progress';
+                    }
+
+                    const hostRect = host?.getBoundingClientRect() ?? null;
+                    const topElement =
+                        hostRect && hostRect.width > 0 && hostRect.height > 0
+                            ? document.elementFromPoint(
+                                  Math.max(0, hostRect.left) +
+                                      (Math.min(window.innerWidth, hostRect.right) - Math.max(0, hostRect.left)) / 2,
+                                  Math.max(0, hostRect.top) +
+                                      (Math.min(window.innerHeight, hostRect.bottom) - Math.max(0, hostRect.top)) / 2,
+                              )
                             : null;
-                    }),
-                    skeletonDiagnostics: skeletons.map((candidate) => {
-                        const owner = candidate.closest<HTMLElement>(
-                            '.page_container[data-page], [data-testid="document-page-source-page"][data-page-number]',
-                        );
-                        const rect = candidate.getBoundingClientRect();
-                        return {
-                            display: window.getComputedStyle(candidate).display,
-                            intersectsViewport: Boolean(
-                                viewportRect
-                            && rect.right > viewportRect.left
-                            && rect.left < viewportRect.right
-                            && rect.bottom > viewportRect.top
-                            && rect.top < viewportRect.bottom,
-                            ),
-                            pageNumber: owner
-                                ? Number(owner.dataset.page ?? owner.dataset.pageNumber ?? 0) || null
-                                : null,
-                            rect: toRect(candidate),
-                        };
-                    }),
-                    skeletonSharesShell: Boolean(
-                        skeleton
-                    && exactSkeletons.length === 1
-                    && (
-                        isPageSource
-                            ? skeleton.parentElement === pageCanvas
-                            : skeleton.closest('.page_canvas') === pageCanvas
-                                && skeleton.closest('.page_canvas__render-layer') === null
-                    ),
-                    ),
-                    skeletonRect: toRect(skeleton),
-                    skeletonStyle: toStyle(skeleton),
-                    skeletonDisplay: skeleton ? window.getComputedStyle(skeleton).display : null,
-                    topElementPath: describeElementPath(topElement),
-                    targetPageCanvasDiagnostic: {
-                        connected: targetCanvas?.isConnected ?? false,
-                        hasSkeleton: Boolean(targetPage?.querySelector('.document-page-skeleton')),
-                        pageNumber: requestedTargetPage,
-                        rect: targetCanvasRect && targetCanvasRect.width > 0 && targetCanvasRect.height > 0
-                            ? toRect(targetCanvas)
-                            : null,
-                        renderedClass: targetPage?.classList.contains('page_container--rendered') ?? false,
-                    },
-                    viewportHasHorizontalOverflow: viewport
-                        ? viewport.scrollWidth > viewport.clientWidth + 1
-                        : null,
-                    viewportClientHeight: viewport?.clientHeight ?? null,
-                    viewportClientWidth: viewport?.clientWidth ?? null,
-                    viewportOverflow: viewport
-                        ? Math.max(0, Math.round(viewport.scrollWidth - viewport.clientWidth))
-                        : null,
-                    viewportScrollHeight: viewport?.scrollHeight ?? null,
-                    viewportScrollLeft: viewport ? Math.round(viewport.scrollLeft) : null,
-                    viewportScrollTop: viewport ? Math.round(viewport.scrollTop) : null,
-                    viewportScrollWidth: viewport?.scrollWidth ?? null,
-                    visiblePdfPageVisuals,
-                    visibleWorkspaceHostCount: Array.from(document.querySelectorAll<HTMLElement>(
-                        '.editor-pane.is-active .editor-pane-content > .workspace-host',
-                    )).filter(isVisible).length,
-                });
-            } catch (error) {
-                testWindow.__committedSurfaceErrors!.push({
-                    checkpoint: testWindow.__committedSurfaceInteractionCheckpoint ?? null,
-                    elapsedMs: Math.round(performance.now() - startedAt),
-                    frame,
-                    message: error instanceof Error
-                        ? `${error.name}: ${error.message}`
-                        : String(error),
-                });
-            } finally {
-                // A transient DOM read can race a Vue/PDF.js page replacement.
-                // Keep the causal sampler alive so later checkpoints remain
-                // observable, while returning the error as release-blocking
-                // evidence instead of misreporting an empty checkpoint tail.
-                testWindow.__committedSurfaceAnimationFrame = window.requestAnimationFrame(capture);
-            }
-        };
-        testWindow.__committedSurfaceAnimationFrame = window.requestAnimationFrame(capture);
-    }, options.sampleCanvasPixels !== false);
+                    const loaderSelector = visibleLoader
+                        ? (['.workspace-host__loading', '.document-loading', '.pdf-loading', '.pdf-loading-overlay'].find((selector) =>
+                              visibleLoader.matches(selector),
+                          ) ?? null)
+                        : null;
+
+                    const pdfOpeningDiagnostic = document.querySelector<HTMLElement>('[data-pdf-opening-diagnostic="true"]');
+                    const targetPage =
+                        requestedTargetPage === null
+                            ? null
+                            : (host?.querySelector<HTMLElement>(`.page_container[data-page="${String(requestedTargetPage)}"]`) ?? null);
+                    const targetCanvas = targetPage?.querySelector<HTMLCanvasElement>('.page_canvas__render-layer canvas') ?? null;
+                    const targetCanvasRect = targetCanvas?.getBoundingClientRect() ?? null;
+                    const visiblePdfPageVisuals = visiblePages
+                        .filter((candidate) => candidate.matches('.page_container[data-page]') && intersectsViewport(candidate))
+                        .map((candidate) => {
+                            const canonicalCanvas = candidate.querySelector<HTMLCanvasElement>('.page_canvas__render-layer canvas');
+                            const skeleton = candidate.querySelector<HTMLElement>('.document-page-skeleton');
+                            return {
+                                canonicalCanvasId: getElementId(canonicalCanvas),
+                                canonicalCanvasNonblank: sampleCanvasPixels && canvasHasNonblankPixels(canonicalCanvas),
+                                canonicalCanvasVisible: isVisible(canonicalCanvas),
+                                pageNumber: Number(candidate.dataset.page ?? 0) || null,
+                                skeletonVisible: isVisible(skeleton),
+                            };
+                        });
+                    testWindow.__committedSurfaceFrames!.push({
+                        bodyOverflow: Math.max(0, Math.round(document.body.scrollWidth - document.body.clientWidth)),
+                        canvasAuthorityReady,
+                        canvasConnected: canvas?.isConnected ?? pageSourceImage?.isConnected ?? false,
+                        canvasId: getElementId(canvas ?? pageSourceImage),
+                        canvasNonblank: canvasNonblank || pageSourceAuthorityReady,
+                        canvasOuterHtml: canvas?.outerHTML ?? pageSourceImage?.outerHTML ?? null,
+                        canvasPixelHeight: canvas?.height ?? pageSourceImage?.naturalHeight ?? null,
+                        canvasPixelWidth: canvas?.width ?? pageSourceImage?.naturalWidth ?? null,
+                        canvasSharesRenderLayer: isPageSource
+                            ? Boolean(pageSourceImage && pageSourceImage.parentElement === pageCanvas)
+                            : Boolean(
+                                  canvas && pageCanvasRenderLayer && canvas.closest('.page_canvas__render-layer') === pageCanvasRenderLayer,
+                              ),
+                        committedEmptyElementPath: committedEmptyElement ? describeElementPath(committedEmptyElement) : null,
+                        committedEmptySource,
+                        documentOverflow: Math.max(
+                            0,
+                            Math.round(document.documentElement.scrollWidth - document.documentElement.clientWidth),
+                        ),
+                        elapsedMs: Math.round(performance.now() - startedAt),
+                        emptyStateOwnsCenter: ownsVisibleCenter(visibleLiveEmptyState),
+                        frame,
+                        kind,
+                        interactionCheckpoint: testWindow.__committedSurfaceInteractionCheckpoint ?? null,
+                        loaderOuterHtml: visibleLoader?.outerHTML ?? null,
+                        loaderSelector,
+                        openSurfacePhase: viewport?.dataset.openSurfacePhase ?? null,
+                        openSurfacePresentation: chassis?.dataset.openSurfacePresentation ?? null,
+                        openingProgressRect: toRect(openingProgress),
+                        openSurfaceDiagnostic: chassis ? {...chassis.dataset} : undefined,
+                        pdfOpeningDiagnostic: pdfOpeningDiagnostic ? {...pdfOpeningDiagnostic.dataset} : undefined,
+                        pdfNavigationDiagnostic: pdfViewerHost ? {...pdfViewerHost.dataset} : undefined,
+                        outOfFrameSkeletonCount: orphanSkeletons.length,
+                        outerPlaceholderPresent: outerPlaceholder !== null,
+                        outerPlaceholderOwnsCenter: ownsVisibleCenter(outerPlaceholder),
+                        outerPlaceholderVisible: isVisible(outerPlaceholder),
+                        pageCanvasChildren: Array.from(pageCanvas?.children ?? []).map((child) => {
+                            const element = child as HTMLElement;
+                            const classes = Array.from(element.classList).join('.');
+                            const dimensions = child instanceof HTMLCanvasElement ? `[${String(child.width)}x${String(child.height)}]` : '';
+                            return `${child.tagName.toLowerCase()}${classes ? `.${classes}` : ''}${dimensions}`;
+                        }),
+                        pageCanvasNonzeroCanvasCount: Array.from(
+                            pageCanvas?.querySelectorAll<HTMLCanvasElement>('.page_canvas__render-layer canvas') ?? [],
+                        ).filter((candidate) => {
+                            const rect = candidate.getBoundingClientRect();
+                            return (
+                                candidate.isConnected && candidate.width > 0 && candidate.height > 0 && rect.width > 0 && rect.height > 0
+                            );
+                        }).length,
+                        pageClassName: page?.className ?? null,
+                        pageVisualState: page?.dataset.pageVisual ?? null,
+                        pageNumber: page ? Number(page.dataset.page ?? page.dataset.pageNumber ?? 0) || null : null,
+                        shellId: getElementId(pageCanvas),
+                        shellRect: toRect(pageCanvas),
+                        shellStyle: toStyle(pageCanvas),
+                        // Target-owned skeletons only: a neighbor page's skeleton
+                        // intersecting the viewport edge belongs to that page and
+                        // is not competing skeleton ownership for this frame.
+                        skeletonCount: exactSkeletons.length,
+                        skeletonPages: skeletons.map((candidate) => {
+                            const owner = candidate.closest<HTMLElement>(
+                                '.page_container[data-page], [data-testid="document-page-source-page"][data-page-number]',
+                            );
+                            return owner ? Number(owner.dataset.page ?? owner.dataset.pageNumber ?? 0) || null : null;
+                        }),
+                        skeletonDiagnostics: skeletons.map((candidate) => {
+                            const owner = candidate.closest<HTMLElement>(
+                                '.page_container[data-page], [data-testid="document-page-source-page"][data-page-number]',
+                            );
+                            const rect = candidate.getBoundingClientRect();
+                            return {
+                                display: window.getComputedStyle(candidate).display,
+                                intersectsViewport: Boolean(
+                                    viewportRect &&
+                                    rect.right > viewportRect.left &&
+                                    rect.left < viewportRect.right &&
+                                    rect.bottom > viewportRect.top &&
+                                    rect.top < viewportRect.bottom,
+                                ),
+                                pageNumber: owner ? Number(owner.dataset.page ?? owner.dataset.pageNumber ?? 0) || null : null,
+                                rect: toRect(candidate),
+                            };
+                        }),
+                        skeletonSharesShell: Boolean(
+                            skeleton &&
+                            exactSkeletons.length === 1 &&
+                            (isPageSource
+                                ? skeleton.parentElement === pageCanvas
+                                : skeleton.closest('.page_canvas') === pageCanvas &&
+                                  skeleton.closest('.page_canvas__render-layer') === null),
+                        ),
+                        skeletonRect: toRect(skeleton),
+                        skeletonStyle: toStyle(skeleton),
+                        skeletonDisplay: skeleton ? window.getComputedStyle(skeleton).display : null,
+                        topElementPath: describeElementPath(topElement),
+                        targetPageCanvasDiagnostic: {
+                            connected: targetCanvas?.isConnected ?? false,
+                            hasSkeleton: Boolean(targetPage?.querySelector('.document-page-skeleton')),
+                            pageNumber: requestedTargetPage,
+                            rect:
+                                targetCanvasRect && targetCanvasRect.width > 0 && targetCanvasRect.height > 0 ? toRect(targetCanvas) : null,
+                            renderedClass: targetPage?.classList.contains('page_container--rendered') ?? false,
+                        },
+                        viewportHasHorizontalOverflow: viewport ? viewport.scrollWidth > viewport.clientWidth + 1 : null,
+                        viewportClientHeight: viewport?.clientHeight ?? null,
+                        viewportClientWidth: viewport?.clientWidth ?? null,
+                        viewportOverflow: viewport ? Math.max(0, Math.round(viewport.scrollWidth - viewport.clientWidth)) : null,
+                        viewportScrollHeight: viewport?.scrollHeight ?? null,
+                        viewportScrollLeft: viewport ? Math.round(viewport.scrollLeft) : null,
+                        viewportScrollTop: viewport ? Math.round(viewport.scrollTop) : null,
+                        viewportScrollWidth: viewport?.scrollWidth ?? null,
+                        visiblePdfPageVisuals,
+                        visibleWorkspaceHostCount: Array.from(
+                            document.querySelectorAll<HTMLElement>('.editor-pane.is-active .editor-pane-content > .workspace-host'),
+                        ).filter(isVisible).length,
+                    });
+                } catch (error) {
+                    testWindow.__committedSurfaceErrors!.push({
+                        checkpoint: testWindow.__committedSurfaceInteractionCheckpoint ?? null,
+                        elapsedMs: Math.round(performance.now() - startedAt),
+                        frame,
+                        message: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+                    });
+                } finally {
+                    // A transient DOM read can race a Vue/PDF.js page replacement.
+                    // Keep the causal sampler alive so later checkpoints remain
+                    // observable, while returning the error as release-blocking
+                    // evidence instead of misreporting an empty checkpoint tail.
+                    testWindow.__committedSurfaceAnimationFrame = window.requestAnimationFrame(capture);
+                }
+            };
+            testWindow.__committedSurfaceAnimationFrame = window.requestAnimationFrame(capture);
+        },
+        options.sampleCanvasPixels !== false,
+    );
 }
 
 export async function markCommittedSurfaceInteractionCheckpoint(page: Page, checkpoint: string) {
-    await evaluateInPage(page, (nextCheckpoint: string) => {
-        const testWindow = window as typeof window & {__committedSurfaceInteractionCheckpoint?: string | null;};
-        testWindow.__committedSurfaceInteractionCheckpoint = nextCheckpoint;
-    }, checkpoint);
+    await evaluateInPage(
+        page,
+        (nextCheckpoint: string) => {
+            const testWindow = window as typeof window & {__committedSurfaceInteractionCheckpoint?: string | null};
+            testWindow.__committedSurfaceInteractionCheckpoint = nextCheckpoint;
+        },
+        checkpoint,
+    );
 }
 
-export async function waitForCommittedSurfaceSamples(
-    page: Page,
-    options: ICommittedSurfaceSampleWaitOptions,
-) {
+export async function waitForCommittedSurfaceSamples(page: Page, options: ICommittedSurfaceSampleWaitOptions) {
     const timeoutMs = options.timeoutMs ?? 20_000;
     const pollIntervalMs = options.pollIntervalMs ?? 100;
     const deadline = Date.now() + timeoutMs;
     let observedSamples = 0;
     while (Date.now() <= deadline) {
-        observedSamples = await evaluateInPage(page, (
-            kind: TCommittedSurfaceKind | null,
-            interactionCheckpoint: string | null,
-        ) => {
-            const frames = (window as typeof window & {__committedSurfaceFrames?: ICommittedSurfaceFrame[];})
-                .__committedSurfaceFrames ?? [];
-            return frames.filter(frame => (
-                (kind === null || frame.kind === kind)
-                && (
-                    interactionCheckpoint === null
-                    || frame.interactionCheckpoint === interactionCheckpoint
-                )
-            )).length;
-        }, options.kind ?? null, options.interactionCheckpoint ?? null);
+        observedSamples = await evaluateInPage(
+            page,
+            (kind: TCommittedSurfaceKind | null, interactionCheckpoint: string | null) => {
+                const frames =
+                    (window as typeof window & {__committedSurfaceFrames?: ICommittedSurfaceFrame[]}).__committedSurfaceFrames ?? [];
+                return frames.filter(
+                    (frame) =>
+                        (kind === null || frame.kind === kind) &&
+                        (interactionCheckpoint === null || frame.interactionCheckpoint === interactionCheckpoint),
+                ).length;
+            },
+            options.kind ?? null,
+            options.interactionCheckpoint ?? null,
+        );
         if (observedSamples >= options.minimumSamples) {
             return observedSamples;
         }
-        await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+        await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
     }
     throw new Error(
         `Timed out after ${String(timeoutMs)}ms waiting for ${String(options.minimumSamples)} committed-surface samples; observed ${String(observedSamples)}`,

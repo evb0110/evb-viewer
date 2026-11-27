@@ -1,37 +1,24 @@
-import type { ILogger } from '@electron/utils/createLogger';
-import { BrowserWindow } from 'electron';
-import type {
-    App,
-    IpcMainEvent,
-    WebContents,
-} from 'electron';
-import { config } from '@electron/config';
-import { getErrorMessage } from '@electron/utils/error';
-import type { IAppUpdateStatus } from '@contracts/updatesPlatformFeature';
-import type {
-    TRendererReportedStartupPhase,
-    TRendererStartupPhase,
-} from '@contracts/windowTabsPlatformFeature';
-import type { ISettingsData } from '@contracts/shared';
-import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import { PACKAGED_STARTUP_READY_MARKER } from '@contracts/packagedStartupReadyMarker';
-import {
-    isSecondInstanceLaunch,
-    type ISecondInstanceLaunch,
-} from '@contracts/secondInstanceLaunch';
-import { resolveApplicationVersion } from '@electron/appVersion';
+import type {ILogger} from '@electron/utils/createLogger';
+import {BrowserWindow} from 'electron';
+import type {App, IpcMainEvent, WebContents} from 'electron';
+import {config} from '@electron/config';
+import {getErrorMessage} from '@electron/utils/error';
+import type {IAppUpdateStatus} from '@contracts/updatesPlatformFeature';
+import type {TRendererReportedStartupPhase, TRendererStartupPhase} from '@contracts/windowTabsPlatformFeature';
+import type {ISettingsData} from '@contracts/shared';
+import {parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
+import {PACKAGED_STARTUP_READY_MARKER} from '@contracts/packagedStartupReadyMarker';
+import {isSecondInstanceLaunch, type ISecondInstanceLaunch} from '@contracts/secondInstanceLaunch';
+import {resolveApplicationVersion} from '@electron/appVersion';
 import {runtimeConfig} from '@electron/runtimeConfig';
-import { setNativeWindowCloseCancelHandler } from '@electron/window';
-import { resetWindowStartupPhase } from '@electron/window/rendererReady';
+import {setNativeWindowCloseCancelHandler} from '@electron/window';
+import {resetWindowStartupPhase} from '@electron/window/rendererReady';
 
 interface IShutdownCoordinator {
     isGracefulQuitInProgress(): boolean;
     isQuittingAfterCleanup(): boolean;
     isFatalShutdownInProgress(): boolean;
-    requestGracefulQuit(options?: { afterCleanup?: () => void | Promise<void> }): void;
+    requestGracefulQuit(options?: {afterCleanup?: () => void | Promise<void>}): void;
 }
 
 interface IExternalOpenManager {
@@ -83,10 +70,7 @@ export interface IRunInitSequenceOptions {
     cleanupStaleWorkingCopyDirectories(): Promise<{removedDirectories: number}>;
     cleanupStaleAppTempNamespaces?: () => Promise<number>;
     reapOrphanedManagedNativeProcesses?: () => Promise<unknown>;
-    createWindow(options?: {
-        showStartupPlaceholder?: boolean;
-        waitForInitialRendererReady?: boolean;
-    }): Promise<BrowserWindow>;
+    createWindow(options?: {showStartupPlaceholder?: boolean; waitForInitialRendererReady?: boolean}): Promise<BrowserWindow>;
     createAdditionalWindow?: () => Promise<BrowserWindow>;
     devDockBadgeText: string;
     devDockIconPath: string;
@@ -118,10 +102,7 @@ export interface IRunInitSequenceOptions {
     setupAppProtocolHandler(): void;
     setupMenu(): void;
     updateRecentFilesMenu(): void;
-    shouldResetRendererReadyOnNavigation(options: {
-        isMainFrame: boolean;
-        isInPlace: boolean;
-    }): boolean;
+    shouldResetRendererReadyOnNavigation(options: {isMainFrame: boolean; isInPlace: boolean}): boolean;
     shutdownCoordinator: IShutdownCoordinator | null;
     sweepStaleDefaultAppTempPdfs(): Promise<unknown>;
     sweepStalePdfAnnotationParseArtifacts?: () => Promise<unknown>;
@@ -130,7 +111,9 @@ export interface IRunInitSequenceOptions {
     pruneStaleDjvuArtifactJobs?: () => Promise<unknown>;
 }
 
-export function createStartupExternalOpenClaimTracker(options: Pick<IRunInitSequenceOptions, 'externalOpenManager' | 'logger'>): IStartupExternalOpenClaimTracker {
+export function createStartupExternalOpenClaimTracker(
+    options: Pick<IRunInitSequenceOptions, 'externalOpenManager' | 'logger'>,
+): IStartupExternalOpenClaimTracker {
     const claimsBySender = new Map<WebContents, Set<string>>();
 
     function clearClaim(sender: WebContents) {
@@ -169,10 +152,7 @@ export function createStartupExternalOpenClaimTracker(options: Pick<IRunInitSequ
         }
 
         const normalizedFailedPaths = normalizeAcknowledgedExternalOpenPaths(failedPaths);
-        if (
-            normalizedFailedPaths.length > claim.size
-            || normalizedFailedPaths.some(path => !claim.has(path))
-        ) {
+        if (normalizedFailedPaths.length > claim.size || normalizedFailedPaths.some((path) => !claim.has(path))) {
             return false;
         }
 
@@ -189,18 +169,21 @@ export function createStartupExternalOpenClaimTracker(options: Pick<IRunInitSequ
 }
 
 interface ISingleInstanceApp {
-    on(event: 'second-instance', listener: (event: unknown, commandLine: string[], workingDirectory: string, additionalData: unknown) => void): void;
+    on(
+        event: 'second-instance',
+        listener: (event: unknown, commandLine: string[], workingDirectory: string, additionalData: unknown) => void,
+    ): void;
     quit(): void;
     requestSingleInstanceLock(additionalData: ISecondInstanceLaunch): boolean;
 }
 
-export function bootSingleInstance(options: Pick<IRunInitSequenceOptions, 'allowMultipleAutomationSessions' | 'externalOpenManager' | 'logger' | 'onPrimaryInstanceReady'> & { app: ISingleInstanceApp; }) {
-    const {
-        allowMultipleAutomationSessions,
-        app,
-        externalOpenManager,
-        logger,
-    } = options;
+export function bootSingleInstance(
+    options: Pick<
+        IRunInitSequenceOptions,
+        'allowMultipleAutomationSessions' | 'externalOpenManager' | 'logger' | 'onPrimaryInstanceReady'
+    > & {app: ISingleInstanceApp},
+) {
+    const {allowMultipleAutomationSessions, app, externalOpenManager, logger} = options;
 
     if (!allowMultipleAutomationSessions) {
         const singleInstanceLock = app.requestSingleInstanceLock({
@@ -244,12 +227,7 @@ async function bootProtocol(options: IRunInitSequenceOptions) {
 }
 
 async function bootDevDockIcon(options: IRunInitSequenceOptions) {
-    const {
-        app,
-        devDockBadgeText,
-        devDockIconPath,
-        logger,
-    } = options;
+    const {app, devDockBadgeText, devDockIconPath, logger} = options;
 
     if (config.automation.noFocus && process.platform === 'darwin') {
         try {
@@ -265,7 +243,7 @@ async function bootDevDockIcon(options: IRunInitSequenceOptions) {
     }
 
     try {
-        const { createDevDockIcon } = await import('@electron/bootstrap/createDevDockIcon');
+        const {createDevDockIcon} = await import('@electron/bootstrap/createDevDockIcon');
         const devDockIcon = createDevDockIcon(devDockIconPath);
         app.dock?.setIcon(devDockIcon ?? devDockIconPath);
         app.dock?.setBadge(devDockBadgeText);
@@ -279,7 +257,7 @@ function bootAboutPanel(options: IRunInitSequenceOptions) {
     options.app.setAboutPanelOptions({
         applicationName: 'EVB Viewer',
         applicationVersion: appVersion,
-        ...(appVersion.startsWith('0.') ? { version: 'Beta' } : {}),
+        ...(appVersion.startsWith('0.') ? {version: 'Beta'} : {}),
         copyright: 'Copyright \u00A9 2026 Eugene Barsky',
         iconPath: options.aboutIconPath,
         authors: ['Eugene Barsky'],
@@ -321,14 +299,16 @@ function bootIpc(
                 recoveryWindowCreationRequested = false;
                 await createAdditionalWindow();
             }
-        })().catch((error: unknown) => {
-            logger.error(`Failed to create a workspace recovery window: ${getErrorMessage(error)}`, {
-                code: 'MAIN_STARTUP_INITIALIZATION_FAILED',
-                cause: error,
+        })()
+            .catch((error: unknown) => {
+                logger.error(`Failed to create a workspace recovery window: ${getErrorMessage(error)}`, {
+                    code: 'MAIN_STARTUP_INITIALIZATION_FAILED',
+                    cause: error,
+                });
+            })
+            .finally(() => {
+                recoveryWindowCreationInFlight = null;
             });
-        }).finally(() => {
-            recoveryWindowCreationInFlight = null;
-        });
     };
     registerIpcHandlers({
         onWorkspaceCheckpointClaimed: scheduleWorkspaceRecoveryWindow,
@@ -403,9 +383,7 @@ interface IStartupMaintenanceStepDefinition {
     run: TStartupMaintenanceStep;
 }
 
-function createPostRendererReadyMaintenanceRunner(
-    options: IRunInitSequenceOptions,
-): () => void {
+function createPostRendererReadyMaintenanceRunner(options: IRunInitSequenceOptions): () => void {
     const {
         cleanupStaleWorkingCopyDirectories,
         cleanupStaleAppTempNamespaces,
@@ -420,49 +398,61 @@ function createPostRendererReadyMaintenanceRunner(
 
     const steps: IStartupMaintenanceStepDefinition[] = [
         ...(reapOrphanedManagedNativeProcesses
-            ? [{
-                label: 'orphaned managed native processes',
-                run: reapOrphanedManagedNativeProcesses,
-            }]
+            ? [
+                  {
+                      label: 'orphaned managed native processes',
+                      run: reapOrphanedManagedNativeProcesses,
+                  },
+              ]
             : []),
         ...(cleanupStaleAppTempNamespaces
-            ? [{
-                label: 'EVB app temp namespaces',
-                run: async () => {
-                    const removed = await cleanupStaleAppTempNamespaces();
-                    if (removed > 0) {
-                        logger.info(`Removed stale EVB app temp namespaces: ${removed}`);
-                    }
-                },
-            }]
+            ? [
+                  {
+                      label: 'EVB app temp namespaces',
+                      run: async () => {
+                          const removed = await cleanupStaleAppTempNamespaces();
+                          if (removed > 0) {
+                              logger.info(`Removed stale EVB app temp namespaces: ${removed}`);
+                          }
+                      },
+                  },
+              ]
             : []),
         {
             label: 'default-app temp PDFs',
             run: sweepStaleDefaultAppTempPdfs,
         },
         ...(pruneStaleDjvuArtifactJobs
-            ? [{
-                label: 'DjVu artifact jobs',
-                run: pruneStaleDjvuArtifactJobs,
-            }]
+            ? [
+                  {
+                      label: 'DjVu artifact jobs',
+                      run: pruneStaleDjvuArtifactJobs,
+                  },
+              ]
             : []),
         ...(sweepStaleOcrTempArtifacts
-            ? [{
-                label: 'OCR temp artifacts',
-                run: sweepStaleOcrTempArtifacts,
-            }]
+            ? [
+                  {
+                      label: 'OCR temp artifacts',
+                      run: sweepStaleOcrTempArtifacts,
+                  },
+              ]
             : []),
         ...(sweepStalePdfAnnotationParseArtifacts
-            ? [{
-                label: 'PDF annotation parse sidecars',
-                run: sweepStalePdfAnnotationParseArtifacts,
-            }]
+            ? [
+                  {
+                      label: 'PDF annotation parse sidecars',
+                      run: sweepStalePdfAnnotationParseArtifacts,
+                  },
+              ]
             : []),
         ...(sweepStaleScanCleanupScratchDirs
-            ? [{
-                label: 'scan-cleanup scratch directories',
-                run: sweepStaleScanCleanupScratchDirs,
-            }]
+            ? [
+                  {
+                      label: 'scan-cleanup scratch directories',
+                      run: sweepStaleScanCleanupScratchDirs,
+                  },
+              ]
             : []),
         {
             label: 'working-copy directories',
@@ -500,10 +490,7 @@ function createPostRendererReadyMaintenanceRunner(
     };
 }
 
-function bootWindowLifecycle(
-    options: IRunInitSequenceOptions,
-    startupExternalOpenClaims: IStartupExternalOpenClaimTracker,
-) {
+function bootWindowLifecycle(options: IRunInitSequenceOptions, startupExternalOpenClaims: IStartupExternalOpenClaimTracker) {
     const {
         app,
         attachHostEnvironmentToWindow,
@@ -534,10 +521,12 @@ function bootWindowLifecycle(
         };
 
         window.webContents.on('did-start-navigation', (_navEvent, _url, isInPlace, isMainFrame) => {
-            if (!shouldResetRendererReadyOnNavigation({
-                isMainFrame,
-                isInPlace,
-            })) {
+            if (
+                !shouldResetRendererReadyOnNavigation({
+                    isMainFrame,
+                    isInPlace,
+                })
+            ) {
                 return;
             }
             markNotReady('main-frame navigation');
@@ -589,10 +578,7 @@ function bootWindowLifecycle(
         if (config.automation.noFocus) {
             return;
         }
-        if (
-            shutdownCoordinator?.isGracefulQuitInProgress()
-            || shutdownCoordinator?.isFatalShutdownInProgress()
-        ) {
+        if (shutdownCoordinator?.isGracefulQuitInProgress() || shutdownCoordinator?.isFatalShutdownInProgress()) {
             return;
         }
 
@@ -611,13 +597,7 @@ function bootWindowLifecycle(
 }
 
 async function bootMainWindow(options: IRunInitSequenceOptions) {
-    const {
-        app,
-        createWindow,
-        externalOpenManager,
-        logger,
-        logStartupPhase,
-    } = options;
+    const {app, createWindow, externalOpenManager, logger, logStartupPhase} = options;
 
     externalOpenManager.markBootstrapReady();
     logStartupPhase('Creating main window');

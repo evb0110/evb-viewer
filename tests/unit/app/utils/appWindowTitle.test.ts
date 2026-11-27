@@ -1,14 +1,5 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    formatWebTitleTemplate,
-    resolveAppWindowTitle,
-} from '@app/utils/appWindowTitle';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {formatWebTitleTemplate, resolveAppWindowTitle} from '@app/utils/appWindowTitle';
 
 describe('resolveAppWindowTitle', () => {
     afterEach(() => {
@@ -18,48 +9,58 @@ describe('resolveAppWindowTitle', () => {
     it('names the app, not its website, in the Chrome extension', () => {
         vi.stubGlobal('location', new URL('chrome-extension://abcdefghijklmnopabcdefghijklmnop/index.html#/'));
 
-        expect(resolveAppWindowTitle({
-            appTitle: 'EVB Viewer',
-            webTitle: 'EVB Viewer Web',
-            fileName: 'notes.pdf',
-            isBrowserRuntime: true,
-        })).toBe('notes.pdf - EVB Viewer');
+        expect(
+            resolveAppWindowTitle({
+                appTitle: 'EVB Viewer',
+                webTitle: 'EVB Viewer Web',
+                fileName: 'notes.pdf',
+                isBrowserRuntime: true,
+            }),
+        ).toBe('notes.pdf - EVB Viewer');
     });
 
     it('falls back to the desktop app title when no document is open', () => {
-        expect(resolveAppWindowTitle({
-            appTitle: 'EVB Viewer',
-            webTitle: 'EVB Viewer Web',
-            fileName: null,
-            isBrowserRuntime: false,
-        })).toBe('EVB Viewer');
+        expect(
+            resolveAppWindowTitle({
+                appTitle: 'EVB Viewer',
+                webTitle: 'EVB Viewer Web',
+                fileName: null,
+                isBrowserRuntime: false,
+            }),
+        ).toBe('EVB Viewer');
     });
 
     it('uses the active document name for desktop windows', () => {
-        expect(resolveAppWindowTitle({
-            appTitle: 'EVB Viewer',
-            webTitle: 'EVB Viewer Web',
-            fileName: ' notes.pdf ',
-            isBrowserRuntime: false,
-        })).toBe('notes.pdf');
+        expect(
+            resolveAppWindowTitle({
+                appTitle: 'EVB Viewer',
+                webTitle: 'EVB Viewer Web',
+                fileName: ' notes.pdf ',
+                isBrowserRuntime: false,
+            }),
+        ).toBe('notes.pdf');
     });
 
     it('falls back to the web app title when no document is open in the browser', () => {
-        expect(resolveAppWindowTitle({
-            appTitle: 'EVB Viewer',
-            webTitle: 'EVB Viewer Web',
-            fileName: null,
-            isBrowserRuntime: true,
-        })).toBe('EVB Viewer Web');
+        expect(
+            resolveAppWindowTitle({
+                appTitle: 'EVB Viewer',
+                webTitle: 'EVB Viewer Web',
+                fileName: null,
+                isBrowserRuntime: true,
+            }),
+        ).toBe('EVB Viewer Web');
     });
 
     it('includes the active document name in browser window titles', () => {
-        expect(resolveAppWindowTitle({
-            appTitle: 'EVB Viewer',
-            webTitle: 'EVB Viewer Web',
-            fileName: 'notes.pdf',
-            isBrowserRuntime: true,
-        })).toBe('notes.pdf - EVB Viewer Web');
+        expect(
+            resolveAppWindowTitle({
+                appTitle: 'EVB Viewer',
+                webTitle: 'EVB Viewer Web',
+                fileName: 'notes.pdf',
+                isBrowserRuntime: true,
+            }),
+        ).toBe('notes.pdf - EVB Viewer Web');
     });
 
     it('caps an overly long document name in the desktop window title', () => {

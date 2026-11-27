@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import type {TScanCleanupProgress} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     createScanCleanupActivePageTracker,
@@ -22,14 +18,9 @@ import {
 
 const t: TTranslateFn = (key, ...args) => {
     const parameter = args[0];
-    const parameters = typeof parameter === 'object' && parameter !== null
-        ? parameter
-        : {};
+    const parameters = typeof parameter === 'object' && parameter !== null ? parameter : {};
     return Object.entries(parameters).reduce<string>(
-        (value, [
-            name,
-            replacement,
-        ]) => `${value} ${name}=${String(replacement)}`,
+        (value, [name, replacement]) => `${value} ${name}=${String(replacement)}`,
         String(key),
     );
 };
@@ -99,17 +90,18 @@ describe('scan cleanup time captions', () => {
     });
 
     it('reserves the widest time caption', () => {
-        expect(resolveScanCleanupTimeWidestText(t).length)
-            .toBeGreaterThanOrEqual(formatScanCleanupEta(120, t).length);
+        expect(resolveScanCleanupTimeWidestText(t).length).toBeGreaterThanOrEqual(formatScanCleanupEta(120, t).length);
     });
 });
 
 describe('scan cleanup activity', () => {
     it('is absent when neither analysis nor a run is under way', () => {
-        expect(resolveScanCleanupActivity({
-            detection: analysis({pending: false}),
-            run: null,
-        })).toBeNull();
+        expect(
+            resolveScanCleanupActivity({
+                detection: analysis({pending: false}),
+                run: null,
+            }),
+        ).toBeNull();
     });
 
     it('names the page-image read that precedes the first verdict instead of an unexplained zero', () => {
@@ -118,11 +110,13 @@ describe('scan cleanup activity', () => {
             run: null,
         })!;
         const reading = resolveScanCleanupActivity({
-            detection: analysis({progress: progress({
-                stage: 'rasterizing',
-                completedUnits: 7,
-                rasterizedUnits: 7,
-            })}),
+            detection: analysis({
+                progress: progress({
+                    stage: 'rasterizing',
+                    completedUnits: 7,
+                    rasterizedUnits: 7,
+                }),
+            }),
             run: null,
         })!;
 
@@ -135,7 +129,7 @@ describe('scan cleanup activity', () => {
             total: 148,
         });
         expect(reading.bufferFraction).toBeCloseTo(7 / 148);
-        expect(reading.steps.find(step => step.id === 'read')?.count).toEqual({
+        expect(reading.steps.find((step) => step.id === 'read')?.count).toEqual({
             completed: 7,
             total: 148,
         });
@@ -165,8 +159,8 @@ describe('scan cleanup activity', () => {
         });
         expect(allRead.fraction).toBe(0);
         expect(allRead.bufferFraction).toBe(1);
-        expect(allRead.steps.find(step => step.id === 'read')?.state).toBe('done');
-        expect(allRead.steps.find(step => step.id === 'detect')?.state).toBe('active');
+        expect(allRead.steps.find((step) => step.id === 'read')?.state).toBe('done');
+        expect(allRead.steps.find((step) => step.id === 'detect')?.state).toBe('active');
     });
 
     it('keeps one sentence while reading runs ahead of detection and never moves the verdict count backward', () => {
@@ -196,10 +190,7 @@ describe('scan cleanup activity', () => {
         expect(detecting.detail).toBe('detect');
         // The sentence stays on the measured work while the next batch is read.
         expect(readingNextBatch.detail).toBe('detect');
-        expect(readingNextBatch.steps.filter(step => step.state === 'active').map(step => step.id)).toEqual([
-            'read',
-            'detect',
-        ]);
+        expect(readingNextBatch.steps.filter((step) => step.state === 'active').map((step) => step.id)).toEqual(['read', 'detect']);
         expect(readingNextBatch.count).toEqual(detecting.count);
         expect(readingNextBatch.fraction).toBeCloseTo(16 / 148);
         expect(readingNextBatch.bufferFraction).toBeCloseTo(21 / 148);
@@ -222,48 +213,20 @@ describe('scan cleanup activity', () => {
         expect(activity.step).toBe('compare');
         expect(activity.detail).toBe('compare');
         expect(activity.etaSeconds).toBeUndefined();
-        expect(activity.steps.map(step => [
-            step.id,
-            step.state,
-        ])).toEqual([
-            [
-                'read',
-                'done',
-            ],
-            [
-                'detect',
-                'done',
-            ],
-            [
-                'compare',
-                'active',
-            ],
-            [
-                'prepare',
-                'waiting',
-            ],
-            [
-                'clean',
-                'waiting',
-            ],
-            [
-                'build',
-                'waiting',
-            ],
-            [
-                'open',
-                'waiting',
-            ],
+        expect(activity.steps.map((step) => [step.id, step.state])).toEqual([
+            ['read', 'done'],
+            ['detect', 'done'],
+            ['compare', 'active'],
+            ['prepare', 'waiting'],
+            ['clean', 'waiting'],
+            ['build', 'waiting'],
+            ['open', 'waiting'],
         ]);
-        expect(activity.steps.find(step => step.id === 'compare')?.count).toEqual({completed: 12});
+        expect(activity.steps.find((step) => step.id === 'compare')?.count).toEqual({completed: 12});
     });
 
     it('counts only re-checked pages during compare instead of showing a completed analysis total', () => {
-        for (const recheckedUnits of [
-            undefined,
-            0,
-            12,
-        ]) {
+        for (const recheckedUnits of [undefined, 0, 12]) {
             const activity = resolveScanCleanupActivity({
                 detection: analysis({
                     analyzedPages: 148,
@@ -311,42 +274,27 @@ describe('scan cleanup activity', () => {
     });
 
     it('maps every run stage onto a named step with earlier steps done', () => {
-        const stepFor = (stage: TScanCleanupProgress['stage'], committing = false) => resolveScanCleanupActivity({
-            detection: analysis({pending: false}),
-            run: {
-                waitingForDetection: false,
-                starting: false,
-                progress: progress({
-                    stage,
-                    completedUnits: 3,
-                    totalUnits: 148,
-                    percent: 40,
-                }),
-                committing,
-            },
-        })!;
+        const stepFor = (stage: TScanCleanupProgress['stage'], committing = false) =>
+            resolveScanCleanupActivity({
+                detection: analysis({pending: false}),
+                run: {
+                    waitingForDetection: false,
+                    starting: false,
+                    progress: progress({
+                        stage,
+                        completedUnits: 3,
+                        totalUnits: 148,
+                        percent: 40,
+                    }),
+                    committing,
+                },
+            })!;
 
-        expect([
-            'normalizing',
-            'probing',
-            'extracting',
-            'rasterizing',
-            'classifying',
-            'rendering',
-            'collecting',
-            'assembling',
-            'handoff',
-        ].map(stage => stepFor(stage as TScanCleanupProgress['stage']).step)).toEqual([
-            'prepare',
-            'prepare',
-            'prepare',
-            'clean',
-            'clean',
-            'clean',
-            'build',
-            'build',
-            'open',
-        ]);
+        expect(
+            ['normalizing', 'probing', 'extracting', 'rasterizing', 'classifying', 'rendering', 'collecting', 'assembling', 'handoff'].map(
+                (stage) => stepFor(stage as TScanCleanupProgress['stage']).step,
+            ),
+        ).toEqual(['prepare', 'prepare', 'prepare', 'clean', 'clean', 'clean', 'build', 'build', 'open']);
         expect(stepFor('assembling', true).step).toBe('open');
         const cleaning = stepFor('rendering');
         expect(cleaning.phase).toBe('clean');
@@ -355,7 +303,7 @@ describe('scan cleanup activity', () => {
             total: 148,
         });
         expect(cleaning.fraction).toBeCloseTo(3 / 148);
-        expect(cleaning.steps.filter(step => step.phase === 'analyze').every(step => step.state === 'done')).toBe(true);
+        expect(cleaning.steps.filter((step) => step.phase === 'analyze').every((step) => step.state === 'done')).toBe(true);
         const building = stepFor('assembling');
         expect(building.count).toBeNull();
         expect(building.fraction).toBeCloseTo(0.1 + 0.65 * (3 / 148));
@@ -369,21 +317,22 @@ describe('scan cleanup activity', () => {
             percent: number,
             extras: Partial<TScanCleanupProgress> = {},
             committing = false,
-        ) => resolveScanCleanupActivity({
-            detection: analysis({pending: false}),
-            run: {
-                waitingForDetection: false,
-                starting: false,
-                progress: progress({
-                    stage,
-                    completedUnits,
-                    totalUnits,
-                    percent,
-                    ...extras,
-                }),
-                committing,
-            },
-        })!;
+        ) =>
+            resolveScanCleanupActivity({
+                detection: analysis({pending: false}),
+                run: {
+                    waitingForDetection: false,
+                    starting: false,
+                    progress: progress({
+                        stage,
+                        completedUnits,
+                        totalUnits,
+                        percent,
+                        ...extras,
+                    }),
+                    committing,
+                },
+            })!;
 
         // Entering rendering at 0 of 4 must not jump to ~26% from RASTER_STAGE_WEIGHTS.
         const zeroStarted = runActivity('rendering', 0, 4, 26, {rasterizedUnits: 0});
@@ -428,17 +377,25 @@ describe('scan cleanup activity', () => {
     });
 
     it('describes a run seen from the reader toolbar with the same words', () => {
-        expect(formatScanCleanupProgress(progress({
-            stage: 'rendering',
-            completedUnits: 42,
-        }), t).text)
-            .toBe('scanCleanup.runStatus phase=scanCleanup.activity.detail.rendering counter=scanCleanup.runCount completed=42 total=148');
-        expect(formatScanCleanupProgress(progress({
-            stage: 'assembling',
-            completedUnits: 2,
-            totalUnits: 9,
-        }), t).text)
-            .toBe('scanCleanup.activity.detail.assembling');
+        expect(
+            formatScanCleanupProgress(
+                progress({
+                    stage: 'rendering',
+                    completedUnits: 42,
+                }),
+                t,
+            ).text,
+        ).toBe('scanCleanup.runStatus phase=scanCleanup.activity.detail.rendering counter=scanCleanup.runCount completed=42 total=148');
+        expect(
+            formatScanCleanupProgress(
+                progress({
+                    stage: 'assembling',
+                    completedUnits: 2,
+                    totalUnits: 9,
+                }),
+                t,
+            ).text,
+        ).toBe('scanCleanup.activity.detail.assembling');
     });
 
     it('surfaces activeSubPageStage during detection and cleaning and clears it during compare and commit', () => {
@@ -528,18 +485,12 @@ describe('scan cleanup active page tracker', () => {
 
         tracker.start(3);
         tracker.start(1);
-        expect(tracker.snapshot()).toEqual({activePageNumbers: [
-            1,
-            3,
-        ]});
+        expect(tracker.snapshot()).toEqual({activePageNumbers: [1, 3]});
 
         tracker.setStage(3, 'deskew');
         tracker.setStage(1, 'render');
         expect(tracker.snapshot()).toEqual({
-            activePageNumbers: [
-                1,
-                3,
-            ],
+            activePageNumbers: [1, 3],
             activeSubPageStage: 'render',
         });
 
@@ -572,19 +523,13 @@ describe('scan cleanup active page tracker', () => {
 
         expect(tracker.finish(3)).toBe(true);
         expect(tracker.snapshot()).toEqual({
-            activePageNumbers: [
-                1,
-                2,
-            ],
+            activePageNumbers: [1, 2],
             activeSubPageStage: 'render',
         });
 
         expect(tracker.clearStage(1)).toBe(true);
         expect(tracker.snapshot()).toEqual({
-            activePageNumbers: [
-                1,
-                2,
-            ],
+            activePageNumbers: [1, 2],
             activeSubPageStage: 'decode',
         });
     });

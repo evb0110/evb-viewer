@@ -1,34 +1,23 @@
-import {
-    basename,
-    dirname,
-    extname,
-    join,
-} from 'path';
-import {
-    createHash,
-    randomUUID,
-} from 'node:crypto';
+import {basename, dirname, extname, join} from 'path';
+import {createHash, randomUUID} from 'node:crypto';
 import {createReadStream} from 'node:fs';
-import { pipeline } from 'node:stream/promises';
-import { unlink } from 'node:fs/promises';
+import {pipeline} from 'node:stream/promises';
+import {unlink} from 'node:fs/promises';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {resolveAllowedReadPath} from '@electron/utils/pathValidator';
-import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
-import type { IDocumentMutationRevisionOptions } from '@contracts/electronApiDocuments';
+import {enqueueWorkingCopyMutation} from '@electron/file-access/workingCopyMutationQueue';
+import type {IDocumentMutationRevisionOptions} from '@contracts/electronApiDocuments';
 import {
     assertQueuedWorkingCopyMutationPreconditions,
     commitDocumentMutation,
     normalizeExpectedDocumentRevisionToken,
     requireOpenDocument,
 } from '@electron/file-access/documentStore';
-import {
-    normalizeIpcWritePayload,
-    writeFileAtomic,
-} from '@electron/file-access/documentFileWriteAtomic';
+import {normalizeIpcWritePayload, writeFileAtomic} from '@electron/file-access/documentFileWriteAtomic';
 import {validatePdfFile} from '@electron/features/documents/main/pdfConformance';
-import { normalizeNonEmptyPath } from '@electron/features/documents/main/documentFilePathResolution';
-import { findOcrResultForDocument } from '@electron/features/ocr/public/index';
-import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
+import {normalizeNonEmptyPath} from '@electron/features/documents/main/documentFilePathResolution';
+import {findOcrResultForDocument} from '@electron/features/ocr/public/index';
+import type {IDocumentsSenderIdContext} from '@electron/features/documents/documentsContexts';
 
 function requireSenderId(context: IDocumentsSenderIdContext) {
     if (typeof context.senderId !== 'number') {
@@ -104,15 +93,11 @@ export async function handleReplaceWorkingCopyFromPath(
         if (!expectedDocumentRevisionToken) {
             throw new Error('OCR apply requires the source document revision');
         }
-        const pendingResult = findOcrResultForDocument(
-            resolvedSourcePath,
-            requireDocumentRef(entry.ref),
-            expectedDocumentRevisionToken,
-        );
+        const pendingResult = findOcrResultForDocument(resolvedSourcePath, requireDocumentRef(entry.ref), expectedDocumentRevisionToken);
         if (!pendingResult) {
             throw new Error('Invalid source path: OCR result is not authorized for this document revision');
         }
-        if (await sha256File(resolvedSourcePath) !== pendingResult.resultSha256) {
+        if ((await sha256File(resolvedSourcePath)) !== pendingResult.resultSha256) {
             throw new Error('OCR result content hash does not match the verified worker result');
         }
         await commitDocumentMutation(entry, expectedDocumentRevisionToken, {kind: 'rewrite', source: resolvedSourcePath}, 'ocr-apply');

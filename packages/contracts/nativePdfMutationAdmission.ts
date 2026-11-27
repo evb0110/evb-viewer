@@ -32,19 +32,14 @@ export const PDF_NATIVE_MUTATION_LIMITS = {
 } as const;
 
 const PDF_NATIVE_F32_MAX = 3.4028234663852886e38;
-const PDF_NATIVE_ROTATIONS = [
-    0,
-    90,
-    180,
-    270,
-] as const;
+const PDF_NATIVE_ROTATIONS = [0, 90, 180, 270] as const;
 
-export interface IPdfNativeValidationOptions {errorKind?: 'typeError' | 'error';}
+export interface IPdfNativeValidationOptions {
+    errorKind?: 'typeError' | 'error';
+}
 
 function createValidationError(message: string, options: IPdfNativeValidationOptions = {}) {
-    return options.errorKind === 'error'
-        ? new Error(message)
-        : new TypeError(message);
+    return options.errorKind === 'error' ? new Error(message) : new TypeError(message);
 }
 
 export function isNativeF32(value: number) {
@@ -62,16 +57,11 @@ export function normalizeNativeF32(value: unknown, label: string, options: IPdfN
     return value;
 }
 
-export function isPdfRotation(value: unknown): value is typeof PDF_NATIVE_ROTATIONS[number] {
-    return PDF_NATIVE_ROTATIONS.some(rotation => rotation === value);
+export function isPdfRotation(value: unknown): value is (typeof PDF_NATIVE_ROTATIONS)[number] {
+    return PDF_NATIVE_ROTATIONS.some((rotation) => rotation === value);
 }
 
-export function normalizeOptionalString(
-    value: unknown,
-    label: string,
-    options: IPdfNativeValidationOptions,
-    maxUtf8Bytes?: number,
-) {
+export function normalizeOptionalString(value: unknown, label: string, options: IPdfNativeValidationOptions, maxUtf8Bytes?: number) {
     if (value === undefined || value === null) {
         return null;
     }

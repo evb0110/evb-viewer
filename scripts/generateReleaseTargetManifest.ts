@@ -1,12 +1,12 @@
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import {fileURLToPath} from 'node:url';
 import {
     ELECTRON_BUILDER_PLATFORM_KEYS,
     GLOBAL_PACKAGED_RESOURCES,
     getPackagedNativeToolFamilies,
     NATIVE_RESOURCE_PLATFORM_ARCHES,
 } from '@scripts/nativeResourceManifest';
-import { writeGeneratedFileIfChanged } from '@scripts/writeGeneratedFileIfChanged';
+import {writeGeneratedFileIfChanged} from '@scripts/writeGeneratedFileIfChanged';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const generatedRelativePath = 'scripts/release/generated-release-targets.cjs';
@@ -22,11 +22,8 @@ function createReleaseTargetManifest() {
         platformArches: NATIVE_RESOURCE_PLATFORM_ARCHES,
         schemaVersion: 1,
         signing: {
-            entitlementsPathSegments: [
-                'build',
-                'entitlements.mac.plist',
-            ],
-            executableRoots: families.map(family => family.stagedRootSegments),
+            entitlementsPathSegments: ['build', 'entitlements.mac.plist'],
+            executableRoots: families.map((family) => family.stagedRootSegments),
             platforms: ['darwin'],
         },
     };
@@ -107,16 +104,12 @@ module.exports = {manifest: assertManifest(manifest), renderPackagedEntries, val
 `;
 }
 
-export async function generateReleaseTargetManifest({projectRoot: targetRoot = projectRoot}: { projectRoot?: string } = {}) {
-    return writeGeneratedFileIfChanged(
-        path.join(targetRoot, generatedRelativePath),
-        renderReleaseTargetManifest(),
-    );
+export async function generateReleaseTargetManifest({projectRoot: targetRoot = projectRoot}: {projectRoot?: string} = {}) {
+    return writeGeneratedFileIfChanged(path.join(targetRoot, generatedRelativePath), renderReleaseTargetManifest());
 }
 
-const isDirectCliRun = process.argv[1] !== undefined
-    && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+const isDirectCliRun = process.argv[1] !== undefined && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
-if (isDirectCliRun && await generateReleaseTargetManifest()) {
+if (isDirectCliRun && (await generateReleaseTargetManifest())) {
     console.info('Generated release target manifest.');
 }

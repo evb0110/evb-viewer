@@ -4,7 +4,7 @@ import {
     workspaceViewerFeatureChunkLoaders,
 } from '@app/modules/workspace-shell/viewers/workspaceViewerFeatureChunkLoaders';
 
-export type { TWorkspaceViewerChunkLoader } from '@app/modules/workspace-shell/viewers/workspaceViewerFeatureChunkLoaders';
+export type {TWorkspaceViewerChunkLoader} from '@app/modules/workspace-shell/viewers/workspaceViewerFeatureChunkLoaders';
 
 export type TWorkspaceViewerChunkTarget = 'chassis' | TWorkspaceViewerFeatureChunkTarget;
 export type TWorkspaceViewerChunkLoaders = Record<TWorkspaceViewerChunkTarget, TWorkspaceViewerChunkLoader>;
@@ -22,15 +22,9 @@ export const workspaceViewerChunkLoaders = {
     ...workspaceViewerFeatureChunkLoaders,
 } satisfies Record<TWorkspaceViewerChunkTarget, TWorkspaceViewerChunkLoader>;
 
-export const PDF_WORKSPACE_VIEWER_CHUNK_TARGETS = [
-    'chassis',
-    'pdfjs',
-] as const satisfies readonly TWorkspaceViewerChunkTarget[];
+export const PDF_WORKSPACE_VIEWER_CHUNK_TARGETS = ['chassis', 'pdfjs'] as const satisfies readonly TWorkspaceViewerChunkTarget[];
 
-export const DJVU_WORKSPACE_VIEWER_CHUNK_TARGETS = [
-    'chassis',
-    'page-source',
-] as const satisfies readonly TWorkspaceViewerChunkTarget[];
+export const DJVU_WORKSPACE_VIEWER_CHUNK_TARGETS = ['chassis', 'page-source'] as const satisfies readonly TWorkspaceViewerChunkTarget[];
 
 export const ALL_WORKSPACE_VIEWER_CHUNK_TARGETS = [
     'chassis',

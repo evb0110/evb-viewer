@@ -9,27 +9,18 @@ import {
     createDjvuWorkerFromPath,
     getDjvuWorkerPageSizes,
 } from '@app/platform/browser-api/createDjvuWorkerFromPath';
-import {
-    parseDjvuPageHead,
-    readBrowserDjvuSourceLayout,
-} from '@app/platform/browser-api/browserDjvuSource';
+import {parseDjvuPageHead, readBrowserDjvuSourceLayout} from '@app/platform/browser-api/browserDjvuSource';
 import {
     findIndirectDjvuSelection,
     getBrowserDjvuComponentFiles,
     setBrowserDjvuComponentFiles,
 } from '@app/platform/browser-api/browserDjvuComponents';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 
 const workerMocks = vi.hoisted(() => ({createBrowserDjvuWorker: vi.fn()}));
 
-vi.mock('@app/platform/browser-api/browserDjvuWorkerClient', async importOriginal => ({
-    ...await importOriginal<typeof import('@app/platform/browser-api/browserDjvuWorkerClient')>(),
+vi.mock('@app/platform/browser-api/browserDjvuWorkerClient', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@app/platform/browser-api/browserDjvuWorkerClient')>()),
     createBrowserDjvuWorker: workerMocks.createBrowserDjvuWorker,
 }));
 
@@ -56,14 +47,8 @@ describe('DjVu document components (DjVuLibre WASM worker source)', () => {
     const bundled = new Uint8Array(readFileSync('tests/fixtures/djvu/sources/searchable-mixed-dpi.djvu'));
 
     const bundledDirectory = {
-        names: [
-            'low-dpi.djvu',
-            'high-dpi.djvu',
-        ],
-        flags: [
-            1,
-            1,
-        ],
+        names: ['low-dpi.djvu', 'high-dpi.djvu'],
+        flags: [1, 1],
     };
 
     function installWorkerMock(directory = bundledDirectory) {
@@ -80,7 +65,7 @@ describe('DjVu document components (DjVuLibre WASM worker source)', () => {
             }),
             getComponentDirectory: vi.fn(async () => directory),
             getDocInfo: vi.fn(async () => ({
-                pageCount: directory.flags.filter(flag => (flag & 0x3f) === 1).length,
+                pageCount: directory.flags.filter((flag) => (flag & 0x3f) === 1).length,
                 isIndirect: true,
                 files: [],
             })),
@@ -116,7 +101,9 @@ describe('DjVu document components (DjVuLibre WASM worker source)', () => {
             size: bytes.length,
             modifiedAt: 1,
         });
-        return vi.spyOn(browserDocumentStore, 'readRange').mockImplementation(async (_ref, offset, length) => bytes.slice(offset, offset + length));
+        return vi
+            .spyOn(browserDocumentStore, 'readRange')
+            .mockImplementation(async (_ref, offset, length) => bytes.slice(offset, offset + length));
     }
 
     it.each([
@@ -154,10 +141,7 @@ describe('DjVu document components (DjVuLibre WASM worker source)', () => {
         vi.stubGlobal('window', {electronAPI});
         const source = await createDjvuPagePreviewSourceFromPath(requireDocumentRef('/books/Гиргас.djvu'));
         try {
-            for (const pageNumber of [
-                1,
-                2,
-            ]) {
+            for (const pageNumber of [1, 2]) {
                 await expect(source.getPageSourceInfo(pageNumber)).resolves.toEqual({
                     pageCount: 2,
                     pageNumber: requirePageNumber(pageNumber),
@@ -171,21 +155,21 @@ describe('DjVu document components (DjVuLibre WASM worker source)', () => {
 
     it('exposes native outline and page text for an indirect desktop DjVu source', async () => {
         const path = requireDocumentRef('/books/indirect/index.djvu');
-        const outline = [{
-            title: 'Глава café',
-            pageNumber: requirePageNumber(2),
-            children: [],
-        }];
+        const outline = [
+            {
+                title: 'Глава café',
+                pageNumber: requirePageNumber(2),
+                children: [],
+            },
+        ];
         const electronAPI = createElectronPlatformApiFixture({
             documentFiles: {
                 statFile: async () => ({size: index.byteLength}),
                 readFileRange: async (_path, start, length) => index.slice(start, start + length),
             },
             djvu: {
-                getOutline: async documentRef => documentRef === path ? outline : [],
-                getPageText: async (documentRef, pageNumber) => (
-                    documentRef === path && pageNumber === 2 ? 'Native page text: 続き' : ''
-                ),
+                getOutline: async (documentRef) => (documentRef === path ? outline : []),
+                getPageText: async (documentRef, pageNumber) => (documentRef === path && pageNumber === 2 ? 'Native page text: 続き' : ''),
             },
         });
         vi.stubGlobal('window', {electronAPI});
@@ -205,18 +189,18 @@ describe('DjVu document components (DjVuLibre WASM worker source)', () => {
     it('refuses a browser index without a sibling-file grant before missing page geometry escapes', async () => {
         installWorkerMock();
         stubBrowserSource(index);
-        await expect(createDjvuWorkerFromPath(requireDocumentRef('browser://documents/index.djvu')))
-            .rejects.toMatchObject({errorEnvelope: {code: 'djvu-components-required'}});
+        await expect(createDjvuWorkerFromPath(requireDocumentRef('browser://documents/index.djvu'))).rejects.toMatchObject({
+            errorEnvelope: {code: 'djvu-components-required'},
+        });
     });
 
     it('opens a browser index with the sibling files selected beside it', async () => {
         const {opened} = installWorkerMock();
         stubBrowserSource(index);
         const indexRef = requireDocumentRef('browser://documents/index-with-components.djvu');
-        const siblings = [
-            'low-dpi.djvu',
-            'high-dpi.djvu',
-        ].map(name => new File([readFileSync(`tests/fixtures/djvu/sources/indirect/${name}`)], name));
+        const siblings = ['low-dpi.djvu', 'high-dpi.djvu'].map(
+            (name) => new File([readFileSync(`tests/fixtures/djvu/sources/indirect/${name}`)], name),
+        );
         setBrowserDjvuComponentFiles(indexRef, siblings);
         const worker = await createDjvuWorkerFromPath(indexRef);
         try {
@@ -226,22 +210,20 @@ describe('DjVu document components (DjVuLibre WASM worker source)', () => {
         } finally {
             worker.terminate();
         }
-        await expect(findIndirectDjvuSelection([
-            {file: new File([index], 'index.djvu')},
-            ...siblings.map(file => ({file})),
-        ])).resolves.toMatchObject({components: siblings});
-        await expect(findIndirectDjvuSelection(siblings.map(file => ({file})))).resolves.toBeNull();
+        await expect(
+            findIndirectDjvuSelection([{file: new File([index], 'index.djvu')}, ...siblings.map((file) => ({file}))]),
+        ).resolves.toMatchObject({components: siblings});
+        await expect(findIndirectDjvuSelection(siblings.map((file) => ({file})))).resolves.toBeNull();
     });
 
-    it.each([
-        'report.pdf',
-        'photo.png',
-    ])('keeps %s out of an indirect DjVu component selection', async name => {
-        await expect(findIndirectDjvuSelection([
-            {file: new File([index], 'index.djvu')},
-            {file: new File([bundled], 'low-dpi.djvu')},
-            {file: new File([Uint8Array.of(1)], name)},
-        ])).resolves.toBeNull();
+    it.each(['report.pdf', 'photo.png'])('keeps %s out of an indirect DjVu component selection', async (name) => {
+        await expect(
+            findIndirectDjvuSelection([
+                {file: new File([index], 'index.djvu')},
+                {file: new File([bundled], 'low-dpi.djvu')},
+                {file: new File([Uint8Array.of(1)], name)},
+            ]),
+        ).resolves.toBeNull();
     });
 
     it('releases selected component files when their index record is removed', async () => {
@@ -294,10 +276,12 @@ describe('DjVu document components (DjVuLibre WASM worker source)', () => {
         const ascii = new TextDecoder('ascii');
         expect(ascii.decode(second.subarray(0, 8))).toBe('AT&TFORM');
         expect(ascii.decode(second.subarray(12, 16))).toBe('DJVU');
-        const [secondHead] = await layout.readComponentHeads([{
-            index: 1,
-            name: 'high-dpi.djvu',
-        }]);
+        const [secondHead] = await layout.readComponentHeads([
+            {
+                index: 1,
+                name: 'high-dpi.djvu',
+            },
+        ]);
         expect(parseDjvuPageHead(secondHead!, 2)).toEqual(sizes[1]);
     });
 
@@ -309,23 +293,30 @@ describe('DjVu document components (DjVuLibre WASM worker source)', () => {
             readRange,
         });
         const readsAfterLayout = readRange.mock.calls.length;
-        const heads = await layout.readComponentHeads(Array.from({length: 501}, (_, index) => ({
-            index,
-            name: '',
-        })));
+        const heads = await layout.readComponentHeads(
+            Array.from({length: 501}, (_, index) => ({
+                index,
+                name: '',
+            })),
+        );
         expect(readRange.mock.calls.length).toBe(readsAfterLayout);
-        expect(heads.map((head, index) => parseDjvuPageHead(head, index + 1))).toEqual(Array.from({length: 501}, () => ({
-            width: 512,
-            height: 512,
-            dpi: 300,
-        })));
+        expect(heads.map((head, index) => parseDjvuPageHead(head, index + 1))).toEqual(
+            Array.from({length: 501}, () => ({
+                width: 512,
+                height: 512,
+                dpi: 300,
+            })),
+        );
     });
 
-    function buildDjvuPageComponentBytes(size: {
-        width: number;
-        height: number;
-        dpi: number;
-    }, includeMagic = false) {
+    function buildDjvuPageComponentBytes(
+        size: {
+            width: number;
+            height: number;
+            dpi: number;
+        },
+        includeMagic = false,
+    ) {
         const prefix = includeMagic ? 4 : 0;
         const bytes = new Uint8Array(prefix + 30);
         const view = new DataView(bytes.buffer);
@@ -351,15 +342,18 @@ describe('DjVu document components (DjVuLibre WASM worker source)', () => {
         return bytes;
     }
 
-    function buildSyntheticBundledDjvu(components: Array<{
-        offset: number;
-        size?: {
-            width: number;
-            height: number;
-            dpi: number;
-        };
-    }>, totalSize: number) {
-        const dirmDataLength = 3 + (components.length * 4) + 1;
+    function buildSyntheticBundledDjvu(
+        components: Array<{
+            offset: number;
+            size?: {
+                width: number;
+                height: number;
+                dpi: number;
+            };
+        }>,
+        totalSize: number,
+    ) {
+        const dirmDataLength = 3 + components.length * 4 + 1;
         const dirmPadded = 8 + dirmDataLength + (dirmDataLength & 1);
         const headerBytes = new Uint8Array(16 + dirmPadded);
         const view = new DataView(headerBytes.buffer);
@@ -374,11 +368,8 @@ describe('DjVu document components (DjVuLibre WASM worker source)', () => {
         view.setUint32(20, dirmDataLength);
         headerBytes[24] = 0x81;
         view.setUint16(25, components.length);
-        for (const [
-            index,
-            component,
-        ] of components.entries()) {
-            view.setUint32(27 + (index * 4), component.offset);
+        for (const [index, component] of components.entries()) {
+            view.setUint32(27 + index * 4, component.offset);
         }
         const componentHeads = new Map<number, Uint8Array>();
         for (const component of components) {
@@ -394,10 +385,7 @@ describe('DjVu document components (DjVuLibre WASM worker source)', () => {
                     const end = Math.min(headerBytes.byteLength, offset + length);
                     output.set(headerBytes.subarray(offset, end), 0);
                 }
-                for (const [
-                    headOffset,
-                    headBytes,
-                ] of componentHeads) {
+                for (const [headOffset, headBytes] of componentHeads) {
                     const start = Math.max(offset, headOffset);
                     const end = Math.min(offset + length, headOffset + headBytes.byteLength);
                     if (start < end) {
@@ -428,37 +416,28 @@ describe('DjVu document components (DjVuLibre WASM worker source)', () => {
             },
         ];
         const fileSize = 12 * 1024 * 1024;
-        const synthetic = buildSyntheticBundledDjvu([
-            {offset: 4_500_000},
-            {
-                offset: 5_200_000,
-                size: expectedSizes[0]!,
-            },
-            {offset: 5_210_000},
-            {
-                offset: 5_100_000,
-                size: expectedSizes[1]!,
-            },
-            {
-                offset: 9_800_000,
-                size: expectedSizes[2]!,
-            },
-        ], fileSize);
+        const synthetic = buildSyntheticBundledDjvu(
+            [
+                {offset: 4_500_000},
+                {
+                    offset: 5_200_000,
+                    size: expectedSizes[0]!,
+                },
+                {offset: 5_210_000},
+                {
+                    offset: 5_100_000,
+                    size: expectedSizes[1]!,
+                },
+                {
+                    offset: 9_800_000,
+                    size: expectedSizes[2]!,
+                },
+            ],
+            fileSize,
+        );
         installWorkerMock({
-            names: [
-                'shared.djbz',
-                'page-1.djvu',
-                'thumb.djvu',
-                'page-2.djvu',
-                'page-3.djvu',
-            ],
-            flags: [
-                0,
-                1,
-                2,
-                0x81,
-                1,
-            ],
+            names: ['shared.djbz', 'page-1.djvu', 'thumb.djvu', 'page-2.djvu', 'page-3.djvu'],
+            flags: [0, 1, 2, 0x81, 1],
         });
         vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
             size: fileSize,

@@ -15,11 +15,8 @@ import type {
     IDjvuRenderedPage,
     IDjvuRenderPageOptions,
 } from '@djvu-core/djvuLibreTypes';
-import {
-    buildDjvuPageComponentMap,
-    resolveDjvuOutlineUrlToPageIndex,
-} from '@djvu-core/djvuOutline';
-import { getErrorMessage } from '@app/utils/error';
+import {buildDjvuPageComponentMap, resolveDjvuOutlineUrlToPageIndex} from '@djvu-core/djvuOutline';
+import {getErrorMessage} from '@app/utils/error';
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -29,99 +26,101 @@ const DJVU_WORKER_HIGH_WATER_HEAP_BYTES = 256 * 1024 * 1024;
 
 export type TBrowserDjvuWorkerRequest =
     | {
-        id: number;
-        type: 'open';
-        initBytes: ArrayBuffer;
-        hasComponents: boolean;
-    }
+          id: number;
+          type: 'open';
+          initBytes: ArrayBuffer;
+          hasComponents: boolean;
+      }
     | {
-        id: number;
-        type: 'getComponentDirectory';
-    }
+          id: number;
+          type: 'getComponentDirectory';
+      }
     | {
-        id: number;
-        type: 'getDocInfo';
-    }
+          id: number;
+          type: 'getDocInfo';
+      }
     | {
-        id: number;
-        type: 'getPageInfo';
-        pageNumber: number;
-    }
+          id: number;
+          type: 'getPageInfo';
+          pageNumber: number;
+      }
     | {
-        id: number;
-        type: 'getPageLayerSummary';
-        pageNumber: number;
-        defaultForegroundSubsample?: number;
-    }
+          id: number;
+          type: 'getPageLayerSummary';
+          pageNumber: number;
+          defaultForegroundSubsample?: number;
+      }
     | {
-        id: number;
-        type: 'renderPage';
-        pageNumber: number;
-        options?: IDjvuRenderPageOptions;
-    }
+          id: number;
+          type: 'renderPage';
+          pageNumber: number;
+          options?: IDjvuRenderPageOptions;
+      }
     | {
-        id: number;
-        type: 'renderMaskPbm';
-        pageNumber: number;
-    }
+          id: number;
+          type: 'renderMaskPbm';
+          pageNumber: number;
+      }
     | {
-        id: number;
-        type: 'renderBackgroundRgb';
-        pageNumber: number;
-    }
+          id: number;
+          type: 'renderBackgroundRgb';
+          pageNumber: number;
+      }
     | {
-        id: number;
-        type: 'renderPagePpm';
-        pageNumber: number;
-        options?: Omit<IDjvuRenderPageOptions, 'pixelFormat'>;
-    }
+          id: number;
+          type: 'renderPagePpm';
+          pageNumber: number;
+          options?: Omit<IDjvuRenderPageOptions, 'pixelFormat'>;
+      }
     | {
-        id: number;
-        type: 'getOutline';
-    }
+          id: number;
+          type: 'getOutline';
+      }
     | {
-        id: number;
-        type: 'getPageNumberByUrl';
-        url: string;
-    }
+          id: number;
+          type: 'getPageNumberByUrl';
+          url: string;
+      }
     | {
-        id: number;
-        type: 'getPageText';
-        pageNumber: number;
-        includeZones?: boolean;
-    }
+          id: number;
+          type: 'getPageText';
+          pageNumber: number;
+          includeZones?: boolean;
+      }
     | {
-        id: number;
-        type: 'pageHasText';
-        pageNumber: number;
-    }
+          id: number;
+          type: 'pageHasText';
+          pageNumber: number;
+      }
     | {
-        id: number;
-        type: 'getMetadata';
-    }
+          id: number;
+          type: 'getMetadata';
+      }
     | {
-        id: number;
-        type: 'clearCache';
-    };
+          id: number;
+          type: 'clearCache';
+      };
 
 export type TBrowserDjvuWorkerResponse =
     | {
-        id: number;
-        ok: true;
-        data: unknown;
-    }
+          id: number;
+          ok: true;
+          data: unknown;
+      }
     | {
-        id: number;
-        ok: false;
-        error: string;
-        errorName?: string;
-    };
+          id: number;
+          ok: false;
+          error: string;
+          errorName?: string;
+      };
 
 async function fetchBytesWithStallTimeout(url: URL, timeoutMs: number): Promise<Uint8Array> {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | null = null;
     const arm = () => {
-        if (timer !== null) clearTimeout(timer);
+        if (timer !== null) {
+            clearTimeout(timer);
+        }
         timer = setTimeout(() => {
             const error = new Error(`DjVuLibre WASM download stalled: no data arrived for ${timeoutMs}ms`);
             error.name = 'TimeoutError';
@@ -130,7 +129,7 @@ async function fetchBytesWithStallTimeout(url: URL, timeoutMs: number): Promise<
     };
     arm();
     try {
-        const response = await fetch(url, { signal: controller.signal });
+        const response = await fetch(url, {signal: controller.signal});
         if (!response.ok) {
             throw new Error(`Failed to load DjVuLibre WASM from ${url.pathname}: HTTP ${response.status}`);
         }
@@ -153,11 +152,11 @@ async function fetchBytesWithStallTimeout(url: URL, timeoutMs: number): Promise<
         }
         return combined;
     } catch (error) {
-        throw controller.signal.aborted && controller.signal.reason instanceof Error
-            ? controller.signal.reason
-            : error;
+        throw controller.signal.aborted && controller.signal.reason instanceof Error ? controller.signal.reason : error;
     } finally {
-        if (timer !== null) clearTimeout(timer);
+        if (timer !== null) {
+            clearTimeout(timer);
+        }
     }
 }
 
@@ -165,11 +164,8 @@ const engine = createDjvuLibreEngine({
     loadEngine: async () => {
         const moduleUrl = new URL('/wasm/evb-djvulibre.mjs', self.location.href).href;
         const wasmUrl = new URL(`/wasm/evb-djvulibre.wasm?revision=${DJVU_WASM_REVISION}`, self.location.href);
-        const [
-            imported,
-            wasmBytes,
-        ] = await Promise.all([
-            import(/* @vite-ignore */ moduleUrl) as Promise<{ default: TDjvuLibreModuleFactory }>,
+        const [imported, wasmBytes] = await Promise.all([
+            import(/* @vite-ignore */ moduleUrl) as Promise<{default: TDjvuLibreModuleFactory}>,
             fetchBytesWithStallTimeout(wasmUrl, DJVU_FETCH_STALL_TIMEOUT_MS),
         ]);
         const module = await WebAssembly.compile(wasmBytes as BufferSource);
@@ -185,10 +181,13 @@ let cachedDocInfo: IDjvuDocInfo | null = null;
 let cachedPageComponentMap: Map<string, number> | null = null;
 let componentPort: MessagePort | null = null;
 let nextComponentRequestId = 1;
-const pendingComponents = new Map<number, {
-    resolve: (bytes: Uint8Array) => void;
-    reject: (error: Error) => void;
-}>();
+const pendingComponents = new Map<
+    number,
+    {
+        resolve: (bytes: Uint8Array) => void;
+        reject: (error: Error) => void;
+    }
+>();
 
 function closeComponentPort() {
     if (componentPort) {
@@ -222,15 +221,19 @@ function requestComponentFromHost(name: string): Promise<Uint8Array> {
 function attachComponentPort(port: MessagePort) {
     closeComponentPort();
     componentPort = port;
-    port.onmessage = (event: MessageEvent<{
-        id: number;
-        ok: boolean;
-        buffer?: ArrayBuffer;
-        error?: string;
-    }>) => {
+    port.onmessage = (
+        event: MessageEvent<{
+            id: number;
+            ok: boolean;
+            buffer?: ArrayBuffer;
+            error?: string;
+        }>,
+    ) => {
         const payload = event.data;
         const pending = pendingComponents.get(payload.id);
-        if (!pending) return;
+        if (!pending) {
+            return;
+        }
         pendingComponents.delete(payload.id);
         if (payload.ok && payload.buffer instanceof ArrayBuffer) {
             pending.resolve(new Uint8Array(payload.buffer));
@@ -264,7 +267,10 @@ function toTransferable(bytes: Uint8Array): Transferable[] {
 
 let requestQueue: Promise<void> = Promise.resolve();
 
-async function handleRequest(request: TBrowserDjvuWorkerRequest, ports: readonly MessagePort[]): Promise<{
+async function handleRequest(
+    request: TBrowserDjvuWorkerRequest,
+    ports: readonly MessagePort[],
+): Promise<{
     data: unknown;
     transfer?: Transferable[];
 }> {
@@ -283,28 +289,28 @@ async function handleRequest(request: TBrowserDjvuWorkerRequest, ports: readonly
             }
             activeDoc = await engine.openDocument({
                 initBytes: new Uint8Array(request.initBytes),
-                ...(request.hasComponents ? { readComponentAsync: requestComponentFromHost } : {}),
+                ...(request.hasComponents ? {readComponentAsync: requestComponentFromHost} : {}),
             });
-            return { data: null };
+            return {data: null};
         }
         case 'getComponentDirectory': {
             const directory: IDjvuComponentDirectory | null = await requireDoc().getComponentDirectory();
-            return { data: directory };
+            return {data: directory};
         }
         case 'getDocInfo': {
             const info = await ensureDocInfo(requireDoc());
-            return { data: info };
+            return {data: info};
         }
         case 'getPageInfo': {
             const info: IDjvuPageInfo = await requireDoc().getPageInfo(request.pageNumber);
-            return { data: info };
+            return {data: info};
         }
         case 'getPageLayerSummary': {
             const summary: IDjvuPageLayerSummary = await requireDoc().getPageLayerSummary(
                 request.pageNumber,
                 request.defaultForegroundSubsample,
             );
-            return { data: summary };
+            return {data: summary};
         }
         case 'renderPage': {
             const doc = requireDoc();
@@ -321,14 +327,14 @@ async function handleRequest(request: TBrowserDjvuWorkerRequest, ports: readonly
             const pbm = await requireDoc().renderMaskPbm(request.pageNumber);
             return {
                 data: pbm,
-                ...(pbm ? { transfer: toTransferable(pbm) } : {}),
+                ...(pbm ? {transfer: toTransferable(pbm)} : {}),
             };
         }
         case 'renderBackgroundRgb': {
             const bg = await requireDoc().renderBackgroundRgb(request.pageNumber);
             return {
                 data: bg,
-                ...(bg ? { transfer: toTransferable(bg.rgb) } : {}),
+                ...(bg ? {transfer: toTransferable(bg.rgb)} : {}),
             };
         }
         case 'renderPagePpm': {
@@ -339,41 +345,34 @@ async function handleRequest(request: TBrowserDjvuWorkerRequest, ports: readonly
             }
             return {
                 data: result,
-                ...(result ? { transfer: toTransferable(result.ppm) } : {}),
+                ...(result ? {transfer: toTransferable(result.ppm)} : {}),
             };
         }
         case 'getOutline': {
             const outline: IDjvuOutlineRawItem[] = await requireDoc().getOutline();
-            return { data: outline };
+            return {data: outline};
         }
         case 'getPageNumberByUrl': {
             const doc = requireDoc();
             const info = await ensureDocInfo(doc);
-            const pageIndex = resolveDjvuOutlineUrlToPageIndex(
-                request.url,
-                cachedPageComponentMap ?? undefined,
-                info.pageCount,
-            );
-            return { data: pageIndex === null ? null : pageIndex + 1 };
+            const pageIndex = resolveDjvuOutlineUrlToPageIndex(request.url, cachedPageComponentMap ?? undefined, info.pageCount);
+            return {data: pageIndex === null ? null : pageIndex + 1};
         }
         case 'getPageText': {
-            const text: IDjvuPageTextRaw = await requireDoc().getPageText(
-                request.pageNumber,
-                { includeZones: request.includeZones ?? true },
-            );
-            return { data: text };
+            const text: IDjvuPageTextRaw = await requireDoc().getPageText(request.pageNumber, {includeZones: request.includeZones ?? true});
+            return {data: text};
         }
         case 'pageHasText': {
             const hasText = await requireDoc().pageHasText(request.pageNumber);
-            return { data: hasText };
+            return {data: hasText};
         }
         case 'getMetadata': {
             const metadata = await requireDoc().getMetadata();
-            return { data: metadata };
+            return {data: metadata};
         }
         case 'clearCache': {
             requireDoc().clearCache();
-            return { data: null };
+            return {data: null};
         }
     }
 }
@@ -386,21 +385,21 @@ self.addEventListener('message', (event: MessageEvent<TBrowserDjvuWorkerRequest>
     const ports = event.ports;
     requestQueue = requestQueue.then(async () => {
         try {
-            const {
-                data,
-                transfer,
-            } = await handleRequest(request, ports);
-            self.postMessage({
-                id: request.id,
-                ok: true,
-                data,
-            } satisfies TBrowserDjvuWorkerResponse, transfer ?? []);
+            const {data, transfer} = await handleRequest(request, ports);
+            self.postMessage(
+                {
+                    id: request.id,
+                    ok: true,
+                    data,
+                } satisfies TBrowserDjvuWorkerResponse,
+                transfer ?? [],
+            );
         } catch (error) {
             self.postMessage({
                 id: request.id,
                 ok: false,
                 error: getErrorMessage(error),
-                ...(error instanceof Error && error.name ? { errorName: error.name } : {}),
+                ...(error instanceof Error && error.name ? {errorName: error.name} : {}),
             } satisfies TBrowserDjvuWorkerResponse);
         }
     });

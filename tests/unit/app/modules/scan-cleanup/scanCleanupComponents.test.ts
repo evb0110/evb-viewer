@@ -7,28 +7,8 @@ import {FULL_SCAN_CLEANUP_SUPPORT} from '@contracts/scan-cleanup/scanCleanupPlat
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 import type * as scanCleanupWorkspaceSessionModule from '@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession';
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    onTestFinished,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    computed,
-    defineComponent,
-    h,
-    nextTick,
-    reactive,
-    provide,
-    ref,
-    shallowRef,
-    unref,
-    type Ref,
-    type PropType,
-} from 'vue';
+import {afterEach, describe, expect, it, onTestFinished, vi} from 'vitest';
+import {createApp, computed, defineComponent, h, nextTick, reactive, provide, ref, shallowRef, unref, type Ref, type PropType} from 'vue';
 import type {IFailureToastAction} from '@app/composables/useFailureToast';
 import type {IScanCleanupPreviewFailure} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
 import EN_MESSAGES from '@i18n-app/messages/en';
@@ -51,10 +31,7 @@ import {requireJobId} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
 import type {TJobId} from '@contracts/shared';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import {
-    createScanCleanupPageOverride,
-    getScanCleanupPageOverride,
-} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {createScanCleanupPageOverride, getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {useWorkspaceCommandLedger} from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
 import {workspaceCommandSinkKey} from '@app/types/workspaceCommand';
 import {useScanCleanupSelection} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
@@ -89,148 +66,156 @@ const realWorkspaceSession = vi.hoisted(() => ({
     create: null as typeof scanCleanupWorkspaceSessionModule.useScanCleanupWorkspaceSession | null,
     value: null as ReturnType<typeof scanCleanupWorkspaceSessionModule.useScanCleanupWorkspaceSession> | null,
 }));
-const workspaceSessionOptions = vi.hoisted(() => ({value: null as Parameters<typeof scanCleanupWorkspaceSessionModule.useScanCleanupWorkspaceSession>[0] | null}));
-const workspaceSessionInitial = vi.hoisted(() => ({value: null as {
-    page: unknown;
-    viewMode: unknown;
-} | null}));
+const workspaceSessionOptions = vi.hoisted(() => ({
+    value: null as Parameters<typeof scanCleanupWorkspaceSessionModule.useScanCleanupWorkspaceSession>[0] | null,
+}));
+const workspaceSessionInitial = vi.hoisted(() => ({
+    value: null as {
+        page: unknown;
+        viewMode: unknown;
+    } | null,
+}));
 
-vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', () => ({useScanCleanupWorkspaceSession: (
-    options: Parameters<typeof scanCleanupWorkspaceSessionModule.useScanCleanupWorkspaceSession>[0],
-) => {
-    if (realWorkspaceSession.create) {
-        realWorkspaceSession.value = realWorkspaceSession.create(options);
-        return realWorkspaceSession.value;
-    }
-    workspaceSessionOptions.value = options;
-    workspaceSessionInitial.value = {
-        page: options.initialPreviewPage?.(),
-        viewMode: options.initialPreviewViewMode?.(),
-    };
-    const session = workspaceSession.value!;
-    return {
-        settings: {
-            alignmentItems: session.alignmentItems,
-            documentSettingsLoadFailure: session.documentSettingsLoadFailure ?? ref(null),
-            dismissFirstRunGuidance: session.dismissFirstRunGuidance,
-            handleThicknessInput: session.handleThicknessInput,
-            layoutItems: session.layoutItems,
-            marginsLinked: session.documentMarginsLinked ?? ref(true),
-            setMarginsLinked: session.setDocumentMarginsLinked ?? vi.fn(),
-            outputItems: session.outputItems,
-            readingOrderItems: session.readingOrderItems,
-            resetPageOverrides: session.resetPageOverrides,
-            showFirstRunGuidance: session.showFirstRunGuidance,
-            thicknessLabel: session.thicknessLabel,
-            updateMargin: session.updateDocumentMargin ?? vi.fn(),
-            values: session.settings,
-            editDocumentSettings: (_pages: Iterable<number | string>, change: () => void) => change(),
-        },
-        selection: {
-            applyLeaderOverrides: session.applyLeaderOverrides,
-            currentPageOverride: session.currentPageOverride,
-            highlightedScope: session.highlightedScope ?? ref(null),
-            leader: session.selectionLeader,
-            resetControlOverride: session.resetControlOverride ?? vi.fn(),
-            resetScopeOverrides: session.resetScopeOverrides ?? vi.fn(),
-            selectedPages: session.selectedPages,
-            selectPage: session.selectPage,
-            setMarginsLinked: session.setSelectionMarginsLinked ?? vi.fn(),
-            setSettingsScope: session.setSettingsScope ?? vi.fn(),
-            settingsScope: session.settingsScope ?? ref('all'),
-            updateCurrentManualContentBox: session.updateCurrentManualContentBox,
-            updateCurrentManualSplit: session.updateCurrentManualSplit,
-            updateCurrentManualZones: session.updateCurrentManualZones ?? vi.fn(),
-            updateCurrentPlacement: session.updateCurrentPlacement,
-            updatePageOverride: session.updatePageOverride,
-            updateScopeLayout: session.updateScopeLayout ?? vi.fn(),
-            updateScopeMargins: session.updateScopeMargins ?? vi.fn(),
-            updateScopeOverrides: session.updateScopeOverrides ?? vi.fn(),
-            updateScopePlacement: session.updateScopePlacement ?? vi.fn(),
-        },
-        detection: {
-            activePages: computed(() => unref(session.detectionActivePages) ?? new Set()),
-            authoritativeLayoutByPage: computed(() => unref(session.authoritativeLayoutByPage)),
-            blankPageCount: session.blankPageCount ?? computed(() => 0),
-            canDetectAll: session.canDetectAll,
-            cancel: session.cancelDetection,
-            cancelRequested: session.detectionCancelRequested,
-            confidenceByPage: computed(() => unref(session.detectedLayoutConfidenceByPage) ?? new Map()),
-            detectAllPages: session.detectAllPages,
-            error: session.detectionError,
-            outputEstimate: session.outputEstimate,
-            pending: session.detectionPending,
-            settledPages: computed(() => unref(session.detectionSettledPages) ?? new Set()),
-            recommendedOutputModeByPage: computed(() => unref(session.recommendedOutputModeByPage) ?? new Map()),
-            recommendedOutputModeConfidenceByPage: computed(
-                () => unref(session.recommendedOutputModeConfidenceByPage) ?? new Map(),
-            ),
-            recommendedOutputModeReasonByPage: computed(() => unref(session.recommendedOutputModeReasonByPage) ?? new Map()),
-            textAxisByPage: computed(() => unref(session.detectedTextAxisByPage) ?? new Map()),
-        },
-        preview: {
-            clearDetail: session.clearPreviewDetail,
-            detailError: session.previewDetailError ?? ref(null),
-            error: session.previewError,
-            loading: session.previewLoading,
-            navigate: session.navigatePreview,
-            rawResult: session.previewRawResult ?? ref(null),
-            result: session.previewResult,
-            resultCurrent: session.previewResultCurrent ?? computed(() => true),
-            resultPresentationKey: session.previewResultPresentationKey ?? computed(() => ''),
-            metadataByPage: session.previewMetadataByPage ?? reactive(new Map()),
-            retry: session.retryPreview,
-            requestDetail: session.requestPreviewDetail,
-            totalPages: session.previewTotalPages,
-            viewMode: session.previewViewMode,
-        },
-        run: {
-            activePages: session.runActivePages ?? computed(() => new Set()),
-            cancel: session.cancel,
-            cancelRequested: session.cancelRequested,
-            canRun: session.canRun,
-            inlineError: session.inlineError,
-            isRunning: session.isRunning,
-            ownerId: session.ownerId,
-            processedPages: session.processedPages,
-            progress: session.jobProgress,
-            runLabel: session.runLabel ?? ref('Clean up'),
-            runDisabledReason: session.runDisabledReason ?? ref(''),
-            run: session.run,
-            waitingForDetection: session.waitingForDetection ?? computed(() => false),
-        },
-        // The real activity model over the mocked jobs, so these tests see the
-        // same meter a session would produce from the same job state.
-        activity: session.activity ?? computed(() => {
-            const detectionProgress = (session.detectionProgress as {value: {
-                completedUnits: number;
-                totalUnits: number
-            }}).value;
-            const running = (session.isRunning as {value: boolean}).value;
-            return resolveScanCleanupActivity({
-                detection: {
-                    pending: (session.detectionPending as {value: boolean}).value,
-                    progress: (session.detectionJobProgress as {value: TScanCleanupProgress | null} | undefined)?.value ?? null,
-                    analyzedPages: detectionProgress.completedUnits,
-                    totalPages: detectionProgress.totalUnits,
-                    calibrating: false,
-                },
-                run: running
-                    ? {
-                        waitingForDetection: (session.waitingForDetection as {value: boolean} | undefined)?.value ?? false,
-                        starting: false,
-                        progress: {
-                            stage: 'rendering',
-                            ...(session.jobProgress as {value: Partial<TScanCleanupProgress>}).value,
-                        } as TScanCleanupProgress,
-                        committing: (session.finishing as {value: boolean} | undefined)?.value ?? false,
-                    }
-                    : null,
-            });
-        }),
-        activityTimeline: session.activityTimeline ?? ref(null),
-    };
-}}));
+vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', () => ({
+    useScanCleanupWorkspaceSession: (options: Parameters<typeof scanCleanupWorkspaceSessionModule.useScanCleanupWorkspaceSession>[0]) => {
+        if (realWorkspaceSession.create) {
+            realWorkspaceSession.value = realWorkspaceSession.create(options);
+            return realWorkspaceSession.value;
+        }
+        workspaceSessionOptions.value = options;
+        workspaceSessionInitial.value = {
+            page: options.initialPreviewPage?.(),
+            viewMode: options.initialPreviewViewMode?.(),
+        };
+        const session = workspaceSession.value!;
+        return {
+            settings: {
+                alignmentItems: session.alignmentItems,
+                documentSettingsLoadFailure: session.documentSettingsLoadFailure ?? ref(null),
+                dismissFirstRunGuidance: session.dismissFirstRunGuidance,
+                handleThicknessInput: session.handleThicknessInput,
+                layoutItems: session.layoutItems,
+                marginsLinked: session.documentMarginsLinked ?? ref(true),
+                setMarginsLinked: session.setDocumentMarginsLinked ?? vi.fn(),
+                outputItems: session.outputItems,
+                readingOrderItems: session.readingOrderItems,
+                resetPageOverrides: session.resetPageOverrides,
+                showFirstRunGuidance: session.showFirstRunGuidance,
+                thicknessLabel: session.thicknessLabel,
+                updateMargin: session.updateDocumentMargin ?? vi.fn(),
+                values: session.settings,
+                editDocumentSettings: (_pages: Iterable<number | string>, change: () => void) => change(),
+            },
+            selection: {
+                applyLeaderOverrides: session.applyLeaderOverrides,
+                currentPageOverride: session.currentPageOverride,
+                highlightedScope: session.highlightedScope ?? ref(null),
+                leader: session.selectionLeader,
+                resetControlOverride: session.resetControlOverride ?? vi.fn(),
+                resetScopeOverrides: session.resetScopeOverrides ?? vi.fn(),
+                selectedPages: session.selectedPages,
+                selectPage: session.selectPage,
+                setMarginsLinked: session.setSelectionMarginsLinked ?? vi.fn(),
+                setSettingsScope: session.setSettingsScope ?? vi.fn(),
+                settingsScope: session.settingsScope ?? ref('all'),
+                updateCurrentManualContentBox: session.updateCurrentManualContentBox,
+                updateCurrentManualSplit: session.updateCurrentManualSplit,
+                updateCurrentManualZones: session.updateCurrentManualZones ?? vi.fn(),
+                updateCurrentPlacement: session.updateCurrentPlacement,
+                updatePageOverride: session.updatePageOverride,
+                updateScopeLayout: session.updateScopeLayout ?? vi.fn(),
+                updateScopeMargins: session.updateScopeMargins ?? vi.fn(),
+                updateScopeOverrides: session.updateScopeOverrides ?? vi.fn(),
+                updateScopePlacement: session.updateScopePlacement ?? vi.fn(),
+            },
+            detection: {
+                activePages: computed(() => unref(session.detectionActivePages) ?? new Set()),
+                authoritativeLayoutByPage: computed(() => unref(session.authoritativeLayoutByPage)),
+                blankPageCount: session.blankPageCount ?? computed(() => 0),
+                canDetectAll: session.canDetectAll,
+                cancel: session.cancelDetection,
+                cancelRequested: session.detectionCancelRequested,
+                confidenceByPage: computed(() => unref(session.detectedLayoutConfidenceByPage) ?? new Map()),
+                detectAllPages: session.detectAllPages,
+                error: session.detectionError,
+                outputEstimate: session.outputEstimate,
+                pending: session.detectionPending,
+                settledPages: computed(() => unref(session.detectionSettledPages) ?? new Set()),
+                recommendedOutputModeByPage: computed(() => unref(session.recommendedOutputModeByPage) ?? new Map()),
+                recommendedOutputModeConfidenceByPage: computed(() => unref(session.recommendedOutputModeConfidenceByPage) ?? new Map()),
+                recommendedOutputModeReasonByPage: computed(() => unref(session.recommendedOutputModeReasonByPage) ?? new Map()),
+                textAxisByPage: computed(() => unref(session.detectedTextAxisByPage) ?? new Map()),
+            },
+            preview: {
+                clearDetail: session.clearPreviewDetail,
+                detailError: session.previewDetailError ?? ref(null),
+                error: session.previewError,
+                loading: session.previewLoading,
+                navigate: session.navigatePreview,
+                rawResult: session.previewRawResult ?? ref(null),
+                result: session.previewResult,
+                resultCurrent: session.previewResultCurrent ?? computed(() => true),
+                resultPresentationKey: session.previewResultPresentationKey ?? computed(() => ''),
+                metadataByPage: session.previewMetadataByPage ?? reactive(new Map()),
+                retry: session.retryPreview,
+                requestDetail: session.requestPreviewDetail,
+                totalPages: session.previewTotalPages,
+                viewMode: session.previewViewMode,
+            },
+            run: {
+                activePages: session.runActivePages ?? computed(() => new Set()),
+                cancel: session.cancel,
+                cancelRequested: session.cancelRequested,
+                canRun: session.canRun,
+                inlineError: session.inlineError,
+                isRunning: session.isRunning,
+                ownerId: session.ownerId,
+                processedPages: session.processedPages,
+                progress: session.jobProgress,
+                runLabel: session.runLabel ?? ref('Clean up'),
+                runDisabledReason: session.runDisabledReason ?? ref(''),
+                run: session.run,
+                waitingForDetection: session.waitingForDetection ?? computed(() => false),
+            },
+            // The real activity model over the mocked jobs, so these tests see the
+            // same meter a session would produce from the same job state.
+            activity:
+                session.activity ??
+                computed(() => {
+                    const detectionProgress = (
+                        session.detectionProgress as {
+                            value: {
+                                completedUnits: number;
+                                totalUnits: number;
+                            };
+                        }
+                    ).value;
+                    const running = (session.isRunning as {value: boolean}).value;
+                    return resolveScanCleanupActivity({
+                        detection: {
+                            pending: (session.detectionPending as {value: boolean}).value,
+                            progress: (session.detectionJobProgress as {value: TScanCleanupProgress | null} | undefined)?.value ?? null,
+                            analyzedPages: detectionProgress.completedUnits,
+                            totalPages: detectionProgress.totalUnits,
+                            calibrating: false,
+                        },
+                        run: running
+                            ? {
+                                  waitingForDetection: (session.waitingForDetection as {value: boolean} | undefined)?.value ?? false,
+                                  starting: false,
+                                  progress: {
+                                      stage: 'rendering',
+                                      ...(session.jobProgress as {value: Partial<TScanCleanupProgress>}).value,
+                                  } as TScanCleanupProgress,
+                                  committing: (session.finishing as {value: boolean} | undefined)?.value ?? false,
+                              }
+                            : null,
+                    });
+                }),
+            activityTimeline: session.activityTimeline ?? ref(null),
+        };
+    },
+}));
 
 const translations: Record<string, string> = {
     'scanCleanup.pages.title': 'Source pages',
@@ -240,8 +225,8 @@ const translations: Record<string, string> = {
     'scanCleanup.pages.includeInOutput': 'Include in output',
     'scanCleanup.pages.excludedFromOutput': 'Excluded from output',
     'scanCleanup.pages.excludedBadge': 'Excluded',
-    'scanCleanup.preview.unavailable': 'Preview isn\'t available. You can still run cleanup.',
-    'scanCleanup.preview.detailUnavailable': 'Sharper detail for this area couldn\'t be rendered.',
+    'scanCleanup.preview.unavailable': "Preview isn't available. You can still run cleanup.",
+    'scanCleanup.preview.detailUnavailable': "Sharper detail for this area couldn't be rendered.",
     'scanCleanup.preview.retry': 'Retry',
     'errors.runtime.copy': 'Copy details',
     'scanCleanup.preview.technicalDetails': 'Technical details',
@@ -273,7 +258,8 @@ const translations: Record<string, string> = {
     'scanCleanup.output.preserveOriginalQuality': 'Preserve original quality (no rasterization)',
     'scanCleanup.output.losslessDisabledOptions': 'Raster cleanup options are unavailable in this mode.',
     'scanCleanup.pages.outputModeFollowDocument': 'Follow document setting',
-    'scanCleanup.pages.outputModeLosslessControlHint': 'Per-page output mode is unavailable because preserving original quality forces color.',
+    'scanCleanup.pages.outputModeLosslessControlHint':
+        'Per-page output mode is unavailable because preserving original quality forces color.',
     'scanCleanup.imageOnly': EN_MESSAGES.scanCleanup.imageOnly,
     'scanCleanup.rasterNotice': EN_MESSAGES.scanCleanup.rasterNotice,
     'scanCleanup.lossNotice': EN_MESSAGES.scanCleanup.lossNotice,
@@ -287,7 +273,7 @@ const translations: Record<string, string> = {
     'scanCleanup.settings.scope.selected': '{count} selected',
     'scanCleanup.settings.scope.customized': '{count} customized',
     'scanCleanup.settings.scope.pageCustomized': 'This page has custom settings',
-    'scanCleanup.settings.applyThisPageTo': 'Copy this page\'s settings to…',
+    'scanCleanup.settings.applyThisPageTo': "Copy this page's settings to…",
     'scanCleanup.settings.applyThisPageToHint': 'Choose “This page” above to copy its settings.',
     'scanCleanup.settings.layoutOverride': 'Page layout override',
     'scanCleanup.settings.rotation': 'Rotation',
@@ -377,17 +363,13 @@ const translations: Record<string, string> = {
 };
 
 function flattenMessages(prefix: string, messages: object): Record<string, string> {
-    return Object.fromEntries(Object.entries(messages).flatMap(([
-        key,
-        value,
-    ]) => (
-        typeof value === 'string'
-            ? [[
-                `${prefix}.${key}`,
-                value,
-            ]]
-            : Object.entries(flattenMessages(`${prefix}.${key}`, value as object))
-    )));
+    return Object.fromEntries(
+        Object.entries(messages).flatMap(([key, value]) =>
+            typeof value === 'string'
+                ? [[`${prefix}.${key}`, value]]
+                : Object.entries(flattenMessages(`${prefix}.${key}`, value as object)),
+        ),
+    );
 }
 
 const toastAdd = vi.fn();
@@ -399,16 +381,13 @@ vi.stubGlobal('useToast', () => ({
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
-    useTypedI18n: () => ({t: (
-        key: string,
-        parameters?: Record<string, string | number>,
-    ) => Object.entries(parameters ?? {}).reduce(
-        (value, [
-            parameter,
-            replacement,
-        ]) => value.replace(`{${parameter}}`, String(replacement)),
-        translations[key] ?? key,
-    )}),
+    useTypedI18n: () => ({
+        t: (key: string, parameters?: Record<string, string | number>) =>
+            Object.entries(parameters ?? {}).reduce(
+                (value, [parameter, replacement]) => value.replace(`{${parameter}}`, String(replacement)),
+                translations[key] ?? key,
+            ),
+    }),
 }));
 
 const ButtonStub = defineComponent({
@@ -424,19 +403,17 @@ const ButtonStub = defineComponent({
             default: '',
         },
     },
-    setup(props, {
-        attrs,
-        slots,
-    }) {
-        return () => h('button', {
-            ...attrs,
-            disabled: props.disabled,
-            type: 'button',
-        }, [
-            props.icon ? h('span', {'data-icon': props.icon}) : null,
-            ...(slots.default?.() ?? []),
-            props.label,
-        ]);
+    setup(props, {attrs, slots}) {
+        return () =>
+            h(
+                'button',
+                {
+                    ...attrs,
+                    disabled: props.disabled,
+                    type: 'button',
+                },
+                [props.icon ? h('span', {'data-icon': props.icon}) : null, ...(slots.default?.() ?? []), props.label],
+            );
     },
 });
 const SelectStub = defineComponent({
@@ -447,66 +424,75 @@ const SelectStub = defineComponent({
             default: () => [],
         },
         modelValue: {
-            type: [
-                String,
-                Number,
-            ],
+            type: [String, Number],
             default: '',
         },
     },
     emits: ['update:modelValue'],
-    setup: (props, {
-        attrs,
-        emit,
-    }) => () => h('select', {
-        ...attrs,
-        'data-ui-select': '',
-        value: props.modelValue,
-        onChange: (event: Event) => emit('update:modelValue', (event.target as HTMLSelectElement).value),
-    }, (props.items as Array<{
-        label: string;
-        value: string | number;
-    }>).map(item => h('option', {value: item.value}, item.label))),
+    setup:
+        (props, {attrs, emit}) =>
+        () =>
+            h(
+                'select',
+                {
+                    ...attrs,
+                    'data-ui-select': '',
+                    value: props.modelValue,
+                    onChange: (event: Event) => emit('update:modelValue', (event.target as HTMLSelectElement).value),
+                },
+                (
+                    props.items as Array<{
+                        label: string;
+                        value: string | number;
+                    }>
+                ).map((item) => h('option', {value: item.value}, item.label)),
+            ),
 });
 const InputStub = defineComponent({
     inheritAttrs: false,
-    props: {modelValue: {
-        type: [
-            String,
-            Number,
-        ],
-        default: '',
-    }},
+    props: {
+        modelValue: {
+            type: [String, Number],
+            default: '',
+        },
+    },
     emits: ['update:modelValue'],
-    setup: (props, {
-        attrs,
-        emit,
-    }) => () => h('input', {
-        ...attrs,
-        value: props.modelValue,
-        onInput: (event: Event) => emit('update:modelValue', (event.target as HTMLInputElement).value),
-    }),
+    setup:
+        (props, {attrs, emit}) =>
+        () =>
+            h('input', {
+                ...attrs,
+                value: props.modelValue,
+                onInput: (event: Event) => emit('update:modelValue', (event.target as HTMLInputElement).value),
+            }),
 });
 const InputNumberStub = defineComponent({
     inheritAttrs: false,
-    props: {modelValue: {
-        type: Number,
-        default: undefined,
-    }},
-    emits: ['update:modelValue'],
-    setup: (props, {
-        attrs,
-        emit,
-    }) => () => h('input', {
-        ...attrs,
-        value: props.modelValue ?? '',
-        onInput: (event: Event) => {
-            const parsed = Number((event.target as HTMLInputElement).value);
-            emit('update:modelValue', Number.isFinite(parsed) ? parsed : undefined);
+    props: {
+        modelValue: {
+            type: Number,
+            default: undefined,
         },
-    }),
+    },
+    emits: ['update:modelValue'],
+    setup:
+        (props, {attrs, emit}) =>
+        () =>
+            h('input', {
+                ...attrs,
+                value: props.modelValue ?? '',
+                onInput: (event: Event) => {
+                    const parsed = Number((event.target as HTMLInputElement).value);
+                    emit('update:modelValue', Number.isFinite(parsed) ? parsed : undefined);
+                },
+            }),
 });
-const SlotStub = defineComponent({setup: (_props, {slots}) => () => h('span', slots.default?.())});
+const SlotStub = defineComponent({
+    setup:
+        (_props, {slots}) =>
+        () =>
+            h('span', slots.default?.()),
+});
 const TooltipStub = defineComponent({
     inheritAttrs: false,
     props: {
@@ -516,25 +502,33 @@ const TooltipStub = defineComponent({
             default: '',
         },
     },
-    setup: (
-        props,
-        {
-            attrs,
-            slots,
-        },
-    ) => () => h('span', {
-        ...attrs,
-        'data-tooltip-disabled': String(props.disabled),
-        'data-tooltip-root': '',
-    }, slots.default?.()),
+    setup:
+        (props, {attrs, slots}) =>
+        () =>
+            h(
+                'span',
+                {
+                    ...attrs,
+                    'data-tooltip-disabled': String(props.disabled),
+                    'data-tooltip-root': '',
+                },
+                slots.default?.(),
+            ),
 });
-const BadgeStub = defineComponent({setup: (_props, {slots}) => () => h('span', {'data-ui-badge': ''}, slots.default?.())});
+const BadgeStub = defineComponent({
+    setup:
+        (_props, {slots}) =>
+        () =>
+            h('span', {'data-ui-badge': ''}, slots.default?.()),
+});
 const IconStub = defineComponent({setup: () => () => h('span', {'data-ui-icon': ''})});
 const SkeletonStub = defineComponent({setup: () => () => h('span', {'data-ui-skeleton': ''})});
-const PopoverStub = defineComponent({setup: (_props, {slots}) => () => h('span', [
-    slots.default?.(),
-    slots.content?.(),
-])});
+const PopoverStub = defineComponent({
+    setup:
+        (_props, {slots}) =>
+        () =>
+            h('span', [slots.default?.(), slots.content?.()]),
+});
 const CheckboxStub = defineComponent({
     inheritAttrs: false,
     props: {
@@ -546,54 +540,68 @@ const CheckboxStub = defineComponent({
         modelValue: Boolean,
     },
     emits: ['update:modelValue'],
-    setup: (props, {
-        attrs,
-        emit,
-    }) => () => h('label', [
-        h('input', {
-            ...attrs,
-            checked: props.modelValue,
-            disabled: props.disabled,
-            type: 'checkbox',
-            onChange: (event: Event) => emit('update:modelValue', (event.target as HTMLInputElement).checked),
-        }),
-        props.label,
-    ]),
+    setup:
+        (props, {attrs, emit}) =>
+        () =>
+            h('label', [
+                h('input', {
+                    ...attrs,
+                    checked: props.modelValue,
+                    disabled: props.disabled,
+                    type: 'checkbox',
+                    onChange: (event: Event) => emit('update:modelValue', (event.target as HTMLInputElement).checked),
+                }),
+                props.label,
+            ]),
 });
 const DropdownMenuStub = defineComponent({
-    props: {items: {
-        type: Array,
-        default: () => [],
-    }},
-    setup: (props, {slots}) => () => h('div', [
-        slots.default?.(),
-        // Like the real menu, it takes one list of entries or a list of groups.
-        h('div', {role: 'menu'}, (props.items.flat() as Array<{
-            class?: string;
-            disabled?: boolean;
-            label: string;
-            onSelect?: () => void;
-            slot?: string;
-        }>).map(item => item.onSelect
-            ? h('button', {
-                class: item.class,
-                disabled: item.disabled,
-                role: 'menuitem',
-                type: 'button',
-                onClick: item.onSelect,
-            }, [
-                ...(item.slot ? slots[`${item.slot}-leading`]?.() ?? [] : []),
-                item.label,
-            ])
-            : h('span', item.label))),
-    ]),
+    props: {
+        items: {
+            type: Array,
+            default: () => [],
+        },
+    },
+    setup:
+        (props, {slots}) =>
+        () =>
+            h('div', [
+                slots.default?.(),
+                // Like the real menu, it takes one list of entries or a list of groups.
+                h(
+                    'div',
+                    {role: 'menu'},
+                    (
+                        props.items.flat() as Array<{
+                            class?: string;
+                            disabled?: boolean;
+                            label: string;
+                            onSelect?: () => void;
+                            slot?: string;
+                        }>
+                    ).map((item) =>
+                        item.onSelect
+                            ? h(
+                                  'button',
+                                  {
+                                      class: item.class,
+                                      disabled: item.disabled,
+                                      role: 'menuitem',
+                                      type: 'button',
+                                      onClick: item.onSelect,
+                                  },
+                                  [...(item.slot ? (slots[`${item.slot}-leading`]?.() ?? []) : []), item.label],
+                              )
+                            : h('span', item.label),
+                    ),
+                ),
+            ]),
 });
 const CollapsibleStub = defineComponent({
     props: {open: Boolean},
-    setup: (props, {slots}) => () => h('div', [
-        slots.default?.({open: props.open}),
-        slots.content?.(),
-    ]),
+    setup:
+        (props, {slots}) =>
+        () =>
+            h('div', [slots.default?.({open: props.open}), slots.content?.()]),
 });
 const TabsStub = defineComponent({
     props: {
@@ -607,19 +615,34 @@ const TabsStub = defineComponent({
         },
     },
     emits: ['update:modelValue'],
-    setup: (props, {emit}) => () => h('div', {role: 'tablist'}, (props.items as Array<{
-        disabled?: boolean;
-        label: string;
-        title?: string;
-        value: string;
-    }>).map(item => h('button', {
-        'aria-selected': item.value === props.modelValue,
-        disabled: item.disabled,
-        role: 'tab',
-        title: item.title,
-        type: 'button',
-        onClick: () => emit('update:modelValue', item.value),
-    }, item.label))),
+    setup:
+        (props, {emit}) =>
+        () =>
+            h(
+                'div',
+                {role: 'tablist'},
+                (
+                    props.items as Array<{
+                        disabled?: boolean;
+                        label: string;
+                        title?: string;
+                        value: string;
+                    }>
+                ).map((item) =>
+                    h(
+                        'button',
+                        {
+                            'aria-selected': item.value === props.modelValue,
+                            disabled: item.disabled,
+                            role: 'tab',
+                            title: item.title,
+                            type: 'button',
+                            onClick: () => emit('update:modelValue', item.value),
+                        },
+                        item.label,
+                    ),
+                ),
+            ),
 });
 
 const activeUnmounts = new Set<() => void>();
@@ -677,23 +700,13 @@ function spreadPreviewResult(pageNumber = 1): IScanCleanupPreviewResult {
             matchedCanvasOpticalContentRightPx: null,
             placementOffsetXPx: 0,
             placementOffsetYPx: 0,
-            forwardTransform: {matrix: [
-                [
-                    1,
-                    0,
-                    -x,
-                ],
-                [
-                    0,
-                    1,
-                    0,
-                ],
-                [
-                    0,
-                    0,
-                    1,
-                ],
-            ] as Affine['matrix']},
+            forwardTransform: {
+                matrix: [
+                    [1, 0, -x],
+                    [0, 1, 0],
+                    [0, 0, 1],
+                ] as Affine['matrix'],
+            },
             cutterXPx: 500,
             inputWidthPx: 1000,
             inputHeightPx: 800,
@@ -721,10 +734,7 @@ function spreadPreviewResult(pageNumber = 1): IScanCleanupPreviewResult {
             reconciled: false,
             clusterAgreement: 0,
         },
-        outputs: [
-            output('left', 0),
-            output('right', 500),
-        ],
+        outputs: [output('left', 0), output('right', 500)],
     };
 }
 
@@ -747,23 +757,13 @@ function rotatedSinglePreviewResult(): IScanCleanupPreviewResult {
         inputWidthPx: 1000,
         inputHeightPx: 800,
         rotationDegrees: 90,
-        forwardTransform: {matrix: [
-            [
-                1,
-                0,
-                0,
+        forwardTransform: {
+            matrix: [
+                [1, 0, 0],
+                [0, 1, 0],
+                [0, 0, 1],
             ],
-            [
-                0,
-                1,
-                0,
-            ],
-            [
-                0,
-                0,
-                1,
-            ],
-        ]},
+        },
     };
     return {
         ...result,
@@ -802,21 +802,25 @@ function mount(component: Parameters<typeof createApp>[0]) {
     document.body.append(host);
     const app = createApp(component);
     app.component('AppTooltip', TooltipStub);
-    app.component('UAlert', defineComponent({
-        props: {
-            title: String,
-            description: String,
-            actions: {
-                type: Array as PropType<IFailureToastAction[]>,
-                default: () => [],
+    app.component(
+        'UAlert',
+        defineComponent({
+            props: {
+                title: String,
+                description: String,
+                actions: {
+                    type: Array as PropType<IFailureToastAction[]>,
+                    default: () => [],
+                },
             },
-        },
-        setup: props => () => h('div', [
-            props.title,
-            props.description,
-            ...props.actions.map(action => h('button', {onClick: action.onClick}, action.label)),
-        ]),
-    }));
+            setup: (props) => () =>
+                h('div', [
+                    props.title,
+                    props.description,
+                    ...props.actions.map((action) => h('button', {onClick: action.onClick}, action.label)),
+                ]),
+        }),
+    );
     app.component('UBadge', BadgeStub);
     app.component('UButton', ButtonStub);
     app.component('UCheckbox', CheckboxStub);
@@ -874,9 +878,9 @@ function previewZoomWheel(init: WheelEventInit) {
 
 function mockPointerCapture(element: HTMLElement) {
     const captured = new Set<number>();
-    element.setPointerCapture = vi.fn(pointerId => captured.add(pointerId));
-    element.hasPointerCapture = vi.fn(pointerId => captured.has(pointerId));
-    element.releasePointerCapture = vi.fn(pointerId => captured.delete(pointerId));
+    element.setPointerCapture = vi.fn((pointerId) => captured.add(pointerId));
+    element.hasPointerCapture = vi.fn((pointerId) => captured.has(pointerId));
+    element.releasePointerCapture = vi.fn((pointerId) => captured.delete(pointerId));
     return {
         hasPointerCapture: element.hasPointerCapture,
         releasePointerCapture: element.releasePointerCapture,
@@ -885,10 +889,8 @@ function mockPointerCapture(element: HTMLElement) {
 }
 
 function mockPreviewGeometry(host: HTMLElement, canvasRects: DOMRect[]) {
-    vi.spyOn(host.querySelector<HTMLElement>('.preview-surface')!, 'getBoundingClientRect')
-        .mockReturnValue(domRect(0, 0, 1000, 800));
-    vi.spyOn(host.querySelector<HTMLElement>('.cutter-stage')!, 'getBoundingClientRect')
-        .mockReturnValue(domRect(0, 0, 1000, 800));
+    vi.spyOn(host.querySelector<HTMLElement>('.preview-surface')!, 'getBoundingClientRect').mockReturnValue(domRect(0, 0, 1000, 800));
+    vi.spyOn(host.querySelector<HTMLElement>('.cutter-stage')!, 'getBoundingClientRect').mockReturnValue(domRect(0, 0, 1000, 800));
     host.querySelectorAll<HTMLElement>('.uniform-canvas').forEach((canvas, index) => {
         vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue(canvasRects[index] ?? domRect(0, 0, 500, 800));
     });
@@ -970,64 +972,63 @@ function settingsPanelProps(
     } as never;
 }
 
-function mountPreviewZoomHarness(options: {
-    canvasRect?: (index: number, scale: number, panX: number, panY: number) => DOMRect;
-    detailResult?: IScanCleanupPreviewResult | null;
-    detailResultRef?: Ref<IScanCleanupPreviewResult | null>;
-    layoutDetectionCompleteRef?: Ref<boolean>;
-    manualZones?: IScanCleanupManualZones;
-    manualZonesRef?: Ref<IScanCleanupManualZones | undefined>;
-    onUpdateManualZones?: (value: IScanCleanupManualZones) => void;
-    onRequestDetail?: (
-        viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
-    ) => void;
-    rawResult?: IScanCleanupRawPreviewResult | null;
-    result?: IScanCleanupPreviewResult | null;
-    resultCurrentRef?: Ref<boolean>;
-    resultPresentationKeyRef?: Ref<string>;
-    resultRef?: Ref<IScanCleanupPreviewResult | null>;
-    disabled?: boolean;
-    viewMode?: 'original' | 'cleaned';
-    zoneEditing?: boolean;
-} = {}) {
+function mountPreviewZoomHarness(
+    options: {
+        canvasRect?: (index: number, scale: number, panX: number, panY: number) => DOMRect;
+        detailResult?: IScanCleanupPreviewResult | null;
+        detailResultRef?: Ref<IScanCleanupPreviewResult | null>;
+        layoutDetectionCompleteRef?: Ref<boolean>;
+        manualZones?: IScanCleanupManualZones;
+        manualZonesRef?: Ref<IScanCleanupManualZones | undefined>;
+        onUpdateManualZones?: (value: IScanCleanupManualZones) => void;
+        onRequestDetail?: (viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports']) => void;
+        rawResult?: IScanCleanupRawPreviewResult | null;
+        result?: IScanCleanupPreviewResult | null;
+        resultCurrentRef?: Ref<boolean>;
+        resultPresentationKeyRef?: Ref<string>;
+        resultRef?: Ref<IScanCleanupPreviewResult | null>;
+        disabled?: boolean;
+        viewMode?: 'original' | 'cleaned';
+        zoneEditing?: boolean;
+    } = {},
+) {
     const viewMode = ref<'original' | 'cleaned'>(options.viewMode ?? 'original');
     const disabled = ref(options.disabled ?? false);
     const splitUpdates: IScanCleanupNormalizedSplit[] = [];
     const previewResult = options.result === undefined ? spreadPreviewResult() : options.result;
-    const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-        result: options.resultRef ? options.resultRef.value : previewResult,
-        rawResult: options.rawResult ?? null,
-        loading: false,
-        error: '',
-        viewMode: viewMode.value,
-        matchPageSize: true,
-        alignment: 'top-center',
-        pageNumber: 1,
-        totalPages: 3,
-        manualSplit: null,
-        resultCurrent: options.resultCurrentRef?.value ?? true,
-        manualZones: options.manualZonesRef?.value ?? options.manualZones,
-        disabled: disabled.value,
-        readingOrder: 'ltr',
-        ...(options.zoneEditing === undefined ? {} : {zoneEditing: options.zoneEditing}),
-        detailResult: options.detailResultRef
-            ? options.detailResultRef.value
-            : options.detailResult ?? null,
-        ...(options.layoutDetectionCompleteRef
-            ? {layoutDetectionComplete: options.layoutDetectionCompleteRef.value}
-            : {}),
-        ...(options.resultCurrentRef
-            ? {resultCurrent: options.resultCurrentRef.value}
-            : {}),
-        ...(options.resultPresentationKeyRef
-            ? {resultPresentationKey: options.resultPresentationKeyRef.value}
-            : {}),
-        ...(options.onUpdateManualZones ? {'onUpdate:manualZones': options.onUpdateManualZones} : {}),
-        ...(options.onRequestDetail ? {onRequestDetail: options.onRequestDetail} : {}),
-        'onUpdate:manualSplit': (value: IScanCleanupNormalizedSplit | null) => {
-            if (value) splitUpdates.push(value);
-        },
-    })}));
+    const harness = mount(
+        defineComponent({
+            setup: () => () =>
+                h(ScanCleanupPreviewPane, {
+                    result: options.resultRef ? options.resultRef.value : previewResult,
+                    rawResult: options.rawResult ?? null,
+                    loading: false,
+                    error: '',
+                    viewMode: viewMode.value,
+                    matchPageSize: true,
+                    alignment: 'top-center',
+                    pageNumber: 1,
+                    totalPages: 3,
+                    manualSplit: null,
+                    resultCurrent: options.resultCurrentRef?.value ?? true,
+                    manualZones: options.manualZonesRef?.value ?? options.manualZones,
+                    disabled: disabled.value,
+                    readingOrder: 'ltr',
+                    ...(options.zoneEditing === undefined ? {} : {zoneEditing: options.zoneEditing}),
+                    detailResult: options.detailResultRef ? options.detailResultRef.value : (options.detailResult ?? null),
+                    ...(options.layoutDetectionCompleteRef ? {layoutDetectionComplete: options.layoutDetectionCompleteRef.value} : {}),
+                    ...(options.resultCurrentRef ? {resultCurrent: options.resultCurrentRef.value} : {}),
+                    ...(options.resultPresentationKeyRef ? {resultPresentationKey: options.resultPresentationKeyRef.value} : {}),
+                    ...(options.onUpdateManualZones ? {'onUpdate:manualZones': options.onUpdateManualZones} : {}),
+                    ...(options.onRequestDetail ? {onRequestDetail: options.onRequestDetail} : {}),
+                    'onUpdate:manualSplit': (value: IScanCleanupNormalizedSplit | null) => {
+                        if (value) {
+                            splitUpdates.push(value);
+                        }
+                    },
+                }),
+        }),
+    );
     const {surface, stage} = mockPreviewLayout(harness.host, previewResult, options.canvasRect);
     const pointerCapture = mockPointerCapture(surface);
     return {
@@ -1064,12 +1065,7 @@ function mockPreviewLayout(
         const translation = stage.style.transform.match(/translate3d\(([^p]+)px, ([^p]+)px/);
         const panX = Number(translation?.[1] ?? 0);
         const panY = Number(translation?.[2] ?? 0);
-        return domRect(
-            panX - 500 * (scale - 1) / 2,
-            panY - 400 * (scale - 1) / 2,
-            500 * scale,
-            400 * scale,
-        );
+        return domRect(panX - (500 * (scale - 1)) / 2, panY - (400 * (scale - 1)) / 2, 500 * scale, 400 * scale);
     });
     host.querySelectorAll<HTMLElement>('.uniform-canvas').forEach((canvas, index) => {
         vi.spyOn(canvas, 'getBoundingClientRect').mockImplementation(() => {
@@ -1084,12 +1080,7 @@ function mockPreviewLayout(
             const baseWidth = single ? 160 : 250;
             const baseHeight = 400;
             const baseLeft = single ? 170 : index * 250;
-            return domRect(
-                250 + (baseLeft - 250) * scale + panX,
-                200 + (0 - 200) * scale + panY,
-                baseWidth * scale,
-                baseHeight * scale,
-            );
+            return domRect(250 + (baseLeft - 250) * scale + panX, 200 + (0 - 200) * scale + panY, baseWidth * scale, baseHeight * scale);
         });
     });
     return {surface, stage};
@@ -1120,15 +1111,15 @@ function installResizeObserverHarness() {
         value: ResizeObserverHarness,
     });
     return {
-        restore: () => Object.defineProperty(globalThis, 'ResizeObserver', {
-            configurable: true,
-            value: original,
-        }),
+        restore: () =>
+            Object.defineProperty(globalThis, 'ResizeObserver', {
+                configurable: true,
+                value: original,
+            }),
         trigger: () => {
-            for (const {
-                callback,
-                observer,
-            } of observers) callback([], observer);
+            for (const {callback, observer} of observers) {
+                callback([], observer);
+            }
         },
     };
 }
@@ -1137,7 +1128,7 @@ function contentCropRefresh(result: IScanCleanupPreviewResult, factor: number) {
     return {
         ...result,
         rawImageData: new Uint8Array([2]),
-        outputs: result.outputs.map(output => ({
+        outputs: result.outputs.map((output) => ({
             ...output,
             imageData: new Uint8Array([2]),
             metadata: {
@@ -1175,7 +1166,7 @@ function analysisActivity(analyzedPages: number, totalPages: number, progress: P
                 stage: 'detecting',
                 completedUnits: analyzedPages,
                 totalUnits: totalPages,
-                percent: analyzedPages / totalPages * 100,
+                percent: (analyzedPages / totalPages) * 100,
                 ...progress,
             },
             analyzedPages,
@@ -1184,19 +1175,22 @@ function analysisActivity(analyzedPages: number, totalPages: number, progress: P
         },
         run: run
             ? {
-                waitingForDetection: true,
-                starting: false,
-                progress: null,
-                committing: false,
-            }
+                  waitingForDetection: true,
+                  starting: false,
+                  progress: null,
+                  committing: false,
+              }
             : null,
     })!;
 }
 
-function runActivity(progress: Partial<TScanCleanupProgress> | null, options: {
-    starting?: boolean;
-    committing?: boolean
-} = {}) {
+function runActivity(
+    progress: Partial<TScanCleanupProgress> | null,
+    options: {
+        starting?: boolean;
+        committing?: boolean;
+    } = {},
+) {
     return resolveScanCleanupActivity({
         detection: {
             pending: false,
@@ -1208,15 +1202,16 @@ function runActivity(progress: Partial<TScanCleanupProgress> | null, options: {
         run: {
             waitingForDetection: false,
             starting: options.starting ?? false,
-            progress: progress === null
-                ? null
-                : {
-                    stage: 'rendering',
-                    completedUnits: 0,
-                    totalUnits: 120,
-                    percent: 0,
-                    ...progress,
-                },
+            progress:
+                progress === null
+                    ? null
+                    : {
+                          stage: 'rendering',
+                          completedUnits: 0,
+                          totalUnits: 120,
+                          percent: 0,
+                          ...progress,
+                      },
             committing: options.committing ?? false,
         },
     })!;
@@ -1349,20 +1344,27 @@ async function mountRealWorkspace(documentKey: string, ledger?: ReturnType<typeo
     );
     const sourcePath = requireDocumentRef(`/docs/${documentKey}.pdf`);
     realWorkspaceSession.create = useScanCleanupWorkspaceSession;
-    const harness = mount(defineComponent({setup() {
-        if (ledger) provide(workspaceCommandSinkKey, {
-            register: ledger.registerCommand,
-            reset: ledger.resetSource,
-            forget: ledger.forgetSourceEntries,
-        });
-        return () => h(ScanCleanupWorkspace, {
-            sourcePath,
-            documentKey,
-            currentPage: 1,
-            totalPages: 2,
-            toolbarActive: true,
-        });
-    }}));
+    const harness = mount(
+        defineComponent({
+            setup() {
+                if (ledger) {
+                    provide(workspaceCommandSinkKey, {
+                        register: ledger.registerCommand,
+                        reset: ledger.resetSource,
+                        forget: ledger.forgetSourceEntries,
+                    });
+                }
+                return () =>
+                    h(ScanCleanupWorkspace, {
+                        sourcePath,
+                        documentKey,
+                        currentPage: 1,
+                        totalPages: 2,
+                        toolbarActive: true,
+                    });
+            },
+        }),
+    );
     await nextTick();
     return {
         ...harness,
@@ -1372,7 +1374,9 @@ async function mountRealWorkspace(documentKey: string, ledger?: ReturnType<typeo
 
 afterEach(() => {
     toastAdd.mockClear();
-    for (const unmount of activeUnmounts) unmount();
+    for (const unmount of activeUnmounts) {
+        unmount();
+    }
     toastRemove.mockClear();
     document.body.innerHTML = '';
     localStorage.clear();
@@ -1392,13 +1396,18 @@ describe('Scan cleanup components', () => {
             percent: 36,
             etaSeconds: 180,
         });
-        const harness = mount(defineComponent(() => () => h(ScanCleanupActivityMeter, {
-            activity,
-            timeline: {
-                startedAtMs: Date.now() - 20_000,
-                steps: {clean: {startedAtMs: Date.now() - 20_000}},
-            },
-        })));
+        const harness = mount(
+            defineComponent(
+                () => () =>
+                    h(ScanCleanupActivityMeter, {
+                        activity,
+                        timeline: {
+                            startedAtMs: Date.now() - 20_000,
+                            steps: {clean: {startedAtMs: Date.now() - 20_000}},
+                        },
+                    }),
+            ),
+        );
         const time = () => harness.host.querySelector('.scan-cleanup-activity-time .scan-cleanup-stable-width-value')?.textContent;
         expect(time()).toBe('0:20 · about 3 min left');
         await vi.advanceTimersByTimeAsync(6_000);
@@ -1416,32 +1425,39 @@ describe('Scan cleanup components', () => {
                 detectionPending: ref(false),
                 selectionLeader,
                 settingsScope,
-                selectPage: (page: number) => { selectionLeader.value = page; },
-                setSettingsScope: (scope: 'all' | 'page') => { settingsScope.value = scope; },
-                detectedLayoutConfidenceByPage: reactive(new Map([[
-                    2,
-                    0.4,
-                ]])),
-                authoritativeLayoutByPage: reactive(new Map([[
-                    2,
-                    'two-page-spread',
-                ]])),
-                detectedTextAxisByPage: reactive(new Map([[
-                    2,
-                    {
-                        sideways: true,
-                        confidence: 0.98,
-                    },
-                ]])),
-            });
-            const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
-                sourcePath: requireDocumentRef('/docs/inspect.pdf'),
-                totalPages: 2,
-                pageSource: {
-                    ...previewPageSource(500, 700),
-                    pageCount: 2,
+                selectPage: (page: number) => {
+                    selectionLeader.value = page;
                 },
-            })));
+                setSettingsScope: (scope: 'all' | 'page') => {
+                    settingsScope.value = scope;
+                },
+                detectedLayoutConfidenceByPage: reactive(new Map([[2, 0.4]])),
+                authoritativeLayoutByPage: reactive(new Map([[2, 'two-page-spread']])),
+                detectedTextAxisByPage: reactive(
+                    new Map([
+                        [
+                            2,
+                            {
+                                sideways: true,
+                                confidence: 0.98,
+                            },
+                        ],
+                    ]),
+                ),
+            });
+            const harness = mount(
+                defineComponent(
+                    () => () =>
+                        h(ScanCleanupWorkspace, {
+                            sourcePath: requireDocumentRef('/docs/inspect.pdf'),
+                            totalPages: 2,
+                            pageSource: {
+                                ...previewPageSource(500, 700),
+                                pageCount: 2,
+                            },
+                        }),
+                ),
+            );
             await nextTick();
             expect(harness.host.querySelector('[data-page-findings]')).toBeNull();
             await vi.waitFor(() => expect(harness.host.querySelector('.scan-thumbnail-attention')).not.toBeNull());
@@ -1476,19 +1492,24 @@ describe('Scan cleanup components', () => {
             clusterAgreement: 0.82,
             outputDiagnostics: [],
         };
-        const harness = mount(defineComponent(() => () => h(ScanCleanupPageFindings, {
-            pageNumber: 2,
-            facts: {
-                classification: diagnostics.layoutClassification,
-                diagnostics,
-                layoutConfidence: diagnostics.layoutConfidence,
-                override: createScanCleanupPageOverride(),
-                recommendedOutputMode: undefined,
-                recommendedOutputModeConfidence: undefined,
-                recommendedOutputModeReason: undefined,
-                textAxis: undefined,
-            },
-        })));
+        const harness = mount(
+            defineComponent(
+                () => () =>
+                    h(ScanCleanupPageFindings, {
+                        pageNumber: 2,
+                        facts: {
+                            classification: diagnostics.layoutClassification,
+                            diagnostics,
+                            layoutConfidence: diagnostics.layoutConfidence,
+                            override: createScanCleanupPageOverride(),
+                            recommendedOutputMode: undefined,
+                            recommendedOutputModeConfidence: undefined,
+                            recommendedOutputModeReason: undefined,
+                            textAxis: undefined,
+                        },
+                    }),
+            ),
+        );
         const technical = harness.host.querySelector<HTMLElement>('.scan-cleanup-page-findings-technical')!;
 
         expect(technical.textContent).toContain('Geometry');
@@ -1530,69 +1551,82 @@ describe('Scan cleanup components', () => {
             autoDewarpAttempted: true,
             dewarpApplied: true,
             dewarpConfidence: 0.86,
-            outputDiagnostics: [{
-                half: 'full',
-                contentDiagnostics: {
-                    sideConfidence: {
-                        left: 0.91,
-                        top: 0.82,
-                        right: 0.74,
-                        bottom: 0.68,
-                    },
-                    textMask: {
-                        analysisWidthPx: 800,
-                        analysisHeightPx: 1100,
-                        inkPixels: 28_000,
-                        lineCount: 31,
-                    },
-                    acceptedTrims: [{
-                        side: 'left',
-                        iteration: 1,
-                        score: 0.83,
-                        threshold: 0.71,
-                        contentDistanceSum: 22,
-                        garbageDistanceSum: 4,
-                        removedBlocks: [{
-                            bounds: {
-                                xPx: 0,
-                                yPx: 0,
-                                widthPx: 48,
-                                heightPx: 1100,
-                            },
-                            pictureMaskOverlapPixels: 240,
-                            headingEvidence: false,
-                            grayscaleEvidence: true,
-                            textEvidence: false,
-                        }],
-                    }],
-                    protectedBlocks: [{
-                        bounds: {
-                            xPx: 64,
-                            yPx: 90,
-                            widthPx: 320,
-                            heightPx: 180,
+            outputDiagnostics: [
+                {
+                    half: 'full',
+                    contentDiagnostics: {
+                        sideConfidence: {
+                            left: 0.91,
+                            top: 0.82,
+                            right: 0.74,
+                            bottom: 0.68,
                         },
-                        pictureMaskOverlapPixels: 1_300,
-                        headingEvidence: true,
-                        grayscaleEvidence: false,
-                        textEvidence: false,
-                    }],
+                        textMask: {
+                            analysisWidthPx: 800,
+                            analysisHeightPx: 1100,
+                            inkPixels: 28_000,
+                            lineCount: 31,
+                        },
+                        acceptedTrims: [
+                            {
+                                side: 'left',
+                                iteration: 1,
+                                score: 0.83,
+                                threshold: 0.71,
+                                contentDistanceSum: 22,
+                                garbageDistanceSum: 4,
+                                removedBlocks: [
+                                    {
+                                        bounds: {
+                                            xPx: 0,
+                                            yPx: 0,
+                                            widthPx: 48,
+                                            heightPx: 1100,
+                                        },
+                                        pictureMaskOverlapPixels: 240,
+                                        headingEvidence: false,
+                                        grayscaleEvidence: true,
+                                        textEvidence: false,
+                                    },
+                                ],
+                            },
+                        ],
+                        protectedBlocks: [
+                            {
+                                bounds: {
+                                    xPx: 64,
+                                    yPx: 90,
+                                    widthPx: 320,
+                                    heightPx: 180,
+                                },
+                                pictureMaskOverlapPixels: 1_300,
+                                headingEvidence: true,
+                                grayscaleEvidence: false,
+                                textEvidence: false,
+                            },
+                        ],
+                    },
                 },
-            }],
+            ],
         };
-        const harness = mount(defineComponent(() => () => h(ScanCleanupPageFindings, {
-            pageNumber: 2,
-            facts: {
-                classification: diagnostics.layoutClassification,
-                diagnostics,
-                layoutConfidence: diagnostics.layoutConfidence,
-                override: createScanCleanupPageOverride(),
-                recommendedOutputMode: undefined,
-                recommendedOutputModeConfidence: undefined,
-                recommendedOutputModeReason: undefined,
-                textAxis: undefined,
-            },
-        })));
+        const harness = mount(
+            defineComponent(
+                () => () =>
+                    h(ScanCleanupPageFindings, {
+                        pageNumber: 2,
+                        facts: {
+                            classification: diagnostics.layoutClassification,
+                            diagnostics,
+                            layoutConfidence: diagnostics.layoutConfidence,
+                            override: createScanCleanupPageOverride(),
+                            recommendedOutputMode: undefined,
+                            recommendedOutputModeConfidence: undefined,
+                            recommendedOutputModeReason: undefined,
+                            textAxis: undefined,
+                        },
+                    }),
+            ),
+        );
         const popover = harness.host.querySelector<HTMLElement>('.scan-cleanup-page-findings-technical')!;
         expect(popover.querySelector('summary')?.textContent).toBe('Technical details');
         expect(popover.textContent).toContain('Mode decision');
@@ -1607,13 +1641,10 @@ describe('Scan cleanup components', () => {
         expect(popover.textContent).toContain('Edge confidence');
     });
 
-
     it('undoes an All margin edit through the workspace control without losing inherited margins', async () => {
         const ledger = useWorkspaceCommandLedger();
         const harness = await mountRealWorkspace('all-margin-undo', ledger);
-        const {
-            settings, selection,
-        } = harness.session;
+        const {settings, selection} = harness.session;
         const originalMargins = {...settings.values.marginsMm};
         const inherited = {
             leftMm: 13,
@@ -1648,9 +1679,7 @@ describe('Scan cleanup components', () => {
 
     it('links page margins without changing the document or other pages', async () => {
         const harness = await mountRealWorkspace('page-margin-link');
-        const {
-            settings, selection,
-        } = harness.session;
+        const {settings, selection} = harness.session;
         settings.setMarginsLinked(false);
         Object.assign(settings.values.marginsMm, {
             leftMm: 2,
@@ -1658,12 +1687,14 @@ describe('Scan cleanup components', () => {
             rightMm: 6,
             bottomMm: 8,
         });
-        settings.values.pageOverrides['1'] = createScanCleanupPageOverride({marginsMm: {
-            leftMm: 11,
-            topMm: 12,
-            rightMm: 13,
-            bottomMm: 14,
-        }});
+        settings.values.pageOverrides['1'] = createScanCleanupPageOverride({
+            marginsMm: {
+                leftMm: 11,
+                topMm: 12,
+                rightMm: 13,
+                bottomMm: 14,
+            },
+        });
         selection.setSettingsScope('page');
         await nextTick();
         const link = harness.host.querySelector<HTMLButtonElement>('[data-margins-link]')!;
@@ -1677,30 +1708,26 @@ describe('Scan cleanup components', () => {
             rightMm: 6,
             bottomMm: 8,
         });
-        expect(settings.values.pageOverrides['1']?.marginsMm)
-            .toEqual({
-                leftMm: 12,
-                topMm: 12,
-                rightMm: 12,
-                bottomMm: 12,
-            });
+        expect(settings.values.pageOverrides['1']?.marginsMm).toEqual({
+            leftMm: 12,
+            topMm: 12,
+            rightMm: 12,
+            bottomMm: 12,
+        });
         expect(settings.values.pageOverrides['2']?.marginsMm).toBeUndefined();
     });
 
-    it.each([
-        'all',
-        'selected',
-    ] as const)('shows mixed deskew for automatic followed by manual in %s scope', async (scope) => {
+    it.each(['all', 'selected'] as const)('shows mixed deskew for automatic followed by manual in %s scope', async (scope) => {
         const harness = await mountRealWorkspace(`mixed-deskew-${scope}`);
         harness.session.settings.values.pageOverrides['2'] = createScanCleanupPageOverride({manualSkewDegrees: 3});
-        if (scope === 'selected') harness.session.selection.selectPage(2, 'toggle', [
-            1,
-            2,
-        ]);
+        if (scope === 'selected') {
+            harness.session.selection.selectPage(2, 'toggle', [1, 2]);
+        }
         harness.session.selection.setSettingsScope(scope);
         await nextTick();
-        const row = Array.from(harness.host.querySelectorAll('.scan-cleanup-auto-value-row'))
-            .find(element => element.textContent?.includes('Deskew angle'))!;
+        const row = Array.from(harness.host.querySelectorAll('.scan-cleanup-auto-value-row')).find((element) =>
+            element.textContent?.includes('Deskew angle'),
+        )!;
 
         expect(row.querySelector('[data-auto-value-state="mixed"]')?.textContent?.trim()).toBe('Mixed');
         expect(row.querySelector('[data-auto-value-state="auto"]')).toBeNull();
@@ -1744,7 +1771,7 @@ describe('Scan cleanup components', () => {
         const requests: Array<Parameters<IScanCleanupCapability['start']>[0]> = [];
         const capability: IScanCleanupCapability = {
             getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
-            preview: vi.fn(async request => {
+            preview: vi.fn(async (request) => {
                 if (request.visible && request.layoutDetectionComplete) {
                     finalRequested.resolve(undefined);
                     return finalPreview.promise;
@@ -1756,19 +1783,25 @@ describe('Scan cleanup components', () => {
                 started: true,
                 jobId: requireJobId(`identity-detect-${++job}`),
             })),
-            subscribeDetectionJob: vi.fn(async id => queued(id)),
+            subscribeDetectionJob: vi.fn(async (id) => queued(id)),
             getDetectionJobState: vi.fn(async () => null),
             cancelDetection: vi.fn(async () => true),
-            onDetectionJobState: vi.fn(listener => {emitDetection = listener; return () => undefined;}),
+            onDetectionJobState: vi.fn((listener) => {
+                emitDetection = listener;
+                return () => undefined;
+            }),
             onPreviewRaw: vi.fn(() => () => undefined),
             onJobState: vi.fn(() => () => undefined),
             onSettingsChanged: vi.fn(() => () => undefined),
-            start: vi.fn<IScanCleanupCapability['start']>(async request => {requests.push(request); return {
-                started: false,
-                jobId: requireJobId('identity-rejected-job'),
-                errorCode: 'internal',
-                error: 'probe boundary',
-            };}),
+            start: vi.fn<IScanCleanupCapability['start']>(async (request) => {
+                requests.push(request);
+                return {
+                    started: false,
+                    jobId: requireJobId('identity-rejected-job'),
+                    errorCode: 'internal',
+                    error: 'probe boundary',
+                };
+            }),
             cancel: vi.fn(async () => true),
             getJobState: vi.fn(async () => null),
             subscribeJob: vi.fn(async () => null),
@@ -1776,18 +1809,25 @@ describe('Scan cleanup components', () => {
             pruneGeneratedOutputs: vi.fn(async () => 0),
         };
         const capabilitySpy = vi.spyOn(capabilityModule, 'getScanCleanupCapability').mockReturnValue(capability);
-        const actual = await vi.importActual<typeof scanCleanupWorkspaceSessionModule>('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession');
+        const actual = await vi.importActual<typeof scanCleanupWorkspaceSessionModule>(
+            '@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession',
+        );
         realWorkspaceSession.create = actual.useScanCleanupWorkspaceSession;
         const source = ref(requireDocumentRef('/docs/identity-A.pdf'));
         const revision = ref('identity-A');
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupWorkspace, {
-            sourcePath: source.value,
-            documentKey: revision.value,
-            documentRevision: revision.value,
-            currentPage: 1,
-            totalPages: 2,
-            toolbarActive: true,
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupWorkspace, {
+                        sourcePath: source.value,
+                        documentKey: revision.value,
+                        documentRevision: revision.value,
+                        currentPage: 1,
+                        totalPages: 2,
+                        toolbarActive: true,
+                    }),
+            }),
+        );
         const session = realWorkspaceSession.value!;
         let running: Promise<void> | undefined;
         try {
@@ -1803,10 +1843,7 @@ describe('Scan cleanup components', () => {
             emitDetection({
                 ...queued(requireJobId('identity-detect-1')),
                 status: 'completed',
-                results: [
-                    1,
-                    2,
-                ].map(pageNumber => ({
+                results: [1, 2].map((pageNumber) => ({
                     pageNumber: requirePageNumber(pageNumber),
                     classification: 'single-uncut-page',
                     confidence: 0.9,
@@ -1827,10 +1864,7 @@ describe('Scan cleanup components', () => {
                     completedUnits: 2,
                     totalUnits: 2,
                     percent: 100,
-                    completedPageNumbers: [
-                        1,
-                        2,
-                    ],
+                    completedPageNumbers: [1, 2],
                 },
             });
             await nextTick();
@@ -1873,7 +1907,7 @@ describe('Scan cleanup components', () => {
             sourceCropStyle: {},
         });
         const spread = spreadPreviewResult();
-        spread.outputs = spread.outputs.map(output => ({
+        spread.outputs = spread.outputs.map((output) => ({
             ...output,
             metadata: {
                 ...output.metadata,
@@ -1882,37 +1916,39 @@ describe('Scan cleanup components', () => {
             },
         }));
         const mixedScale = spreadPreviewResult();
-        mixedScale.outputs = [{
-            ...mixedScale.outputs[0]!,
-            metadata: {
-                ...mixedScale.outputs[0]!.metadata,
-                half: 'full',
-                renderDpi: 300,
-                matchedCanvasTargetWidthPoints: 612,
-                matchedCanvasTargetHeightPoints: 792,
+        mixedScale.outputs = [
+            {
+                ...mixedScale.outputs[0]!,
+                metadata: {
+                    ...mixedScale.outputs[0]!.metadata,
+                    half: 'full',
+                    renderDpi: 300,
+                    matchedCanvasTargetWidthPoints: 612,
+                    matchedCanvasTargetHeightPoints: 792,
+                },
             },
-        }];
+        ];
 
-        for (const outputs of [
-            spread.outputs,
-            mixedScale.outputs,
-        ]) {
-            const harness = mount(defineComponent(() => () => h(CleanedCanvas, {
-                activePlacementHalf: null,
-                altByHalf: {},
-                detailUrls: {},
-                matchPageSize: true,
-                outputs: outputs.map(renderOutput),
-            })));
+        for (const outputs of [spread.outputs, mixedScale.outputs]) {
+            const harness = mount(
+                defineComponent(
+                    () => () =>
+                        h(CleanedCanvas, {
+                            activePlacementHalf: null,
+                            altByHalf: {},
+                            detailUrls: {},
+                            matchPageSize: true,
+                            outputs: outputs.map(renderOutput),
+                        }),
+                ),
+            );
 
-            expect([...harness.host.querySelectorAll<HTMLElement>('.uniform-canvas')]
-                .map(element => [
+            expect(
+                [...harness.host.querySelectorAll<HTMLElement>('.uniform-canvas')].map((element) => [
                     element.getAttribute('data-matched-canvas-width-points'),
                     element.getAttribute('data-matched-canvas-height-points'),
-                ])).toEqual(outputs.map(() => [
-                '612',
-                '792',
-            ]));
+                ]),
+            ).toEqual(outputs.map(() => ['612', '792']));
             harness.unmount();
         }
     });
@@ -1921,12 +1957,17 @@ describe('Scan cleanup components', () => {
         const toolbarActive = ref(true);
         const sourceSha256 = 'a'.repeat(64);
         workspaceSession.value = createWorkspaceEntrySession();
-        mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
-            sourcePath: requireDocumentRef('/docs/visible-scan.pdf'),
-            documentRevision: 'revision-7',
-            sourceSha256,
-            toolbarActive: toolbarActive.value,
-        })));
+        mount(
+            defineComponent(
+                () => () =>
+                    h(ScanCleanupWorkspace, {
+                        sourcePath: requireDocumentRef('/docs/visible-scan.pdf'),
+                        documentRevision: 'revision-7',
+                        sourceSha256,
+                        toolbarActive: toolbarActive.value,
+                    }),
+            ),
+        );
 
         expect(workspaceSessionOptions.value?.active?.()).toBe(true);
         expect(workspaceSessionOptions.value?.sourcePath?.()).toBe('/docs/visible-scan.pdf');
@@ -1958,18 +1999,25 @@ describe('Scan cleanup components', () => {
                 },
             }),
             title: 'Settings read failed',
-            actions: [{
-                label: 'Retry',
-                onClick: retry,
-            }],
+            actions: [
+                {
+                    label: 'Retry',
+                    onClick: retry,
+                },
+            ],
         };
         workspaceSession.value = createWorkspaceEntrySession({documentSettingsLoadFailure: ref(failure)});
         const toolbarActive = ref(false);
-        const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
-            sourcePath: requireDocumentRef('/docs/settings-failure.pdf'),
-            totalPages: 3,
-            toolbarActive: toolbarActive.value,
-        })));
+        const harness = mount(
+            defineComponent(
+                () => () =>
+                    h(ScanCleanupWorkspace, {
+                        sourcePath: requireDocumentRef('/docs/settings-failure.pdf'),
+                        totalPages: 3,
+                        toolbarActive: toolbarActive.value,
+                    }),
+            ),
+        );
         await nextTick();
         // A workspace in a background tab waits until it is on screen.
         expect(toastAdd).not.toHaveBeenCalled();
@@ -1982,20 +2030,25 @@ describe('Scan cleanup components', () => {
             actions: IFailureToastAction[];
         };
         expect(toast.title).toBe('Settings read failed');
-        toast.actions.find(action => action.label === 'Retry')?.onClick();
+        toast.actions.find((action) => action.label === 'Retry')?.onClick();
         expect(retry).toHaveBeenCalledOnce();
     });
 
     it('renders automatic, manual, and mixed auto-value states and emits reset only from the manual chip', async () => {
         const state = ref<'auto' | 'manual' | 'mixed'>('auto');
         const reset = vi.fn();
-        const harness = mount(defineComponent(() => () => h(ScanCleanupAutoValueRow, {
-            label: 'Deskew angle',
-            state: state.value,
-            valueText: '+1.4°',
-            hint: 'Detected angle: 1.2°',
-            onReset: reset,
-        })));
+        const harness = mount(
+            defineComponent(
+                () => () =>
+                    h(ScanCleanupAutoValueRow, {
+                        label: 'Deskew angle',
+                        state: state.value,
+                        valueText: '+1.4°',
+                        hint: 'Detected angle: 1.2°',
+                        onReset: reset,
+                    }),
+            ),
+        );
 
         expect(harness.host.querySelector('[data-auto-value-state="auto"]')?.textContent?.trim()).toBe('Automatic');
         expect(harness.host.querySelector('.scan-cleanup-auto-value-reset')).toBeNull();
@@ -2018,47 +2071,36 @@ describe('Scan cleanup components', () => {
         onTestFinished(() => {
             vi.stubGlobal('indexedDB', previousIndexedDb);
         });
-        localStorage.setItem('evb.scanCleanup.documentOverrides.v1', JSON.stringify({'document-mixed': {
-            outputMode: 'mixed',
-            updatedAt: 1,
-        }}));
+        localStorage.setItem(
+            'evb.scanCleanup.documentOverrides.v1',
+            JSON.stringify({
+                'document-mixed': {
+                    outputMode: 'mixed',
+                    updatedAt: 1,
+                },
+            }),
+        );
         const original = localStorage.getItem('evb.scanCleanup.documentOverrides.v1');
         const setItem = vi.spyOn(Storage.prototype, 'setItem');
         let documentSettings: ReturnType<typeof useScanCleanupDocumentSettings> | undefined;
-        mount(defineComponent({setup: () => {
-            documentSettings = useScanCleanupDocumentSettings({
-                documentLifecycleKey: computed(() => 'lifecycle-mixed'),
-                preferenceDocumentKey: computed(() => 'document-mixed'),
-            });
-            return () => h('div');
-        }}));
+        mount(
+            defineComponent({
+                setup: () => {
+                    documentSettings = useScanCleanupDocumentSettings({
+                        documentLifecycleKey: computed(() => 'lifecycle-mixed'),
+                        preferenceDocumentKey: computed(() => 'document-mixed'),
+                    });
+                    return () => h('div');
+                },
+            }),
+        );
 
         expect(documentSettings?.values.outputMode).toBe('auto');
-        expect(documentSettings?.outputItems.value.map(item => [
-            item.value,
-            item.label,
-            item.fullLabel,
-        ])).toEqual([
-            [
-                'auto',
-                'scanCleanup.output.autoShort',
-                'scanCleanup.output.autoDescription',
-            ],
-            [
-                'bw',
-                'scanCleanup.output.bwShort',
-                'Black and white',
-            ],
-            [
-                'grayscale',
-                'scanCleanup.output.grayscaleShort',
-                'Grayscale',
-            ],
-            [
-                'color',
-                'scanCleanup.output.colorShort',
-                'Color',
-            ],
+        expect(documentSettings?.outputItems.value.map((item) => [item.value, item.label, item.fullLabel])).toEqual([
+            ['auto', 'scanCleanup.output.autoShort', 'scanCleanup.output.autoDescription'],
+            ['bw', 'scanCleanup.output.bwShort', 'Black and white'],
+            ['grayscale', 'scanCleanup.output.grayscaleShort', 'Grayscale'],
+            ['color', 'scanCleanup.output.colorShort', 'Color'],
         ]);
         await expect.poll(() => documentSettings?.documentSettingsReady.value).toBe(true);
         expect(documentSettings?.values.outputMode).toBe('auto');
@@ -2099,15 +2141,21 @@ describe('Scan cleanup components', () => {
             settings,
             updatePageOverride,
         });
-        const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
-            sourcePath: null,
-            totalPages: 3,
-        })));
+        const harness = mount(
+            defineComponent(
+                () => () =>
+                    h(ScanCleanupWorkspace, {
+                        sourcePath: null,
+                        totalPages: 3,
+                    }),
+            ),
+        );
 
         harness.host.querySelector<HTMLButtonElement>('.preview-header [aria-label="Edit picture and fill zones"]')?.click();
         await nextTick();
-        const useMixed = Array.from(harness.host.querySelectorAll<HTMLButtonElement>('button'))
-            .find(button => button.textContent?.trim() === 'Use mixed output');
+        const useMixed = Array.from(harness.host.querySelectorAll<HTMLButtonElement>('button')).find(
+            (button) => button.textContent?.trim() === 'Use mixed output',
+        );
         expect(useMixed).not.toBeUndefined();
         useMixed?.click();
 
@@ -2135,10 +2183,15 @@ describe('Scan cleanup components', () => {
             isRunning: ref(true),
             waitingForDetection: computed(() => true),
         });
-        const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
-            sourcePath: null,
-            totalPages: 158,
-        })));
+        const harness = mount(
+            defineComponent(
+                () => () =>
+                    h(ScanCleanupWorkspace, {
+                        sourcePath: null,
+                        totalPages: 158,
+                    }),
+            ),
+        );
         const meter = harness.host.querySelector(SCAN_CLEANUP_RUN_METER_SELECTOR);
         const count = meter?.querySelector('.scan-cleanup-activity-count');
 
@@ -2175,12 +2228,17 @@ describe('Scan cleanup components', () => {
             settings,
         });
 
-        const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
-            sourcePath: requireDocumentRef('/docs/scanned.pdf'),
-            documentKey: 'document-a',
-            currentPage: 1,
-            totalPages: 2,
-        })));
+        const harness = mount(
+            defineComponent(
+                () => () =>
+                    h(ScanCleanupWorkspace, {
+                        sourcePath: requireDocumentRef('/docs/scanned.pdf'),
+                        documentKey: 'document-a',
+                        currentPage: 1,
+                        totalPages: 2,
+                    }),
+            ),
+        );
         await nextTick();
 
         const hint = harness.host.querySelector('.scan-cleanup-inline-note');
@@ -2191,8 +2249,7 @@ describe('Scan cleanup components', () => {
         settings.skipBlankPages = true;
         await nextTick();
         expect(settings.skipBlankPages).toBe(true);
-        expect(harness.host.querySelector('.scan-cleanup-inline-note')?.textContent)
-            .toContain('2 pages look blank');
+        expect(harness.host.querySelector('.scan-cleanup-inline-note')?.textContent).toContain('2 pages look blank');
     });
 
     it('keeps a native page frame visible through the real workspace debounce state while metrics resolve', async () => {
@@ -2203,21 +2260,25 @@ describe('Scan cleanup components', () => {
         };
         workspaceSession.value = createWorkspaceEntrySession();
 
-        const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
-            sourcePath: requireDocumentRef('/docs/scanned.pdf'),
-            currentPage: 1,
-            totalPages: 2,
-            pageSource: source,
-            pageSourcePending: false,
-        })));
+        const harness = mount(
+            defineComponent(
+                () => () =>
+                    h(ScanCleanupWorkspace, {
+                        sourcePath: requireDocumentRef('/docs/scanned.pdf'),
+                        currentPage: 1,
+                        totalPages: 2,
+                        pageSource: source,
+                        pageSourcePending: false,
+                    }),
+            ),
+        );
         await nextTick();
 
         const skeleton = harness.host.querySelector<HTMLElement>('.preview-skeleton-page');
         expect(skeleton?.tagName).toBe('DIV');
         expect(skeleton?.style.height).toContain('--app-scan-preview-skeleton-height');
         expect(skeleton?.style.aspectRatio).not.toBe('');
-        expect(harness.host.querySelector('.preview-viewport-caption')?.textContent)
-            .toBe('Building cleanup preview…');
+        expect(harness.host.querySelector('.preview-viewport-caption')?.textContent).toBe('Building cleanup preview…');
     });
 
     it('relocates the collapsed scan-cleanup and OCR actions into overflow and activates them', async () => {
@@ -2227,44 +2288,53 @@ describe('Scan cleanup components', () => {
         const collapseTier = ref(1);
         const scanCleanupDisabled = ref(false);
         const scanCleanupRunning = ref(false);
-        const harness = mount(defineComponent(() => () => h('div', [
-            h(ToolbarOverflowMenu, {
-                open: true,
-                collapseTier: collapseTier.value,
-                hasPdf: true,
-                canToggleSidebar: true,
-                scanCleanupDisabled: scanCleanupDisabled.value,
-                scanCleanupRunning: scanCleanupRunning.value,
-                scanCleanupLabel: scanCleanupRunning.value
-                    ? 'Scan cleanup running, 0 of 2'
-                    : 'Scan cleanup',
-                canUseAssistant: true,
-                assistantAvailable: true,
-                assistantOpen: assistantOpen.value,
-                assistantLabel: 'Assistant',
-                showSidebar: false,
-                dragMode: false,
-                continuousScroll: false,
-                viewMode: 'single',
-                isDjvuMode: false,
-                isFitWidthActive: false,
-                isFitHeightActive: false,
-                isCapturingRegion: false,
-                isCropSelecting: false,
-                isPlacingPageNote: false,
-                documentBusy: false,
-                triggerIcon: 'i-ph-dots-three',
-                onOpenScanCleanup: () => { workspaceOpen.value = true; },
-                onOpenOcr: () => { ocrOpen.value = true; },
-                onToggleAssistant: () => { assistantOpen.value = !assistantOpen.value; },
-            }),
-            workspaceOpen.value ? h('div', {'data-scan-cleanup-workspace': ''}) : null,
-            ocrOpen.value ? h('div', {'data-ocr-popup': ''}) : null,
-        ])));
+        const harness = mount(
+            defineComponent(
+                () => () =>
+                    h('div', [
+                        h(ToolbarOverflowMenu, {
+                            open: true,
+                            collapseTier: collapseTier.value,
+                            hasPdf: true,
+                            canToggleSidebar: true,
+                            scanCleanupDisabled: scanCleanupDisabled.value,
+                            scanCleanupRunning: scanCleanupRunning.value,
+                            scanCleanupLabel: scanCleanupRunning.value ? 'Scan cleanup running, 0 of 2' : 'Scan cleanup',
+                            canUseAssistant: true,
+                            assistantAvailable: true,
+                            assistantOpen: assistantOpen.value,
+                            assistantLabel: 'Assistant',
+                            showSidebar: false,
+                            dragMode: false,
+                            continuousScroll: false,
+                            viewMode: 'single',
+                            isDjvuMode: false,
+                            isFitWidthActive: false,
+                            isFitHeightActive: false,
+                            isCapturingRegion: false,
+                            isCropSelecting: false,
+                            isPlacingPageNote: false,
+                            documentBusy: false,
+                            triggerIcon: 'i-ph-dots-three',
+                            onOpenScanCleanup: () => {
+                                workspaceOpen.value = true;
+                            },
+                            onOpenOcr: () => {
+                                ocrOpen.value = true;
+                            },
+                            onToggleAssistant: () => {
+                                assistantOpen.value = !assistantOpen.value;
+                            },
+                        }),
+                        workspaceOpen.value ? h('div', {'data-scan-cleanup-workspace': ''}) : null,
+                        ocrOpen.value ? h('div', {'data-ocr-popup': ''}) : null,
+                    ]),
+            ),
+        );
 
         const menuItems = () => Array.from(harness.host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
-        const scanCleanupItem = menuItems().find(item => item.textContent?.includes('Scan cleanup'));
-        const ocrItem = menuItems().find(item => item.textContent?.includes('ocr.button'));
+        const scanCleanupItem = menuItems().find((item) => item.textContent?.includes('Scan cleanup'));
+        const ocrItem = menuItems().find((item) => item.textContent?.includes('ocr.button'));
         expect(scanCleanupItem).not.toBeUndefined();
         expect(scanCleanupItem?.querySelector('.overflow-menu-scan-cleanup-icon')).not.toBeNull();
         expect(ocrItem).not.toBeUndefined();
@@ -2276,19 +2346,21 @@ describe('Scan cleanup components', () => {
         scanCleanupRunning.value = true;
         scanCleanupDisabled.value = true;
         await nextTick();
-        const runningItem = menuItems().find(item => item.textContent?.includes('Scan cleanup running'));
+        const runningItem = menuItems().find((item) => item.textContent?.includes('Scan cleanup running'));
         expect(runningItem?.classList.contains('is-active')).toBe(true);
         expect(runningItem?.disabled).toBe(true);
         expect(runningItem?.querySelector('.overflow-menu-running-dot')).not.toBeNull();
 
-        menuItems().find(item => item.textContent?.includes('ocr.button'))?.click();
+        menuItems()
+            .find((item) => item.textContent?.includes('ocr.button'))
+            ?.click();
         await nextTick();
         expect(harness.host.querySelector('[data-ocr-popup]')).not.toBeNull();
 
         collapseTier.value = 5;
         scanCleanupDisabled.value = false;
         await nextTick();
-        const assistantItem = menuItems().find(item => item.textContent?.includes('Assistant'));
+        const assistantItem = menuItems().find((item) => item.textContent?.includes('Assistant'));
         expect(assistantItem).not.toBeUndefined();
         assistantItem?.click();
         await nextTick();
@@ -2306,17 +2378,22 @@ describe('Scan cleanup components', () => {
             previewViewMode: 'original',
         });
         let emittedState: IScanCleanupTabSessionState | undefined;
-        mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
-            sourcePath: requireDocumentRef('/docs/restored-cleanup-page.pdf'),
-            documentKey: 'restored-cleanup-page',
-            currentPage: 37,
-            totalPages: 100,
-            sessionState: restoredState.value,
-            'onUpdate:sessionState': (state: IScanCleanupTabSessionState) => {
-                emittedState = state;
-                restoredState.value = state;
-            },
-        })));
+        mount(
+            defineComponent(
+                () => () =>
+                    h(ScanCleanupWorkspace, {
+                        sourcePath: requireDocumentRef('/docs/restored-cleanup-page.pdf'),
+                        documentKey: 'restored-cleanup-page',
+                        currentPage: 37,
+                        totalPages: 100,
+                        sessionState: restoredState.value,
+                        'onUpdate:sessionState': (state: IScanCleanupTabSessionState) => {
+                            emittedState = state;
+                            restoredState.value = state;
+                        },
+                    }),
+            ),
+        );
         await nextTick();
 
         expect(emittedState).toMatchObject({
@@ -2337,11 +2414,12 @@ describe('Scan cleanup components', () => {
         const selectedPages = ref<ReadonlySet<number>>(new Set([7]));
         const previewPage = ref(7);
         const viewMode = ref<'original' | 'cleaned'>('cleaned');
-        const saveViewState = () => workspaceSessionOptions.value?.saveViewState?.({
-            ownerId: 'component-test-owner',
-            previewPage: previewPage.value,
-            previewViewMode: viewMode.value,
-        });
+        const saveViewState = () =>
+            workspaceSessionOptions.value?.saveViewState?.({
+                ownerId: 'component-test-owner',
+                previewPage: previewPage.value,
+                previewViewMode: viewMode.value,
+            });
         const previewViewMode = computed({
             get: () => viewMode.value,
             set: (mode: 'original' | 'cleaned') => {
@@ -2357,11 +2435,13 @@ describe('Scan cleanup components', () => {
         });
         workspaceSession.value = {
             ownerId: 'component-test-owner',
-            alignmentItems: ref([{
-                value: 'bottom-right',
-                icon: 'i-ph-arrow-down-right',
-                label: 'Place at bottom right',
-            }]),
+            alignmentItems: ref([
+                {
+                    value: 'bottom-right',
+                    icon: 'i-ph-arrow-down-right',
+                    label: 'Place at bottom right',
+                },
+            ]),
             cancel: vi.fn(),
             cancelDetection,
             cancelRequested: ref(false),
@@ -2483,28 +2563,37 @@ describe('Scan cleanup components', () => {
             previewPage: 31,
             previewViewMode: 'original',
         });
-        const harness = mount(defineComponent(() => () => h('div', [
-            h('button', {
-                'data-toolbar-scan-cleanup': '',
-                onClick: () => { readerState.surfaceMode.value = 'scan-cleanup'; },
-            }),
-            h('div', {
-                'data-reader': '',
-                style: {display: readerState.surfaceMode.value === 'reader' ? '' : 'none'},
-            }),
-            readerState.surfaceMode.value === 'scan-cleanup'
-                ? h(ScanCleanupWorkspace, {
-                    sourcePath: requireDocumentRef('/docs/book.pdf'),
-                    currentPage: readerState.viewport.page,
-                    totalPages: 100,
-                    sessionState: cleanupSession.value,
-                    'onUpdate:sessionState': (state: IScanCleanupTabSessionState) => {
-                        cleanupSession.value = state;
-                    },
-                    onDone: () => { readerState.surfaceMode.value = 'reader'; },
-                })
-                : null,
-        ])));
+        const harness = mount(
+            defineComponent(
+                () => () =>
+                    h('div', [
+                        h('button', {
+                            'data-toolbar-scan-cleanup': '',
+                            onClick: () => {
+                                readerState.surfaceMode.value = 'scan-cleanup';
+                            },
+                        }),
+                        h('div', {
+                            'data-reader': '',
+                            style: {display: readerState.surfaceMode.value === 'reader' ? '' : 'none'},
+                        }),
+                        readerState.surfaceMode.value === 'scan-cleanup'
+                            ? h(ScanCleanupWorkspace, {
+                                  sourcePath: requireDocumentRef('/docs/book.pdf'),
+                                  currentPage: readerState.viewport.page,
+                                  totalPages: 100,
+                                  sessionState: cleanupSession.value,
+                                  'onUpdate:sessionState': (state: IScanCleanupTabSessionState) => {
+                                      cleanupSession.value = state;
+                                  },
+                                  onDone: () => {
+                                      readerState.surfaceMode.value = 'reader';
+                                  },
+                              })
+                            : null,
+                    ]),
+            ),
+        );
 
         harness.host.querySelector<HTMLButtonElement>('[data-toolbar-scan-cleanup]')?.click();
         await nextTick();
@@ -2512,7 +2601,7 @@ describe('Scan cleanup components', () => {
         expect(harness.host.querySelector('.scan-cleanup-surface')).not.toBeNull();
         expect(harness.host.querySelector<HTMLElement>('[data-reader]')?.style.display).toBe('none');
         const losslessToggle = Array.from(harness.host.querySelectorAll('label'))
-            .find(label => label.textContent?.includes('Preserve original quality'))
+            .find((label) => label.textContent?.includes('Preserve original quality'))
             ?.querySelector<HTMLInputElement>('input');
         expect(losslessToggle).not.toBeUndefined();
         losslessToggle!.checked = true;
@@ -2521,7 +2610,7 @@ describe('Scan cleanup components', () => {
         const outputModeOptions = Array.from(harness.host.querySelectorAll<HTMLButtonElement>('[aria-label="Output mode"] [role="radio"]'));
         expect(outputModeOptions).toHaveLength(4);
         expect(outputModeOptions[0]?.textContent).toContain('Auto');
-        expect(outputModeOptions.every(option => option.disabled)).toBe(true);
+        expect(outputModeOptions.every((option) => option.disabled)).toBe(true);
         expect(harness.host.textContent).toContain('Raster cleanup options are unavailable in this mode.');
         expect(harness.host.querySelector('.scan-cleanup-footnote')).toBeNull();
         losslessToggle!.checked = false;
@@ -2561,9 +2650,9 @@ describe('Scan cleanup components', () => {
         };
         await nextTick();
         expect(harness.host.querySelector('.scan-cleanup-toolbar')?.textContent).toContain('2 of 12 pages');
-        const cancelDetectionButton = Array.from(harness.host.querySelectorAll<HTMLButtonElement>('button'))
-            .find(button => button.getAttribute('aria-label')
-                === 'Stop detecting pages — pages already detected keep their results');
+        const cancelDetectionButton = Array.from(harness.host.querySelectorAll<HTMLButtonElement>('button')).find(
+            (button) => button.getAttribute('aria-label') === 'Stop detecting pages — pages already detected keep their results',
+        );
         cancelDetectionButton?.click();
         expect(cancelDetection).toHaveBeenCalledOnce();
         isDetecting.value = false;
@@ -2579,18 +2668,15 @@ describe('Scan cleanup components', () => {
             totalUnits: 12,
         };
         await nextTick();
-        expect(harness.host.querySelector('.scan-cleanup-toolbar')?.textContent)
-            .toContain('Cleaning pages');
-        expect(harness.host.querySelector('.scan-cleanup-toolbar')?.textContent)
-            .toContain('3 of 12 pages');
+        expect(harness.host.querySelector('.scan-cleanup-toolbar')?.textContent).toContain('Cleaning pages');
+        expect(harness.host.querySelector('.scan-cleanup-toolbar')?.textContent).toContain('3 of 12 pages');
         expect(harness.host.querySelector(SCAN_CLEANUP_RUN_METER_SELECTOR)).not.toBeNull();
         expect(harness.host.querySelector('.scan-cleanup-header')).toBeNull();
         expect(harness.host.querySelector('.scan-cleanup-footer')).toBeNull();
         expect(harness.host.querySelector('.scan-cleanup-progress-overlay')).toBeNull();
         expect(harness.host.querySelector('.scan-cleanup-preview-hero')).not.toBeNull();
 
-        const doneButton = Array.from(harness.host.querySelectorAll('button'))
-            .find(button => button.textContent?.trim() === 'Done');
+        const doneButton = Array.from(harness.host.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Done');
         doneButton?.click();
         await nextTick();
         expect(readerState.surfaceMode.value).toBe('reader');
@@ -2611,17 +2697,20 @@ describe('Scan cleanup components', () => {
         expect(harness.host.querySelector('[role="tablist"]')).toBeNull();
         expect(harness.host.querySelector('[role="radiogroup"][aria-label="Settings scope"]')).not.toBeNull();
         expect(harness.host.querySelector('[data-settings-scope="selected"]')).toBeNull();
-        window.dispatchEvent(new KeyboardEvent('keydown', {
-            key: 'Escape',
-            cancelable: true,
-        }));
+        window.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'Escape',
+                cancelable: true,
+            }),
+        );
         await nextTick();
         expect(readerState.surfaceMode.value).toBe('scan-cleanup');
         expect(harness.host.querySelector('.scan-cleanup-surface')).not.toBeNull();
         expect(readerState.viewport).toBe(retainedViewport);
 
-        const reopenedDoneButton = Array.from(harness.host.querySelectorAll('button'))
-            .find(button => button.textContent?.trim() === 'Done');
+        const reopenedDoneButton = Array.from(harness.host.querySelectorAll('button')).find(
+            (button) => button.textContent?.trim() === 'Done',
+        );
         reopenedDoneButton?.click();
         await nextTick();
         expect(readerState.surfaceMode.value).toBe('reader');
@@ -2632,21 +2721,30 @@ describe('Scan cleanup components', () => {
             detecting: false,
             running: false,
         });
-        const cleaning = shallowRef(runActivity({
-            completedUnits: 51,
-            percent: 42,
-        }));
-        const harness = mount(defineComponent(() => () => h(ScanCleanupToolbar, toolbarProps({
-            activity: state.running
-                ? cleaning.value
-                : state.detecting ? analysisActivity(17, 120) : null,
-            canDetectAll: !state.detecting,
-            isDetecting: state.detecting,
-            isRunning: state.running,
-            outputEstimate: '120 source pages → about 145 output pages',
-        }))));
-        expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')?.textContent)
-            .toContain('120 source pages → about 145 output pages');
+        const cleaning = shallowRef(
+            runActivity({
+                completedUnits: 51,
+                percent: 42,
+            }),
+        );
+        const harness = mount(
+            defineComponent(
+                () => () =>
+                    h(
+                        ScanCleanupToolbar,
+                        toolbarProps({
+                            activity: state.running ? cleaning.value : state.detecting ? analysisActivity(17, 120) : null,
+                            canDetectAll: !state.detecting,
+                            isDetecting: state.detecting,
+                            isRunning: state.running,
+                            outputEstimate: '120 source pages → about 145 output pages',
+                        }),
+                    ),
+            ),
+        );
+        expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')?.textContent).toContain(
+            '120 source pages → about 145 output pages',
+        );
 
         state.detecting = true;
         await nextTick();
@@ -2669,15 +2767,13 @@ describe('Scan cleanup components', () => {
         expect(progressbar?.getAttribute('aria-valuetext')).toContain('Cleaning pages');
         // Analysis is behind the run: its segment is full, cleaning fills,
         // finishing has not started.
-        expect(Array.from(meter?.querySelectorAll<HTMLElement>('.scan-cleanup-activity-segment') ?? [])
-            .map(segment => segment.dataset.state)).toEqual([
-            'done',
-            'active',
-            'waiting',
-        ]);
+        expect(
+            Array.from(meter?.querySelectorAll<HTMLElement>('.scan-cleanup-activity-segment') ?? []).map(
+                (segment) => segment.dataset.state,
+            ),
+        ).toEqual(['done', 'active', 'waiting']);
         expect(meter?.querySelector<HTMLElement>('[data-state="active"] .scan-cleanup-activity-fill')?.style.width).toBe('42.5%');
-        expect(meter?.querySelector('.scan-cleanup-activity-count .scan-cleanup-stable-width-sizer')?.textContent)
-            .toBe('120 of 120 pages');
+        expect(meter?.querySelector('.scan-cleanup-activity-count .scan-cleanup-stable-width-sizer')?.textContent).toBe('120 of 120 pages');
         expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')).toBeNull();
         expect(harness.host.querySelectorAll(SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR)).toHaveLength(1);
         cleaning.value = runActivity({
@@ -2690,40 +2786,58 @@ describe('Scan cleanup components', () => {
     });
 
     it('disables cancellation during the commit window and explains why', () => {
-        const harness = mount(defineComponent(() => () => h(ScanCleanupToolbar, toolbarProps({
-            activity: runActivity({
-                stage: 'assembling',
-                completedUnits: 120,
-                percent: 100,
-            }, {committing: true}),
-            canDetectAll: true,
-            canRun: false,
-            cancelStatusText: 'Cleanup is finishing and can no longer be canceled.',
-            finishing: true,
-            isRunning: true,
-        }))));
+        const harness = mount(
+            defineComponent(
+                () => () =>
+                    h(
+                        ScanCleanupToolbar,
+                        toolbarProps({
+                            activity: runActivity(
+                                {
+                                    stage: 'assembling',
+                                    completedUnits: 120,
+                                    percent: 100,
+                                },
+                                {committing: true},
+                            ),
+                            canDetectAll: true,
+                            canRun: false,
+                            cancelStatusText: 'Cleanup is finishing and can no longer be canceled.',
+                            finishing: true,
+                            isRunning: true,
+                        }),
+                    ),
+            ),
+        );
 
         const button = harness.host.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-primary-action');
         expect(button?.textContent).toContain('Finishing…');
         expect(button?.disabled).toBe(true);
-        expect(harness.host.querySelector(SCAN_CLEANUP_RUN_METER_SELECTOR)?.textContent)
-            .toContain('Cleanup is finishing and can no longer be canceled.');
+        expect(harness.host.querySelector(SCAN_CLEANUP_RUN_METER_SELECTOR)?.textContent).toContain(
+            'Cleanup is finishing and can no longer be canceled.',
+        );
     });
 
     it('explains a disabled Clean up action in the toolbar status line', async () => {
         const reason = 'Include at least one page to clean up.';
         const canRun = ref(false);
-        const harness = mount(defineComponent(() => () => h(ScanCleanupToolbar, toolbarProps({
-            canRun: canRun.value,
-            runDisabledReason: reason,
-            outputEstimate: '6 source pages → about 6 output pages',
-        }))));
+        const harness = mount(
+            defineComponent(
+                () => () =>
+                    h(
+                        ScanCleanupToolbar,
+                        toolbarProps({
+                            canRun: canRun.value,
+                            runDisabledReason: reason,
+                            outputEstimate: '6 source pages → about 6 output pages',
+                        }),
+                    ),
+            ),
+        );
 
-        expect(harness.host.querySelector<HTMLButtonElement>(SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR)?.disabled)
-            .toBe(true);
+        expect(harness.host.querySelector<HTMLButtonElement>(SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR)?.disabled).toBe(true);
         expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')?.textContent).toContain(reason);
-        expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')?.textContent)
-            .not.toContain('6 source pages');
+        expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')?.textContent).not.toContain('6 source pages');
 
         canRun.value = true;
         await nextTick();
@@ -2733,13 +2847,21 @@ describe('Scan cleanup components', () => {
 
     it('prioritizes and dismisses a persisted cleanup failure while detection restarts', () => {
         const dismiss = vi.fn();
-        const harness = mount(defineComponent(() => () => h(ScanCleanupToolbar, toolbarProps({
-            activity: analysisActivity(1, 392),
-            canDetectAll: true,
-            isDetecting: true,
-            runError: 'Native cleanup failed',
-            onDismissRunError: dismiss,
-        }))));
+        const harness = mount(
+            defineComponent(
+                () => () =>
+                    h(
+                        ScanCleanupToolbar,
+                        toolbarProps({
+                            activity: analysisActivity(1, 392),
+                            canDetectAll: true,
+                            isDetecting: true,
+                            runError: 'Native cleanup failed',
+                            onDismissRunError: dismiss,
+                        }),
+                    ),
+            ),
+        );
 
         expect(harness.host.querySelector('[role="alert"]')?.textContent).toContain('Native cleanup failed');
         expect(harness.host.querySelector(SCAN_CLEANUP_TOOLBAR_COUNT_SELECTOR)).toBeNull();
@@ -2794,11 +2916,7 @@ describe('Scan cleanup components', () => {
             editDocumentSettings: (_pages, change) => change(),
             resetPageOverrides,
         });
-        selection.selectPage(2, 'toggle', [
-            1,
-            2,
-            3,
-        ]);
+        selection.selectPage(2, 'toggle', [1, 2, 3]);
         selection.setSettingsScope('all');
         const applyLeaderOverrides = vi.fn(selection.applyLeaderOverrides);
         const updateScopeMargins = vi.fn(selection.updateScopeMargins);
@@ -2881,10 +2999,15 @@ describe('Scan cleanup components', () => {
             updateScopePlacement: selection.updateScopePlacement,
             updateScopeOverrides: selection.updateScopeOverrides,
         };
-        const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
-            sourcePath: null,
-            totalPages: 3,
-        })));
+        const harness = mount(
+            defineComponent(
+                () => () =>
+                    h(ScanCleanupWorkspace, {
+                        sourcePath: null,
+                        totalPages: 3,
+                    }),
+            ),
+        );
 
         const scopeGroup = harness.host.querySelector('[role="radiogroup"][aria-label="Settings scope"]');
         expect(scopeGroup).not.toBeNull();
@@ -2909,15 +3032,11 @@ describe('Scan cleanup components', () => {
         await nextTick();
         expect(selection.settingsScope.value).toBe('selected');
         expect(harness.host.textContent).toContain('— Mixed');
-        const outputMode = harness.host.querySelector<HTMLSelectElement>(
-            '[aria-label="Output mode for pages"]',
-        )!;
-        const placement = harness.host.querySelector<HTMLElement>(
-            '[role="radiogroup"][aria-label="Content placement"]',
-        )!;
+        const outputMode = harness.host.querySelector<HTMLSelectElement>('[aria-label="Output mode for pages"]')!;
+        const placement = harness.host.querySelector<HTMLElement>('[role="radiogroup"][aria-label="Content placement"]')!;
         expect(outputMode).not.toBeNull();
         expect(placement).not.toBeNull();
-        expect(Array.from(outputMode.options).map(option => option.value)).toEqual([
+        expect(Array.from(outputMode.options).map((option) => option.value)).toEqual([
             'mixed-values',
             'auto',
             'bw',
@@ -2925,11 +3044,9 @@ describe('Scan cleanup components', () => {
             'color',
             'mixed',
         ]);
-        expect(new Set(Array.from(outputMode.options).map(option => option.value)).size)
-            .toBe(outputMode.options.length);
+        expect(new Set(Array.from(outputMode.options).map((option) => option.value)).size).toBe(outputMode.options.length);
         expect(harness.host.querySelector('[data-override-marker="layout"]')).not.toBeNull();
-        expect(harness.host.querySelector('[data-reset-override="layout"]')?.getAttribute('aria-label'))
-            .toBe('Reset to document');
+        expect(harness.host.querySelector('[data-reset-override="layout"]')?.getAttribute('aria-label')).toBe('Reset to document');
 
         layout.value = 'keep-right';
         layout.dispatchEvent(new Event('change', {bubbles: true}));
@@ -2941,13 +3058,16 @@ describe('Scan cleanup components', () => {
             outputMode: settings.outputMode,
             pageAlignment: settings.pageAlignment,
         }).toEqual(documentDefaults);
-        expect(harness.host.querySelector('[aria-label="Page layout"]')?.closest('.scan-cleanup-selection-field')?.textContent).not.toContain('— Mixed');
+        expect(
+            harness.host.querySelector('[aria-label="Page layout"]')?.closest('.scan-cleanup-selection-field')?.textContent,
+        ).not.toContain('— Mixed');
 
         harness.host.querySelector<HTMLButtonElement>('[data-settings-scope="page"]')?.click();
         await nextTick();
         expect(selection.settingsScope.value).toBe('page');
-        expect(harness.host.querySelector('[data-customized-scope="page"]')?.getAttribute('aria-label'))
-            .toBe('This page has custom settings');
+        expect(harness.host.querySelector('[data-customized-scope="page"]')?.getAttribute('aria-label')).toBe(
+            'This page has custom settings',
+        );
         expect(harness.host.querySelector('[aria-label="Output mode for pages"]')).not.toBeNull();
         layout.value = 'keep-left';
         layout.dispatchEvent(new Event('change', {bubbles: true}));
@@ -2956,12 +3076,8 @@ describe('Scan cleanup components', () => {
         expect(getScanCleanupPageOverride(pageOverrides, requirePageNumber(2), undefined).layoutOverride).toBe('keep-left');
         settings.preserveOriginalQuality = true;
         await nextTick();
-        expect(harness.host.querySelector<HTMLSelectElement>(
-            '[aria-label="Output mode for pages"]',
-        )?.disabled).toBe(true);
-        expect(harness.host.textContent).toContain(
-            'Per-page output mode is unavailable because preserving original quality forces color.',
-        );
+        expect(harness.host.querySelector<HTMLSelectElement>('[aria-label="Output mode for pages"]')?.disabled).toBe(true);
+        expect(harness.host.textContent).toContain('Per-page output mode is unavailable because preserving original quality forces color.');
         settings.preserveOriginalQuality = false;
         await nextTick();
 
@@ -2985,14 +3101,15 @@ describe('Scan cleanup components', () => {
         expect(harness.host.querySelector('[data-reset-override="margins"]')).toBeNull();
         expect(harness.host.querySelector<HTMLInputElement>('[data-margin-side="leftMm"]')?.value).toBe('5');
 
-        expect(harness.host.textContent).toContain('Copy this page\'s settings to…');
+        expect(harness.host.textContent).toContain("Copy this page's settings to…");
         expect(harness.host.querySelector('[role="menu"]')?.textContent).toContain('Copy to');
         Array.from(harness.host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
-            .find(item => item.textContent === 'Every other page')
+            .find((item) => item.textContent === 'Every other page')
             ?.click();
         expect(applyLeaderOverrides).toHaveBeenCalledWith('every-other');
-        const resetOverridesButton = Array.from(harness.host.querySelectorAll<HTMLButtonElement>('button'))
-            .find(button => button.textContent?.trim() === 'Reset this page…');
+        const resetOverridesButton = Array.from(harness.host.querySelectorAll<HTMLButtonElement>('button')).find(
+            (button) => button.textContent?.trim() === 'Reset this page…',
+        );
         expect(resetOverridesButton).not.toBeUndefined();
         expect(resetOverridesButton?.closest('.scan-thumbnail-rail-header')).toBeNull();
         harness.host.querySelector<HTMLButtonElement>('.scan-cleanup-reset-confirmation button:last-child')?.click();
@@ -3001,29 +3118,37 @@ describe('Scan cleanup components', () => {
         expect(getScanCleanupPageOverride(pageOverrides, requirePageNumber(1), undefined).layoutOverride).toBe('keep-right');
         expect(getScanCleanupPageOverride(pageOverrides, requirePageNumber(2), undefined).layoutOverride).toBe('auto');
         await nextTick();
-        expect(Array.from(harness.host.querySelectorAll<HTMLButtonElement>('button'))
-            .some(button => button.textContent?.trim() === 'Reset this page…')).toBe(false);
+        expect(
+            Array.from(harness.host.querySelectorAll<HTMLButtonElement>('button')).some(
+                (button) => button.textContent?.trim() === 'Reset this page…',
+            ),
+        ).toBe(false);
     });
 
     it('keeps a canceled detection provisional until a later re-detection completes', async () => {
         const terminalStatus = ref<'running' | 'cancelled' | 'completed'>('running');
         const transitionKey = ref('session-1:page-1:user-0');
         const result = shallowRef(spreadPreviewResult());
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: result.value,
-            resultCurrent: true,
-            resultPresentationKey: transitionKey.value,
-            loading: false,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            layoutDetectionComplete: terminalStatus.value === 'completed',
-            alignment: 'top-center',
-            pageNumber: requirePageNumber(1),
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: result.value,
+                        resultCurrent: true,
+                        resultPresentationKey: transitionKey.value,
+                        loading: false,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        layoutDetectionComplete: terminalStatus.value === 'completed',
+                        alignment: 'top-center',
+                        pageNumber: requirePageNumber(1),
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
         const caption = () => harness.host.querySelector<HTMLElement>('.preview-viewport-caption');
 
         // Detection is still running, so the rectangle every page is drawn on
@@ -3042,7 +3167,7 @@ describe('Scan cleanup components', () => {
         // after cancellation.
         transitionKey.value = 'session-1:page-1:user-1';
         const cancelledReplan = structuredClone(result.value);
-        cancelledReplan.outputs = cancelledReplan.outputs.map(output => ({
+        cancelledReplan.outputs = cancelledReplan.outputs.map((output) => ({
             ...output,
             metadata: {
                 ...output.metadata,
@@ -3059,7 +3184,7 @@ describe('Scan cleanup components', () => {
         terminalStatus.value = 'running';
         await nextTick();
         const settledResult = structuredClone(cancelledReplan);
-        settledResult.outputs = settledResult.outputs.map(output => ({
+        settledResult.outputs = settledResult.outputs.map((output) => ({
             ...output,
             imageData: new Uint8Array([9]),
         }));
@@ -3074,7 +3199,7 @@ describe('Scan cleanup components', () => {
         // Detection settled and the canvas held: nothing to explain, and the
         // caption line stays where it was.
         const userResult = structuredClone(result.value);
-        userResult.outputs = userResult.outputs.map(output => ({
+        userResult.outputs = userResult.outputs.map((output) => ({
             ...output,
             metadata: {
                 ...output.metadata,
@@ -3093,7 +3218,7 @@ describe('Scan cleanup components', () => {
     it('shows the delivered margin boundary only while the margin control is active', async () => {
         const showMarginBoundary = ref(false);
         const result = spreadPreviewResult();
-        result.outputs = result.outputs.map(output => ({
+        result.outputs = result.outputs.map((output) => ({
             ...output,
             metadata: {
                 ...output.metadata,
@@ -3105,19 +3230,24 @@ describe('Scan cleanup components', () => {
                 },
             },
         }));
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result,
-            loading: false,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: requirePageNumber(1),
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-            showMarginBoundary: showMarginBoundary.value,
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result,
+                        loading: false,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: requirePageNumber(1),
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                        showMarginBoundary: showMarginBoundary.value,
+                    }),
+            }),
+        );
 
         expect(harness.host.querySelector('.margin-boundary-overlay')).toBeNull();
         showMarginBoundary.value = true;
@@ -3151,10 +3281,15 @@ describe('Scan cleanup components', () => {
             skipBlankPages: false,
             pageOverrides: {},
         });
-        const harness = mount(defineComponent({setup: () => () => h(
-            ScanCleanupSettingsPanel,
-            Object.assign({}, settingsPanelProps(settings, 'all'), {onMarginInteraction: marginInteraction}),
-        )}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(
+                        ScanCleanupSettingsPanel,
+                        Object.assign({}, settingsPanelProps(settings, 'all'), {onMarginInteraction: marginInteraction}),
+                    ),
+            }),
+        );
         const control = harness.host.querySelector('.scan-cleanup-margins-control');
 
         control?.dispatchEvent(new FocusEvent('focusin', {bubbles: true}));
@@ -3166,52 +3301,64 @@ describe('Scan cleanup components', () => {
 
     it('shows a friendly retry state with raw details collapsed', () => {
         const rawError = 'Error: An object could not be cloned.';
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: null,
-            loading: false,
-            error: rawError,
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: requirePageNumber(1),
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: null,
+                        loading: false,
+                        error: rawError,
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: requirePageNumber(1),
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
 
         const errorState = harness.host.querySelector('.preview-message.is-error');
         expect(harness.host.querySelector('.preview-skeleton-page')).toBeNull();
-        expect(errorState?.textContent).toContain('Preview isn\'t available. You can still run cleanup.');
+        expect(errorState?.textContent).toContain("Preview isn't available. You can still run cleanup.");
         expect(errorState?.querySelector('button')?.textContent).toContain('Retry');
         const details = errorState?.querySelector('details');
         expect(details?.hasAttribute('open')).toBe(false);
         expect(details?.querySelector('.preview-error-detail')?.textContent).toBe(rawError);
-        expect(Array.from(errorState?.children ?? [])
-            .filter(child => child.tagName !== 'DETAILS')
-            .some(child => child.textContent?.includes(rawError))).toBe(false);
+        expect(
+            Array.from(errorState?.children ?? [])
+                .filter((child) => child.tagName !== 'DETAILS')
+                .some((child) => child.textContent?.includes(rawError)),
+        ).toBe(false);
     });
 
     it('keeps Original renderable and confines a cleaned-preview failure to Cleaned', async () => {
         const viewMode = ref<'original' | 'cleaned'>('original');
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: null,
-            rawResult: {
-                pageNumber: requirePageNumber(1),
-                totalPages: 3,
-                rawImageData: new Uint8Array([1]),
-                rawWidthPx: 100,
-                rawHeightPx: 150,
-            },
-            loading: false,
-            error: 'invalid cleaned preview metadata',
-            viewMode: viewMode.value,
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: 1,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: null,
+                        rawResult: {
+                            pageNumber: requirePageNumber(1),
+                            totalPages: 3,
+                            rawImageData: new Uint8Array([1]),
+                            rawWidthPx: 100,
+                            rawHeightPx: 150,
+                        },
+                        loading: false,
+                        error: 'invalid cleaned preview metadata',
+                        viewMode: viewMode.value,
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: 1,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
 
         expect(harness.host.querySelector('[data-testid="scan-cleanup-original-only"]')).not.toBeNull();
         expect(harness.host.querySelector('[role="alert"]')).toBeNull();
@@ -3223,27 +3370,31 @@ describe('Scan cleanup components', () => {
         await nextTick();
 
         expect(harness.host.querySelector('[data-testid="scan-cleanup-original-only"]')).toBeNull();
-        expect(harness.host.querySelector('[role="alert"]')?.textContent)
-            .toContain('Preview isn\'t available. You can still run cleanup.');
+        expect(harness.host.querySelector('[role="alert"]')?.textContent).toContain("Preview isn't available. You can still run cleanup.");
         expect(harness.host.querySelector('.preview-overlay-help-trigger')).toBe(overlayHelp);
     });
 
     it('shows dismissible first-run guidance inline over the reserved preview surface', () => {
         const dismiss = vi.fn();
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: null,
-            loading: true,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: 1,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-            showFirstRunGuidance: true,
-            onDismissFirstRunGuidance: dismiss,
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: null,
+                        loading: true,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: 1,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                        showFirstRunGuidance: true,
+                        onDismissFirstRunGuidance: dismiss,
+                    }),
+            }),
+        );
 
         const guidance = harness.host.querySelector('.scan-cleanup-first-run-guidance');
         expect(guidance?.closest('.preview-surface')).not.toBeNull();
@@ -3255,24 +3406,28 @@ describe('Scan cleanup components', () => {
     });
 
     it('replaces a previous page with the requested page topology while navigating', () => {
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: spreadPreviewResult(1),
-            loading: true,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: 2,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: spreadPreviewResult(1),
+                        loading: true,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: 2,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
 
         expect(harness.host.querySelector('.preview-surface')?.classList.contains('is-stale-page')).toBe(true);
         expect(harness.host.querySelector('.cutter-stage')?.classList.contains('is-stale-content')).toBe(false);
         expect(harness.host.querySelector('.page-loading-overlay')).toBeNull();
-        expect(harness.host.querySelector('.preview-viewport-caption')?.textContent)
-            .toBe('Building cleanup preview…');
+        expect(harness.host.querySelector('.preview-viewport-caption')?.textContent).toBe('Building cleanup preview…');
         expect(harness.host.querySelector('.refresh-indicator')).toBeNull();
     });
 
@@ -3282,34 +3437,38 @@ describe('Scan cleanup components', () => {
         const rawResult = shallowRef(rawPreviewResult(1));
         const resultPresentationKey = ref('document-a:page-1');
         const commit = vi.fn();
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: result.value,
-            rawResult: rawResult.value,
-            resultCurrent: true,
-            resultPresentationKey: resultPresentationKey.value,
-            loading: false,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: pageNumber.value,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-            'onUpdate:manualSplit': commit,
-        })}));
-        mockPreviewGeometry(harness.host, [
-            domRect(0, 0, 500, 800),
-            domRect(500, 0, 500, 800),
-        ]);
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: result.value,
+                        rawResult: rawResult.value,
+                        resultCurrent: true,
+                        resultPresentationKey: resultPresentationKey.value,
+                        loading: false,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: pageNumber.value,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                        'onUpdate:manualSplit': commit,
+                    }),
+            }),
+        );
+        mockPreviewGeometry(harness.host, [domRect(0, 0, 500, 800), domRect(500, 0, 500, 800)]);
         const cutter = harness.host.querySelector<HTMLButtonElement>('.cutter-control')!;
         const capture = mockPointerCapture(cutter);
-        cutter.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            clientX: 600,
-            clientY: 400,
-            pointerId: 31,
-        }));
+        cutter.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                clientX: 600,
+                clientY: 400,
+                pointerId: 31,
+            }),
+        );
         expect(capture.hasPointerCapture(31)).toBe(true);
 
         pageNumber.value = 2;
@@ -3323,16 +3482,20 @@ describe('Scan cleanup components', () => {
         expect(capture.hasPointerCapture(31)).toBe(false);
         expect(harness.host.querySelectorAll('.preview-cleaned-pixel-preload')).toHaveLength(2);
 
-        cutter.dispatchEvent(new PointerEvent('pointerup', {
-            bubbles: true,
-            clientX: 700,
-            clientY: 400,
-            pointerId: 31,
-        }));
-        cutter.dispatchEvent(new KeyboardEvent('keydown', {
-            bubbles: true,
-            key: 'ArrowRight',
-        }));
+        cutter.dispatchEvent(
+            new PointerEvent('pointerup', {
+                bubbles: true,
+                clientX: 700,
+                clientY: 400,
+                pointerId: 31,
+            }),
+        );
+        cutter.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                bubbles: true,
+                key: 'ArrowRight',
+            }),
+        );
         expect(commit).not.toHaveBeenCalled();
 
         await loadPendingCleanedFrame(harness.host);
@@ -3345,21 +3508,26 @@ describe('Scan cleanup components', () => {
         const rawResult = shallowRef(rawPreviewResult(1));
         const resultPresentationKey = ref('document-a:page-1');
         const viewMode = ref<'original' | 'cleaned'>('original');
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: result.value,
-            rawResult: rawResult.value,
-            resultCurrent: true,
-            resultPresentationKey: resultPresentationKey.value,
-            loading: false,
-            error: '',
-            viewMode: viewMode.value,
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: pageNumber.value,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: result.value,
+                        rawResult: rawResult.value,
+                        resultCurrent: true,
+                        resultPresentationKey: resultPresentationKey.value,
+                        loading: false,
+                        error: '',
+                        viewMode: viewMode.value,
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: pageNumber.value,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
 
         pageNumber.value = 2;
         result.value = spreadPreviewResult(2);
@@ -3375,27 +3543,31 @@ describe('Scan cleanup components', () => {
         const pageNumber = ref(1);
         const result = shallowRef(spreadPreviewResult(1));
         const resultPresentationKey = ref('document-a:page-1');
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: result.value,
-            resultCurrent: true,
-            resultPresentationKey: resultPresentationKey.value,
-            loading: false,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: pageNumber.value,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: result.value,
+                        resultCurrent: true,
+                        resultPresentationKey: resultPresentationKey.value,
+                        loading: false,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: pageNumber.value,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
 
         pageNumber.value = 2;
         result.value = spreadPreviewResult(2);
         resultPresentationKey.value = 'document-a:page-2';
         await nextTick();
-        harness.host.querySelector<HTMLImageElement>('.preview-cleaned-pixel-preload')
-            ?.dispatchEvent(new Event('error'));
+        harness.host.querySelector<HTMLImageElement>('.preview-cleaned-pixel-preload')?.dispatchEvent(new Event('error'));
         await nextTick();
 
         expect(harness.host.querySelector('.preview-empty-layer .preview-message.is-error')).not.toBeNull();
@@ -3403,19 +3575,24 @@ describe('Scan cleanup components', () => {
     });
 
     it('keeps the last rendered frame while the current page topology refreshes', () => {
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: spreadPreviewResult(1),
-            loading: true,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: 1,
-            totalPages: 3,
-            layoutClassification: 'single-uncut-page',
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: spreadPreviewResult(1),
+                        loading: true,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: 1,
+                        totalPages: 3,
+                        layoutClassification: 'single-uncut-page',
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
 
         expect(harness.host.querySelector('.preview-result-layer')).not.toBeNull();
         expect(harness.host.querySelector('.preview-skeleton-page')).toBeNull();
@@ -3445,53 +3622,45 @@ describe('Scan cleanup components', () => {
             };
         }
         const result = ref(initial);
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: result.value,
-            resultCurrent: true,
-            loading: true,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: 1,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
-        const frameWidths = () => [...harness.host.querySelectorAll('.uniform-canvas')]
-            .map(element => element.getAttribute('data-frame-width'));
-        const contentStyle = () => harness.host.querySelector<HTMLElement>('.content-overlay')
-            ?.getAttribute('style');
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: result.value,
+                        resultCurrent: true,
+                        loading: true,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: 1,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
+        const frameWidths = () =>
+            [...harness.host.querySelectorAll('.uniform-canvas')].map((element) => element.getAttribute('data-frame-width'));
+        const contentStyle = () => harness.host.querySelector<HTMLElement>('.content-overlay')?.getAttribute('style');
         const initialContentStyle = contentStyle();
 
-        expect(frameWidths()).toEqual([
-            '500',
-            '500',
-        ]);
+        expect(frameWidths()).toEqual(['500', '500']);
         result.value = fresh;
         await nextTick();
 
         const pending = [...harness.host.querySelectorAll<HTMLImageElement>('.preview-cleaned-pixel-preload')];
         expect(pending).toHaveLength(2);
-        expect(frameWidths()).toEqual([
-            '500',
-            '500',
-        ]);
+        expect(frameWidths()).toEqual(['500', '500']);
         expect(contentStyle()).toBe(initialContentStyle);
 
         pending[0]?.dispatchEvent(new Event('load'));
         await nextTick();
-        expect(frameWidths()).toEqual([
-            '500',
-            '500',
-        ]);
+        expect(frameWidths()).toEqual(['500', '500']);
 
         pending[1]?.dispatchEvent(new Event('load'));
         await nextTick();
-        expect(frameWidths()).toEqual([
-            '640',
-            '640',
-        ]);
+        expect(frameWidths()).toEqual(['640', '640']);
         expect(contentStyle()).not.toBe(initialContentStyle);
         expect(harness.host.querySelector('.preview-cleaned-pixel-preload')).toBeNull();
     });
@@ -3506,20 +3675,25 @@ describe('Scan cleanup components', () => {
             });
         }
         const resultCurrent = ref(true);
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result,
-            resultCurrent: resultCurrent.value,
-            resultPresentationKey: 'session-1:page-1:user-0',
-            loading: false,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'bottom-center',
-            pageNumber: 1,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result,
+                        resultCurrent: resultCurrent.value,
+                        resultPresentationKey: 'session-1:page-1:user-0',
+                        loading: false,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'bottom-center',
+                        pageNumber: 1,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
         const image = () => harness.host.querySelector<HTMLElement>('.placed-image')!;
         const initialUrl = image().querySelector<HTMLImageElement>('.cleaned-image')!.src;
         const initialTop = image().style.top;
@@ -3546,59 +3720,64 @@ describe('Scan cleanup components', () => {
         const matchPageSize = ref(true);
         const resultCurrent = ref(true);
         const readingOrder = ref<'ltr' | 'rtl'>('ltr');
-        const manualContentBoxes = ref<Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>>({left: {
-            xNormalized: 0.1,
-            yNormalized: 0.1,
-            widthNormalized: 0.7,
-            heightNormalized: 0.7,
-            rotationDegrees: 0,
-        }});
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: result.value,
-            resultCurrent: resultCurrent.value,
-            resultPresentationKey: 'session-1:page-1:user-0',
-            layoutDetectionComplete: true,
-            loading: false,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: matchPageSize.value,
-            alignment: alignment.value,
-            pageNumber: 1,
-            totalPages: 3,
-            manualSplit: null,
-            manualContentBoxes: manualContentBoxes.value,
-            readingOrder: readingOrder.value,
-        })}));
-        const outputOrder = () => [...harness.host.querySelectorAll('.output-fit-area')]
-            .map(element => element.getAttribute('data-output-half'));
+        const manualContentBoxes = ref<Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>>({
+            left: {
+                xNormalized: 0.1,
+                yNormalized: 0.1,
+                widthNormalized: 0.7,
+                heightNormalized: 0.7,
+                rotationDegrees: 0,
+            },
+        });
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: result.value,
+                        resultCurrent: resultCurrent.value,
+                        resultPresentationKey: 'session-1:page-1:user-0',
+                        layoutDetectionComplete: true,
+                        loading: false,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: matchPageSize.value,
+                        alignment: alignment.value,
+                        pageNumber: 1,
+                        totalPages: 3,
+                        manualSplit: null,
+                        manualContentBoxes: manualContentBoxes.value,
+                        readingOrder: readingOrder.value,
+                    }),
+            }),
+        );
+        const outputOrder = () =>
+            [...harness.host.querySelectorAll('.output-fit-area')].map((element) => element.getAttribute('data-output-half'));
         const initialImageStyle = harness.host.querySelector<HTMLElement>('.placed-image')!.getAttribute('style');
-        const canvasNotice = () => harness.host.querySelector<HTMLElement>('.preview-viewport-caption')
-            ?.dataset.canvasNotice;
+        const canvasNotice = () => harness.host.querySelector<HTMLElement>('.preview-viewport-caption')?.dataset.canvasNotice;
         expect(canvasNotice()).toBe('');
 
         alignment.value = 'bottom-right';
         resultCurrent.value = false;
         readingOrder.value = 'rtl';
-        manualContentBoxes.value = {left: {
-            xNormalized: 0.2,
-            yNormalized: 0.2,
-            widthNormalized: 0.5,
-            heightNormalized: 0.5,
-            rotationDegrees: 0,
-        }};
+        manualContentBoxes.value = {
+            left: {
+                xNormalized: 0.2,
+                yNormalized: 0.2,
+                widthNormalized: 0.5,
+                heightNormalized: 0.5,
+                rotationDegrees: 0,
+            },
+        };
         await nextTick();
 
-        expect(outputOrder()).toEqual([
-            'right',
-            'left',
-        ]);
+        expect(outputOrder()).toEqual(['right', 'left']);
         expect(harness.host.querySelector('.uniform-canvas')?.classList).toContain('has-uniform-canvas');
-        expect(harness.host.querySelector<HTMLElement>('.placed-image')!.getAttribute('style'))
-            .toBe(initialImageStyle);
+        expect(harness.host.querySelector<HTMLElement>('.placed-image')!.getAttribute('style')).toBe(initialImageStyle);
         expect(harness.host.querySelector<HTMLElement>('.content-overlay')).toBeNull();
         expect(canvasNotice()).toBe('updating');
-        expect(harness.host.querySelector('.preview-viewport-caption')?.textContent)
-            .toContain('scanCleanup.preview.updatingPreviousPlacement');
+        expect(harness.host.querySelector('.preview-viewport-caption')?.textContent).toContain(
+            'scanCleanup.preview.updatingPreviousPlacement',
+        );
 
         matchPageSize.value = false;
         await nextTick();
@@ -3612,26 +3791,29 @@ describe('Scan cleanup components', () => {
             const result = shallowRef(spreadPreviewResult(1));
             const detectionComplete = ref(false);
             const transitionKey = ref('session-1:page-1:user-0');
-            const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-                result: result.value,
-                resultCurrent: true,
-                resultPresentationKey: transitionKey.value,
-                layoutDetectionComplete: detectionComplete.value,
-                loading: false,
-                error: '',
-                viewMode: 'cleaned',
-                matchPageSize: true,
-                alignment: 'top-center',
-                pageNumber: 1,
-                totalPages: 3,
-                manualSplit: null,
-                readingOrder: 'ltr',
-            })}));
+            const harness = mount(
+                defineComponent({
+                    setup: () => () =>
+                        h(ScanCleanupPreviewPane, {
+                            result: result.value,
+                            resultCurrent: true,
+                            resultPresentationKey: transitionKey.value,
+                            layoutDetectionComplete: detectionComplete.value,
+                            loading: false,
+                            error: '',
+                            viewMode: 'cleaned',
+                            matchPageSize: true,
+                            alignment: 'top-center',
+                            pageNumber: 1,
+                            totalPages: 3,
+                            manualSplit: null,
+                            readingOrder: 'ltr',
+                        }),
+                }),
+            );
             const frameWidth = () => harness.host.querySelector<HTMLElement>('.uniform-canvas')!.dataset.frameWidth;
             const displayedUrl = () => harness.host.querySelector<HTMLImageElement>('.cleaned-image')!.src;
-            const canvasNotice = () => harness.host.querySelector<HTMLElement>(
-                '.preview-viewport-caption',
-            )?.dataset.canvasNotice;
+            const canvasNotice = () => harness.host.querySelector<HTMLElement>('.preview-viewport-caption')?.dataset.canvasNotice;
             const initialUrl = displayedUrl();
             expect(canvasNotice()).toBe('provisional');
 
@@ -3722,31 +3904,38 @@ describe('Scan cleanup components', () => {
         const result = shallowRef(spreadPreviewResult(1));
         const detailResult = shallowRef(structuredClone(result.value));
         const detectionComplete = ref(false);
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: result.value,
-            detailResult: detailResult.value,
-            resultCurrent: true,
-            resultPresentationKey: 'session-1:page-1:user-0',
-            layoutDetectionComplete: detectionComplete.value,
-            loading: false,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: 1,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: result.value,
+                        detailResult: detailResult.value,
+                        resultCurrent: true,
+                        resultPresentationKey: 'session-1:page-1:user-0',
+                        layoutDetectionComplete: detectionComplete.value,
+                        loading: false,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: 1,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
         const surface = harness.host.querySelector<HTMLElement>('.preview-surface')!;
-        surface.dispatchEvent(previewZoomWheel({
-            bubbles: true,
-            cancelable: true,
-            clientX: 250,
-            clientY: 200,
-            deltaY: -1_200,
-            metaKey: true,
-        }));
+        surface.dispatchEvent(
+            previewZoomWheel({
+                bubbles: true,
+                cancelable: true,
+                clientX: 250,
+                clientY: 200,
+                deltaY: -1_200,
+                metaKey: true,
+            }),
+        );
         await nextTick();
         expect(harness.host.querySelectorAll('.preview-detail-pixel')).toHaveLength(2);
 
@@ -3777,21 +3966,26 @@ describe('Scan cleanup components', () => {
     it('reopens the settled phase after preload decode failure and accepts the next result', async () => {
         const result = shallowRef(spreadPreviewResult(1));
         const detectionComplete = ref(false);
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: result.value,
-            resultCurrent: true,
-            resultPresentationKey: 'session-1:page-1:user-0',
-            layoutDetectionComplete: detectionComplete.value,
-            loading: false,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: 1,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: result.value,
+                        resultCurrent: true,
+                        resultPresentationKey: 'session-1:page-1:user-0',
+                        layoutDetectionComplete: detectionComplete.value,
+                        loading: false,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: 1,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
         const frameWidth = () => harness.host.querySelector<HTMLElement>('.uniform-canvas')?.dataset.frameWidth;
 
         const failingSettled = structuredClone(result.value);
@@ -3811,14 +4005,12 @@ describe('Scan cleanup components', () => {
         }
         result.value = competingSettled;
         await nextTick();
-        expect(harness.host.querySelector<HTMLImageElement>('.preview-cleaned-pixel-preload')?.src)
-            .toBe(failingPreload.src);
+        expect(harness.host.querySelector<HTMLImageElement>('.preview-cleaned-pixel-preload')?.src).toBe(failingPreload.src);
 
         failingPreload.dispatchEvent(new Event('error'));
         await nextTick();
         expect(frameWidth()).toBe('500');
-        expect(harness.host.querySelector('.preview-refresh-error')?.textContent)
-            .toContain('scanCleanup.preview.cleanedImageDecodeFailed');
+        expect(harness.host.querySelector('.preview-refresh-error')?.textContent).toContain('scanCleanup.preview.cleanedImageDecodeFailed');
         expect(harness.host.querySelector('.preview-cleaned-pixel-preload')).toBeNull();
 
         const recoveredSettled = structuredClone(competingSettled);
@@ -3835,23 +4027,28 @@ describe('Scan cleanup components', () => {
 
     it('reveals the latest pinned frame atomically through the run gate', async () => {
         const result = shallowRef(spreadPreviewResult(1));
-        const previewPane = ref<{revealLatestFrame: (signal?: AbortSignal) => Promise<'published' | 'dropped'>;} | null>(null);
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            ref: previewPane,
-            result: result.value,
-            resultCurrent: true,
-            resultPresentationKey: 'session-1:page-1:user-0',
-            layoutDetectionComplete: true,
-            loading: false,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: 1,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const previewPane = ref<{revealLatestFrame: (signal?: AbortSignal) => Promise<'published' | 'dropped'>} | null>(null);
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        ref: previewPane,
+                        result: result.value,
+                        resultCurrent: true,
+                        resultPresentationKey: 'session-1:page-1:user-0',
+                        layoutDetectionComplete: true,
+                        loading: false,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: 1,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
         const frameWidth = () => harness.host.querySelector<HTMLElement>('.uniform-canvas')!.dataset.frameWidth;
         const displayedUrl = () => harness.host.querySelector<HTMLImageElement>('.cleaned-image')!.src;
         const initialUrl = displayedUrl();
@@ -3867,8 +4064,7 @@ describe('Scan cleanup components', () => {
         expect(frameWidth()).toBe('500');
         expect(displayedUrl()).toBe(initialUrl);
         expect(harness.host.querySelector('.preview-cleaned-pixel-preload')).toBeNull();
-        expect(harness.host.querySelector<HTMLElement>('.preview-viewport-caption')?.dataset.canvasNotice)
-            .toBe('');
+        expect(harness.host.querySelector<HTMLElement>('.preview-viewport-caption')?.dataset.canvasNotice).toBe('');
 
         const revealed = previewPane.value!.revealLatestFrame();
         await nextTick();
@@ -3878,29 +4074,33 @@ describe('Scan cleanup components', () => {
 
         expect(frameWidth()).toBe('800');
         expect(displayedUrl()).not.toBe(initialUrl);
-        expect(harness.host.querySelector<HTMLElement>('.preview-viewport-caption')?.dataset.canvasNotice)
-            .toBe('');
+        expect(harness.host.querySelector<HTMLElement>('.preview-viewport-caption')?.dataset.canvasNotice).toBe('');
     });
 
     it('settles a forced reveal when its cleaned frame is dropped during preload', async () => {
         const result = shallowRef(spreadPreviewResult(1));
-        const previewPane = ref<{revealLatestFrame: (signal?: AbortSignal) => Promise<'published' | 'dropped'>;} | null>(null);
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            ref: previewPane,
-            result: result.value,
-            resultCurrent: true,
-            resultPresentationKey: 'session-1:page-1:user-0',
-            layoutDetectionComplete: true,
-            loading: false,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: 1,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const previewPane = ref<{revealLatestFrame: (signal?: AbortSignal) => Promise<'published' | 'dropped'>} | null>(null);
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        ref: previewPane,
+                        result: result.value,
+                        resultCurrent: true,
+                        resultPresentationKey: 'session-1:page-1:user-0',
+                        layoutDetectionComplete: true,
+                        loading: false,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: 1,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
         const latest = structuredClone(result.value);
         for (const output of latest.outputs) {
             output.imageData = new Uint8Array([9]);
@@ -3918,20 +4118,25 @@ describe('Scan cleanup components', () => {
     });
 
     it('never presents the requested raw sheet as a cleaned output while its result is pending', () => {
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: spreadPreviewResult(1),
-            rawResult: rawPreviewResult(2),
-            loading: true,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: 2,
-            totalPages: 3,
-            layoutClassification: 'two-page-spread',
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: spreadPreviewResult(1),
+                        rawResult: rawPreviewResult(2),
+                        loading: true,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: 2,
+                        totalPages: 3,
+                        layoutClassification: 'two-page-spread',
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
 
         expect(harness.host.querySelector('.raw-preview')).toBeNull();
         const loadingOutputs = harness.host.querySelector('.preview-skeleton-outputs');
@@ -3946,41 +4151,50 @@ describe('Scan cleanup components', () => {
     });
 
     it('does not keep the previous page ghost while the requested page is pending', () => {
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: spreadPreviewResult(1),
-            rawResult: rawPreviewResult(1),
-            loading: true,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: 2,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: spreadPreviewResult(1),
+                        rawResult: rawPreviewResult(1),
+                        loading: true,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: 2,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
 
         expect(harness.host.querySelector('.raw-preview')).toBeNull();
         expect(harness.host.querySelector('.cutter-stage')?.classList.contains('is-stale-content')).toBe(false);
         expect(harness.host.querySelector('.page-loading-overlay')).toBeNull();
-        expect(harness.host.querySelector('.preview-viewport-caption')?.textContent)
-            .toBe('Building cleanup preview…');
+        expect(harness.host.querySelector('.preview-viewport-caption')?.textContent).toBe('Building cleanup preview…');
     });
 
     it('never shows a previous page raw raster in Original view', () => {
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: spreadPreviewResult(1),
-            rawResult: rawPreviewResult(1),
-            loading: true,
-            error: '',
-            viewMode: 'original',
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: 2,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: spreadPreviewResult(1),
+                        rawResult: rawPreviewResult(1),
+                        loading: true,
+                        error: '',
+                        viewMode: 'original',
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: 2,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
 
         expect(harness.host.querySelector('.raw-preview')).toBeNull();
         expect(harness.host.querySelector('.page-loading-overlay')?.textContent).toContain('Loading page 2…');
@@ -3990,19 +4204,24 @@ describe('Scan cleanup components', () => {
     it('replaces the topology-aware loading shell with the requested cleaned result', async () => {
         const result = shallowRef<IScanCleanupPreviewResult | null>(spreadPreviewResult(1));
         const loading = ref(true);
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: result.value,
-            rawResult: rawPreviewResult(2),
-            loading: loading.value,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: 2,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: result.value,
+                        rawResult: rawPreviewResult(2),
+                        loading: loading.value,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: 2,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
 
         const loadingStage = harness.host.querySelector('.cutter-stage');
         expect(harness.host.querySelector('.raw-preview')).toBeNull();
@@ -4025,23 +4244,27 @@ describe('Scan cleanup components', () => {
         const viewMode = ref<'original' | 'cleaned'>('original');
         const error = ref('');
         const result = spreadPreviewResult(1);
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result,
-            rawResult: rawPreviewResult(2),
-            loading: true,
-            error: error.value,
-            viewMode: viewMode.value,
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: 2,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result,
+                        rawResult: rawPreviewResult(2),
+                        loading: true,
+                        error: error.value,
+                        viewMode: viewMode.value,
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: 2,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
 
         // The visible raw frame is page 2, so its alternative names page 2.
-        expect(harness.host.querySelector<HTMLImageElement>('.raw-preview .preview-pixel')?.alt)
-            .toBe('Original scan preview for page 2');
+        expect(harness.host.querySelector<HTMLImageElement>('.raw-preview .preview-pixel')?.alt).toBe('Original scan preview for page 2');
         expect(harness.host.querySelector('.preview-viewport-caption')?.getAttribute('aria-hidden')).toBe('true');
         expect(harness.host.querySelector('.page-loading-overlay')?.textContent).toContain('Loading page 2…');
 
@@ -4050,35 +4273,38 @@ describe('Scan cleanup components', () => {
         await nextTick();
 
         expect(harness.host.querySelector('.raw-preview')).toBeNull();
-        expect(harness.host.querySelector('.preview-refresh-error')?.textContent)
-            .toContain('Preview isn\'t available. You can still run cleanup.');
+        expect(harness.host.querySelector('.preview-refresh-error')?.textContent).toContain(
+            "Preview isn't available. You can still run cleanup.",
+        );
     });
 
     it('shows the active processing sub-stage and ticking elapsed timer in the viewport caption during cleanup', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-01-01T00:00:10.000Z'));
         try {
-            const activity = shallowRef(resolveScanCleanupActivity({
-                detection: {
-                    pending: false,
-                    progress: null,
-                    analyzedPages: 3,
-                    totalPages: 3,
-                    calibrating: false,
-                },
-                run: {
-                    waitingForDetection: false,
-                    starting: false,
-                    progress: {
-                        stage: 'rendering',
-                        completedUnits: 1,
-                        totalUnits: 3,
-                        percent: 40,
-                        activeSubPageStage: 'deskew',
+            const activity = shallowRef(
+                resolveScanCleanupActivity({
+                    detection: {
+                        pending: false,
+                        progress: null,
+                        analyzedPages: 3,
+                        totalPages: 3,
+                        calibrating: false,
                     },
-                    committing: false,
-                },
-            }));
+                    run: {
+                        waitingForDetection: false,
+                        starting: false,
+                        progress: {
+                            stage: 'rendering',
+                            completedUnits: 1,
+                            totalUnits: 3,
+                            percent: 40,
+                            activeSubPageStage: 'deskew',
+                        },
+                        committing: false,
+                    },
+                }),
+            );
             const activityTimeline = shallowRef<{
                 startedAtMs: number | null;
                 steps: Partial<Record<'clean', {startedAtMs: number}>>;
@@ -4086,20 +4312,25 @@ describe('Scan cleanup components', () => {
                 startedAtMs: Date.parse('2026-01-01T00:00:08.000Z'),
                 steps: {clean: {startedAtMs: Date.parse('2026-01-01T00:00:10.000Z')}},
             });
-            const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-                result: spreadPreviewResult(1),
-                loading: false,
-                error: '',
-                viewMode: 'cleaned',
-                matchPageSize: true,
-                alignment: 'top-center',
-                pageNumber: 1,
-                totalPages: 3,
-                manualSplit: null,
-                readingOrder: 'ltr',
-                activity: activity.value,
-                activityTimeline: activityTimeline.value,
-            })}));
+            const harness = mount(
+                defineComponent({
+                    setup: () => () =>
+                        h(ScanCleanupPreviewPane, {
+                            result: spreadPreviewResult(1),
+                            loading: false,
+                            error: '',
+                            viewMode: 'cleaned',
+                            matchPageSize: true,
+                            alignment: 'top-center',
+                            pageNumber: 1,
+                            totalPages: 3,
+                            manualSplit: null,
+                            readingOrder: 'ltr',
+                            activity: activity.value,
+                            activityTimeline: activityTimeline.value,
+                        }),
+                }),
+            );
             await nextTick();
 
             const caption = harness.host.querySelector<HTMLElement>('.preview-viewport-caption');
@@ -4143,19 +4374,24 @@ describe('Scan cleanup components', () => {
             },
             run: null,
         });
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: null,
-            loading: true,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: 1,
-            totalPages: 4,
-            manualSplit: null,
-            readingOrder: 'ltr',
-            activity: detectionActivity,
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: null,
+                        loading: true,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: 1,
+                        totalPages: 4,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                        activity: detectionActivity,
+                    }),
+            }),
+        );
 
         const caption = harness.host.querySelector<HTMLElement>('.preview-viewport-caption');
         expect(caption?.textContent?.trim()).toBe('Building cleanup preview…');
@@ -4163,22 +4399,27 @@ describe('Scan cleanup components', () => {
     });
 
     it('removes visual half labels while preserving each output half in image alternatives', () => {
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: spreadPreviewResult(2),
-            loading: false,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: 2,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: spreadPreviewResult(2),
+                        loading: false,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: 2,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
         const images = Array.from(harness.host.querySelectorAll<HTMLImageElement>('.cleaned-image'));
 
         expect(harness.host.querySelector('.half-label')).toBeNull();
-        expect(images.map(image => image.alt)).toEqual([
+        expect(images.map((image) => image.alt)).toEqual([
             'Cleaned scan preview for page 2, left half',
             'Cleaned scan preview for page 2, right half',
         ]);
@@ -4197,23 +4438,28 @@ describe('Scan cleanup components', () => {
             toJSON: () => ({}),
         });
         try {
-            const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-                result: spreadPreviewResult(2),
-                loading: false,
-                error: '',
-                viewMode: 'cleaned',
-                matchPageSize: true,
-                alignment: 'top-center',
-                pageNumber: 2,
-                totalPages: 3,
-                manualSplit: null,
-                readingOrder: 'ltr',
-                lossless: true,
-            })}));
+            const harness = mount(
+                defineComponent({
+                    setup: () => () =>
+                        h(ScanCleanupPreviewPane, {
+                            result: spreadPreviewResult(2),
+                            loading: false,
+                            error: '',
+                            viewMode: 'cleaned',
+                            matchPageSize: true,
+                            alignment: 'top-center',
+                            pageNumber: 2,
+                            totalPages: 3,
+                            manualSplit: null,
+                            readingOrder: 'ltr',
+                            lossless: true,
+                        }),
+                }),
+            );
             await nextTick();
 
             const comparison = harness.host.querySelectorAll<HTMLElement>('[role="radiogroup"]')[0]!;
-            expect(Array.from(comparison.querySelectorAll('[role="radio"]')).map(option => option.textContent)).toEqual(['Preview']);
+            expect(Array.from(comparison.querySelectorAll('[role="radio"]')).map((option) => option.textContent)).toEqual(['Preview']);
             expect(harness.host.querySelector('.raw-preview')).not.toBeNull();
             expect(harness.host.querySelector('.cleaned-outputs')).toBeNull();
             expect(harness.host.querySelectorAll('.lossless-crop-overlay')).toHaveLength(2);
@@ -4235,12 +4481,9 @@ describe('Scan cleanup components', () => {
             x: 470,
             y: 330,
         },
-    ])('keeps the source point under wheel cursor at ($x, $y)', async ({
-        x, y,
-    }) => {
+    ])('keeps the source point under wheel cursor at ($x, $y)', async ({x, y}) => {
         const harness = mountPreviewZoomHarness();
-        expect(harness.host.querySelector('.preview-zoom-value')?.getAttribute('aria-label'))
-            .toBe('Zoom Fit, toggle fit and 100%');
+        expect(harness.host.querySelector('.preview-zoom-value')?.getAttribute('aria-label')).toBe('Zoom Fit, toggle fit and 100%');
         const wheel = previewZoomWheel({
             bubbles: true,
             cancelable: true,
@@ -4262,11 +4505,7 @@ describe('Scan cleanup components', () => {
         expect(Number(harness.surface.dataset.previewZoomPercent)).toBeGreaterThan(50);
         const transform = harness.stage.style.transform.match(/translate3d\(([-\d.]+)px, ([-\d.]+)px.*scale\(([\d.]+)/u);
         expect(transform).not.toBeNull();
-        const [
-            , translateX,
-            translateY,
-            scale,
-        ] = transform!;
+        const [, translateX, translateY, scale] = transform!;
         const centerX = 250;
         const centerY = 200;
         const project = (tx: number, ty: number) => ({
@@ -4322,37 +4561,46 @@ describe('Scan cleanup components', () => {
         expect(wheel.defaultPrevented).toBe(false);
         expect(doubleClick.defaultPrevented).toBe(false);
         expect(harness.host.querySelector<HTMLElement>('.preview-pane')?.getAttribute('tabindex')).toBe('-1');
-        expect(Array.from(harness.host.querySelectorAll<HTMLButtonElement>('.preview-zoom-button, .preview-zoom-value'))
-            .every(button => button.disabled)).toBe(true);
+        expect(
+            Array.from(harness.host.querySelectorAll<HTMLButtonElement>('.preview-zoom-button, .preview-zoom-value')).every(
+                (button) => button.disabled,
+            ),
+        ).toBe(true);
         const tooltipRoots = Array.from(harness.host.querySelectorAll<HTMLElement>('[data-tooltip-root]'));
         expect(tooltipRoots.length).toBeGreaterThan(0);
-        expect(tooltipRoots.every(root => root.dataset.tooltipDisabled === 'true')).toBe(true);
+        expect(tooltipRoots.every((root) => root.dataset.tooltipDisabled === 'true')).toBe(true);
     });
 
     it('cancels an active preview pan when cleanup becomes disabled', async () => {
         const harness = mountPreviewZoomHarness();
-        harness.surface.dispatchEvent(new MouseEvent('dblclick', {
-            bubbles: true,
-            cancelable: true,
-            clientX: 250,
-            clientY: 200,
-        }));
+        harness.surface.dispatchEvent(
+            new MouseEvent('dblclick', {
+                bubbles: true,
+                cancelable: true,
+                clientX: 250,
+                clientY: 200,
+            }),
+        );
         await nextTick();
-        harness.surface.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            cancelable: true,
-            button: 0,
-            clientX: 250,
-            clientY: 200,
-            pointerId: 61,
-        }));
-        harness.surface.dispatchEvent(new PointerEvent('pointermove', {
-            bubbles: true,
-            cancelable: true,
-            clientX: 300,
-            clientY: 225,
-            pointerId: 61,
-        }));
+        harness.surface.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                cancelable: true,
+                button: 0,
+                clientX: 250,
+                clientY: 200,
+                pointerId: 61,
+            }),
+        );
+        harness.surface.dispatchEvent(
+            new PointerEvent('pointermove', {
+                bubbles: true,
+                cancelable: true,
+                clientX: 300,
+                clientY: 225,
+                pointerId: 61,
+            }),
+        );
         await nextTick();
         expect(harness.surface.classList).toContain('is-panning-preview');
 
@@ -4362,13 +4610,15 @@ describe('Scan cleanup components', () => {
         expect(harness.pointerCapture.releasePointerCapture).toHaveBeenCalledWith(61);
         expect(harness.surface.classList).not.toContain('is-panning-preview');
 
-        harness.surface.dispatchEvent(new PointerEvent('pointermove', {
-            bubbles: true,
-            cancelable: true,
-            clientX: 350,
-            clientY: 250,
-            pointerId: 61,
-        }));
+        harness.surface.dispatchEvent(
+            new PointerEvent('pointermove', {
+                bubbles: true,
+                cancelable: true,
+                clientX: 350,
+                clientY: 250,
+                pointerId: 61,
+            }),
+        );
         expect(harness.stage.style.transform).toBe(transformAfterDisable);
     });
 
@@ -4376,13 +4626,15 @@ describe('Scan cleanup components', () => {
         const cutterHarness = mountPreviewZoomHarness();
         const cutter = cutterHarness.host.querySelector<HTMLButtonElement>('.cutter-control')!;
         const cutterCapture = mockPointerCapture(cutter);
-        cutter.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            button: 0,
-            clientX: 300,
-            clientY: 200,
-            pointerId: 62,
-        }));
+        cutter.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                button: 0,
+                clientX: 300,
+                clientY: 200,
+                pointerId: 62,
+            }),
+        );
         cutterHarness.disabled.value = true;
         await nextTick();
         expect(cutterCapture.releasePointerCapture).toHaveBeenCalledWith(62);
@@ -4403,13 +4655,15 @@ describe('Scan cleanup components', () => {
         });
         const contentHandle = contentHarness.host.querySelector<HTMLButtonElement>('.content-handle')!;
         const contentCapture = mockPointerCapture(contentHandle);
-        contentHandle.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            button: 0,
-            clientX: 200,
-            clientY: 200,
-            pointerId: 63,
-        }));
+        contentHandle.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                button: 0,
+                clientX: 200,
+                clientY: 200,
+                pointerId: 63,
+            }),
+        );
         contentHarness.disabled.value = true;
         await nextTick();
         expect(contentCapture.releasePointerCapture).toHaveBeenCalledWith(63);
@@ -4417,13 +4671,15 @@ describe('Scan cleanup components', () => {
         const placementHarness = mountPreviewZoomHarness({viewMode: 'cleaned'});
         const placement = placementHarness.host.querySelector<HTMLElement>('.placement-control')!;
         const placementCapture = mockPointerCapture(placement);
-        placement.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            button: 0,
-            clientX: 100,
-            clientY: 100,
-            pointerId: 64,
-        }));
+        placement.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                button: 0,
+                clientX: 100,
+                clientY: 100,
+                pointerId: 64,
+            }),
+        );
         placementHarness.disabled.value = true;
         await nextTick();
         expect(placementCapture.releasePointerCapture).toHaveBeenCalledWith(64);
@@ -4573,12 +4829,14 @@ describe('Scan cleanup components', () => {
             rawResult,
             result: null,
         });
-        doubleClickHarness.surface.dispatchEvent(new MouseEvent('dblclick', {
-            bubbles: true,
-            cancelable: true,
-            clientX: 250,
-            clientY: 200,
-        }));
+        doubleClickHarness.surface.dispatchEvent(
+            new MouseEvent('dblclick', {
+                bubbles: true,
+                cancelable: true,
+                clientX: 250,
+                clientY: 200,
+            }),
+        );
         await nextTick();
 
         expect(doubleClickHarness.surface.dataset.previewZoomMode).toBe('custom');
@@ -4631,7 +4889,7 @@ describe('Scan cleanup components', () => {
         try {
             const harness = mountPreviewZoomHarness();
             await nextTick();
-            expect(queries.map(query => query.media)).toEqual(['(resolution: 1dppx)']);
+            expect(queries.map((query) => query.media)).toEqual(['(resolution: 1dppx)']);
 
             Object.defineProperty(window, 'devicePixelRatio', {
                 configurable: true,
@@ -4640,10 +4898,7 @@ describe('Scan cleanup components', () => {
             queries[0]?.listener?.({} as MediaQueryListEvent);
             await nextTick();
 
-            expect(queries.map(query => query.media)).toEqual([
-                '(resolution: 1dppx)',
-                '(resolution: 2dppx)',
-            ]);
+            expect(queries.map((query) => query.media)).toEqual(['(resolution: 1dppx)', '(resolution: 2dppx)']);
             expect(queries[0]?.remove).toHaveBeenCalledOnce();
 
             harness.unmount();
@@ -4663,9 +4918,7 @@ describe('Scan cleanup components', () => {
     it('debounces a non-blocking high-detail viewport request while keeping the base preview visible', async () => {
         vi.useFakeTimers();
         try {
-            const requestDetail = vi.fn<(
-                viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
-            ) => void>();
+            const requestDetail = vi.fn<(viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports']) => void>();
             const harness = mountPreviewZoomHarness({
                 onRequestDetail: requestDetail,
                 result: rotatedSinglePreviewResult(),
@@ -4713,10 +4966,10 @@ describe('Scan cleanup components', () => {
         vi.useFakeTimers();
         const detailError = ref<IScanCleanupPreviewFailure | null>(null);
         const result = rotatedSinglePreviewResult();
-        const clearDetail = () => { detailError.value = null; };
-        const requestDetail = vi.fn<(
-            viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
-        ) => void>();
+        const clearDetail = () => {
+            detailError.value = null;
+        };
+        const requestDetail = vi.fn<(viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports']) => void>();
         workspaceSession.value = createWorkspaceEntrySession({
             clearPreviewDetail: clearDetail,
             previewDetailError: detailError,
@@ -4724,21 +4977,28 @@ describe('Scan cleanup components', () => {
             previewResult: shallowRef(result),
             requestPreviewDetail: requestDetail,
         });
-        const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
-            sourcePath: requireDocumentRef('/docs/detail-failure.pdf'),
-            totalPages: 2,
-            toolbarActive: true,
-        })));
+        const harness = mount(
+            defineComponent(
+                () => () =>
+                    h(ScanCleanupWorkspace, {
+                        sourcePath: requireDocumentRef('/docs/detail-failure.pdf'),
+                        totalPages: 2,
+                        toolbarActive: true,
+                    }),
+            ),
+        );
         const {surface} = mockPreviewLayout(harness.host, result);
         try {
-            surface.dispatchEvent(previewZoomWheel({
-                bubbles: true,
-                cancelable: true,
-                clientX: 250,
-                clientY: 200,
-                deltaY: -1_200,
-                metaKey: true,
-            }));
+            surface.dispatchEvent(
+                previewZoomWheel({
+                    bubbles: true,
+                    cancelable: true,
+                    clientX: 250,
+                    clientY: 200,
+                    deltaY: -1_200,
+                    metaKey: true,
+                }),
+            );
             await vi.advanceTimersByTimeAsync(300);
             const viewport = requestDetail.mock.lastCall?.[0];
             expect(viewport?.full).toBeDefined();
@@ -4792,9 +5052,7 @@ describe('Scan cleanup components', () => {
             const resultCurrent = ref(true);
             const resultPresentationKey = ref('session-1:page-1:user-0');
             const layoutDetectionComplete = ref(true);
-            const requestDetail = vi.fn<(
-                viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
-            ) => void>();
+            const requestDetail = vi.fn<(viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports']) => void>();
             const harness = mountPreviewZoomHarness({
                 layoutDetectionCompleteRef: layoutDetectionComplete,
                 onRequestDetail: requestDetail,
@@ -4814,14 +5072,16 @@ describe('Scan cleanup components', () => {
             result.value = staleResult;
             await nextTick();
 
-            harness.surface.dispatchEvent(previewZoomWheel({
-                bubbles: true,
-                cancelable: true,
-                clientX: 250,
-                clientY: 200,
-                deltaY: -1_200,
-                metaKey: true,
-            }));
+            harness.surface.dispatchEvent(
+                previewZoomWheel({
+                    bubbles: true,
+                    cancelable: true,
+                    clientX: 250,
+                    clientY: 200,
+                    deltaY: -1_200,
+                    metaKey: true,
+                }),
+            );
             await nextTick();
             await vi.advanceTimersByTimeAsync(300);
             expect(requestDetail).not.toHaveBeenCalled();
@@ -4854,9 +5114,7 @@ describe('Scan cleanup components', () => {
         try {
             const resultCurrent = ref(true);
             const resultPresentationKey = ref('session-1:page-1:user-0');
-            const requestDetail = vi.fn<(
-                viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
-            ) => void>();
+            const requestDetail = vi.fn<(viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports']) => void>();
             const harness = mountPreviewZoomHarness({
                 onRequestDetail: requestDetail,
                 result: spreadPreviewResult(),
@@ -4871,14 +5129,16 @@ describe('Scan cleanup components', () => {
             await nextTick();
             expect(harness.host.querySelector('.drag-overlay-layer')?.hasAttribute('inert')).toBe(true);
 
-            harness.surface.dispatchEvent(previewZoomWheel({
-                bubbles: true,
-                cancelable: true,
-                clientX: 250,
-                clientY: 200,
-                deltaY: -1_200,
-                metaKey: true,
-            }));
+            harness.surface.dispatchEvent(
+                previewZoomWheel({
+                    bubbles: true,
+                    cancelable: true,
+                    clientX: 250,
+                    clientY: 200,
+                    deltaY: -1_200,
+                    metaKey: true,
+                }),
+            );
             await nextTick();
             await vi.advanceTimersByTimeAsync(300);
             expect(requestDetail).not.toHaveBeenCalled();
@@ -4904,14 +5164,16 @@ describe('Scan cleanup components', () => {
             viewMode: 'cleaned',
         });
 
-        harness.surface.dispatchEvent(previewZoomWheel({
-            bubbles: true,
-            cancelable: true,
-            clientX: 250,
-            clientY: 200,
-            deltaY: -1_200,
-            metaKey: true,
-        }));
+        harness.surface.dispatchEvent(
+            previewZoomWheel({
+                bubbles: true,
+                cancelable: true,
+                clientX: 250,
+                clientY: 200,
+                deltaY: -1_200,
+                metaKey: true,
+            }),
+        );
         await nextTick();
 
         const tile = harness.host.querySelector<HTMLElement>('.preview-detail-pixel');
@@ -4927,22 +5189,22 @@ describe('Scan cleanup components', () => {
     it('requests distinct output-local crops for both visible spread halves', async () => {
         vi.useFakeTimers();
         try {
-            const requestDetail = vi.fn<(
-                viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
-            ) => void>();
+            const requestDetail = vi.fn<(viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports']) => void>();
             const harness = mountPreviewZoomHarness({
                 onRequestDetail: requestDetail,
                 viewMode: 'cleaned',
             });
 
-            harness.surface.dispatchEvent(previewZoomWheel({
-                bubbles: true,
-                cancelable: true,
-                clientX: 250,
-                clientY: 200,
-                deltaY: -1_200,
-                metaKey: true,
-            }));
+            harness.surface.dispatchEvent(
+                previewZoomWheel({
+                    bubbles: true,
+                    cancelable: true,
+                    clientX: 250,
+                    clientY: 200,
+                    deltaY: -1_200,
+                    metaKey: true,
+                }),
+            );
             await nextTick();
             vi.advanceTimersByTime(300);
             await nextTick();
@@ -4963,37 +5225,37 @@ describe('Scan cleanup components', () => {
     it('omits an offscreen spread half from the batched detail request', async () => {
         vi.useFakeTimers();
         try {
-            const requestDetail = vi.fn<(
-                viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
-            ) => void>();
+            const requestDetail = vi.fn<(viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports']) => void>();
             const harness = mountPreviewZoomHarness({
-                canvasRect: index => index === 0
-                    ? domRect(0, 0, 250, 400)
-                    : domRect(700, 0, 250, 400),
+                canvasRect: (index) => (index === 0 ? domRect(0, 0, 250, 400) : domRect(700, 0, 250, 400)),
                 onRequestDetail: requestDetail,
                 viewMode: 'cleaned',
             });
 
-            harness.surface.dispatchEvent(previewZoomWheel({
-                bubbles: true,
-                cancelable: true,
-                clientX: 250,
-                clientY: 200,
-                deltaY: -1_200,
-                metaKey: true,
-            }));
+            harness.surface.dispatchEvent(
+                previewZoomWheel({
+                    bubbles: true,
+                    cancelable: true,
+                    clientX: 250,
+                    clientY: 200,
+                    deltaY: -1_200,
+                    metaKey: true,
+                }),
+            );
             await nextTick();
             vi.advanceTimersByTime(300);
             await nextTick();
 
             expect(requestDetail).toHaveBeenCalledOnce();
-            expect(requestDetail.mock.calls[0]![0]).toEqual({left: {
-                xNormalized: 0,
-                yNormalized: 0,
-                widthNormalized: 1,
-                heightNormalized: 1,
-                rotationDegrees: 0,
-            }});
+            expect(requestDetail.mock.calls[0]![0]).toEqual({
+                left: {
+                    xNormalized: 0,
+                    yNormalized: 0,
+                    widthNormalized: 1,
+                    heightNormalized: 1,
+                    rotationDegrees: 0,
+                },
+            });
         } finally {
             vi.useRealTimers();
         }
@@ -5001,130 +5263,160 @@ describe('Scan cleanup components', () => {
 
     it('maps cutter dragging through 2x preview zoom and pan', async () => {
         const harness = mountPreviewZoomHarness();
-        harness.surface.dispatchEvent(new MouseEvent('dblclick', {
-            bubbles: true,
-            cancelable: true,
-            clientX: 250,
-            clientY: 200,
-        }));
+        harness.surface.dispatchEvent(
+            new MouseEvent('dblclick', {
+                bubbles: true,
+                cancelable: true,
+                clientX: 250,
+                clientY: 200,
+            }),
+        );
         await nextTick();
-        harness.surface.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            cancelable: true,
-            button: 0,
-            clientX: 250,
-            clientY: 200,
-            pointerId: 45,
-        }));
-        harness.surface.dispatchEvent(new PointerEvent('pointermove', {
-            bubbles: true,
-            cancelable: true,
-            clientX: 300,
-            clientY: 200,
-            pointerId: 45,
-        }));
-        harness.surface.dispatchEvent(new PointerEvent('pointerup', {
-            bubbles: true,
-            pointerId: 45,
-        }));
+        harness.surface.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                cancelable: true,
+                button: 0,
+                clientX: 250,
+                clientY: 200,
+                pointerId: 45,
+            }),
+        );
+        harness.surface.dispatchEvent(
+            new PointerEvent('pointermove', {
+                bubbles: true,
+                cancelable: true,
+                clientX: 300,
+                clientY: 200,
+                pointerId: 45,
+            }),
+        );
+        harness.surface.dispatchEvent(
+            new PointerEvent('pointerup', {
+                bubbles: true,
+                pointerId: 45,
+            }),
+        );
         await nextTick();
         expect(harness.stage.style.transform).toContain('translate3d(50px, 0px, 0) scale(2)');
 
         const cutter = harness.host.querySelector<HTMLButtonElement>('.cutter-control')!;
         mockPointerCapture(cutter);
-        cutter.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            button: 0,
-            clientX: 300,
-            clientY: 200,
-            pointerId: 46,
-        }));
-        cutter.dispatchEvent(new PointerEvent('pointerup', {
-            bubbles: true,
-            clientX: 400,
-            clientY: 200,
-            pointerId: 46,
-        }));
+        cutter.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                button: 0,
+                clientX: 300,
+                clientY: 200,
+                pointerId: 46,
+            }),
+        );
+        cutter.dispatchEvent(
+            new PointerEvent('pointerup', {
+                bubbles: true,
+                clientX: 400,
+                clientY: 200,
+                pointerId: 46,
+            }),
+        );
 
-        expect(harness.splitUpdates).toEqual([{
-            xNormalized: 0.6,
-            rotationDegrees: 0,
-        }]);
+        expect(harness.splitUpdates).toEqual([
+            {
+                xNormalized: 0.6,
+                rotationDegrees: 0,
+            },
+        ]);
     });
 
     it('clamps preview panning to the zoomed stage bounds', async () => {
         const harness = mountPreviewZoomHarness();
-        harness.surface.dispatchEvent(new MouseEvent('dblclick', {
-            bubbles: true,
-            cancelable: true,
-            clientX: 250,
-            clientY: 200,
-        }));
+        harness.surface.dispatchEvent(
+            new MouseEvent('dblclick', {
+                bubbles: true,
+                cancelable: true,
+                clientX: 250,
+                clientY: 200,
+            }),
+        );
         await nextTick();
 
-        harness.surface.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            cancelable: true,
-            button: 0,
-            clientX: 250,
-            clientY: 200,
-            pointerId: 41,
-        }));
-        harness.surface.dispatchEvent(new PointerEvent('pointermove', {
-            bubbles: true,
-            cancelable: true,
-            clientX: 2_000,
-            clientY: 2_000,
-            pointerId: 41,
-        }));
+        harness.surface.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                cancelable: true,
+                button: 0,
+                clientX: 250,
+                clientY: 200,
+                pointerId: 41,
+            }),
+        );
+        harness.surface.dispatchEvent(
+            new PointerEvent('pointermove', {
+                bubbles: true,
+                cancelable: true,
+                clientX: 2_000,
+                clientY: 2_000,
+                pointerId: 41,
+            }),
+        );
         await nextTick();
 
         expect(harness.stage.style.transform).toContain('translate3d(250px, 200px, 0) scale(2)');
         expect(harness.surface.classList).toContain('is-panning-preview');
-        harness.surface.dispatchEvent(new PointerEvent('pointerup', {
-            bubbles: true,
-            pointerId: 41,
-        }));
+        harness.surface.dispatchEvent(
+            new PointerEvent('pointerup', {
+                bubbles: true,
+                pointerId: 41,
+            }),
+        );
         await nextTick();
         expect(harness.surface.classList).not.toContain('is-panning-preview');
     });
 
     it('pans the cleaned view by dragging the full-surface placement overlay at navigation zoom', async () => {
         const harness = mountPreviewZoomHarness({viewMode: 'cleaned'});
-        harness.surface.dispatchEvent(new MouseEvent('dblclick', {
-            bubbles: true,
-            cancelable: true,
-            clientX: 250,
-            clientY: 200,
-        }));
+        harness.surface.dispatchEvent(
+            new MouseEvent('dblclick', {
+                bubbles: true,
+                cancelable: true,
+                clientX: 250,
+                clientY: 200,
+            }),
+        );
         await nextTick();
         expect(harness.stage.style.transform).toContain('scale(2)');
 
         const placementControl = harness.host.querySelector<HTMLElement>('.placement-control');
         expect(placementControl).not.toBeNull();
-        placementControl!.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            cancelable: true,
-            button: 0,
-            clientX: 250,
-            clientY: 200,
-            pointerId: 51,
-        }));
-        harness.surface.dispatchEvent(new PointerEvent('pointermove', {
-            bubbles: true,
-            cancelable: true,
-            clientX: 300,
-            clientY: 225,
-            pointerId: 51,
-        }));
+        placementControl!.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                cancelable: true,
+                button: 0,
+                clientX: 250,
+                clientY: 200,
+                pointerId: 51,
+            }),
+        );
+        harness.surface.dispatchEvent(
+            new PointerEvent('pointermove', {
+                bubbles: true,
+                cancelable: true,
+                clientX: 300,
+                clientY: 225,
+                pointerId: 51,
+            }),
+        );
         await nextTick();
 
         expect(harness.surface.classList).toContain('is-panning-preview');
         expect(harness.stage.style.transform).toContain('translate3d(50px, 25px, 0) scale(2)');
-        harness.surface.dispatchEvent(new PointerEvent('pointerup', {
-            bubbles: true,
-            pointerId: 51,
-        }));
+        harness.surface.dispatchEvent(
+            new PointerEvent('pointerup', {
+                bubbles: true,
+                pointerId: 51,
+            }),
+        );
         await nextTick();
         expect(harness.surface.classList).not.toContain('is-panning-preview');
     });
@@ -5148,152 +5440,173 @@ describe('Scan cleanup components', () => {
             clientY: 100,
             expected: 0.25,
         },
-    ] as const)('maps the original cutter through $rotationDegrees degree rotation', async ({
-        rotationDegrees, clientX, clientY, expected,
-    }) => {
-        const result = spreadPreviewResult();
-        result.pageMetadata.rotationDegrees = rotationDegrees;
-        result.pageMetadata.cutterXPx = 200;
-        for (const output of result.outputs) output.metadata.rotationDegrees = rotationDegrees;
-        const harness = mountPreviewZoomHarness({
-            viewMode: 'original',
-            result,
-        });
-        await nextTick();
-        const cutter = harness.host.querySelector<HTMLElement>('.cutter-control')!;
-        mockPointerCapture(cutter);
-        // The original 1000x800 scan fits into a 500x400 frame. Quarter-turn
-        // analysis X therefore comes from raw Y; a half-turn reverses raw X.
-        cutter.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            pointerId: 9,
-            button: 0,
-            clientX,
-            clientY,
-        }));
-        cutter.dispatchEvent(new PointerEvent('pointerup', {
-            bubbles: true,
-            pointerId: 9,
-            clientX,
-            clientY,
-        }));
-        await nextTick();
+    ] as const)(
+        'maps the original cutter through $rotationDegrees degree rotation',
+        async ({rotationDegrees, clientX, clientY, expected}) => {
+            const result = spreadPreviewResult();
+            result.pageMetadata.rotationDegrees = rotationDegrees;
+            result.pageMetadata.cutterXPx = 200;
+            for (const output of result.outputs) {
+                output.metadata.rotationDegrees = rotationDegrees;
+            }
+            const harness = mountPreviewZoomHarness({
+                viewMode: 'original',
+                result,
+            });
+            await nextTick();
+            const cutter = harness.host.querySelector<HTMLElement>('.cutter-control')!;
+            mockPointerCapture(cutter);
+            // The original 1000x800 scan fits into a 500x400 frame. Quarter-turn
+            // analysis X therefore comes from raw Y; a half-turn reverses raw X.
+            cutter.dispatchEvent(
+                new PointerEvent('pointerdown', {
+                    bubbles: true,
+                    pointerId: 9,
+                    button: 0,
+                    clientX,
+                    clientY,
+                }),
+            );
+            cutter.dispatchEvent(
+                new PointerEvent('pointerup', {
+                    bubbles: true,
+                    pointerId: 9,
+                    clientX,
+                    clientY,
+                }),
+            );
+            await nextTick();
 
-        expect(harness.splitUpdates.at(-1)).toEqual({
-            xNormalized: expected,
-            rotationDegrees,
-        });
-    });
+            expect(harness.splitUpdates.at(-1)).toEqual({
+                xNormalized: expected,
+                rotationDegrees,
+            });
+        },
+    );
 
-    it.each([
-        'move',
-        'resize',
-    ] as const)('commits a zone %s at pointer release rather than the last move', async (operation) => {
+    it.each(['move', 'resize'] as const)('commits a zone %s at pointer release rather than the last move', async (operation) => {
         const zones = ref<IScanCleanupManualZones>({
-            picture: [{
-                layer: 'painter2',
-                polygon: {
-                    rotationDegrees: 0,
-                    points: [
-                        {
-                            xNormalized: 0.1,
-                            yNormalized: 0.1,
-                        },
-                        {
-                            xNormalized: 0.3,
-                            yNormalized: 0.1,
-                        },
-                        {
-                            xNormalized: 0.3,
-                            yNormalized: 0.3,
-                        },
-                        {
-                            xNormalized: 0.1,
-                            yNormalized: 0.3,
-                        },
-                    ],
+            picture: [
+                {
+                    layer: 'painter2',
+                    polygon: {
+                        rotationDegrees: 0,
+                        points: [
+                            {
+                                xNormalized: 0.1,
+                                yNormalized: 0.1,
+                            },
+                            {
+                                xNormalized: 0.3,
+                                yNormalized: 0.1,
+                            },
+                            {
+                                xNormalized: 0.3,
+                                yNormalized: 0.3,
+                            },
+                            {
+                                xNormalized: 0.1,
+                                yNormalized: 0.3,
+                            },
+                        ],
+                    },
                 },
-            }],
+            ],
             fill: [],
         });
-        const harness = mount(defineComponent({setup: () => () => h(ZoneEditorOverlay, {
-            frame: {
-                left: 0,
-                top: 0,
-                width: 100,
-                height: 100,
-            },
-            manualZones: zones.value,
-            rotationDegrees: 0,
-            selected: {
-                kind: 'picture',
-                index: 0,
-            },
-            zoneKind: 'picture',
-            'onUpdate:manualZones': (value: IScanCleanupManualZones) => { zones.value = value; },
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ZoneEditorOverlay, {
+                        frame: {
+                            left: 0,
+                            top: 0,
+                            width: 100,
+                            height: 100,
+                        },
+                        manualZones: zones.value,
+                        rotationDegrees: 0,
+                        selected: {
+                            kind: 'picture',
+                            index: 0,
+                        },
+                        zoneKind: 'picture',
+                        'onUpdate:manualZones': (value: IScanCleanupManualZones) => {
+                            zones.value = value;
+                        },
+                    }),
+            }),
+        );
         const editor = harness.host.querySelector<HTMLElement>('.zone-editor-overlay')!;
         mockPointerCapture(editor);
         vi.spyOn(editor, 'getBoundingClientRect').mockReturnValue(domRect(0, 0, 100, 100));
-        const target = harness.host.querySelector(operation === 'move'
-            ? '.zone-editor-polygon'
-            : '.zone-editor-handle.is-se')!;
-        target.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            pointerId: 7,
-            button: 0,
-            clientX: operation === 'move' ? 20 : 30,
-            clientY: operation === 'move' ? 20 : 30,
-        }));
-        editor.dispatchEvent(new PointerEvent('pointermove', {
-            bubbles: true,
-            pointerId: 7,
-            clientX: 40,
-            clientY: 40,
-        }));
-        editor.dispatchEvent(new PointerEvent('pointerup', {
-            bubbles: true,
-            pointerId: 7,
-            clientX: 60,
-            clientY: 60,
-        }));
+        const target = harness.host.querySelector(operation === 'move' ? '.zone-editor-polygon' : '.zone-editor-handle.is-se')!;
+        target.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                pointerId: 7,
+                button: 0,
+                clientX: operation === 'move' ? 20 : 30,
+                clientY: operation === 'move' ? 20 : 30,
+            }),
+        );
+        editor.dispatchEvent(
+            new PointerEvent('pointermove', {
+                bubbles: true,
+                pointerId: 7,
+                clientX: 40,
+                clientY: 40,
+            }),
+        );
+        editor.dispatchEvent(
+            new PointerEvent('pointerup', {
+                bubbles: true,
+                pointerId: 7,
+                clientX: 60,
+                clientY: 60,
+            }),
+        );
         await nextTick();
 
-        expect(zones.value.picture[0]!.polygon.points).toEqual(operation === 'move' ? [
-            {
-                xNormalized: 0.5,
-                yNormalized: 0.5,
-            },
-            {
-                xNormalized: 0.7,
-                yNormalized: 0.5,
-            },
-            {
-                xNormalized: 0.7,
-                yNormalized: 0.7,
-            },
-            {
-                xNormalized: 0.5,
-                yNormalized: 0.7,
-            },
-        ] : [
-            {
-                xNormalized: 0.1,
-                yNormalized: 0.1,
-            },
-            {
-                xNormalized: 0.6,
-                yNormalized: 0.1,
-            },
-            {
-                xNormalized: 0.6,
-                yNormalized: 0.6,
-            },
-            {
-                xNormalized: 0.1,
-                yNormalized: 0.6,
-            },
-        ]);
+        expect(zones.value.picture[0]!.polygon.points).toEqual(
+            operation === 'move'
+                ? [
+                      {
+                          xNormalized: 0.5,
+                          yNormalized: 0.5,
+                      },
+                      {
+                          xNormalized: 0.7,
+                          yNormalized: 0.5,
+                      },
+                      {
+                          xNormalized: 0.7,
+                          yNormalized: 0.7,
+                      },
+                      {
+                          xNormalized: 0.5,
+                          yNormalized: 0.7,
+                      },
+                  ]
+                : [
+                      {
+                          xNormalized: 0.1,
+                          yNormalized: 0.1,
+                      },
+                      {
+                          xNormalized: 0.6,
+                          yNormalized: 0.1,
+                      },
+                      {
+                          xNormalized: 0.6,
+                          yNormalized: 0.6,
+                      },
+                      {
+                          xNormalized: 0.1,
+                          yNormalized: 0.6,
+                      },
+                  ],
+        );
     });
 
     it('draws a manual zone at navigation zoom without giving the pointer to preview pan', async () => {
@@ -5303,12 +5616,14 @@ describe('Scan cleanup components', () => {
             viewMode: 'cleaned',
             zoneEditing: true,
         });
-        harness.surface.dispatchEvent(new MouseEvent('dblclick', {
-            bubbles: true,
-            cancelable: true,
-            clientX: 250,
-            clientY: 200,
-        }));
+        harness.surface.dispatchEvent(
+            new MouseEvent('dblclick', {
+                bubbles: true,
+                cancelable: true,
+                clientX: 250,
+                clientY: 200,
+            }),
+        );
         await nextTick();
         expect(harness.stage.style.transform).toContain('scale(2)');
 
@@ -5316,30 +5631,36 @@ describe('Scan cleanup components', () => {
         const polygons = harness.host.querySelector<SVGElement>('.zone-editor-polygons')!;
         vi.spyOn(editor, 'getBoundingClientRect').mockReturnValue(domRect(0, 0, 500, 400));
         const editorCapture = mockPointerCapture(editor);
-        polygons.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            button: 0,
-            clientX: 100,
-            clientY: 100,
-            pointerId: 52,
-        }));
+        polygons.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                button: 0,
+                clientX: 100,
+                clientY: 100,
+                pointerId: 52,
+            }),
+        );
 
         expect(editorCapture.setPointerCapture).toHaveBeenCalledWith(52);
         expect(harness.surface.setPointerCapture).not.toHaveBeenCalled();
         expect(harness.surface.classList).not.toContain('is-panning-preview');
 
-        editor.dispatchEvent(new PointerEvent('pointermove', {
-            bubbles: true,
-            clientX: 200,
-            clientY: 200,
-            pointerId: 52,
-        }));
-        editor.dispatchEvent(new PointerEvent('pointerup', {
-            bubbles: true,
-            clientX: 200,
-            clientY: 200,
-            pointerId: 52,
-        }));
+        editor.dispatchEvent(
+            new PointerEvent('pointermove', {
+                bubbles: true,
+                clientX: 200,
+                clientY: 200,
+                pointerId: 52,
+            }),
+        );
+        editor.dispatchEvent(
+            new PointerEvent('pointerup', {
+                bubbles: true,
+                clientX: 200,
+                clientY: 200,
+                pointerId: 52,
+            }),
+        );
 
         expect(updateManualZones).toHaveBeenCalledOnce();
         expect(updateManualZones.mock.calls[0]![0].picture).toHaveLength(1);
@@ -5408,19 +5729,23 @@ describe('Scan cleanup components', () => {
         vi.spyOn(editor, 'getBoundingClientRect').mockReturnValue(domRect(0, 0, 500, 400));
         mockPointerCapture(editor);
         const polygons = harness.host.querySelectorAll<SVGPolygonElement>('.zone-editor-polygon');
-        polygons[0]!.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            button: 0,
-            clientX: 100,
-            clientY: 80,
-            pointerId: 54,
-        }));
-        polygons[0]!.dispatchEvent(new PointerEvent('pointerup', {
-            bubbles: true,
-            clientX: 100,
-            clientY: 80,
-            pointerId: 54,
-        }));
+        polygons[0]!.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                button: 0,
+                clientX: 100,
+                clientY: 80,
+                pointerId: 54,
+            }),
+        );
+        polygons[0]!.dispatchEvent(
+            new PointerEvent('pointerup', {
+                bubbles: true,
+                clientX: 100,
+                clientY: 80,
+                pointerId: 54,
+            }),
+        );
         await nextTick();
         expect(harness.host.querySelectorAll('.zone-editor-polygon.is-selected')).toHaveLength(1);
 
@@ -5434,66 +5759,77 @@ describe('Scan cleanup components', () => {
 
     it('selects an existing manual zone without emitting an unchanged zone list', () => {
         const manualZones: IScanCleanupManualZones = {
-            picture: [{
-                layer: 'painter2',
-                polygon: {
-                    points: [
-                        {
-                            xNormalized: 0.1,
-                            yNormalized: 0.1,
-                        },
-                        {
-                            xNormalized: 0.4,
-                            yNormalized: 0.1,
-                        },
-                        {
-                            xNormalized: 0.4,
-                            yNormalized: 0.5,
-                        },
-                        {
-                            xNormalized: 0.1,
-                            yNormalized: 0.5,
-                        },
-                    ],
-                    rotationDegrees: 0,
+            picture: [
+                {
+                    layer: 'painter2',
+                    polygon: {
+                        points: [
+                            {
+                                xNormalized: 0.1,
+                                yNormalized: 0.1,
+                            },
+                            {
+                                xNormalized: 0.4,
+                                yNormalized: 0.1,
+                            },
+                            {
+                                xNormalized: 0.4,
+                                yNormalized: 0.5,
+                            },
+                            {
+                                xNormalized: 0.1,
+                                yNormalized: 0.5,
+                            },
+                        ],
+                        rotationDegrees: 0,
+                    },
                 },
-            }],
+            ],
             fill: [],
         };
         const updateManualZones = vi.fn<(value: IScanCleanupManualZones) => void>();
         const updateSelected = vi.fn();
-        const harness = mount(defineComponent({setup: () => () => h(ZoneEditorOverlay, {
-            frame: {
-                height: 300,
-                left: 0,
-                top: 0,
-                width: 200,
-            },
-            manualZones,
-            rotationDegrees: 0,
-            selected: null,
-            zoneKind: 'picture',
-            'onUpdate:manualZones': updateManualZones,
-            'onUpdate:selected': updateSelected,
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ZoneEditorOverlay, {
+                        frame: {
+                            height: 300,
+                            left: 0,
+                            top: 0,
+                            width: 200,
+                        },
+                        manualZones,
+                        rotationDegrees: 0,
+                        selected: null,
+                        zoneKind: 'picture',
+                        'onUpdate:manualZones': updateManualZones,
+                        'onUpdate:selected': updateSelected,
+                    }),
+            }),
+        );
         const editor = harness.host.querySelector<HTMLElement>('.zone-editor-overlay')!;
         vi.spyOn(editor, 'getBoundingClientRect').mockReturnValue(domRect(0, 0, 200, 300));
         mockPointerCapture(editor);
         const polygon = harness.host.querySelector<SVGPolygonElement>('.zone-editor-polygon')!;
 
-        polygon.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            button: 0,
-            clientX: 40,
-            clientY: 60,
-            pointerId: 53,
-        }));
-        polygon.dispatchEvent(new PointerEvent('pointerup', {
-            bubbles: true,
-            clientX: 40,
-            clientY: 60,
-            pointerId: 53,
-        }));
+        polygon.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                button: 0,
+                clientX: 40,
+                clientY: 60,
+                pointerId: 53,
+            }),
+        );
+        polygon.dispatchEvent(
+            new PointerEvent('pointerup', {
+                bubbles: true,
+                clientX: 40,
+                clientY: 60,
+                pointerId: 53,
+            }),
+        );
 
         expect(updateSelected).toHaveBeenCalledOnce();
         expect(updateSelected).toHaveBeenCalledWith({
@@ -5507,50 +5843,57 @@ describe('Scan cleanup components', () => {
         const disabled = ref(false);
         const zones = ref<IScanCleanupManualZones>({
             picture: [],
-            fill: [{
-                points: [
-                    {
-                        xNormalized: 0.2,
-                        yNormalized: 0.2,
-                    },
-                    {
-                        xNormalized: 0.4,
-                        yNormalized: 0.2,
-                    },
-                    {
-                        xNormalized: 0.4,
-                        yNormalized: 0.4,
-                    },
-                    {
-                        xNormalized: 0.2,
-                        yNormalized: 0.4,
-                    },
-                ],
-                rotationDegrees: 0,
-            }],
+            fill: [
+                {
+                    points: [
+                        {
+                            xNormalized: 0.2,
+                            yNormalized: 0.2,
+                        },
+                        {
+                            xNormalized: 0.4,
+                            yNormalized: 0.2,
+                        },
+                        {
+                            xNormalized: 0.4,
+                            yNormalized: 0.4,
+                        },
+                        {
+                            xNormalized: 0.2,
+                            yNormalized: 0.4,
+                        },
+                    ],
+                    rotationDegrees: 0,
+                },
+            ],
         });
         const selected = ref<IScanCleanupZoneSelection | null>(null);
         const updates = vi.fn<(value: IScanCleanupManualZones) => void>();
-        const harness = mount(defineComponent({setup: () => () => h(ZoneEditorOverlay, {
-            disabled: disabled.value,
-            frame: {
-                height: 300,
-                left: 0,
-                top: 0,
-                width: 200,
-            },
-            manualZones: zones.value,
-            rotationDegrees: 0,
-            selected: selected.value,
-            zoneKind: 'fill',
-            'onUpdate:manualZones': (value: IScanCleanupManualZones) => {
-                updates(value);
-                zones.value = value;
-            },
-            'onUpdate:selected': (value: IScanCleanupZoneSelection | null) => {
-                selected.value = value;
-            },
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ZoneEditorOverlay, {
+                        disabled: disabled.value,
+                        frame: {
+                            height: 300,
+                            left: 0,
+                            top: 0,
+                            width: 200,
+                        },
+                        manualZones: zones.value,
+                        rotationDegrees: 0,
+                        selected: selected.value,
+                        zoneKind: 'fill',
+                        'onUpdate:manualZones': (value: IScanCleanupManualZones) => {
+                            updates(value);
+                            zones.value = value;
+                        },
+                        'onUpdate:selected': (value: IScanCleanupZoneSelection | null) => {
+                            selected.value = value;
+                        },
+                    }),
+            }),
+        );
         const polygon = harness.host.querySelector<SVGPolygonElement>('.zone-editor-polygon')!;
         expect(polygon.getAttribute('tabindex')).toBe('0');
 
@@ -5562,79 +5905,97 @@ describe('Scan cleanup components', () => {
         });
         const corner = harness.host.querySelector<HTMLButtonElement>('.zone-editor-handle.is-se')!;
         corner.focus();
-        corner.dispatchEvent(new KeyboardEvent('keydown', {
-            bubbles: true,
-            key: 'ArrowRight',
-        }));
+        corner.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                bubbles: true,
+                key: 'ArrowRight',
+            }),
+        );
         // Each key press is its own task; the view updates between them.
         await nextTick();
-        corner.dispatchEvent(new KeyboardEvent('keydown', {
-            bubbles: true,
-            key: 'ArrowDown',
-            shiftKey: true,
-        }));
+        corner.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                bubbles: true,
+                key: 'ArrowDown',
+                shiftKey: true,
+            }),
+        );
         await nextTick();
         expect(updates).toHaveBeenCalledTimes(2);
-        const points = harness.host.querySelector('.zone-editor-polygon')!.getAttribute('points')!
-            .split(' ').map(point => point.split(',').map(Number));
+        const points = harness.host
+            .querySelector('.zone-editor-polygon')!
+            .getAttribute('points')!
+            .split(' ')
+            .map((point) => point.split(',').map(Number));
         expect(Math.max(...points.map(([x]) => x!))).toBeCloseTo(0.41);
-        expect(Math.max(...points.map(([
-            , y,
-        ]) => y!))).toBeCloseTo(0.45);
+        expect(Math.max(...points.map(([, y]) => y!))).toBeCloseTo(0.45);
         expect(Math.min(...points.map(([x]) => x!))).toBeCloseTo(0.2);
 
         disabled.value = true;
         await nextTick();
-        harness.host.querySelector('.zone-editor-handle.is-se')!.dispatchEvent(new KeyboardEvent('keydown', {
-            bubbles: true,
-            key: 'ArrowRight',
-        }));
+        harness.host.querySelector('.zone-editor-handle.is-se')!.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                bubbles: true,
+                key: 'ArrowRight',
+            }),
+        );
         expect(updates, 'a disabled preview takes no edit').toHaveBeenCalledTimes(2);
     });
 
     it('drops a zone drawn across the moment edits become disabled', async () => {
         const disabled = ref(false);
         const updateManualZones = vi.fn<(value: IScanCleanupManualZones) => void>();
-        const harness = mount(defineComponent({setup: () => () => h(ZoneEditorOverlay, {
-            disabled: disabled.value,
-            frame: {
-                height: 300,
-                left: 0,
-                top: 0,
-                width: 200,
-            },
-            rotationDegrees: 0,
-            selected: null,
-            zoneKind: 'picture',
-            'onUpdate:manualZones': updateManualZones,
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ZoneEditorOverlay, {
+                        disabled: disabled.value,
+                        frame: {
+                            height: 300,
+                            left: 0,
+                            top: 0,
+                            width: 200,
+                        },
+                        rotationDegrees: 0,
+                        selected: null,
+                        zoneKind: 'picture',
+                        'onUpdate:manualZones': updateManualZones,
+                    }),
+            }),
+        );
         const editor = harness.host.querySelector<HTMLElement>('.zone-editor-overlay')!;
         vi.spyOn(editor, 'getBoundingClientRect').mockReturnValue(domRect(0, 0, 200, 300));
         const capture = mockPointerCapture(editor);
-        harness.host.querySelector<SVGElement>('.zone-editor-polygons')!.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            button: 0,
-            clientX: 20,
-            clientY: 20,
-            pointerId: 54,
-        }));
-        editor.dispatchEvent(new PointerEvent('pointermove', {
-            bubbles: true,
-            clientX: 120,
-            clientY: 160,
-            pointerId: 54,
-        }));
+        harness.host.querySelector<SVGElement>('.zone-editor-polygons')!.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                button: 0,
+                clientX: 20,
+                clientY: 20,
+                pointerId: 54,
+            }),
+        );
+        editor.dispatchEvent(
+            new PointerEvent('pointermove', {
+                bubbles: true,
+                clientX: 120,
+                clientY: 160,
+                pointerId: 54,
+            }),
+        );
         await nextTick();
         expect(harness.host.querySelector('.zone-editor-polygon.is-draft')).not.toBeNull();
 
         disabled.value = true;
         await nextTick();
-        editor.dispatchEvent(new PointerEvent('pointerup', {
-            bubbles: true,
-            clientX: 120,
-            clientY: 160,
-            pointerId: 54,
-        }));
+        editor.dispatchEvent(
+            new PointerEvent('pointerup', {
+                bubbles: true,
+                clientX: 120,
+                clientY: 160,
+                pointerId: 54,
+            }),
+        );
 
         expect(harness.host.querySelector('.zone-editor-polygon.is-draft')).toBeNull();
         expect(capture.hasPointerCapture(54)).toBe(false);
@@ -5681,75 +6042,76 @@ describe('Scan cleanup components', () => {
             fill: [],
         });
         const selected = ref<IScanCleanupZoneSelection | null>(null);
-        const harness = mount(defineComponent({setup: () => () => h(ZoneEditorOverlay, {
-            frame: {
-                height: 300,
-                left: 0,
-                top: 0,
-                width: 200,
-            },
-            manualZones: zones.value,
-            rotationDegrees: 0,
-            selected: selected.value,
-            zoneKind: 'picture',
-            'onUpdate:manualZones': (value: IScanCleanupManualZones) => {
-                zones.value = value;
-            },
-            'onUpdate:selected': (value: IScanCleanupZoneSelection | null) => {
-                selected.value = value;
-            },
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ZoneEditorOverlay, {
+                        frame: {
+                            height: 300,
+                            left: 0,
+                            top: 0,
+                            width: 200,
+                        },
+                        manualZones: zones.value,
+                        rotationDegrees: 0,
+                        selected: selected.value,
+                        zoneKind: 'picture',
+                        'onUpdate:manualZones': (value: IScanCleanupManualZones) => {
+                            zones.value = value;
+                        },
+                        'onUpdate:selected': (value: IScanCleanupZoneSelection | null) => {
+                            selected.value = value;
+                        },
+                    }),
+            }),
+        );
         const editor = harness.host.querySelector<HTMLElement>('.zone-editor-overlay')!;
         vi.spyOn(editor, 'getBoundingClientRect').mockReturnValue(domRect(0, 0, 200, 300));
         mockPointerCapture(editor);
 
         const initialPolygons = [...harness.host.querySelectorAll<SVGPolygonElement>('.zone-editor-polygon')];
         expect(initialPolygons).toHaveLength(3);
-        const [
-            firstPolygon,
-            secondPolygon,
-            thirdPolygon,
-        ] = initialPolygons;
+        const [firstPolygon, secondPolygon, thirdPolygon] = initialPolygons;
 
         // Move the first zone and verify all three polygon DOM nodes stay identical.
-        firstPolygon!.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            button: 0,
-            clientX: 30,
-            clientY: 45,
-            pointerId: 61,
-        }));
-        editor.dispatchEvent(new PointerEvent('pointermove', {
-            bubbles: true,
-            clientX: 40,
-            clientY: 60,
-            pointerId: 61,
-        }));
-        editor.dispatchEvent(new PointerEvent('pointerup', {
-            bubbles: true,
-            clientX: 40,
-            clientY: 60,
-            pointerId: 61,
-        }));
+        firstPolygon!.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                button: 0,
+                clientX: 30,
+                clientY: 45,
+                pointerId: 61,
+            }),
+        );
+        editor.dispatchEvent(
+            new PointerEvent('pointermove', {
+                bubbles: true,
+                clientX: 40,
+                clientY: 60,
+                pointerId: 61,
+            }),
+        );
+        editor.dispatchEvent(
+            new PointerEvent('pointerup', {
+                bubbles: true,
+                clientX: 40,
+                clientY: 60,
+                pointerId: 61,
+            }),
+        );
         await nextTick();
-        expect([...harness.host.querySelectorAll('.zone-editor-polygon')]).toEqual([
-            firstPolygon,
-            secondPolygon,
-            thirdPolygon,
-        ]);
+        expect([...harness.host.querySelectorAll('.zone-editor-polygon')]).toEqual([firstPolygon, secondPolygon, thirdPolygon]);
 
         // Resize the selected first zone via keyboard and verify DOM identity stays intact.
         const seHandle = harness.host.querySelector<HTMLButtonElement>('.zone-editor-handle.is-se')!;
-        seHandle.dispatchEvent(new KeyboardEvent('keydown', {
-            bubbles: true,
-            key: 'ArrowRight',
-        }));
+        seHandle.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                bubbles: true,
+                key: 'ArrowRight',
+            }),
+        );
         await nextTick();
-        expect([...harness.host.querySelectorAll('.zone-editor-polygon')]).toEqual([
-            firstPolygon,
-            secondPolygon,
-            thirdPolygon,
-        ]);
+        expect([...harness.host.querySelectorAll('.zone-editor-polygon')]).toEqual([firstPolygon, secondPolygon, thirdPolygon]);
 
         // Delete the first zone; the surviving second and third zones keep their original DOM elements.
         harness.host.querySelector<HTMLButtonElement>('.zone-editor-delete')!.click();
@@ -5813,11 +6175,7 @@ describe('Scan cleanup components', () => {
             polygon: makeSquare(0.7, 0.1),
         };
         const manualZonesRef = ref<IScanCleanupManualZones>({
-            picture: [
-                zoneA,
-                zoneB,
-                zoneC,
-            ],
+            picture: [zoneA, zoneB, zoneC],
             fill: [],
         });
         const harness = mountPreviewZoomHarness({
@@ -5846,11 +6204,7 @@ describe('Scan cleanup components', () => {
         await nextTick();
 
         manualZonesRef.value = {
-            picture: [
-                zoneA,
-                zoneB,
-                zoneC,
-            ],
+            picture: [zoneA, zoneB, zoneC],
             fill: [],
         };
         await nextTick();
@@ -5863,10 +6217,7 @@ describe('Scan cleanup components', () => {
         // Deleting now removes B, leaving A and C intact.
         harness.host.querySelector<HTMLButtonElement>('.zone-editor-delete')!.click();
         await nextTick();
-        expect(manualZonesRef.value.picture).toEqual([
-            zoneA,
-            zoneC,
-        ]);
+        expect(manualZonesRef.value.picture).toEqual([zoneA, zoneC]);
 
         // Overlapping picture zones with identical coordinates but different layers also stay distinct across undo.
         const eraserZone = {
@@ -5878,10 +6229,7 @@ describe('Scan cleanup components', () => {
             polygon: makeSquare(0.2, 0.2),
         };
         manualZonesRef.value = {
-            picture: [
-                eraserZone,
-                painterZone,
-            ],
+            picture: [eraserZone, painterZone],
             fill: [],
         };
         await nextTick();
@@ -5896,10 +6244,7 @@ describe('Scan cleanup components', () => {
         survivingPainter.focus();
         await nextTick();
         manualZonesRef.value = {
-            picture: [
-                eraserZone,
-                painterZone,
-            ],
+            picture: [eraserZone, painterZone],
             fill: [],
         };
         await nextTick();
@@ -5914,22 +6259,26 @@ describe('Scan cleanup components', () => {
     it('toggles preview zoom between fit and bitmap 100% on double-click', async () => {
         const harness = mountPreviewZoomHarness();
 
-        harness.surface.dispatchEvent(new MouseEvent('dblclick', {
-            bubbles: true,
-            cancelable: true,
-            clientX: 250,
-            clientY: 200,
-        }));
+        harness.surface.dispatchEvent(
+            new MouseEvent('dblclick', {
+                bubbles: true,
+                cancelable: true,
+                clientX: 250,
+                clientY: 200,
+            }),
+        );
         await nextTick();
         expect(harness.surface.dataset.previewZoomMode).toBe('custom');
         expect(harness.surface.dataset.previewZoomPercent).toBe('100');
         expect(harness.stage.style.transform).toContain('scale(2)');
-        harness.surface.dispatchEvent(new MouseEvent('dblclick', {
-            bubbles: true,
-            cancelable: true,
-            clientX: 250,
-            clientY: 200,
-        }));
+        harness.surface.dispatchEvent(
+            new MouseEvent('dblclick', {
+                bubbles: true,
+                cancelable: true,
+                clientX: 250,
+                clientY: 200,
+            }),
+        );
         await nextTick();
         expect(harness.surface.dataset.previewZoomMode).toBe('fit');
         expect(harness.surface.dataset.previewZoomPercent).toBe('50');
@@ -5938,32 +6287,40 @@ describe('Scan cleanup components', () => {
 
     it('keeps zoom and pan aligned when switching between original and cleaned views', async () => {
         const harness = mountPreviewZoomHarness();
-        harness.surface.dispatchEvent(new MouseEvent('dblclick', {
-            bubbles: true,
-            cancelable: true,
-            clientX: 250,
-            clientY: 200,
-        }));
+        harness.surface.dispatchEvent(
+            new MouseEvent('dblclick', {
+                bubbles: true,
+                cancelable: true,
+                clientX: 250,
+                clientY: 200,
+            }),
+        );
         await nextTick();
-        harness.surface.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            cancelable: true,
-            button: 0,
-            clientX: 250,
-            clientY: 200,
-            pointerId: 42,
-        }));
-        harness.surface.dispatchEvent(new PointerEvent('pointermove', {
-            bubbles: true,
-            cancelable: true,
-            clientX: 300,
-            clientY: 225,
-            pointerId: 42,
-        }));
-        harness.surface.dispatchEvent(new PointerEvent('pointerup', {
-            bubbles: true,
-            pointerId: 42,
-        }));
+        harness.surface.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                cancelable: true,
+                button: 0,
+                clientX: 250,
+                clientY: 200,
+                pointerId: 42,
+            }),
+        );
+        harness.surface.dispatchEvent(
+            new PointerEvent('pointermove', {
+                bubbles: true,
+                cancelable: true,
+                clientX: 300,
+                clientY: 225,
+                pointerId: 42,
+            }),
+        );
+        harness.surface.dispatchEvent(
+            new PointerEvent('pointerup', {
+                bubbles: true,
+                pointerId: 42,
+            }),
+        );
         await nextTick();
         const originalTransform = harness.stage.style.transform;
         const originalZoom = harness.surface.dataset.previewZoomPercent;
@@ -5981,24 +6338,29 @@ describe('Scan cleanup components', () => {
         const manualSplit = ref<IScanCleanupNormalizedSplit | null>(null);
         const result = shallowRef(spreadPreviewResult());
         const splitUpdates: Array<IScanCleanupNormalizedSplit | null> = [];
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: result.value,
-            resultCurrent: true,
-            loading: loading.value,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: 1,
-            totalPages: 3,
-            manualSplit: manualSplit.value,
-            readingOrder: 'ltr',
-            'onUpdate:manualSplit': (value: IScanCleanupNormalizedSplit | null) => {
-                splitUpdates.push(value);
-                manualSplit.value = value;
-                loading.value = true;
-            },
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: result.value,
+                        resultCurrent: true,
+                        loading: loading.value,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: 1,
+                        totalPages: 3,
+                        manualSplit: manualSplit.value,
+                        readingOrder: 'ltr',
+                        'onUpdate:manualSplit': (value: IScanCleanupNormalizedSplit | null) => {
+                            splitUpdates.push(value);
+                            manualSplit.value = value;
+                            loading.value = true;
+                        },
+                    }),
+            }),
+        );
 
         const cutter = harness.host.querySelector<HTMLButtonElement>('.cutter-control');
         expect(cutter).not.toBeNull();
@@ -6017,21 +6379,27 @@ describe('Scan cleanup components', () => {
             toJSON: () => ({}),
         });
         const capture = mockPointerCapture(cutter!);
-        cutter!.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            clientX: 600,
-            pointerId: 1,
-        }));
+        cutter!.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                clientX: 600,
+                pointerId: 1,
+            }),
+        );
         expect(splitUpdates).toEqual([]);
-        cutter!.dispatchEvent(new PointerEvent('pointerup', {
-            bubbles: true,
-            clientX: 600,
-            pointerId: 1,
-        }));
-        expect(splitUpdates).toEqual([{
-            xNormalized: 0.6,
-            rotationDegrees: 0,
-        }]);
+        cutter!.dispatchEvent(
+            new PointerEvent('pointerup', {
+                bubbles: true,
+                clientX: 600,
+                pointerId: 1,
+            }),
+        );
+        expect(splitUpdates).toEqual([
+            {
+                xNormalized: 0.6,
+                rotationDegrees: 0,
+            },
+        ]);
         expect(capture.releasePointerCapture).toHaveBeenCalledWith(1);
         await nextTick();
         expect(harness.host.querySelector('.cutter-control')).not.toBeNull();
@@ -6048,26 +6416,33 @@ describe('Scan cleanup components', () => {
         await nextTick();
         const persistentCutter = harness.host.querySelector<HTMLButtonElement>('.cutter-control');
         expect(persistentCutter).not.toBeNull();
-        vi.spyOn(harness.host.querySelector<HTMLElement>('.cutter-stage')!, 'getBoundingClientRect')
-            .mockReturnValue(domRect(0, 0, 1000, 800));
+        vi.spyOn(harness.host.querySelector<HTMLElement>('.cutter-stage')!, 'getBoundingClientRect').mockReturnValue(
+            domRect(0, 0, 1000, 800),
+        );
         mockPointerCapture(persistentCutter!);
 
-        persistentCutter!.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            clientX: 550,
-            pointerId: 2,
-        }));
-        persistentCutter!.dispatchEvent(new KeyboardEvent('keydown', {
-            bubbles: true,
-            cancelable: true,
-            key: 'Escape',
-        }));
+        persistentCutter!.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                clientX: 550,
+                pointerId: 2,
+            }),
+        );
+        persistentCutter!.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                bubbles: true,
+                cancelable: true,
+                key: 'Escape',
+            }),
+        );
         const updateCountAfterEscape = splitUpdates.length;
-        persistentCutter!.dispatchEvent(new PointerEvent('pointermove', {
-            bubbles: true,
-            clientX: 700,
-            pointerId: 2,
-        }));
+        persistentCutter!.dispatchEvent(
+            new PointerEvent('pointermove', {
+                bubbles: true,
+                clientX: 700,
+                pointerId: 2,
+            }),
+        );
         expect(splitUpdates).toHaveLength(updateCountAfterEscape);
 
         persistentCutter!.dispatchEvent(new MouseEvent('dblclick', {bubbles: true}));
@@ -6085,24 +6460,26 @@ describe('Scan cleanup components', () => {
         const commitCurrentManualSplit = vi.fn((value: IScanCleanupNormalizedSplit | null) => {
             sessionWrites.override(value);
         });
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: spreadPreviewResult(),
-            resultCurrent: true,
-            loading: false,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: 1,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-            'onUpdate:manualSplit': commitCurrentManualSplit,
-        })}));
-        mockPreviewGeometry(harness.host, [
-            domRect(0, 0, 500, 800),
-            domRect(500, 0, 500, 800),
-        ]);
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: spreadPreviewResult(),
+                        resultCurrent: true,
+                        loading: false,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: 1,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                        'onUpdate:manualSplit': commitCurrentManualSplit,
+                    }),
+            }),
+        );
+        mockPreviewGeometry(harness.host, [domRect(0, 0, 500, 800), domRect(500, 0, 500, 800)]);
 
         const overlay = harness.host.querySelector<HTMLElement>('.drag-overlay-layer')!;
         const resultLayer = harness.host.querySelector<HTMLElement>('.preview-result-layer')!;
@@ -6110,32 +6487,38 @@ describe('Scan cleanup components', () => {
         expect(resultLayer.contains(overlay)).toBe(false);
         const cutter = overlay.querySelector<HTMLButtonElement>('.cutter-control')!;
         mockPointerCapture(cutter);
-        cutter.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            clientX: 600,
-            clientY: 400,
-            pointerId: 11,
-        }));
-        cutter.dispatchEvent(new PointerEvent('pointermove', {
-            bubbles: true,
-            clientX: 700,
-            clientY: 400,
-            pointerId: 11,
-        }));
+        cutter.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                clientX: 600,
+                clientY: 400,
+                pointerId: 11,
+            }),
+        );
+        cutter.dispatchEvent(
+            new PointerEvent('pointermove', {
+                bubbles: true,
+                clientX: 700,
+                clientY: 400,
+                pointerId: 11,
+            }),
+        );
         await nextTick();
 
         expect(commitCurrentManualSplit).not.toHaveBeenCalled();
-        expect(Object.values(sessionWrites).every(spy => spy.mock.calls.length === 0)).toBe(true);
+        expect(Object.values(sessionWrites).every((spy) => spy.mock.calls.length === 0)).toBe(true);
         expect(harness.host.querySelector('.cutter-source-underlay')).not.toBeNull();
         expect(resultLayer.classList.contains('is-cutter-source-dimmed')).toBe(true);
         expect(cutter.style.insetInlineStart).toBe('700px');
 
-        cutter.dispatchEvent(new PointerEvent('pointerup', {
-            bubbles: true,
-            clientX: 700,
-            clientY: 400,
-            pointerId: 11,
-        }));
+        cutter.dispatchEvent(
+            new PointerEvent('pointerup', {
+                bubbles: true,
+                clientX: 700,
+                clientY: 400,
+                pointerId: 11,
+            }),
+        );
         expect(commitCurrentManualSplit).toHaveBeenCalledOnce();
         expect(commitCurrentManualSplit).toHaveBeenCalledWith({
             xNormalized: 0.7,
@@ -6150,63 +6533,80 @@ describe('Scan cleanup components', () => {
 
     it('rolls an active cutter back on Escape and aborts lost capture without committing', async () => {
         const commitCurrentManualSplit = vi.fn();
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: spreadPreviewResult(),
-            resultCurrent: true,
-            loading: false,
-            error: '',
-            viewMode: 'original',
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: 1,
-            totalPages: 3,
-            manualSplit: {
-                xNormalized: 0.4,
-                rotationDegrees: 0,
-            },
-            readingOrder: 'ltr',
-            'onUpdate:manualSplit': commitCurrentManualSplit,
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: spreadPreviewResult(),
+                        resultCurrent: true,
+                        loading: false,
+                        error: '',
+                        viewMode: 'original',
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: 1,
+                        totalPages: 3,
+                        manualSplit: {
+                            xNormalized: 0.4,
+                            rotationDegrees: 0,
+                        },
+                        readingOrder: 'ltr',
+                        'onUpdate:manualSplit': commitCurrentManualSplit,
+                    }),
+            }),
+        );
         mockPreviewGeometry(harness.host, []);
         const cutter = harness.host.querySelector<HTMLButtonElement>('.cutter-control')!;
         const capture = mockPointerCapture(cutter);
 
-        cutter.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            clientX: 400,
-            pointerId: 12,
-        }));
-        cutter.dispatchEvent(new PointerEvent('pointermove', {
-            bubbles: true,
-            clientX: 700,
-            pointerId: 12,
-        }));
+        cutter.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                clientX: 400,
+                pointerId: 12,
+            }),
+        );
+        cutter.dispatchEvent(
+            new PointerEvent('pointermove', {
+                bubbles: true,
+                clientX: 700,
+                pointerId: 12,
+            }),
+        );
         await nextTick();
         expect(cutter.style.insetInlineStart).toBe('700px');
-        cutter.dispatchEvent(new KeyboardEvent('keydown', {
-            bubbles: true,
-            cancelable: true,
-            key: 'Escape',
-        }));
+        cutter.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                bubbles: true,
+                cancelable: true,
+                key: 'Escape',
+            }),
+        );
         await nextTick();
         expect(cutter.style.insetInlineStart).toBe('400px');
         expect(commitCurrentManualSplit).not.toHaveBeenCalled();
         expect(capture.releasePointerCapture).toHaveBeenCalledWith(12);
 
-        cutter.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            clientX: 400,
-            pointerId: 13,
-        }));
-        cutter.dispatchEvent(new PointerEvent('pointermove', {
-            bubbles: true,
-            clientX: 650,
-            pointerId: 13,
-        }));
-        cutter.dispatchEvent(new PointerEvent('lostpointercapture', {
-            bubbles: true,
-            pointerId: 13,
-        }));
+        cutter.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                clientX: 400,
+                pointerId: 13,
+            }),
+        );
+        cutter.dispatchEvent(
+            new PointerEvent('pointermove', {
+                bubbles: true,
+                clientX: 650,
+                pointerId: 13,
+            }),
+        );
+        cutter.dispatchEvent(
+            new PointerEvent('lostpointercapture', {
+                bubbles: true,
+                pointerId: 13,
+            }),
+        );
         await nextTick();
         expect(cutter.style.insetInlineStart).toBe('400px');
         expect(commitCurrentManualSplit).not.toHaveBeenCalled();
@@ -6220,59 +6620,71 @@ describe('Scan cleanup components', () => {
             classification: vi.fn(),
             ipc: vi.fn(),
         };
-        const commitCurrentManualContentBox = vi.fn((
-            half: TScanCleanupOutputHalf,
-            value: IScanCleanupNormalizedRect | null,
-        ) => sessionWrites.override(half, value));
-        const manualContentBoxes = {full: {
-            xNormalized: 0.1,
-            yNormalized: 0.1,
-            widthNormalized: 0.3,
-            heightNormalized: 0.4,
-            rotationDegrees: 90 as const,
-        }};
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: rotatedSinglePreviewResult(),
-            resultCurrent: true,
-            loading: false,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'top-left',
-            pageNumber: 1,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-            manualContentBoxes,
-            'onUpdate:manualContentBox': commitCurrentManualContentBox,
-        })}));
+        const commitCurrentManualContentBox = vi.fn((half: TScanCleanupOutputHalf, value: IScanCleanupNormalizedRect | null) =>
+            sessionWrites.override(half, value),
+        );
+        const manualContentBoxes = {
+            full: {
+                xNormalized: 0.1,
+                yNormalized: 0.1,
+                widthNormalized: 0.3,
+                heightNormalized: 0.4,
+                rotationDegrees: 90 as const,
+            },
+        };
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: rotatedSinglePreviewResult(),
+                        resultCurrent: true,
+                        loading: false,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'top-left',
+                        pageNumber: 1,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                        manualContentBoxes,
+                        'onUpdate:manualContentBox': commitCurrentManualContentBox,
+                    }),
+            }),
+        );
         mockPreviewGeometry(harness.host, [domRect(0, 0, 400, 1000)]);
         const handle = harness.host.querySelector<HTMLButtonElement>('.content-handle.is-e')!;
         mockPointerCapture(handle);
 
-        handle.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            clientX: 320,
-            clientY: 300,
-            pointerId: 14,
-        }));
-        handle.dispatchEvent(new PointerEvent('pointermove', {
-            bubbles: true,
-            clientX: 360,
-            clientY: 300,
-            pointerId: 14,
-        }));
+        handle.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                clientX: 320,
+                clientY: 300,
+                pointerId: 14,
+            }),
+        );
+        handle.dispatchEvent(
+            new PointerEvent('pointermove', {
+                bubbles: true,
+                clientX: 360,
+                clientY: 300,
+                pointerId: 14,
+            }),
+        );
         await nextTick();
         expect(commitCurrentManualContentBox).not.toHaveBeenCalled();
-        expect(Object.values(sessionWrites).every(spy => spy.mock.calls.length === 0)).toBe(true);
+        expect(Object.values(sessionWrites).every((spy) => spy.mock.calls.length === 0)).toBe(true);
         expect(harness.host.querySelector<HTMLElement>('.content-overlay')?.style.width).toBe('70%');
 
-        handle.dispatchEvent(new PointerEvent('pointerup', {
-            bubbles: true,
-            clientX: 360,
-            clientY: 300,
-            pointerId: 14,
-        }));
+        handle.dispatchEvent(
+            new PointerEvent('pointerup', {
+                bubbles: true,
+                clientX: 360,
+                clientY: 300,
+                pointerId: 14,
+            }),
+        );
         expect(commitCurrentManualContentBox).toHaveBeenCalledOnce();
         expect(commitCurrentManualContentBox).toHaveBeenCalledWith('full', {
             xNormalized: 0.1,
@@ -6301,148 +6713,153 @@ describe('Scan cleanup components', () => {
         const commitCurrentPlacement = vi.fn((half: TScanCleanupOutputHalf, value: TScanCleanupPageAlignment) => {
             sessionWrites.override(half, value);
         });
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result,
-            resultCurrent: true,
-            loading: false,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'top-left',
-            pageNumber: 1,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-            'onUpdate:placement': commitCurrentPlacement,
-        })}));
-        mockPreviewGeometry(harness.host, [
-            domRect(0, 0, 500, 800),
-            domRect(500, 0, 500, 800),
-        ]);
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result,
+                        resultCurrent: true,
+                        loading: false,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'top-left',
+                        pageNumber: 1,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                        'onUpdate:placement': commitCurrentPlacement,
+                    }),
+            }),
+        );
+        mockPreviewGeometry(harness.host, [domRect(0, 0, 500, 800), domRect(500, 0, 500, 800)]);
         const placement = harness.host.querySelector<HTMLElement>('.placement-control')!;
         mockPointerCapture(placement);
 
-        placement.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            clientX: 100,
-            clientY: 100,
-            pointerId: 15,
-        }));
-        placement.dispatchEvent(new PointerEvent('pointermove', {
-            bubbles: true,
-            clientX: 300,
-            clientY: 300,
-            pointerId: 15,
-        }));
+        placement.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                clientX: 100,
+                clientY: 100,
+                pointerId: 15,
+            }),
+        );
+        placement.dispatchEvent(
+            new PointerEvent('pointermove', {
+                bubbles: true,
+                clientX: 300,
+                clientY: 300,
+                pointerId: 15,
+            }),
+        );
         await nextTick();
         expect(commitCurrentPlacement).not.toHaveBeenCalled();
-        expect(Object.values(sessionWrites).every(spy => spy.mock.calls.length === 0)).toBe(true);
+        expect(Object.values(sessionWrites).every((spy) => spy.mock.calls.length === 0)).toBe(true);
         expect(placement.style.left).toBe('40%');
         expect(placement.style.top).toBe('25%');
         expect(harness.host.querySelectorAll('.placement-snap-anchor')).toHaveLength(9);
-        expect(harness.host.querySelector('.placement-snap-anchor.is-nearest')?.getAttribute('style'))
-            .toContain('100%');
+        expect(harness.host.querySelector('.placement-snap-anchor.is-nearest')?.getAttribute('style')).toContain('100%');
         expect(harness.host.querySelector('.placed-image')?.classList.contains('is-drag-placeholder')).toBe(true);
 
-        placement.dispatchEvent(new PointerEvent('pointerup', {
-            bubbles: true,
-            clientX: 300,
-            clientY: 300,
-            pointerId: 15,
-        }));
+        placement.dispatchEvent(
+            new PointerEvent('pointerup', {
+                bubbles: true,
+                clientX: 300,
+                clientY: 300,
+                pointerId: 15,
+            }),
+        );
         expect(commitCurrentPlacement).toHaveBeenCalledOnce();
         expect(commitCurrentPlacement).toHaveBeenCalledWith('left', 'bottom-right');
         expect(sessionWrites.override).toHaveBeenCalledOnce();
         expect(sessionWrites.ipc).not.toHaveBeenCalled();
     });
 
-    it.each(placementAlignments)(
-        'round-trips native %s placement against the retained fold window',
-        async alignment => {
-            const result = spreadPreviewResult();
-            const first = result.outputs[0]!;
-            const [
-                vertical,
-                horizontal = vertical,
-            ] = alignment.split('-');
-            const horizontalOffset = horizontal === 'left' ? 0 : horizontal === 'right' ? 60 : 30;
-            const verticalOffset = vertical === 'top' ? 0 : vertical === 'bottom' ? 40 : 20;
-            const retainedLeftPx = 10 + horizontalOffset;
-            const intrinsicLeftPx = retainedLeftPx - 12;
-            Object.assign(first.metadata, {
-                appliedMargins: {
-                    leftPx: 10,
-                    topPx: 20,
-                    rightPx: 30,
-                    bottomPx: 40,
-                },
-                outputWidthPx: 60,
-                outputHeightPx: 100,
-                canvasWidthPx: 200,
-                canvasHeightPx: 300,
-                matchedCanvasContentWidthPx: 120,
-                matchedCanvasContentHeightPx: 200,
-                matchedCanvasIntrinsicOverflowLeftPx: Math.max(0, -intrinsicLeftPx),
-                foldClipLeftPx: 12,
-                foldClipRightPx: 8,
-                placementOffsetXPx: Math.max(0, intrinsicLeftPx),
-                placementOffsetYPx: 20 + verticalOffset,
-            });
-            const commitCurrentPlacement = vi.fn();
-            const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-                result,
-                resultCurrent: true,
-                loading: false,
-                error: '',
-                viewMode: 'cleaned',
-                matchPageSize: true,
-                alignment,
-                pageNumber: 1,
-                totalPages: 3,
-                manualSplit: null,
-                readingOrder: 'ltr',
-                'onUpdate:placement': commitCurrentPlacement,
-            })}));
-            mockPreviewGeometry(harness.host, [
-                domRect(0, 0, 200, 300),
-                domRect(200, 0, 500, 800),
-            ]);
-            const placement = harness.host.querySelector<HTMLElement>('.placement-control')!;
-            mockPointerCapture(placement);
+    it.each(placementAlignments)('round-trips native %s placement against the retained fold window', async (alignment) => {
+        const result = spreadPreviewResult();
+        const first = result.outputs[0]!;
+        const [vertical, horizontal = vertical] = alignment.split('-');
+        const horizontalOffset = horizontal === 'left' ? 0 : horizontal === 'right' ? 60 : 30;
+        const verticalOffset = vertical === 'top' ? 0 : vertical === 'bottom' ? 40 : 20;
+        const retainedLeftPx = 10 + horizontalOffset;
+        const intrinsicLeftPx = retainedLeftPx - 12;
+        Object.assign(first.metadata, {
+            appliedMargins: {
+                leftPx: 10,
+                topPx: 20,
+                rightPx: 30,
+                bottomPx: 40,
+            },
+            outputWidthPx: 60,
+            outputHeightPx: 100,
+            canvasWidthPx: 200,
+            canvasHeightPx: 300,
+            matchedCanvasContentWidthPx: 120,
+            matchedCanvasContentHeightPx: 200,
+            matchedCanvasIntrinsicOverflowLeftPx: Math.max(0, -intrinsicLeftPx),
+            foldClipLeftPx: 12,
+            foldClipRightPx: 8,
+            placementOffsetXPx: Math.max(0, intrinsicLeftPx),
+            placementOffsetYPx: 20 + verticalOffset,
+        });
+        const commitCurrentPlacement = vi.fn();
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result,
+                        resultCurrent: true,
+                        loading: false,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment,
+                        pageNumber: 1,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                        'onUpdate:placement': commitCurrentPlacement,
+                    }),
+            }),
+        );
+        mockPreviewGeometry(harness.host, [domRect(0, 0, 200, 300), domRect(200, 0, 500, 800)]);
+        const placement = harness.host.querySelector<HTMLElement>('.placement-control')!;
+        mockPointerCapture(placement);
 
-            placement.dispatchEvent(new PointerEvent('pointerdown', {
+        placement.dispatchEvent(
+            new PointerEvent('pointerdown', {
                 bubbles: true,
                 button: 0,
                 clientX: 100,
                 clientY: 100,
                 pointerId: 54,
-            }));
-            await nextTick();
+            }),
+        );
+        await nextTick();
 
-            const anchors = Array.from(harness.host.querySelectorAll<HTMLElement>('.placement-snap-anchor'));
-            const nearestIndex = anchors.findIndex(anchor => anchor.classList.contains('is-nearest'));
-            const nearest = anchors[nearestIndex]!;
-            const expectedLeft = horizontal === 'left' ? 5 : horizontal === 'right' ? 85 : 45;
-            const expectedTop = vertical === 'top'
-                ? 20 / 300 * 100
-                : vertical === 'bottom' ? 260 / 300 * 100 : 140 / 300 * 100;
+        const anchors = Array.from(harness.host.querySelectorAll<HTMLElement>('.placement-snap-anchor'));
+        const nearestIndex = anchors.findIndex((anchor) => anchor.classList.contains('is-nearest'));
+        const nearest = anchors[nearestIndex]!;
+        const expectedLeft = horizontal === 'left' ? 5 : horizontal === 'right' ? 85 : 45;
+        const expectedTop = vertical === 'top' ? (20 / 300) * 100 : vertical === 'bottom' ? (260 / 300) * 100 : (140 / 300) * 100;
 
-            expect(anchors).toHaveLength(9);
-            expect(nearestIndex).toBe(placementAlignments.indexOf(alignment));
-            expect(Number.parseFloat(nearest.style.left)).toBeCloseTo(expectedLeft);
-            expect(Number.parseFloat(nearest.style.top)).toBeCloseTo(expectedTop);
-            expect(Number.parseFloat(placement.style.left)).toBeCloseTo(intrinsicLeftPx / 200 * 100);
+        expect(anchors).toHaveLength(9);
+        expect(nearestIndex).toBe(placementAlignments.indexOf(alignment));
+        expect(Number.parseFloat(nearest.style.left)).toBeCloseTo(expectedLeft);
+        expect(Number.parseFloat(nearest.style.top)).toBeCloseTo(expectedTop);
+        expect(Number.parseFloat(placement.style.left)).toBeCloseTo((intrinsicLeftPx / 200) * 100);
 
-            placement.dispatchEvent(new PointerEvent('pointerup', {
+        placement.dispatchEvent(
+            new PointerEvent('pointerup', {
                 bubbles: true,
                 clientX: 100,
                 clientY: 100,
                 pointerId: 54,
-            }));
+            }),
+        );
 
-            expect(commitCurrentPlacement).not.toHaveBeenCalled();
-        },
-    );
+        expect(commitCurrentPlacement).not.toHaveBeenCalled();
+    });
 
     it('re-fits a margin sweep from native paper geometry without letting the raster escape', async () => {
         const resize = installResizeObserverHarness();
@@ -6463,24 +6880,28 @@ describe('Scan cleanup components', () => {
             placementOffsetYPx: 17,
         });
         const result = shallowRef(initial);
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: result.value,
-            resultCurrent: true,
-            loading: false,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'bottom-right',
-            pageNumber: 1,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: result.value,
+                        resultCurrent: true,
+                        loading: false,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'bottom-right',
+                        pageNumber: 1,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
         await nextTick();
 
         const fitAreas = Array.from(harness.host.querySelectorAll<HTMLElement>('.output-fit-area'));
-        fitAreas.forEach((area, index) => vi.spyOn(area, 'getBoundingClientRect')
-            .mockReturnValue(domRect(index * 500, 0, 500, 800)));
+        fitAreas.forEach((area, index) => vi.spyOn(area, 'getBoundingClientRect').mockReturnValue(domRect(index * 500, 0, 500, 800)));
         resize.trigger();
         await nextTick();
 
@@ -6508,22 +6929,22 @@ describe('Scan cleanup components', () => {
         const paper = harness.host.querySelector<HTMLElement>('.uniform-canvas')!;
         const raster = paper.querySelector<HTMLElement>('.placed-image')!;
         expect(paper.style.width).toBe('500px');
-        expect(Number.parseFloat(paper.style.height)).toBeCloseTo(920 / 620 * 500);
+        expect(Number.parseFloat(paper.style.height)).toBeCloseTo((920 / 620) * 500);
         expect(paper.dataset.frameWidth).toBe('620');
         expect(paper.dataset.frameHeight).toBe('920');
-        expect(Number.parseFloat(raster.style.left)).toBeCloseTo(13 / 620 * 100);
-        expect(Number.parseFloat(raster.style.top)).toBeCloseTo(13 / 920 * 100);
+        expect(Number.parseFloat(raster.style.left)).toBeCloseTo((13 / 620) * 100);
+        expect(Number.parseFloat(raster.style.top)).toBeCloseTo((13 / 920) * 100);
 
         const paperWidth = Number.parseFloat(paper.style.width);
         const paperHeight = Number.parseFloat(paper.style.height);
         const rasterRect = {
-            left: Number.parseFloat(raster.style.left) / 100 * paperWidth,
-            top: Number.parseFloat(raster.style.top) / 100 * paperHeight,
-            width: Number.parseFloat(raster.style.width) / 100 * paperWidth,
-            height: Number.parseFloat(raster.style.height) / 100 * paperHeight,
+            left: (Number.parseFloat(raster.style.left) / 100) * paperWidth,
+            top: (Number.parseFloat(raster.style.top) / 100) * paperHeight,
+            width: (Number.parseFloat(raster.style.width) / 100) * paperWidth,
+            height: (Number.parseFloat(raster.style.height) / 100) * paperHeight,
         };
-        expect(rasterRect.left).toBeCloseTo(13 / 620 * paperWidth);
-        expect(rasterRect.top).toBeCloseTo(13 / 920 * paperHeight);
+        expect(rasterRect.left).toBeCloseTo((13 / 620) * paperWidth);
+        expect(rasterRect.top).toBeCloseTo((13 / 920) * paperHeight);
         expect(rasterRect.left + rasterRect.width).toBeLessThanOrEqual(paperWidth);
         expect(rasterRect.top + rasterRect.height).toBeLessThanOrEqual(paperHeight);
         expect(paper.contains(harness.host.querySelector('.placement-overlay-canvas'))).toBe(true);
@@ -6551,99 +6972,103 @@ describe('Scan cleanup components', () => {
             result: spreadPreviewResult(),
             rotationDegrees: 0 as const,
         },
-    ])('replaces the $label source skeleton with the authoritative native paper rectangle', async ({
-        classification,
-        result: resolvedResult,
-        rotationDegrees,
-    }) => {
-        const resize = installResizeObserverHarness();
-        try {
-            const result = shallowRef<IScanCleanupPreviewResult | null>(null);
-            const loading = ref(true);
-            const source = previewPageSource(1000, 800);
-            const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-                result: result.value,
-                loading: loading.value,
-                error: '',
-                source,
-                layoutClassification: classification,
-                rotationDegrees,
-                viewMode: 'cleaned',
-                matchPageSize: false,
-                alignment: 'top-left',
-                pageNumber: 1,
-                totalPages: 1,
-                manualSplit: null,
-                readingOrder: 'ltr',
-            })}));
-            await Promise.resolve();
-            await nextTick();
+    ])(
+        'replaces the $label source skeleton with the authoritative native paper rectangle',
+        async ({classification, result: resolvedResult, rotationDegrees}) => {
+            const resize = installResizeObserverHarness();
+            try {
+                const result = shallowRef<IScanCleanupPreviewResult | null>(null);
+                const loading = ref(true);
+                const source = previewPageSource(1000, 800);
+                const harness = mount(
+                    defineComponent({
+                        setup: () => () =>
+                            h(ScanCleanupPreviewPane, {
+                                result: result.value,
+                                loading: loading.value,
+                                error: '',
+                                source,
+                                layoutClassification: classification,
+                                rotationDegrees,
+                                viewMode: 'cleaned',
+                                matchPageSize: false,
+                                alignment: 'top-left',
+                                pageNumber: 1,
+                                totalPages: 1,
+                                manualSplit: null,
+                                readingOrder: 'ltr',
+                            }),
+                    }),
+                );
+                await Promise.resolve();
+                await nextTick();
 
-            const mockFitAreas = () => {
-                const areas = Array.from(harness.host.querySelectorAll<HTMLElement>('.output-fit-area'));
-                areas.forEach((area, index) => vi.spyOn(area, 'getBoundingClientRect').mockReturnValue(domRect(
-                    index * (1000 / areas.length),
-                    0,
-                    1000 / areas.length,
-                    760,
-                )));
-                resize.trigger();
-            };
-            mockFitAreas();
-            await nextTick();
-            const skeletonRects = Array.from(
-                harness.host.querySelectorAll<HTMLElement>('.preview-skeleton-page'),
-            ).map(placeholder => ({
-                height: placeholder.style.height,
-                width: placeholder.style.width,
-            }));
-            expect(harness.host.querySelector('.preview-viewport-caption')?.textContent)
-                .toBe('Building cleanup preview…');
+                const mockFitAreas = () => {
+                    const areas = Array.from(harness.host.querySelectorAll<HTMLElement>('.output-fit-area'));
+                    areas.forEach((area, index) =>
+                        vi
+                            .spyOn(area, 'getBoundingClientRect')
+                            .mockReturnValue(domRect(index * (1000 / areas.length), 0, 1000 / areas.length, 760)),
+                    );
+                    resize.trigger();
+                };
+                mockFitAreas();
+                await nextTick();
+                const skeletonRects = Array.from(harness.host.querySelectorAll<HTMLElement>('.preview-skeleton-page')).map(
+                    (placeholder) => ({
+                        height: placeholder.style.height,
+                        width: placeholder.style.width,
+                    }),
+                );
+                expect(harness.host.querySelector('.preview-viewport-caption')?.textContent).toBe('Building cleanup preview…');
 
-            result.value = resolvedResult;
-            loading.value = false;
-            await nextTick();
-            mockFitAreas();
-            await nextTick();
-            const renderedRects = Array.from(
-                harness.host.querySelectorAll<HTMLElement>('.uniform-canvas'),
-            ).map(canvas => ({
-                height: canvas.style.height,
-                width: canvas.style.width,
-            }));
+                result.value = resolvedResult;
+                loading.value = false;
+                await nextTick();
+                mockFitAreas();
+                await nextTick();
+                const renderedRects = Array.from(harness.host.querySelectorAll<HTMLElement>('.uniform-canvas')).map((canvas) => ({
+                    height: canvas.style.height,
+                    width: canvas.style.width,
+                }));
 
-            expect(renderedRects).toEqual(skeletonRects);
-            expect(renderedRects).toHaveLength(classification === 'two-page-spread' ? 2 : 1);
-        } finally {
-            resize.restore();
-        }
-    });
+                expect(renderedRects).toEqual(skeletonRects);
+                expect(renderedRects).toHaveLength(classification === 'two-page-spread' ? 2 : 1);
+            } finally {
+                resize.restore();
+            }
+        },
+    );
 
     it('renders the complete entry sequence from metrics-backed skeleton to content or an exclusive error banner', async () => {
         const result = shallowRef<IScanCleanupPreviewResult | null>(null);
         const loading = ref(true);
         const error = ref('');
         const source = previewPageSource(1000, 800);
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: result.value,
-            loading: loading.value,
-            error: error.value,
-            source,
-            viewMode: 'cleaned',
-            matchPageSize: false,
-            alignment: 'top-left',
-            pageNumber: 1,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: result.value,
+                        loading: loading.value,
+                        error: error.value,
+                        source,
+                        viewMode: 'cleaned',
+                        matchPageSize: false,
+                        alignment: 'top-left',
+                        pageNumber: 1,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
 
         expect(harness.host.querySelector('.preview-skeleton-page')).not.toBeNull();
         expect(harness.host.querySelector('.preview-result-layer')).toBeNull();
         expect(harness.host.querySelector('[role="alert"]')).toBeNull();
         await nextTick();
-        expect(harness.host.querySelector<HTMLElement>('.preview-skeleton-page')?.style.aspectRatio)
-            .toBe('1000 / 800');
+        expect(harness.host.querySelector<HTMLElement>('.preview-skeleton-page')?.style.aspectRatio).toBe('1000 / 800');
 
         result.value = rotatedSinglePreviewResult();
         loading.value = false;
@@ -6665,8 +7090,9 @@ describe('Scan cleanup components', () => {
         await nextTick();
         expect(harness.host.querySelector('.preview-skeleton-page')).toBeNull();
         expect(harness.host.querySelector('.preview-result-layer')).toBeNull();
-        expect(harness.host.querySelector('.preview-message.is-error')?.textContent)
-            .toContain('Preview isn\'t available. You can still run cleanup.');
+        expect(harness.host.querySelector('.preview-message.is-error')?.textContent).toContain(
+            "Preview isn't available. You can still run cleanup.",
+        );
     });
 
     it('reserves the preview stage without painting guessed paper geometry while page metrics are pending', () => {
@@ -6674,19 +7100,24 @@ describe('Scan cleanup components', () => {
             ...previewPageSource(1000, 800),
             getPageMetrics: vi.fn(() => new Promise<never>(() => undefined)),
         };
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: null,
-            loading: true,
-            error: '',
-            source,
-            viewMode: 'cleaned',
-            matchPageSize: false,
-            alignment: 'top-left',
-            pageNumber: 2,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: null,
+                        loading: true,
+                        error: '',
+                        source,
+                        viewMode: 'cleaned',
+                        matchPageSize: false,
+                        alignment: 'top-left',
+                        pageNumber: 2,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
 
         const skeleton = harness.host.querySelector<HTMLElement>('.preview-skeleton-page');
         expect(skeleton).not.toBeNull();
@@ -6695,8 +7126,7 @@ describe('Scan cleanup components', () => {
         expect(skeleton?.style.height).toContain('--app-scan-preview-skeleton-height');
         expect(skeleton?.style.aspectRatio).not.toBe('');
         expect(skeleton?.style.visibility).toBe('hidden');
-        expect(harness.host.querySelector('.preview-viewport-caption')?.textContent)
-            .toBe('Building cleanup preview…');
+        expect(harness.host.querySelector('.preview-viewport-caption')?.textContent).toBe('Building cleanup preview…');
         harness.unmount();
     });
 
@@ -6707,19 +7137,24 @@ describe('Scan cleanup components', () => {
                 throw new Error('page metrics unavailable');
             }),
         };
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: null,
-            loading: true,
-            error: '',
-            source,
-            viewMode: 'cleaned',
-            matchPageSize: false,
-            alignment: 'top-left',
-            pageNumber: 2,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: null,
+                        loading: true,
+                        error: '',
+                        source,
+                        viewMode: 'cleaned',
+                        matchPageSize: false,
+                        alignment: 'top-left',
+                        pageNumber: 2,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
 
         await Promise.resolve();
         await nextTick();
@@ -6739,28 +7174,32 @@ describe('Scan cleanup components', () => {
             })),
         };
         const result = shallowRef<IScanCleanupPreviewResult | null>(null);
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: result.value,
-            loading: true,
-            error: '',
-            source,
-            viewMode: 'cleaned',
-            matchPageSize: false,
-            alignment: 'top-left',
-            pageNumber: 1,
-            totalPages: 3,
-            layoutClassification: 'two-page-spread',
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: result.value,
+                        loading: true,
+                        error: '',
+                        source,
+                        viewMode: 'cleaned',
+                        matchPageSize: false,
+                        alignment: 'top-left',
+                        pageNumber: 1,
+                        totalPages: 3,
+                        layoutClassification: 'two-page-spread',
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
 
         await Promise.resolve();
         await nextTick();
 
         expect(source.renderPage).not.toHaveBeenCalled();
         expect(harness.host.querySelectorAll('.preview-skeleton-page')).toHaveLength(2);
-        expect(harness.host.querySelector('.preview-skeleton-page img, .preview-skeleton-page canvas'))
-            .toBeNull();
+        expect(harness.host.querySelector('.preview-skeleton-page img, .preview-skeleton-page canvas')).toBeNull();
 
         result.value = spreadPreviewResult(1);
         await nextTick();
@@ -6769,19 +7208,24 @@ describe('Scan cleanup components', () => {
     });
 
     it('retains a cleaned result while authoritative output topology refreshes', async () => {
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: spreadPreviewResult(1),
-            loading: true,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: false,
-            alignment: 'top-left',
-            pageNumber: 1,
-            totalPages: 3,
-            layoutClassification: 'single-uncut-page',
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: spreadPreviewResult(1),
+                        loading: true,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: false,
+                        alignment: 'top-left',
+                        pageNumber: 1,
+                        totalPages: 3,
+                        layoutClassification: 'single-uncut-page',
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
 
         await nextTick();
 
@@ -6795,26 +7239,28 @@ describe('Scan cleanup components', () => {
         const resize = installResizeObserverHarness();
         try {
             const result = shallowRef(spreadPreviewResult());
-            const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-                result: result.value,
-                loading: false,
-                error: '',
-                viewMode: 'cleaned',
-                matchPageSize: false,
-                alignment: 'top-left',
-                pageNumber: 1,
-                totalPages: 3,
-                manualSplit: null,
-                readingOrder: 'ltr',
-            })}));
+            const harness = mount(
+                defineComponent({
+                    setup: () => () =>
+                        h(ScanCleanupPreviewPane, {
+                            result: result.value,
+                            loading: false,
+                            error: '',
+                            viewMode: 'cleaned',
+                            matchPageSize: false,
+                            alignment: 'top-left',
+                            pageNumber: 1,
+                            totalPages: 3,
+                            manualSplit: null,
+                            readingOrder: 'ltr',
+                        }),
+                }),
+            );
             let areaWidth = 500;
             Array.from(harness.host.querySelectorAll<HTMLElement>('.output-fit-area')).forEach((area, index) => {
-                vi.spyOn(area, 'getBoundingClientRect').mockImplementation(() => domRect(
-                    index * areaWidth,
-                    0,
-                    areaWidth,
-                    areaWidth / 500 * 800,
-                ));
+                vi.spyOn(area, 'getBoundingClientRect').mockImplementation(() =>
+                    domRect(index * areaWidth, 0, areaWidth, (areaWidth / 500) * 800),
+                );
             });
             resize.trigger();
             await nextTick();
@@ -6849,40 +7295,46 @@ describe('Scan cleanup components', () => {
     it('keeps the active draft, frame, overlay, and pointer capture through a preview refresh', async () => {
         const result = shallowRef(spreadPreviewResult());
         const commit = vi.fn();
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: result.value,
-            resultCurrent: true,
-            loading: false,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'top-left',
-            pageNumber: 1,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-            'onUpdate:manualSplit': commit,
-        })}));
-        mockPreviewGeometry(harness.host, [
-            domRect(0, 0, 500, 800),
-            domRect(500, 0, 500, 800),
-        ]);
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: result.value,
+                        resultCurrent: true,
+                        loading: false,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'top-left',
+                        pageNumber: 1,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                        'onUpdate:manualSplit': commit,
+                    }),
+            }),
+        );
+        mockPreviewGeometry(harness.host, [domRect(0, 0, 500, 800), domRect(500, 0, 500, 800)]);
         const cutter = harness.host.querySelector<HTMLButtonElement>('.cutter-control')!;
         const capture = mockPointerCapture(cutter);
         const overlay = harness.host.querySelector<HTMLElement>('.drag-overlay-layer')!;
         const frameBefore = harness.host.querySelector<HTMLElement>('.uniform-canvas')!.dataset.frameWidth;
-        cutter.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            clientX: 700,
-            clientY: 400,
-            pointerId: 21,
-        }));
-        cutter.dispatchEvent(new PointerEvent('pointermove', {
-            bubbles: true,
-            clientX: 720,
-            clientY: 400,
-            pointerId: 21,
-        }));
+        cutter.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                clientX: 700,
+                clientY: 400,
+                pointerId: 21,
+            }),
+        );
+        cutter.dispatchEvent(
+            new PointerEvent('pointermove', {
+                bubbles: true,
+                clientX: 720,
+                clientY: 400,
+                pointerId: 21,
+            }),
+        );
         await nextTick();
         const draftPosition = cutter.style.insetInlineStart;
 
@@ -6901,18 +7353,23 @@ describe('Scan cleanup components', () => {
         const resize = installResizeObserverHarness();
         try {
             const result = shallowRef(spreadPreviewResult());
-            const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-                result: result.value,
-                loading: false,
-                error: '',
-                viewMode: 'cleaned',
-                matchPageSize: false,
-                alignment: 'top-left',
-                pageNumber: 1,
-                totalPages: 3,
-                manualSplit: null,
-                readingOrder: 'ltr',
-            })}));
+            const harness = mount(
+                defineComponent({
+                    setup: () => () =>
+                        h(ScanCleanupPreviewPane, {
+                            result: result.value,
+                            loading: false,
+                            error: '',
+                            viewMode: 'cleaned',
+                            matchPageSize: false,
+                            alignment: 'top-left',
+                            pageNumber: 1,
+                            totalPages: 3,
+                            manualSplit: null,
+                            readingOrder: 'ltr',
+                        }),
+                }),
+            );
             let width = 500;
             const leftArea = harness.host.querySelector<HTMLElement>('[data-output-half="left"]')!;
             vi.spyOn(leftArea, 'getBoundingClientRect').mockImplementation(() => domRect(0, 0, width, 800));
@@ -6937,53 +7394,58 @@ describe('Scan cleanup components', () => {
     it('supports keyboard content-box resizing/reset and per-output placement nudging', async () => {
         const contentUpdates: Array<{
             half: string;
-            value: unknown
+            value: unknown;
         }> = [];
         const placementUpdates: Array<{
             half: string;
-            value: string
+            value: string;
         }> = [];
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: spreadPreviewResult(),
-            resultCurrent: true,
-            loading: false,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: 1,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-            manualContentBoxes: {left: {
-                xNormalized: 0.05,
-                yNormalized: 0.075,
-                widthNormalized: 0.3,
-                heightNormalized: 0.625,
-                rotationDegrees: 0,
-            }},
-            placementOverrides: {left: 'top-center'},
-            'onUpdate:manualContentBox': (
-                half: TScanCleanupOutputHalf,
-                value: IScanCleanupNormalizedRect | null,
-            ) => contentUpdates.push({
-                half,
-                value,
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: spreadPreviewResult(),
+                        resultCurrent: true,
+                        loading: false,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: 1,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                        manualContentBoxes: {
+                            left: {
+                                xNormalized: 0.05,
+                                yNormalized: 0.075,
+                                widthNormalized: 0.3,
+                                heightNormalized: 0.625,
+                                rotationDegrees: 0,
+                            },
+                        },
+                        placementOverrides: {left: 'top-center'},
+                        'onUpdate:manualContentBox': (half: TScanCleanupOutputHalf, value: IScanCleanupNormalizedRect | null) =>
+                            contentUpdates.push({
+                                half,
+                                value,
+                            }),
+                        'onUpdate:placement': (half: TScanCleanupOutputHalf, value: TScanCleanupPageAlignment) =>
+                            placementUpdates.push({
+                                half,
+                                value,
+                            }),
+                    }),
             }),
-            'onUpdate:placement': (
-                half: TScanCleanupOutputHalf,
-                value: TScanCleanupPageAlignment,
-            ) => placementUpdates.push({
-                half,
-                value,
-            }),
-        })}));
+        );
 
-        harness.host.querySelector<HTMLButtonElement>('.content-handle.is-e')?.dispatchEvent(new KeyboardEvent('keydown', {
-            key: 'ArrowRight',
-            bubbles: true,
-            cancelable: true,
-        }));
+        harness.host.querySelector<HTMLButtonElement>('.content-handle.is-e')?.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'ArrowRight',
+                bubbles: true,
+                cancelable: true,
+            }),
+        );
         expect(contentUpdates.at(-1)).toMatchObject({
             half: 'left',
             value: {
@@ -7001,11 +7463,13 @@ describe('Scan cleanup components', () => {
             value: null,
         });
 
-        harness.host.querySelector<HTMLElement>('.placement-control')?.dispatchEvent(new KeyboardEvent('keydown', {
-            key: 'ArrowDown',
-            bubbles: true,
-            cancelable: true,
-        }));
+        harness.host.querySelector<HTMLElement>('.placement-control')?.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'ArrowDown',
+                bubbles: true,
+                cancelable: true,
+            }),
+        );
         expect(placementUpdates.at(-1)).toEqual({
             half: 'left',
             value: 'center',
@@ -7021,18 +7485,23 @@ describe('Scan cleanup components', () => {
         first.metadata.canvasHeightPx = 800;
         first.metadata.placementOffsetXPx = 200;
         first.metadata.placementOffsetYPx = 200;
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result,
-            loading: false,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'bottom-right',
-            pageNumber: 1,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result,
+                        loading: false,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'bottom-right',
+                        pageNumber: 1,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
 
         await nextTick();
         const placed = harness.host.querySelector<HTMLElement>('.placed-image');
@@ -7061,25 +7530,30 @@ describe('Scan cleanup components', () => {
             placementOffsetXPx: 17,
             placementOffsetYPx: 17,
         });
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result,
-            loading: false,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: 1,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result,
+                        loading: false,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: 1,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
 
         await nextTick();
         const placed = harness.host.querySelector<HTMLElement>('.placed-image');
-        expect(placed?.style.left).toBe(`${17 / 500 * 100}%`);
-        expect(placed?.style.top).toBe(`${17 / 800 * 100}%`);
-        expect(placed?.style.width).toBe(`${466 / 500 * 100}%`);
-        expect(placed?.style.height).toBe(`${700 / 800 * 100}%`);
+        expect(placed?.style.left).toBe(`${(17 / 500) * 100}%`);
+        expect(placed?.style.top).toBe(`${(17 / 800) * 100}%`);
+        expect(placed?.style.width).toBe(`${(466 / 500) * 100}%`);
+        expect(placed?.style.height).toBe(`${(700 / 800) * 100}%`);
     });
 
     it('keeps cached native placement and labels a changed placement override stale', async () => {
@@ -7096,45 +7570,46 @@ describe('Scan cleanup components', () => {
         first.metadata.placementOffsetYPx = 0;
         const placementOverrides = ref<Partial<Record<TScanCleanupOutputHalf, TScanCleanupPageAlignment>>>({left: 'top-left'});
         const resultCurrent = ref(true);
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result,
-            resultCurrent: resultCurrent.value,
-            resultPresentationKey: 'session-1:page-1:user-0',
-            layoutDetectionComplete: true,
-            loading: false,
-            error: '',
-            viewMode: 'cleaned',
-            matchPageSize: true,
-            alignment: 'top-center',
-            pageNumber: 1,
-            totalPages: 3,
-            manualSplit: null,
-            readingOrder: 'ltr',
-            placementOverrides: placementOverrides.value,
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result,
+                        resultCurrent: resultCurrent.value,
+                        resultPresentationKey: 'session-1:page-1:user-0',
+                        layoutDetectionComplete: true,
+                        loading: false,
+                        error: '',
+                        viewMode: 'cleaned',
+                        matchPageSize: true,
+                        alignment: 'top-center',
+                        pageNumber: 1,
+                        totalPages: 3,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                        placementOverrides: placementOverrides.value,
+                    }),
+            }),
+        );
 
         await nextTick();
         const placed = harness.host.querySelector<HTMLElement>('.placed-image');
         expect(placed?.style.left).toBe('0%');
         expect(placed?.style.top).toBe('0%');
-        expect(placed?.querySelector<HTMLElement>('.fold-clipped-pixels')?.style.clipPath)
-            .toBe('inset(0 5% 0 10%)');
+        expect(placed?.querySelector<HTMLElement>('.fold-clipped-pixels')?.style.clipPath).toBe('inset(0 5% 0 10%)');
 
         placementOverrides.value = {left: 'bottom-right'};
         resultCurrent.value = false;
         await nextTick();
         expect(placed?.style.left).toBe('0%');
         expect(placed?.style.top).toBe('0%');
-        expect(harness.host.querySelector<HTMLElement>('.preview-viewport-caption')?.dataset.canvasNotice)
-            .toBe('updating');
+        expect(harness.host.querySelector<HTMLElement>('.preview-viewport-caption')?.dataset.canvasNotice).toBe('updating');
     });
 
     it('names the preview fit control after fitting the whole page and marks it pressed', async () => {
         const harness = mountPreviewZoomHarness();
         await nextTick();
-        const fit = harness.host.querySelector<HTMLButtonElement>(
-            '[aria-label="Fit whole page in view"]',
-        );
+        const fit = harness.host.querySelector<HTMLButtonElement>('[aria-label="Fit whole page in view"]');
         expect(fit).not.toBeNull();
         expect(fit?.querySelector('[data-ui-icon]')?.getAttribute('name')).toBe('i-ph-frame-corners');
         expect(fit?.getAttribute('aria-pressed')).toBe('true');
@@ -7147,19 +7622,24 @@ describe('Scan cleanup components', () => {
         const viewMode = ref<'original' | 'cleaned'>('cleaned');
         const matchPageSize = ref(true);
         const result = ref<IScanCleanupPreviewResult | null>(null);
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: result.value,
-            rawResult: null,
-            loading: false,
-            error: '',
-            viewMode: viewMode.value,
-            matchPageSize: matchPageSize.value,
-            alignment: 'top-left',
-            pageNumber: 9,
-            totalPages: 392,
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: result.value,
+                        rawResult: null,
+                        loading: false,
+                        error: '',
+                        viewMode: viewMode.value,
+                        matchPageSize: matchPageSize.value,
+                        alignment: 'top-left',
+                        pageNumber: 9,
+                        totalPages: 392,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
 
         const zoomGroup = () => harness.host.querySelector('.preview-zoom-controls');
         const overlayHelp = () => harness.host.querySelector('.preview-overlay-help-trigger');
@@ -7191,22 +7671,25 @@ describe('Scan cleanup components', () => {
 
     it('reserves the widest page counter and detection counter so their neighbours never move', async () => {
         const pageNumber = ref(9);
-        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-            result: null,
-            rawResult: null,
-            loading: false,
-            error: '',
-            matchPageSize: true,
-            alignment: 'top-left',
-            pageNumber: pageNumber.value,
-            totalPages: 392,
-            manualSplit: null,
-            readingOrder: 'ltr',
-        })}));
-        const sizer = () => harness.host
-            .querySelector('.page-label .scan-cleanup-stable-width-sizer')?.textContent;
-        const value = () => harness.host
-            .querySelector('.page-label .scan-cleanup-stable-width-value')?.textContent;
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupPreviewPane, {
+                        result: null,
+                        rawResult: null,
+                        loading: false,
+                        error: '',
+                        matchPageSize: true,
+                        alignment: 'top-left',
+                        pageNumber: pageNumber.value,
+                        totalPages: 392,
+                        manualSplit: null,
+                        readingOrder: 'ltr',
+                    }),
+            }),
+        );
+        const sizer = () => harness.host.querySelector('.page-label .scan-cleanup-stable-width-sizer')?.textContent;
+        const value = () => harness.host.querySelector('.page-label .scan-cleanup-stable-width-value')?.textContent;
 
         expect(value()).toBe('Page 9 of 392');
         expect(sizer()).toBe('Page 392 of 392');
@@ -7216,30 +7699,55 @@ describe('Scan cleanup components', () => {
         // The reserved box is driven by the total, so it does not grow with the page.
         expect(sizer()).toBe('Page 392 of 392');
 
-        const toolbar = mount(defineComponent(() => () => h(ScanCleanupToolbar, toolbarProps({
-            activity: analysisActivity(9, 392),
-            isDetecting: true,
-        }))));
-        expect(toolbar.host.querySelector(`${SCAN_CLEANUP_TOOLBAR_COUNT_SELECTOR} .scan-cleanup-stable-width-sizer`)?.textContent)
-            .toBe('392 of 392 pages');
+        const toolbar = mount(
+            defineComponent(
+                () => () =>
+                    h(
+                        ScanCleanupToolbar,
+                        toolbarProps({
+                            activity: analysisActivity(9, 392),
+                            isDetecting: true,
+                        }),
+                    ),
+            ),
+        );
+        expect(toolbar.host.querySelector(`${SCAN_CLEANUP_TOOLBAR_COUNT_SELECTOR} .scan-cleanup-stable-width-sizer`)?.textContent).toBe(
+            '392 of 392 pages',
+        );
     });
 
     it('says what stopping detection costs and offers it as a tooltip, not a bare X', () => {
         const cancelLabel = 'Stop detecting pages — pages already detected keep their results';
-        const harness = mount(defineComponent(() => () => h(ScanCleanupToolbar, toolbarProps({
-            activity: analysisActivity(36, 392),
-            isDetecting: true,
-        }))));
+        const harness = mount(
+            defineComponent(
+                () => () =>
+                    h(
+                        ScanCleanupToolbar,
+                        toolbarProps({
+                            activity: analysisActivity(36, 392),
+                            isDetecting: true,
+                        }),
+                    ),
+            ),
+        );
         const cancel = harness.host.querySelector<HTMLButtonElement>(SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
         expect(cancel?.getAttribute('aria-label')).toBe(cancelLabel);
     });
 
     it('presents the start of a run as indeterminate instead of resetting to zero percent', () => {
-        const harness = mount(defineComponent(() => () => h(ScanCleanupToolbar, toolbarProps({
-            activity: runActivity(null, {starting: true}),
-            canRun: false,
-            isRunning: true,
-        }))));
+        const harness = mount(
+            defineComponent(
+                () => () =>
+                    h(
+                        ScanCleanupToolbar,
+                        toolbarProps({
+                            activity: runActivity(null, {starting: true}),
+                            canRun: false,
+                            isRunning: true,
+                        }),
+                    ),
+            ),
+        );
         const meter = harness.host.querySelector(SCAN_CLEANUP_RUN_METER_SELECTOR);
 
         expect(meter?.textContent).toContain('Starting cleanup');
@@ -7253,11 +7761,19 @@ describe('Scan cleanup components', () => {
         // The queued run job sits at 0% for the entire analysis of a large
         // book; the meter must carry the analysis counter and fill instead of
         // a dead bar (observed as minutes at 0 on a 392-page scan).
-        const harness = mount(defineComponent(() => () => h(ScanCleanupToolbar, toolbarProps({
-            activity: analysisActivity(98, 392, {rasterizedUnits: 112}, true),
-            canRun: false,
-            isRunning: true,
-        }))));
+        const harness = mount(
+            defineComponent(
+                () => () =>
+                    h(
+                        ScanCleanupToolbar,
+                        toolbarProps({
+                            activity: analysisActivity(98, 392, {rasterizedUnits: 112}, true),
+                            canRun: false,
+                            isRunning: true,
+                        }),
+                    ),
+            ),
+        );
         const meter = harness.host.querySelector(SCAN_CLEANUP_RUN_METER_SELECTOR);
         const current = meter?.querySelector<HTMLElement>('.scan-cleanup-activity-segment[data-state="active"]');
 
@@ -7274,16 +7790,24 @@ describe('Scan cleanup components', () => {
     });
 
     it('finishes with a stable user phase instead of object counts or a false percentage', () => {
-        const harness = mount(defineComponent(() => () => h(ScanCleanupToolbar, toolbarProps({
-            activity: runActivity({
-                stage: 'assembling',
-                completedUnits: 98,
-                totalUnits: 316,
-                percent: 98,
-            }),
-            canRun: false,
-            isRunning: true,
-        }))));
+        const harness = mount(
+            defineComponent(
+                () => () =>
+                    h(
+                        ScanCleanupToolbar,
+                        toolbarProps({
+                            activity: runActivity({
+                                stage: 'assembling',
+                                completedUnits: 98,
+                                totalUnits: 316,
+                                percent: 98,
+                            }),
+                            canRun: false,
+                            isRunning: true,
+                        }),
+                    ),
+            ),
+        );
         const meter = harness.host.querySelector(SCAN_CLEANUP_RUN_METER_SELECTOR);
 
         expect(meter?.querySelector('.scan-cleanup-activity-phase')?.textContent).toBe('Finish');
@@ -7314,18 +7838,11 @@ describe('Scan cleanup components', () => {
             pageOverrides: {},
         });
         const scope = ref<'all' | 'page' | 'selected'>('all');
-        const harness = mount(defineComponent({setup: () => () => h(
-            ScanCleanupSettingsPanel,
-            settingsPanelProps(settings, scope.value),
-        )}));
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupSettingsPanel, settingsPanelProps(settings, scope.value))}));
 
         const slider = harness.host.querySelector('[aria-label="Text thickness"]');
         expect(slider).not.toBeNull();
-        for (const mode of [
-            'grayscale',
-            'color',
-            'bw',
-        ] as const) {
+        for (const mode of ['grayscale', 'color', 'bw'] as const) {
             settings.outputMode = mode;
             await nextTick();
             expect(harness.host.querySelector('[aria-label="Text thickness"]')).toBe(slider);
@@ -7353,10 +7870,11 @@ describe('Scan cleanup components', () => {
             pageOverrides: {} as TScanCleanupPageOverrides,
         });
         const totalPages = ref(5);
-        const harness = mount(defineComponent({setup: () => () => h(
-            ScanCleanupSettingsPanel,
-            settingsPanelProps(settings, 'all', {totalPages: totalPages.value}),
-        )}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () => h(ScanCleanupSettingsPanel, settingsPanelProps(settings, 'all', {totalPages: totalPages.value})),
+            }),
+        );
         const disabled = () => ({
             thickness: harness.host.querySelector('[aria-label="Text thickness"]')?.getAttribute('disabled') === 'true',
             despeckle: harness.host.querySelector<HTMLSelectElement>('select:has(option[value="cautious"])')?.disabled,
@@ -7365,10 +7883,7 @@ describe('Scan cleanup components', () => {
             thickness: true,
             despeckle: true,
         });
-        for (const outputMode of [
-            'grayscale',
-            'color',
-        ] as const) {
+        for (const outputMode of ['grayscale', 'color'] as const) {
             settings.outputMode = outputMode;
             settings.pageOverrides = {'4': createScanCleanupPageOverride({outputModeOverride: 'bw'})};
             totalPages.value = 5;
@@ -7389,10 +7904,12 @@ describe('Scan cleanup components', () => {
                 thickness: false,
                 despeckle: false,
             });
-            settings.pageOverrides = {'2': createScanCleanupPageOverride({
-                outputModeOverride: 'bw',
-                excluded: true,
-            })};
+            settings.pageOverrides = {
+                '2': createScanCleanupPageOverride({
+                    outputModeOverride: 'bw',
+                    excluded: true,
+                }),
+            };
             await nextTick();
             expect(disabled(), 'an excluded B&W page is not output').toEqual({
                 thickness: true,
@@ -7424,17 +7941,25 @@ describe('Scan cleanup components', () => {
         const updateMargin = vi.fn((target: keyof typeof settings.marginsMm, value: number) => {
             settings.marginsMm[target] = value;
         });
-        const harness = mount(defineComponent({setup: () => () => h(
-            ScanCleanupSettingsPanel,
-            Object.assign(settingsPanelProps(settings, 'all', {
-                marginsLinked: false,
-                margins: {
-                    empty: false,
-                    mixed: false,
-                    value: settings.marginsMm,
-                },
-            }), {'onUpdate-margin': updateMargin}),
-        )}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(
+                        ScanCleanupSettingsPanel,
+                        Object.assign(
+                            settingsPanelProps(settings, 'all', {
+                                marginsLinked: false,
+                                margins: {
+                                    empty: false,
+                                    mixed: false,
+                                    value: settings.marginsMm,
+                                },
+                            }),
+                            {'onUpdate-margin': updateMargin},
+                        ),
+                    ),
+            }),
+        );
 
         const top = harness.host.querySelector<HTMLInputElement>('[data-margin-side="topMm"]');
         expect(top).not.toBeNull();
@@ -7445,11 +7970,7 @@ describe('Scan cleanup components', () => {
         expect(updateMargin).toHaveBeenCalledWith('topMm', 25);
         expect(settings.marginsMm.topMm).toBe(25);
 
-        for (const invalidValue of [
-            '',
-            '-1',
-            '26',
-        ]) {
+        for (const invalidValue of ['', '-1', '26']) {
             top!.value = invalidValue;
             top!.dispatchEvent(new Event('change', {bubbles: true}));
         }
@@ -7482,21 +8003,20 @@ describe('Scan cleanup components', () => {
             pageOverrides: {},
         });
         const updateSetting = vi.fn((key: string, value: unknown) => {
-            if (key === 'autoDewarpDepth') settings.autoDewarpDepth = value as number;
+            if (key === 'autoDewarpDepth') {
+                settings.autoDewarpDepth = value as number;
+            }
         });
-        const harness = mount(defineComponent({setup: () => () => h(
-            ScanCleanupSettingsPanel,
-            Object.assign(settingsPanelProps(settings, 'all'), {'onUpdate-setting': updateSetting}),
-        )}));
-
-        const depth = harness.host.querySelector<HTMLInputElement>(
-            '[aria-label="Page curvature depth"]',
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(ScanCleanupSettingsPanel, Object.assign(settingsPanelProps(settings, 'all'), {'onUpdate-setting': updateSetting})),
+            }),
         );
+
+        const depth = harness.host.querySelector<HTMLInputElement>('[aria-label="Page curvature depth"]');
         expect(depth).not.toBeNull();
-        for (const invalidValue of [
-            '0.4',
-            '4.1',
-        ]) {
+        for (const invalidValue of ['0.4', '4.1']) {
             depth!.value = invalidValue;
             depth!.dispatchEvent(new Event('input', {bubbles: true}));
         }
@@ -7538,13 +8058,13 @@ describe('Scan cleanup components', () => {
             mixed: false,
             value: undefined,
         });
-        const harness = mount(defineComponent({setup: () => () => h(
-            ScanCleanupSettingsPanel,
-            settingsPanelProps(settings, 'page', {manualSkew: manualSkew.value}),
-        )}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () => h(ScanCleanupSettingsPanel, settingsPanelProps(settings, 'page', {manualSkew: manualSkew.value})),
+            }),
+        );
 
-        const entry = () => harness.host
-            .querySelector<HTMLInputElement>('[aria-label="Deskew angle (-15° to 15°)"]');
+        const entry = () => harness.host.querySelector<HTMLInputElement>('[aria-label="Deskew angle (-15° to 15°)"]');
         expect(entry()).not.toBeNull();
         // Automatic used to bind null, and a null number field steps to its
         // minimum: the first press landed on -15° and never came back.
@@ -7569,5 +8089,4 @@ describe('Scan cleanup components', () => {
         expect(entry()?.value).toBe('');
         expect(entry()?.getAttribute('increment-disabled')).toBe('true');
     });
-
 });

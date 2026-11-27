@@ -3,11 +3,7 @@ import {
     shouldUseBulkAuditFallback,
     summarizeProductionAuditReport,
 } from '@scripts/checkProductionDependencyAudit';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 
 function createAdvisory(moduleName: string, severity: string, patchedVersions: string, versions = ['1.0.0']) {
     return {
@@ -15,38 +11,44 @@ function createAdvisory(moduleName: string, severity: string, patchedVersions: s
         module_name: moduleName,
         patched_versions: patchedVersions,
         severity,
-        findings: versions.map(version => ({
+        findings: versions.map((version) => ({
             version,
             paths: [`.>${moduleName}`],
         })),
     };
 }
 
-function createAuditReport(overrides: {
-    advisories?: Record<string, unknown>;
-    critical?: number;
-    high?: number;
-    info?: number;
-    low?: number;
-    moderate?: number;
-    muted?: unknown[];
-} = {}) {
+function createAuditReport(
+    overrides: {
+        advisories?: Record<string, unknown>;
+        critical?: number;
+        high?: number;
+        info?: number;
+        low?: number;
+        moderate?: number;
+        muted?: unknown[];
+    } = {},
+) {
     return {
         advisories: overrides.advisories ?? {},
-        metadata: {vulnerabilities: {
-            critical: overrides.critical ?? 0,
-            high: overrides.high ?? 0,
-            info: overrides.info ?? 0,
-            low: overrides.low ?? 0,
-            moderate: overrides.moderate ?? 0,
-        }},
+        metadata: {
+            vulnerabilities: {
+                critical: overrides.critical ?? 0,
+                high: overrides.high ?? 0,
+                info: overrides.info ?? 0,
+                low: overrides.low ?? 0,
+                moderate: overrides.moderate ?? 0,
+            },
+        },
         muted: overrides.muted ?? [],
     };
 }
 
 describe('production dependency audit policy', () => {
     it('uses the bulk-audit client only for the retired pnpm audit endpoint', () => {
-        expect(shouldUseBulkAuditFallback('{"error":{"code":"ERR_PNPM_AUDIT_BAD_RESPONSE","message":"The audit endpoint is being retired"}}')).toBe(true);
+        expect(
+            shouldUseBulkAuditFallback('{"error":{"code":"ERR_PNPM_AUDIT_BAD_RESPONSE","message":"The audit endpoint is being retired"}}'),
+        ).toBe(true);
         expect(shouldUseBulkAuditFallback('{"error":{"code":"ERR_PNPM_AUDIT_BAD_RESPONSE","message":"registry unavailable"}}')).toBe(false);
     });
 
@@ -65,77 +67,118 @@ describe('production dependency audit policy', () => {
     });
 
     it('rejects every advisory that has a patched release', () => {
-        expect(() => assertProductionAuditIsClean(createAuditReport({
-            advisories: {
-                1: createAdvisory('shell-quote', 'critical', '>=1.11.0'),
-                2: createAdvisory('node-forge', 'high', '<0.0.0'),
-                3: createAdvisory('source-map-js', 'high', '>=1.2.2'),
-            },
-            critical: 1,
-            high: 2,
-        }), 'landing')).toThrow('landing dependency audit found 2 advisories with a patched release or an unknown patched status:\nshell-quote critical GHSA-shell-quote (patched: >=1.11.0)\nsource-map-js high GHSA-source-map-js (patched: >=1.2.2)');
+        expect(() =>
+            assertProductionAuditIsClean(
+                createAuditReport({
+                    advisories: {
+                        1: createAdvisory('shell-quote', 'critical', '>=1.11.0'),
+                        2: createAdvisory('node-forge', 'high', '<0.0.0'),
+                        3: createAdvisory('source-map-js', 'high', '>=1.2.2'),
+                    },
+                    critical: 1,
+                    high: 2,
+                }),
+                'landing',
+            ),
+        ).toThrow(
+            'landing dependency audit found 2 advisories with a patched release or an unknown patched status:\nshell-quote critical GHSA-shell-quote (patched: >=1.11.0)\nsource-map-js high GHSA-source-map-js (patched: >=1.2.2)',
+        );
     });
 
     it('reports advisories without a patched release instead of failing on them', () => {
-        expect(assertProductionAuditIsClean(createAuditReport({
-            advisories: {1: createAdvisory('braces', 'high', '<0.0.0')},
-            high: 1,
-        }), 'root').unpatched).toEqual(['braces high GHSA-braces (patched: <0.0.0)']);
+        expect(
+            assertProductionAuditIsClean(
+                createAuditReport({
+                    advisories: {1: createAdvisory('braces', 'high', '<0.0.0')},
+                    high: 1,
+                }),
+                'root',
+            ).unpatched,
+        ).toEqual(['braces high GHSA-braces (patched: <0.0.0)']);
     });
 
     it('rejects vulnerability counts that the advisory list does not match', () => {
-        expect(() => assertProductionAuditIsClean(createAuditReport({high: 2}), 'root')).toThrow('root pnpm audit counts 2 vulnerabilities but its advisories list 0.');
-        expect(() => assertProductionAuditIsClean(createAuditReport({
-            advisories: {1: createAdvisory('braces', 'high', '<0.0.0')},
-            high: 2,
-        }), 'root')).toThrow('root pnpm audit counts 2 vulnerabilities but its advisories list 1.');
+        expect(() => assertProductionAuditIsClean(createAuditReport({high: 2}), 'root')).toThrow(
+            'root pnpm audit counts 2 vulnerabilities but its advisories list 0.',
+        );
+        expect(() =>
+            assertProductionAuditIsClean(
+                createAuditReport({
+                    advisories: {1: createAdvisory('braces', 'high', '<0.0.0')},
+                    high: 2,
+                }),
+                'root',
+            ),
+        ).toThrow('root pnpm audit counts 2 vulnerabilities but its advisories list 1.');
     });
 
     it('counts each vulnerable install of one advisory, as pnpm does', () => {
         // pnpm counts one advisory once per installed version it affects.
-        expect(() => assertProductionAuditIsClean(createAuditReport({
-            advisories: {
-                1: createAdvisory('minimatch', 'moderate', '>=11.0.1', [
-                    '3.1.5',
-                    '9.0.9',
-                    '10.2.6',
-                ]),
-                2: createAdvisory('deepmerge', 'low', '<0.0.0'),
-            },
-            low: 1,
-            moderate: 3,
-        }), 'root')).toThrow('root dependency audit found 1 advisories with a patched release or an unknown patched status:\nminimatch moderate GHSA-minimatch (patched: >=11.0.1)');
-        expect(assertProductionAuditIsClean(createAuditReport({
-            advisories: {1: createAdvisory('deepmerge', 'low', '<0.0.0', [
-                '4.3.0',
-                '4.3.1',
-            ])},
-            low: 2,
-        }), 'root').unpatched).toEqual(['deepmerge low GHSA-deepmerge (patched: <0.0.0)']);
+        expect(() =>
+            assertProductionAuditIsClean(
+                createAuditReport({
+                    advisories: {
+                        1: createAdvisory('minimatch', 'moderate', '>=11.0.1', ['3.1.5', '9.0.9', '10.2.6']),
+                        2: createAdvisory('deepmerge', 'low', '<0.0.0'),
+                    },
+                    low: 1,
+                    moderate: 3,
+                }),
+                'root',
+            ),
+        ).toThrow(
+            'root dependency audit found 1 advisories with a patched release or an unknown patched status:\nminimatch moderate GHSA-minimatch (patched: >=11.0.1)',
+        );
+        expect(
+            assertProductionAuditIsClean(
+                createAuditReport({
+                    advisories: {1: createAdvisory('deepmerge', 'low', '<0.0.0', ['4.3.0', '4.3.1'])},
+                    low: 2,
+                }),
+                'root',
+            ).unpatched,
+        ).toEqual(['deepmerge low GHSA-deepmerge (patched: <0.0.0)']);
     });
 
     it('fails on an advisory whose patched status is unknown', () => {
-        expect(() => assertProductionAuditIsClean(createAuditReport({
-            advisories: {1: {
-                github_advisory_id: 'GHSA-x',
-                module_name: 'braces',
-                severity: 'high',
-                findings: [{
-                    version: '1.0.0',
-                    paths: ['.>braces'],
-                }],
-            }},
-            high: 1,
-        }), 'root')).toThrow('root dependency audit found 1 advisories with a patched release or an unknown patched status:\nbraces high GHSA-x (patched: unknown)');
+        expect(() =>
+            assertProductionAuditIsClean(
+                createAuditReport({
+                    advisories: {
+                        1: {
+                            github_advisory_id: 'GHSA-x',
+                            module_name: 'braces',
+                            severity: 'high',
+                            findings: [
+                                {
+                                    version: '1.0.0',
+                                    paths: ['.>braces'],
+                                },
+                            ],
+                        },
+                    },
+                    high: 1,
+                }),
+                'root',
+            ),
+        ).toThrow(
+            'root dependency audit found 1 advisories with a patched release or an unknown patched status:\nbraces high GHSA-x (patched: unknown)',
+        );
     });
 
     it('rejects muted advisories instead of silently accepting exceptions', () => {
-        expect(() => summarizeProductionAuditReport(createAuditReport({muted: [101]}), 'root')).toThrow('root pnpm audit report contains 1 muted advisories');
+        expect(() => summarizeProductionAuditReport(createAuditReport({muted: [101]}), 'root')).toThrow(
+            'root pnpm audit report contains 1 muted advisories',
+        );
     });
 
     it('rejects malformed or incomplete audit output', () => {
         expect(() => summarizeProductionAuditReport({}, 'root')).toThrow('root pnpm audit report is missing metadata.vulnerabilities.');
-        expect(() => summarizeProductionAuditReport(createAuditReport({high: -1}), 'root')).toThrow('root pnpm audit report has an invalid high vulnerability count.');
-        expect(() => assertProductionAuditIsClean(createAuditReport({advisories: {1: {patched_versions: '<0.0.0'}}}), 'root')).toThrow('root pnpm audit report has a malformed advisory.');
+        expect(() => summarizeProductionAuditReport(createAuditReport({high: -1}), 'root')).toThrow(
+            'root pnpm audit report has an invalid high vulnerability count.',
+        );
+        expect(() => assertProductionAuditIsClean(createAuditReport({advisories: {1: {patched_versions: '<0.0.0'}}}), 'root')).toThrow(
+            'root pnpm audit report has a malformed advisory.',
+        );
     });
 });

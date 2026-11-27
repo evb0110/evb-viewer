@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {
     asAnnotationId,
@@ -85,10 +81,17 @@ function shape(id: string): IShapeEntity {
 }
 
 function persist(store: AnnotationStore, id: string, pdfRef?: string) {
-    return store.markPersisted(store.beginSave(), pdfRef === undefined ? [] : [{
-        annotationId: asAnnotationId(id),
-        pdfRef,
-    }]);
+    return store.markPersisted(
+        store.beginSave(),
+        pdfRef === undefined
+            ? []
+            : [
+                  {
+                      annotationId: asAnnotationId(id),
+                      pdfRef,
+                  },
+              ],
+    );
 }
 
 function inkShape(id: string, pageIndex = 0): IShapeEntity {
@@ -110,16 +113,18 @@ function inkShape(id: string, pageIndex = 0): IShapeEntity {
             width: 0.3,
             height: 0.1,
         },
-        strokes: [[
-            {
-                x: 0.1,
-                y: 0.2,
-            },
-            {
-                x: 0.3,
-                y: 0.25,
-            },
-        ]],
+        strokes: [
+            [
+                {
+                    x: 0.1,
+                    y: 0.2,
+                },
+                {
+                    x: 0.3,
+                    y: 0.25,
+                },
+            ],
+        ],
         strokeColor: '#d92626',
         strokeWidth: 2,
         fill: null,
@@ -147,11 +152,13 @@ describe('AnnotationStore dirty and persistence projection', () => {
         expect((store.get(created.identity.id) as INoteEntity | null)?.contents).toBe('edited');
 
         store.delete(created.identity.id);
-        expect(store.dirtyEntities()).toEqual([expect.objectContaining({
-            deleted: true,
-            revision: 2,
-            persistedRevision: -1,
-        })]);
+        expect(store.dirtyEntities()).toEqual([
+            expect.objectContaining({
+                deleted: true,
+                revision: 2,
+                persistedRevision: -1,
+            }),
+        ]);
     });
 
     it('marks a captured revision clean and binds all returned PDF references atomically', () => {
@@ -186,10 +193,12 @@ describe('AnnotationStore dirty and persistence projection', () => {
         const store = new AnnotationStore();
         const created = store.createShape(shape('shape-native-binding'));
 
-        store.markPersisted(store.beginSave(), [{
-            annotationId: 'evb-shape:shape-native-binding',
-            pdfRef: '13 0 R',
-        }]);
+        store.markPersisted(store.beginSave(), [
+            {
+                annotationId: 'evb-shape:shape-native-binding',
+                pdfRef: '13 0 R',
+            },
+        ]);
 
         expect(store.dirtyEntities()).toEqual([]);
         expect(store.get(created.identity.id)).toMatchObject({
@@ -202,13 +211,18 @@ describe('AnnotationStore dirty and persistence projection', () => {
     it('preserves an existing PDF reference when the save returns no new binding', () => {
         const store = new AnnotationStore();
         const annotationId = asAnnotationId('existing');
-        store.replaceFromDocument([note('existing', {
-            identity: {
-                id: annotationId,
-                pdfRef: '11 0 R',
-            },
-            persistedRevision: 0,
-        })], []);
+        store.replaceFromDocument(
+            [
+                note('existing', {
+                    identity: {
+                        id: annotationId,
+                        pdfRef: '11 0 R',
+                    },
+                    persistedRevision: 0,
+                }),
+            ],
+            [],
+        );
 
         store.updateNote(annotationId, {contents: 'edited'});
         const frontier = store.beginSave();
@@ -229,20 +243,19 @@ describe('AnnotationStore dirty and persistence projection', () => {
         const second = store.createNote(note('second'));
         const frontier = store.beginSave();
 
-        expect(() => store.markPersisted(frontier, [
-            {
-                annotationId: first.identity.id,
-                pdfRef: '21R',
-            },
-            {
-                annotationId: second.identity.id,
-                pdfRef: '21R',
-            },
-        ])).toThrow(/Conflicting persisted annotation identity/u);
-        expect(store.dirtyEntities().map(entity => entity.identity.id)).toEqual([
-            first.identity.id,
-            second.identity.id,
-        ]);
+        expect(() =>
+            store.markPersisted(frontier, [
+                {
+                    annotationId: first.identity.id,
+                    pdfRef: '21R',
+                },
+                {
+                    annotationId: second.identity.id,
+                    pdfRef: '21R',
+                },
+            ]),
+        ).toThrow(/Conflicting persisted annotation identity/u);
+        expect(store.dirtyEntities().map((entity) => entity.identity.id)).toEqual([first.identity.id, second.identity.id]);
         expect(store.get(first.identity.id)?.identity.pdfRef).toBeUndefined();
         expect(store.get(second.identity.id)?.identity.pdfRef).toBeUndefined();
     });
@@ -268,10 +281,12 @@ describe('AnnotationStore dirty and persistence projection', () => {
             persistedRevision: -1,
             identity: {},
         });
-        expect(store.dirtyEntities()).toEqual([expect.objectContaining({
-            identity: {id: created.identity.id},
-            deleted: false,
-        })]);
+        expect(store.dirtyEntities()).toEqual([
+            expect.objectContaining({
+                identity: {id: created.identity.id},
+                deleted: false,
+            }),
+        ]);
     });
 
     it('rejects a stale frontier before writing', () => {
@@ -291,10 +306,12 @@ describe('AnnotationStore dirty and persistence projection', () => {
         store.updateNote(first.identity.id, {contents: 'later edit'});
         const later = store.createNote(note('later', {contents: 'later note'}));
 
-        store.markPersisted(frontier, [{
-            annotationId: first.identity.id,
-            pdfRef: '41R',
-        }]);
+        store.markPersisted(frontier, [
+            {
+                annotationId: first.identity.id,
+                pdfRef: '41R',
+            },
+        ]);
 
         expect(store.get(first.identity.id)).toMatchObject({
             contents: 'later edit',
@@ -302,15 +319,14 @@ describe('AnnotationStore dirty and persistence projection', () => {
             revision: 1,
             identity: {pdfRef: '41R'},
         });
-        expect(store.dirtyEntities().map(entity => entity.identity.id)).toEqual([
-            first.identity.id,
-            later.identity.id,
-        ]);
+        expect(store.dirtyEntities().map((entity) => entity.identity.id)).toEqual([first.identity.id, later.identity.id]);
         expect(store.hasChangesSinceSavedBaseline()).toBe(true);
-        store.markPersisted(store.beginSave(), [{
-            annotationId: later.identity.id,
-            pdfRef: '42R',
-        }]);
+        store.markPersisted(store.beginSave(), [
+            {
+                annotationId: later.identity.id,
+                pdfRef: '42R',
+            },
+        ]);
         expect(store.hasChangesSinceSavedBaseline()).toBe(false);
         expect(store.dirtyEntities()).toEqual([]);
     });
@@ -320,10 +336,12 @@ describe('AnnotationStore dirty and persistence projection', () => {
         const first = store.createNote(note('late-delete'));
         const frontier = store.beginSave();
         store.delete(first.identity.id);
-        store.markPersisted(frontier, [{
-            annotationId: first.identity.id,
-            pdfRef: '43R',
-        }]);
+        store.markPersisted(frontier, [
+            {
+                annotationId: first.identity.id,
+                pdfRef: '43R',
+            },
+        ]);
         expect(store.get(first.identity.id)).toMatchObject({
             deleted: true,
             identity: {pdfRef: '43R'},
@@ -357,7 +375,7 @@ describe('AnnotationStore dirty and persistence projection', () => {
         expect(store.get(created.identity.id)).toMatchObject({rect: {left: 0.5}});
 
         let published: readonly AnnotationEntity[] = [];
-        store.subscribe(entities => published = entities);
+        store.subscribe((entities) => (published = entities));
         const reads: AnnotationEntity[] = [
             store.get(created.identity.id)!,
             store.list()[0]!,
@@ -368,7 +386,9 @@ describe('AnnotationStore dirty and persistence projection', () => {
         ];
         reads.forEach((entity) => {
             expect(entity.kind).toBe('shape');
-            if (entity.kind !== 'shape') return;
+            if (entity.kind !== 'shape') {
+                return;
+            }
             expect(() => {
                 entity.rect.left = 0.3;
             }).toThrow(TypeError);
@@ -419,16 +439,13 @@ describe('AnnotationStore dirty and persistence projection', () => {
         const first = store.createShape(inkShape('first', 0));
         const second = store.createShape(inkShape('second', 1));
         const published: (readonly AnnotationEntity[])[] = [];
-        store.subscribe(entities => published.push(entities));
+        store.subscribe((entities) => published.push(entities));
         const untouched = store.get(second.identity.id);
 
         store.updateShape(first.identity.id, {strokeWidth: 5});
         expect(published).toHaveLength(2);
         expect(published[1]).not.toBe(published[0]);
-        expect(published[1]!.map(entity => entity.identity.id)).toEqual([
-            first.identity.id,
-            second.identity.id,
-        ]);
+        expect(published[1]!.map((entity) => entity.identity.id)).toEqual([first.identity.id, second.identity.id]);
         expect(published[1]![0]).toMatchObject({strokeWidth: 5});
         expect(published[0]![0]).toMatchObject({strokeWidth: 2});
         expect(store.get(second.identity.id)).toBe(untouched);
@@ -439,5 +456,4 @@ describe('AnnotationStore dirty and persistence projection', () => {
         store.markPersisted(store.beginSave());
         expect(published.at(-1)).not.toBe(published.at(-2));
     });
-
 });

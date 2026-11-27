@@ -1,4 +1,4 @@
-import { readBrowserRasterImageMetadata } from '@app/platform/browser-api/browserRasterImageMetadata';
+import {readBrowserRasterImageMetadata} from '@app/platform/browser-api/browserRasterImageMetadata';
 import {ANNOTATION_RASTER_MAX_BYTES} from '@contracts/workspaceCheckpoint';
 
 export interface IBrowserImageResourceLimits {
@@ -65,10 +65,7 @@ interface IImageDecoderLike {
 }
 
 interface IImageDecoderConstructorLike {
-    new(options: {
-        data: BufferSource;
-        type: string;
-    }): IImageDecoderLike;
+    new (options: {data: BufferSource; type: string}): IImageDecoderLike;
     isTypeSupported?(type: string): Promise<boolean>;
 }
 
@@ -96,10 +93,7 @@ async function readStreamWithLimit(stream: ReadableStream<Uint8Array>, maxBytes:
     const chunks: Uint8Array[] = [];
     let totalBytes = 0;
     for (;;) {
-        const {
-            done,
-            value,
-        } = await reader.read();
+        const {done, value} = await reader.read();
         if (done) {
             break;
         }
@@ -161,52 +155,48 @@ function readSvgMetadata(bytes: Uint8Array, limits: IBrowserImageResourceLimits)
 }
 
 function readIcoMetadata(bytes: Uint8Array) {
-    if (
-        bytes.byteLength < 6
-        || bytes[0] !== 0
-        || bytes[1] !== 0
-        || bytes[2] !== 1
-        || bytes[3] !== 0
-    ) {
+    if (bytes.byteLength < 6 || bytes[0] !== 0 || bytes[1] !== 0 || bytes[2] !== 1 || bytes[3] !== 0) {
         return null;
     }
     const frameCount = readByte(bytes, 4) | (readByte(bytes, 5) << 8);
     let width = 0;
     let height = 0;
-    for (let index = 0; index < frameCount && 6 + ((index + 1) * 16) <= bytes.byteLength; index += 1) {
-        const offset = 6 + (index * 16);
+    for (let index = 0; index < frameCount && 6 + (index + 1) * 16 <= bytes.byteLength; index += 1) {
+        const offset = 6 + index * 16;
         const entryWidth = readByte(bytes, offset);
         const entryHeight = readByte(bytes, offset + 1);
         width = Math.max(width, entryWidth === 0 ? 256 : entryWidth);
         height = Math.max(height, entryHeight === 0 ? 256 : entryHeight);
     }
-    return width > 0 && height > 0 ? {
-        width,
-        height,
-        frameCount,
-    } : null;
+    return width > 0 && height > 0
+        ? {
+              width,
+              height,
+              frameCount,
+          }
+        : null;
 }
 
 function countPngFrames(bytes: Uint8Array) {
     let offset = 8;
     let frameCount = 1;
     while (offset + 12 <= bytes.byteLength) {
-        const length = (
-            (readByte(bytes, offset) << 24)
-            | (readByte(bytes, offset + 1) << 16)
-            | (readByte(bytes, offset + 2) << 8)
-            | readByte(bytes, offset + 3)
-        ) >>> 0;
+        const length =
+            ((readByte(bytes, offset) << 24) |
+                (readByte(bytes, offset + 1) << 16) |
+                (readByte(bytes, offset + 2) << 8) |
+                readByte(bytes, offset + 3)) >>>
+            0;
         if (offset + 12 + length > bytes.byteLength) {
             break;
         }
         if (String.fromCharCode(...bytes.subarray(offset + 4, offset + 8)) === 'acTL' && length === 8) {
-            frameCount = (
-                (readByte(bytes, offset + 8) << 24)
-                | (readByte(bytes, offset + 9) << 16)
-                | (readByte(bytes, offset + 10) << 8)
-                | readByte(bytes, offset + 11)
-            ) >>> 0;
+            frameCount =
+                ((readByte(bytes, offset + 8) << 24) |
+                    (readByte(bytes, offset + 9) << 16) |
+                    (readByte(bytes, offset + 10) << 8) |
+                    readByte(bytes, offset + 11)) >>>
+                0;
             break;
         }
         offset += 12 + length;
@@ -235,27 +225,31 @@ function countGifFrames(bytes: Uint8Array) {
         return 1;
     }
     const globalColorTableFlags = readByte(bytes, 10);
-    const globalColorTableBytes = (globalColorTableFlags & 0x80) === 0
-        ? 0
-        : 3 * (2 ** ((globalColorTableFlags & 0x07) + 1));
+    const globalColorTableBytes = (globalColorTableFlags & 0x80) === 0 ? 0 : 3 * 2 ** ((globalColorTableFlags & 0x07) + 1);
     let offset = 13 + globalColorTableBytes;
     let frameCount = 0;
     while (offset < bytes.byteLength) {
         const blockType = readByte(bytes, offset);
-        if (blockType === 0x3b) break;
+        if (blockType === 0x3b) {
+            break;
+        }
         if (blockType === 0x21) {
-            if (offset + 2 > bytes.byteLength) break;
+            if (offset + 2 > bytes.byteLength) {
+                break;
+            }
             offset = skipGifSubBlocks(bytes, offset + 2);
             continue;
         }
-        if (blockType !== 0x2c || offset + 10 > bytes.byteLength) break;
+        if (blockType !== 0x2c || offset + 10 > bytes.byteLength) {
+            break;
+        }
         frameCount += 1;
         const imageFlags = readByte(bytes, offset + 9);
-        const localColorTableBytes = (imageFlags & 0x80) === 0
-            ? 0
-            : 3 * (2 ** ((imageFlags & 0x07) + 1));
+        const localColorTableBytes = (imageFlags & 0x80) === 0 ? 0 : 3 * 2 ** ((imageFlags & 0x07) + 1);
         offset += 10 + localColorTableBytes;
-        if (offset >= bytes.byteLength) break;
+        if (offset >= bytes.byteLength) {
+            break;
+        }
         offset = skipGifSubBlocks(bytes, offset + 1);
     }
     return Math.max(1, frameCount);
@@ -265,12 +259,12 @@ function countWebpFrames(bytes: Uint8Array) {
     let offset = 12;
     let frameCount = 0;
     while (offset + 8 <= bytes.byteLength) {
-        const length = (
-            readByte(bytes, offset + 4)
-            | (readByte(bytes, offset + 5) << 8)
-            | (readByte(bytes, offset + 6) << 16)
-            | (readByte(bytes, offset + 7) << 24)
-        ) >>> 0;
+        const length =
+            (readByte(bytes, offset + 4) |
+                (readByte(bytes, offset + 5) << 8) |
+                (readByte(bytes, offset + 6) << 16) |
+                (readByte(bytes, offset + 7) << 24)) >>>
+            0;
         if (String.fromCharCode(...bytes.subarray(offset, offset + 4)) === 'ANMF') {
             frameCount += 1;
         }
@@ -288,7 +282,7 @@ async function probeWithImageDecoder(bytes: Uint8Array, mimeType: string, signal
     if (!ImageDecoder || !mimeType) {
         return null;
     }
-    if (ImageDecoder.isTypeSupported && !await ImageDecoder.isTypeSupported(mimeType)) {
+    if (ImageDecoder.isTypeSupported && !(await ImageDecoder.isTypeSupported(mimeType))) {
         return null;
     }
     throwIfAborted(signal);
@@ -302,11 +296,13 @@ async function probeWithImageDecoder(bytes: Uint8Array, mimeType: string, signal
         await decoder.tracks.ready;
         throwIfAborted(signal);
         const track = decoder.tracks.selectedTrack;
-        return track ? {
-            width: track.codedWidth,
-            height: track.codedHeight,
-            frameCount: Math.max(1, track.frameCount),
-        } : null;
+        return track
+            ? {
+                  width: track.codedWidth,
+                  height: track.codedHeight,
+                  frameCount: Math.max(1, track.frameCount),
+              }
+            : null;
     } finally {
         signal?.removeEventListener('abort', closeDecoder);
         decoder.close();
@@ -322,13 +318,13 @@ function assertImageResourceLimits(
     limits: IBrowserImageResourceLimits,
 ) {
     if (
-        !Number.isSafeInteger(metadata.width)
-        || !Number.isSafeInteger(metadata.height)
-        || metadata.width <= 0
-        || metadata.height <= 0
-        || metadata.width > limits.maxEdge
-        || metadata.height > limits.maxEdge
-        || metadata.width * metadata.height > limits.maxPixels
+        !Number.isSafeInteger(metadata.width) ||
+        !Number.isSafeInteger(metadata.height) ||
+        metadata.width <= 0 ||
+        metadata.height <= 0 ||
+        metadata.width > limits.maxEdge ||
+        metadata.height > limits.maxEdge ||
+        metadata.width * metadata.height > limits.maxPixels
     ) {
         throw new RangeError('ERR_BROWSER_IMAGE_DECODED_SIZE_TOO_LARGE');
     }
@@ -376,11 +372,12 @@ export async function probeBrowserImageFile(
                 width: rasterMetadata.orientation >= 5 ? rasterMetadata.height : rasterMetadata.width,
                 height: rasterMetadata.orientation >= 5 ? rasterMetadata.width : rasterMetadata.height,
                 ...(rasterMetadata.orientation === 1 ? {} : {orientation: rasterMetadata.orientation}),
-                frameCount: extension === '.png'
-                    ? countPngFrames(bytes)
-                    : extension === '.gif'
-                        ? countGifFrames(bytes)
-                        : extension === '.webp'
+                frameCount:
+                    extension === '.png'
+                        ? countPngFrames(bytes)
+                        : extension === '.gif'
+                          ? countGifFrames(bytes)
+                          : extension === '.webp'
                             ? countWebpFrames(bytes)
                             : 1,
             };
@@ -406,11 +403,7 @@ function resolvePreviewDimensions(width: number, height: number, maxEdge: number
     };
 }
 
-export async function createStaticBrowserImagePreview(
-    image: IProbedBrowserImage,
-    maxEdge: number,
-    signal?: AbortSignal,
-) {
+export async function createStaticBrowserImagePreview(image: IProbedBrowserImage, maxEdge: number, signal?: AbortSignal) {
     throwIfAborted(signal);
     const target = resolvePreviewDimensions(image.width, image.height, maxEdge);
     const sourceBlob = new Blob([image.bytes as BlobPart], {type: image.mimeType});
@@ -447,9 +440,8 @@ export function readBlobAsDataUrl(blob: Blob) {
     return new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onerror = () => reject(new Error('Failed to read image preview'));
-        reader.onload = () => typeof reader.result === 'string'
-            ? resolve(reader.result)
-            : reject(new Error('Invalid image preview data'));
+        reader.onload = () =>
+            typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Invalid image preview data'));
         reader.readAsDataURL(blob);
     });
 }

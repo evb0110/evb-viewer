@@ -1,4 +1,6 @@
-export interface IPointerDownTargetFixture {closest: (selector: string) => unknown;}
+export interface IPointerDownTargetFixture {
+    closest: (selector: string) => unknown;
+}
 
 export function createPointerDownEvent(target: EventTarget | IPointerDownTargetFixture): PointerEvent {
     const event = new Event('pointerdown');

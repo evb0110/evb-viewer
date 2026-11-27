@@ -1,21 +1,13 @@
-import {
-    open,
-    readFile,
-    rm,
-    stat,
-} from 'fs/promises';
+import {open, readFile, rm, stat} from 'fs/promises';
 import {decode as decodePng} from 'fast-png';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import {
-    encodePnm,
-    readPnmSize,
-} from '@ocr-core/ppmRaster';
+import {encodePnm, readPnmSize} from '@ocr-core/ppmRaster';
 import type {IOcrPageRaster} from '@ocr-core/recognizeOcrPages';
 import type {IOcrEngineImageFile} from '@electron/features/ocr/main/ocrEngineHostProtocol';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import type {TWorkerLog} from '@electron/features/ocr/pipeline/types';
-import { getErrorMessage } from '@electron/utils/error';
-import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
+import {getErrorMessage} from '@electron/utils/error';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import type {IOcrDiagnostic} from '@contracts/electronApiOcr';
 import {decodeNativeScanCleanupOutputMetadataJson} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import type {IScanCleanupPreviewAffine} from '@contracts/scan-cleanup/geometry';
@@ -84,26 +76,34 @@ export async function tryPreprocessOcrImage(
 ): Promise<IOcrPreprocessedImage> {
     if (scanCleanupBinary) {
         try {
-            await runNativeToolCommand(scanCleanupBinary, [
-                '--input',
-                inputPath,
-                '--output',
-                outputPath,
-                '--metadata',
-                metadataPath,
-                '--ocr-mode',
-                '--options',
-                JSON.stringify(createOcrScanCleanupOptions(mode, dpi)),
-            ], {
-                ...(grantedCpuTokens === undefined ? {} : {env: {
-                    ...process.env,
-                    RAYON_NUM_THREADS: String(grantedCpuTokens),
-                }}),
-                timeoutMs: OCR_PREPROCESS_TIMEOUT_MS,
-                commandLabel: 'evb-scan-cleanup(ocr-preprocess)',
-                signal,
-                log: createOptionalPreprocessingLog(log),
-            });
+            await runNativeToolCommand(
+                scanCleanupBinary,
+                [
+                    '--input',
+                    inputPath,
+                    '--output',
+                    outputPath,
+                    '--metadata',
+                    metadataPath,
+                    '--ocr-mode',
+                    '--options',
+                    JSON.stringify(createOcrScanCleanupOptions(mode, dpi)),
+                ],
+                {
+                    ...(grantedCpuTokens === undefined
+                        ? {}
+                        : {
+                              env: {
+                                  ...process.env,
+                                  RAYON_NUM_THREADS: String(grantedCpuTokens),
+                              },
+                          }),
+                    timeoutMs: OCR_PREPROCESS_TIMEOUT_MS,
+                    commandLabel: 'evb-scan-cleanup(ocr-preprocess)',
+                    signal,
+                    log: createOptionalPreprocessingLog(log),
+                },
+            );
             if (await isNonEmptyFile(outputPath)) {
                 const result = await readNativePreprocessResult(outputPath, metadataPath, log, onDiagnostic);
                 if (result !== null) {
@@ -134,16 +134,18 @@ export async function tryPreprocessOcrImage(
 const RASTER_HEADER_PROBE_BYTES = 64;
 
 function isPngIhdrHeader(header: Buffer, bytesRead: number) {
-    return bytesRead >= 24
-        && header[0] === 0x89
-        && header[1] === 0x50
-        && header[2] === 0x4e
-        && header[3] === 0x47
-        && header[4] === 0x0d
-        && header[5] === 0x0a
-        && header[6] === 0x1a
-        && header[7] === 0x0a
-        && header.toString('ascii', 12, 16) === 'IHDR';
+    return (
+        bytesRead >= 24 &&
+        header[0] === 0x89 &&
+        header[1] === 0x50 &&
+        header[2] === 0x4e &&
+        header[3] === 0x47 &&
+        header[4] === 0x0d &&
+        header[5] === 0x0a &&
+        header[6] === 0x1a &&
+        header[7] === 0x0a &&
+        header.toString('ascii', 12, 16) === 'IHDR'
+    );
 }
 
 /**
@@ -263,17 +265,18 @@ export async function prepareOcrPageRaster(input: IPrepareOcrPageRasterInput): P
             width: renderedSize.width,
             height: renderedSize.height,
             image: page.image,
-            ...(cleaned.inverseTransform ? {preprocessInverse: {
-                rasterWidthPx: renderedSize.width,
-                rasterHeightPx: renderedSize.height,
-                matrix: cleaned.inverseTransform.matrix,
-            }} : {}),
+            ...(cleaned.inverseTransform
+                ? {
+                      preprocessInverse: {
+                          rasterWidthPx: renderedSize.width,
+                          rasterHeightPx: renderedSize.height,
+                          matrix: cleaned.inverseTransform.matrix,
+                      },
+                  }
+                : {}),
         };
     } finally {
-        await Promise.all([
-            cleanedPath,
-            `${cleanedPath}.json`,
-        ].map(path => rm(path, {force: true}))).catch(() => undefined);
+        await Promise.all([cleanedPath, `${cleanedPath}.json`].map((path) => rm(path, {force: true}))).catch(() => undefined);
     }
 }
 
@@ -351,22 +354,23 @@ export async function prepareOcrPageRasterFile(input: IPrepareOcrPageRasterInput
                 path: cleaned.path,
                 ...cleanedSize,
             },
-            ...(cleaned.inverseTransform ? {preprocessInverse: {
-                rasterWidthPx: renderedSize.width,
-                rasterHeightPx: renderedSize.height,
-                matrix: cleaned.inverseTransform.matrix,
-            }} : {}),
+            ...(cleaned.inverseTransform
+                ? {
+                      preprocessInverse: {
+                          rasterWidthPx: renderedSize.width,
+                          rasterHeightPx: renderedSize.height,
+                          matrix: cleaned.inverseTransform.matrix,
+                      },
+                  }
+                : {}),
         };
     } catch (error) {
         failure = error;
         throw error;
     } finally {
         if (getUnprovenNativeTerminationDetail(failure) === undefined) {
-            const pathsToRemove = keepCleanedPath ? [metadataPath] : [
-                cleanedPath,
-                metadataPath,
-            ];
-            await Promise.all(pathsToRemove.map(path => rm(path, {force: true}))).catch(() => undefined);
+            const pathsToRemove = keepCleanedPath ? [metadataPath] : [cleanedPath, metadataPath];
+            await Promise.all(pathsToRemove.map((path) => rm(path, {force: true}))).catch(() => undefined);
         }
     }
 }

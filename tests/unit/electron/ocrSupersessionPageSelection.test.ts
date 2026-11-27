@@ -1,20 +1,10 @@
-import {
-    mkdtemp,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { PDFDocument } from 'pdf-lib';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {PDFDocument} from 'pdf-lib';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import type {TOcrTextSupersessionPolicy} from '@contracts/electronApiOcr';
-import type { IOcrPdfPageRequest } from '@electron/features/ocr/pipeline/types';
+import type {IOcrPdfPageRequest} from '@electron/features/ocr/pipeline/types';
 
 const probe = vi.hoisted(() => {
     const state = {
@@ -35,16 +25,20 @@ const probe = vi.hoisted(() => {
                 stdout: JSON.stringify({
                     format: 'evb-pdf-ocr-text-visibility',
                     schemaVersion: 3,
-                    pages: pagesFile.trim().split('\n').map(Number).map(pageNumber => ({
-                        pageNumber,
-                        evbOcrLayer: false,
-                        paintedText: false,
-                        hiddenText: false,
-                        uncertain: null,
-                        unsupported: null,
-                        evbOcrLines: null,
-                        ...state.visibilityByPage.get(pageNumber),
-                    })),
+                    pages: pagesFile
+                        .trim()
+                        .split('\n')
+                        .map(Number)
+                        .map((pageNumber) => ({
+                            pageNumber,
+                            evbOcrLayer: false,
+                            paintedText: false,
+                            hiddenText: false,
+                            uncertain: null,
+                            unsupported: null,
+                            evbOcrLines: null,
+                            ...state.visibilityByPage.get(pageNumber),
+                        })),
                 }),
                 stderr: '',
                 exitCode: 0,
@@ -74,12 +68,9 @@ const probe = vi.hoisted(() => {
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: probe.runPdftotext}));
 
-const { selectOcrPagesForSupersession } = await import('@electron/features/ocr/pipeline/selectOcrPagesForSupersession');
+const {selectOcrPagesForSupersession} = await import('@electron/features/ocr/pipeline/selectOcrPagesForSupersession');
 const {validateCreateSearchablePdfPayload} = await import('@electron/features/ocr/contracts');
-const {
-    getOcrPageSelectionCount,
-    iterateOcrPageRequestBatches,
-} = await import('@ocr-core/ocrPageSelection');
+const {getOcrPageSelectionCount, iterateOcrPageRequestBatches} = await import('@ocr-core/ocrPageSelection');
 
 let tempDir: string | null = null;
 
@@ -87,10 +78,7 @@ async function createSourcePdf(pageCount: number) {
     tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-supersession-'));
     const pdf = await PDFDocument.create();
     for (let page = 1; page <= pageCount; page += 1) {
-        pdf.addPage([
-            200,
-            300,
-        ]);
+        pdf.addPage([200, 300]);
     }
     const path = join(tempDir, 'source.pdf');
     await writeFile(path, await pdf.save());
@@ -98,7 +86,7 @@ async function createSourcePdf(pageCount: number) {
 }
 
 function pageRequests(pageNumbers: readonly number[]): IOcrPdfPageRequest[] {
-    return pageNumbers.map(pageNumber => ({
+    return pageNumbers.map((pageNumber) => ({
         pageNumber,
         languages: ['eng'],
     }));
@@ -118,10 +106,7 @@ function runSelection(
         pdfPageOpsBinary: '/fake/evb-pdf-page-ops',
         tempDir: tempDir!,
         log: (level, message) => {
-            logs.push([
-                level,
-                message,
-            ]);
+            logs.push([level, message]);
         },
         signal: new AbortController().signal,
     });
@@ -144,50 +129,50 @@ afterEach(async () => {
 
 describe('OCR supersession page selection', () => {
     it('accepts one request language and rejects multiple languages across pages', () => {
-        expect(validateCreateSearchablePdfPayload(
-            '/tmp/source.pdf',
-            {
-                kind: 'all',
-                pageCount: 2,
-                languages: ['eng'],
-            },
-            'single-language',
-        ).pages).toMatchObject({languages: ['eng']});
-
-        expect(() => validateCreateSearchablePdfPayload(
-            '/tmp/source.pdf',
-            {
-                kind: 'all',
-                pageCount: 2,
-                languages: [
-                    'eng',
-                    'rus',
-                ],
-            },
-            'multiple-languages',
-        )).toThrow('OCR recognition accepts one language per request');
-
-        expect(() => validateCreateSearchablePdfPayload(
-            '/tmp/source.pdf',
-            [
+        expect(
+            validateCreateSearchablePdfPayload(
+                '/tmp/source.pdf',
                 {
-                    pageNumber: 1,
+                    kind: 'all',
+                    pageCount: 2,
                     languages: ['eng'],
                 },
+                'single-language',
+            ).pages,
+        ).toMatchObject({languages: ['eng']});
+
+        expect(() =>
+            validateCreateSearchablePdfPayload(
+                '/tmp/source.pdf',
                 {
-                    pageNumber: 2,
-                    languages: ['rus'],
+                    kind: 'all',
+                    pageCount: 2,
+                    languages: ['eng', 'rus'],
                 },
-            ],
-            'per-page-languages',
-        )).toThrow('OCR recognition accepts one language per request');
+                'multiple-languages',
+            ),
+        ).toThrow('OCR recognition accepts one language per request');
+
+        expect(() =>
+            validateCreateSearchablePdfPayload(
+                '/tmp/source.pdf',
+                [
+                    {
+                        pageNumber: 1,
+                        languages: ['eng'],
+                    },
+                    {
+                        pageNumber: 2,
+                        languages: ['rus'],
+                    },
+                ],
+                'per-page-languages',
+            ),
+        ).toThrow('OCR recognition accepts one language per request');
     });
 
     it('keeps million-page selections scalar and expands only bounded worker batches', () => {
-        for (const pageCount of [
-            100_001,
-            1_000_001,
-        ]) {
+        for (const pageCount of [100_001, 1_000_001]) {
             const validated = validateCreateSearchablePdfPayload(
                 '/tmp/source.pdf',
                 {
@@ -225,94 +210,57 @@ describe('OCR supersession page selection', () => {
             expect(firstBatch.value).toHaveLength(5_000);
             expect(earlyIterator.return?.(undefined).done).toBe(true);
 
-            expect(() => validateCreateSearchablePdfPayload(
-                '/tmp/source.pdf',
-                Array.from({length: 100_001}, () => ({
-                    pageNumber: 1,
-                    languages: ['eng'],
-                })),
-                'request-2',
-            )).toThrow(/maximum size/u);
+            expect(() =>
+                validateCreateSearchablePdfPayload(
+                    '/tmp/source.pdf',
+                    Array.from({length: 100_001}, () => ({
+                        pageNumber: 1,
+                        languages: ['eng'],
+                    })),
+                    'request-2',
+                ),
+            ).toThrow(/maximum size/u);
         }
     });
 
     it('probes existing text with one process per contiguous page run', async () => {
         const sourcePdfPath = await createSourcePdf(6);
         probe.state.textByPage = new Map([
-            [
-                1,
-                'chapter one',
-            ],
-            [
-                2,
-                'chapter two',
-            ],
-            [
-                4,
-                'chapter four',
-            ],
-            [
-                5,
-                'chapter five',
-            ],
-            [
-                6,
-                'chapter six',
-            ],
+            [1, 'chapter one'],
+            [2, 'chapter two'],
+            [4, 'chapter four'],
+            [5, 'chapter five'],
+            [6, 'chapter six'],
         ]);
 
-        const contiguous = await runSelection(sourcePdfPath, [
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-        ], []);
+        const contiguous = await runSelection(sourcePdfPath, [1, 2, 3, 4, 5, 6], []);
         expect(probe.state.invocations).toHaveLength(1);
-        expect(contiguous.pages.map(page => page.pageNumber)).toEqual([3]);
+        expect(contiguous.pages.map((page) => page.pageNumber)).toEqual([3]);
 
         probe.state.invocations = [];
-        const sparse = await runSelection(sourcePdfPath, [
-            1,
-            2,
-            5,
-            6,
-        ], []);
+        const sparse = await runSelection(sourcePdfPath, [1, 2, 5, 6], []);
         expect(probe.state.invocations).toHaveLength(2);
         expect(sparse.pages).toEqual([]);
     });
 
     it('keeps the page to text mapping aligned across a batched probe', async () => {
         const sourcePdfPath = await createSourcePdf(5);
-        probe.state.textByPage = new Map([[
-            2,
-            'only page two carries text',
-        ]]);
+        probe.state.textByPage = new Map([[2, 'only page two carries text']]);
 
-        const selection = await runSelection(sourcePdfPath, [
-            1,
-            2,
-            3,
-            4,
-            5,
-        ], []);
+        const selection = await runSelection(sourcePdfPath, [1, 2, 3, 4, 5], []);
 
-        expect(selection.pages.map(page => page.pageNumber)).toEqual([
-            1,
-            3,
-            4,
-            5,
+        expect(selection.pages.map((page) => page.pageNumber)).toEqual([1, 3, 4, 5]);
+        expect(selection.diagnostics).toEqual([
+            {
+                code: 'OCR_EXISTING_TEXT_SKIPPED',
+                severity: 'info',
+                pageNumber: 2,
+                message: expect.stringContaining('native-text'),
+            },
         ]);
-        expect(selection.diagnostics).toEqual([{
-            code: 'OCR_EXISTING_TEXT_SKIPPED',
-            severity: 'info',
-            pageNumber: 2,
-            message: expect.stringContaining('native-text'),
-        }]);
         // A page kept for its own text is information about the run, never a
         // warning the renderer presents as a failed page.
-        expect(selection.warnings.filter(warning => warning.includes('Skipped page'))).toEqual([]);
+        expect(selection.warnings.filter((warning) => warning.includes('Skipped page'))).toEqual([]);
     });
 
     it('reports a failed text probe instead of silently treating pages as text bearing', async () => {
@@ -320,86 +268,45 @@ describe('OCR supersession page selection', () => {
         probe.state.fail = true;
         const logs: Array<[string, string]> = [];
 
-        const selection = await runSelection(sourcePdfPath, [
-            1,
-            2,
-            3,
-        ], logs);
+        const selection = await runSelection(sourcePdfPath, [1, 2, 3], logs);
 
         expect(selection.pages).toEqual([]);
         expect(selection.diagnostics).toHaveLength(3);
-        expect(selection.diagnostics.every(diagnostic => diagnostic.severity === 'warning')).toBe(true);
-        expect(logs.some(([
-            level,
-            message,
-        ]) => level === 'warn' && message.includes('pdftotext exploded'))).toBe(true);
-        expect(selection.warnings.some(warning => warning.includes('pdftotext exploded'))).toBe(true);
+        expect(selection.diagnostics.every((diagnostic) => diagnostic.severity === 'warning')).toBe(true);
+        expect(logs.some(([level, message]) => level === 'warn' && message.includes('pdftotext exploded'))).toBe(true);
+        expect(selection.warnings.some((warning) => warning.includes('pdftotext exploded'))).toBe(true);
     });
 
     it('lets replace-all continue when the text probe fails', async () => {
         const sourcePdfPath = await createSourcePdf(3);
         probe.state.fail = true;
 
-        const replaceEvb = await runSelection(sourcePdfPath, [
-            1,
-            2,
-            3,
-        ], [], 'replace-evb');
+        const replaceEvb = await runSelection(sourcePdfPath, [1, 2, 3], [], 'replace-evb');
         // Without an EVB OCR layer in the page streams there is nothing to replace.
         expect(replaceEvb.pages).toEqual([]);
 
-        const replaceAll = await runSelection(sourcePdfPath, [
-            1,
-            2,
-            3,
-        ], [], 'replace-all');
-        expect(replaceAll.pages.map(page => page.pageNumber)).toEqual([
-            1,
-            2,
-            3,
-        ]);
+        const replaceAll = await runSelection(sourcePdfPath, [1, 2, 3], [], 'replace-all');
+        expect(replaceAll.pages.map((page) => page.pageNumber)).toEqual([1, 2, 3]);
     });
 
     it('preserves known native and uncertain text when extraction fails', async () => {
         const sourcePdfPath = await createSourcePdf(3);
         probe.state.fail = true;
         probe.state.visibilityByPage = new Map([
-            [
-                1,
-                {paintedText: true},
-            ],
-            [
-                2,
-                {uncertain: 'hidden text in a Form cannot be removed'},
-            ],
-            [
-                3,
-                {hiddenText: true},
-            ],
+            [1, {paintedText: true}],
+            [2, {uncertain: 'hidden text in a Form cannot be removed'}],
+            [3, {hiddenText: true}],
         ]);
 
-        const selection = await runSelection(sourcePdfPath, [
-            1,
-            2,
-            3,
-        ], [], 'replace-all');
-        expect(selection.pages.map(page => page.pageNumber)).toEqual([3]);
-        expect(selection.diagnostics.map(diagnostic => diagnostic.pageNumber)).toEqual([
-            1,
-            2,
-        ]);
+        const selection = await runSelection(sourcePdfPath, [1, 2, 3], [], 'replace-all');
+        expect(selection.pages.map((page) => page.pageNumber)).toEqual([3]);
+        expect(selection.diagnostics.map((diagnostic) => diagnostic.pageNumber)).toEqual([1, 2]);
     });
 
     it('reports degraded text visibility analysis instead of swallowing it', async () => {
         const sourcePdfPath = await createSourcePdf(1);
-        probe.state.textByPage = new Map([[
-            1,
-            'existing text',
-        ]]);
-        probe.state.visibilityByPage = new Map([[
-            1,
-            {hiddenText: true},
-        ]]);
+        probe.state.textByPage = new Map([[1, 'existing text']]);
+        probe.state.visibilityByPage = new Map([[1, {hiddenText: true}]]);
         probe.state.visibilityFailure = 'evb-pdf-page-ops exploded';
         const logs: Array<[string, string]> = [];
 
@@ -407,24 +314,15 @@ describe('OCR supersession page selection', () => {
 
         // Unread text is the document's own, never a layer OCR may replace.
         expect(selection.pages).toEqual([]);
-        expect(logs.some(([
-            level,
-            message,
-        ]) => level === 'warn' && message.includes('evb-pdf-page-ops exploded'))).toBe(true);
-        expect(selection.warnings.some(warning => warning.includes('could not be inspected'))).toBe(true);
+        expect(logs.some(([level, message]) => level === 'warn' && message.includes('evb-pdf-page-ops exploded'))).toBe(true);
+        expect(selection.warnings.some((warning) => warning.includes('could not be inspected'))).toBe(true);
     });
 
     it('keeps a page whose visible text follows a hidden layer and repairs a hidden-only page', async () => {
         const sourcePdfPath = await createSourcePdf(2);
         probe.state.textByPage = new Map([
-            [
-                1,
-                'stale hidden note Harbor lantern signal',
-            ],
-            [
-                2,
-                'Qu1et rneadow',
-            ],
+            [1, 'stale hidden note Harbor lantern signal'],
+            [2, 'Qu1et rneadow'],
         ]);
         probe.state.visibilityByPage = new Map([
             [
@@ -434,32 +332,25 @@ describe('OCR supersession page selection', () => {
                     hiddenText: true,
                 },
             ],
-            [
-                2,
-                {hiddenText: true},
-            ],
+            [2, {hiddenText: true}],
         ]);
 
-        const selection = await runSelection(sourcePdfPath, [
-            1,
-            2,
-        ], []);
+        const selection = await runSelection(sourcePdfPath, [1, 2], []);
 
-        expect(selection.pages.map(page => page.pageNumber)).toEqual([2]);
-        expect(selection.diagnostics).toEqual([expect.objectContaining({
-            pageNumber: 1,
-            severity: 'info',
-        })]);
+        expect(selection.pages.map((page) => page.pageNumber)).toEqual([2]);
+        expect(selection.diagnostics).toEqual([
+            expect.objectContaining({
+                pageNumber: 1,
+                severity: 'info',
+            }),
+        ]);
         // A preserved page is information about the run, never a warning on it.
         expect(selection.warnings).toEqual([]);
     });
 
     it('skips a page the writer cannot replace instead of failing the run after recognition', async () => {
         const sourcePdfPath = await createSourcePdf(2);
-        probe.state.textByPage = new Map([[
-            1,
-            'hidden words',
-        ]]);
+        probe.state.textByPage = new Map([[1, 'hidden words']]);
         probe.state.visibilityByPage = new Map([
             [
                 1,
@@ -468,16 +359,10 @@ describe('OCR supersession page selection', () => {
                     unsupported: 'hidden text shares a content stream with an inline image',
                 },
             ],
-            [
-                2,
-                {unsupported: 'text clipping rendering modes cannot be replaced safely'},
-            ],
+            [2, {unsupported: 'text clipping rendering modes cannot be replaced safely'}],
         ]);
 
-        const selection = await runSelection(sourcePdfPath, [
-            1,
-            2,
-        ], []);
+        const selection = await runSelection(sourcePdfPath, [1, 2], []);
 
         expect(selection.pages).toEqual([]);
         expect(selection.diagnostics).toEqual([

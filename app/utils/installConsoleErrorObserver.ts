@@ -1,13 +1,14 @@
-import {
-    notifyRendererDiagnosticNotice,
-    redactRendererDiagnosticSignature,
-} from '@app/utils/rendererDiagnosticNotices';
+import {notifyRendererDiagnosticNotice, redactRendererDiagnosticSignature} from '@app/utils/rendererDiagnosticNotices';
 
 type TConsoleError = (...args: unknown[]) => unknown;
 
-export interface IConsoleErrorTarget {error: TConsoleError;}
+export interface IConsoleErrorTarget {
+    error: TConsoleError;
+}
 
-export interface IConsoleErrorObserverHandle {cleanup: () => void;}
+export interface IConsoleErrorObserverHandle {
+    cleanup: () => void;
+}
 
 const activeObservers = new WeakMap<object, IConsoleErrorObserverHandle>();
 
@@ -15,7 +16,7 @@ const activeObservers = new WeakMap<object, IConsoleErrorObserverHandle>();
 function readCallSite(observer: TConsoleError) {
     const holder: {stack?: string} = {};
     Error.captureStackTrace(holder, observer);
-    const frame = holder.stack?.split('\n').find(line => line.trim().startsWith('at ')) ?? 'unknown';
+    const frame = holder.stack?.split('\n').find((line) => line.trim().startsWith('at ')) ?? 'unknown';
     return frame.trim().replace(/^at /u, '');
 }
 
@@ -50,12 +51,14 @@ export function installConsoleErrorObserver(target: IConsoleErrorTarget = consol
         }
     }
 
-    const handle: IConsoleErrorObserverHandle = {cleanup: () => {
-        if (target.error === observedConsoleError) {
-            target.error = originalError;
-        }
-        activeObservers.delete(target);
-    }};
+    const handle: IConsoleErrorObserverHandle = {
+        cleanup: () => {
+            if (target.error === observedConsoleError) {
+                target.error = originalError;
+            }
+            activeObservers.delete(target);
+        },
+    };
     target.error = observedConsoleError;
     activeObservers.set(target, handle);
     return handle;

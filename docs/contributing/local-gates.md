@@ -4,7 +4,8 @@ Run the smallest check that can detect a defect in the change. Remove a check
 when its value is unclear. Counts, quotas, source spelling, file layout, and
 duplicated proof are not acceptance criteria. The default
 Run the smallest direct package command that covers the change: `pnpm lint`,
-`pnpm typecheck`, `pnpm run test:unit`, or a focused Vitest project/file.
+`pnpm run format:check` (or `pnpm run format` to autoformat), `pnpm typecheck`,
+`pnpm run test:unit`, or a focused Vitest project/file.
 CI selects platform and Electron lanes from the changed areas.
 
 The pre-push hook runs the publication policy first, then `pnpm typecheck` only

@@ -1,7 +1,4 @@
-import {
-    formatLauncherElapsed,
-    logLauncher,
-} from '@scripts/electron-run/terminalLog';
+import {formatLauncherElapsed, logLauncher} from '@scripts/electron-run/terminalLog';
 
 /**
  * Startup milestones share the launcher's process clock, so a session start

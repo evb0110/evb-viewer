@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import type {TScanCleanupWarningEvent} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {createEmptyScanCleanupSummary} from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
 import {formatScanCleanupWarningEvent} from '@evb/scan-cleanup/core/policy/scanCleanupWarningEvents';
@@ -24,15 +20,17 @@ describe('scan cleanup pipeline native warnings', () => {
             },
             1,
             new Set(),
-            message => reported.push(message),
+            (message) => reported.push(message),
         );
 
         expect(reported).toContain('Page 1: Deskew was skipped because the native page had no usable content box');
-        expect(summary.warningEvents).toEqual([{
-            event: nativeWarningEvent,
-            pageNumber: 1,
-            half: 'full',
-        }]);
+        expect(summary.warningEvents).toEqual([
+            {
+                event: nativeWarningEvent,
+                pageNumber: 1,
+                half: 'full',
+            },
+        ]);
         expect(reported).toContain(formatScanCleanupWarningEvent(nativeWarningEvent, 1));
     });
 });

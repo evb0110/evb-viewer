@@ -3,37 +3,17 @@
 import type * as TViMockOriginalPlatformModule from '@app/utils/platform';
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    type Ref,
-    defineComponent,
-    h,
-    nextTick,
-    ref,
-} from 'vue';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {createApp, type Ref, defineComponent, h, nextTick, ref} from 'vue';
 import AppRoot from '@app/app.vue';
-import {
-    LOCALE_MESSAGES, type TLocale,
-} from '@i18n-app';
-import {
-    formatTranslationLeaf, getNestedTranslationLeaf,
-} from '@i18n-core';
-import {
-    createSettingsPersistenceQueue, type TSettingsPersistenceStatus,
-} from '@app/modules/settings/settingsPersistenceQueue';
+import {LOCALE_MESSAGES, type TLocale} from '@i18n-app';
+import {formatTranslationLeaf, getNestedTranslationLeaf} from '@i18n-core';
+import {createSettingsPersistenceQueue, type TSettingsPersistenceStatus} from '@app/modules/settings/settingsPersistenceQueue';
 import type {IFailureToastTarget} from '@app/composables/useFailureToast';
 import type {IPresentedFailureCapture} from '@app/utils/failureReporter';
 import type {ISettingsData} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
-import { DEFAULT_SETTINGS } from '@contracts/settings';
+import {DEFAULT_SETTINGS} from '@contracts/settings';
 import type {IAgentMcpIntegrationStatus} from '@contracts/agent';
 import {createBrowserAgentMcpStatus} from '@app/platform/browser-api/browserAgentCapability';
 import SettingsContent from '@app/components/settings/SettingsContent.vue';
@@ -45,39 +25,53 @@ vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
         t: translate,
         locale: selectedLocale,
         loadLocaleMessages: async () => {},
-        setLocale: async (locale: TLocale) => {selectedLocale.value = locale;},
+        setLocale: async (locale: TLocale) => {
+            selectedLocale.value = locale;
+        },
     }),
 }));
 const selectedLocale = ref<TLocale>('en');
 let realMessages = false;
 function translate(key: string, params?: Record<string, string | number>) {
-    return realMessages ? formatTranslationLeaf(getNestedTranslationLeaf(LOCALE_MESSAGES[selectedLocale.value], key) ?? key, params, selectedLocale.value) : key;
+    return realMessages
+        ? formatTranslationLeaf(getNestedTranslationLeaf(LOCALE_MESSAGES[selectedLocale.value], key) ?? key, params, selectedLocale.value)
+        : key;
 }
 
 const FormFieldStub = defineComponent({
-    props: {help: {
-        type: String,
-        default: '',
-    }},
-    setup: (props, {slots}) => () => h('div', [
-        h('span', props.help),
-        slots.default?.(),
-    ]),
+    props: {
+        help: {
+            type: String,
+            default: '',
+        },
+    },
+    setup:
+        (props, {slots}) =>
+        () =>
+            h('div', [h('span', props.help), slots.default?.()]),
 });
 const SwitchStub = defineComponent({
     props: {modelValue: Boolean},
     emits: ['update:modelValue'],
-    setup: (props, {emit}) => () => h('button', {
-        'aria-pressed': String(props.modelValue),
-        onClick: () => emit('update:modelValue', !props.modelValue),
-    }),
+    setup:
+        (props, {emit}) =>
+        () =>
+            h('button', {
+                'aria-pressed': String(props.modelValue),
+                onClick: () => emit('update:modelValue', !props.modelValue),
+            }),
 });
 const LinkStub = defineComponent({
-    props: {to: {
-        type: String,
-        required: true,
-    }},
-    setup: (props, {slots}) => () => h('a', {href: props.to}, slots.default?.()),
+    props: {
+        to: {
+            type: String,
+            required: true,
+        },
+    },
+    setup:
+        (props, {slots}) =>
+        () =>
+            h('a', {href: props.to}, slots.default?.()),
 });
 const activeUnmounts = new Set<() => void>();
 
@@ -85,13 +79,18 @@ function mount(preference = DEFAULT_SETTINGS.clientDiagnosticsPreference) {
     const emitted: string[] = [];
     const host = document.createElement('div');
     document.body.append(host);
-    const app = createApp(defineComponent({setup: () => () => h(SettingsPrivacyPanel, {
-        settings: {
-            ...DEFAULT_SETTINGS,
-            clientDiagnosticsPreference: preference,
-        },
-        'onUpdate:clientDiagnosticsPreference': (value: string) => emitted.push(value),
-    })}));
+    const app = createApp(
+        defineComponent({
+            setup: () => () =>
+                h(SettingsPrivacyPanel, {
+                    settings: {
+                        ...DEFAULT_SETTINGS,
+                        clientDiagnosticsPreference: preference,
+                    },
+                    'onUpdate:clientDiagnosticsPreference': (value: string) => emitted.push(value),
+                }),
+        }),
+    );
     app.component('UFormField', FormFieldStub);
     app.component('USwitch', SwitchStub);
     app.component('NuxtLink', LinkStub);
@@ -117,7 +116,7 @@ afterEach(() => {
 
 describe('SettingsPrivacyPanel', () => {
     it('is off by default and links to the complete privacy notice', () => {
-        const { host } = mount();
+        const {host} = mount();
 
         expect(host.querySelector('button')?.getAttribute('aria-pressed')).toBe('false');
         expect(host.textContent).toContain('settings.clientDiagnostics');
@@ -142,40 +141,46 @@ const synchronizedSettings = ref({
 });
 const settingsSaveError = ref<{
     name: string;
-    message: string
+    message: string;
 } | null>(null);
 const settingsSaveFailure = ref<IPresentedFailureCapture | null>(null);
 const settingsSaveStatus = ref<TSettingsPersistenceStatus>('idle');
 let saveSettings: () => Promise<boolean> = async () => true;
 const mcpStatusRead = vi.fn<() => Promise<IAgentMcpIntegrationStatus>>();
 const runtimeStatusListeners = new Set<(status: IAgentMcpIntegrationStatus) => void>();
-vi.mock('@app/composables/useSettings', () => ({useSettings: () => ({
-    settings: synchronizedSettings,
-    isLoaded: ref(true),
-    load: async () => undefined,
-    loadOrThrow: async () => undefined,
-    save: () => saveSettings(),
-    settingsLoadError: ref(null),
-    settingsLoadFailure: ref(null),
-    settingsSaveError,
-    settingsSaveFailure,
-    settingsSaveStatus,
-    updateSetting: vi.fn(),
-})}));
+vi.mock('@app/composables/useSettings', () => ({
+    useSettings: () => ({
+        settings: synchronizedSettings,
+        isLoaded: ref(true),
+        load: async () => undefined,
+        loadOrThrow: async () => undefined,
+        save: () => saveSettings(),
+        settingsLoadError: ref(null),
+        settingsLoadFailure: ref(null),
+        settingsSaveError,
+        settingsSaveFailure,
+        settingsSaveStatus,
+        updateSetting: vi.fn(),
+    }),
+}));
 vi.mock('@app/composables/useRuntimeEnvironment', () => ({useRuntimeEnvironment: () => ({isDesktopRuntime: ref(true)})}));
 const clearRuntimeErrorReports = vi.fn();
-vi.mock('@app/composables/useRuntimeErrorReports', () => ({useRuntimeErrorReports: () => ({
-    reports: ref([]),
-    clearRuntimeErrorReports,
-    discardPendingDiagnostics: vi.fn(),
-    resendPendingDiagnosticOnce: vi.fn(),
-})}));
-vi.mock('@app/composables/useAppUpdates', () => ({useAppUpdates: () => ({
-    checkForUpdates: vi.fn(),
-    ensureInitialized: async () => undefined,
-    isCheckInProgress: ref(false),
-    isUpdateSupported: ref(false),
-})}));
+vi.mock('@app/composables/useRuntimeErrorReports', () => ({
+    useRuntimeErrorReports: () => ({
+        reports: ref([]),
+        clearRuntimeErrorReports,
+        discardPendingDiagnostics: vi.fn(),
+        resendPendingDiagnosticOnce: vi.fn(),
+    }),
+}));
+vi.mock('@app/composables/useAppUpdates', () => ({
+    useAppUpdates: () => ({
+        checkForUpdates: vi.fn(),
+        ensureInitialized: async () => undefined,
+        isCheckInProgress: ref(false),
+        isUpdateSupported: ref(false),
+    }),
+}));
 vi.mock('@app/composables/useUiScale', () => ({
     applyUiScaleToDocument: vi.fn(),
     useUiScale: () => ({
@@ -186,41 +191,50 @@ vi.mock('@app/composables/useUiScale', () => ({
         setPreferenceFromSettings: vi.fn(),
     }),
 }));
-vi.mock('@app/composables/useFatalRuntimeError', () => ({useFatalRuntimeError: () => ({
-    fatalRuntimeError: ref(null),
-    setFatalRuntimeError: vi.fn(),
-    reloadAfterFatalRuntimeError: vi.fn(),
-})}));
+vi.mock('@app/composables/useFatalRuntimeError', () => ({
+    useFatalRuntimeError: () => ({
+        fatalRuntimeError: ref(null),
+        setFatalRuntimeError: vi.fn(),
+        reloadAfterFatalRuntimeError: vi.fn(),
+    }),
+}));
 vi.mock('@app/utils/platform', async (original) => ({
-    ...await original<typeof TViMockOriginalPlatformModule>(),
+    ...(await original<typeof TViMockOriginalPlatformModule>()),
     waitForPreferredDesktopPlatformBridge: async () => ({
         shouldWait: false,
         bridgeReady: true,
     }),
 }));
-vi.mock('@app/utils/getAgentCapability', () => ({getAgentCapability: () => ({
-    getMcpIntegrationStatus: mcpStatusRead,
-    onAssistantEvent: () => () => undefined,
-    onMcpIntegrationChanged: (listener: (status: IAgentMcpIntegrationStatus) => void) => {
-        runtimeStatusListeners.add(listener);
-        return () => runtimeStatusListeners.delete(listener);
-    },
-})}));
+vi.mock('@app/utils/getAgentCapability', () => ({
+    getAgentCapability: () => ({
+        getMcpIntegrationStatus: mcpStatusRead,
+        onAssistantEvent: () => () => undefined,
+        onMcpIntegrationChanged: (listener: (status: IAgentMcpIntegrationStatus) => void) => {
+            runtimeStatusListeners.add(listener);
+            return () => runtimeStatusListeners.delete(listener);
+        },
+    }),
+}));
 vi.mock('@app/components/settings/SettingsGeneralPanel.vue', () => ({default: {render: () => h('div')}}));
 vi.mock('@app/components/settings/SettingsPerformancePanel.vue', () => ({default: {render: () => h('div')}}));
 vi.mock('@app/components/settings/SettingsShortcutsPanel.vue', () => ({default: {render: () => h('div')}}));
 vi.mock('@app/components/settings/SettingsUpdatesPanel.vue', () => ({default: {render: () => h('div')}}));
 vi.mock('@app/components/settings/SettingsViewerDefaultsPanel.vue', () => ({default: {render: () => h('div')}}));
-vi.mock('@app/components/settings/SettingsAgentPanel.vue', () => ({default: defineComponent({
-    props: {status: {
-        type: Object,
-        default: null,
-    }},
-    setup: props => () => h('div', [
-        h('span', {'data-mcp-enabled': ''}, String(props.status?.enabled)),
-        h('span', {'data-mcp-running': ''}, String(props.status?.serverRunning)),
-    ]),
-})}));
+vi.mock('@app/components/settings/SettingsAgentPanel.vue', () => ({
+    default: defineComponent({
+        props: {
+            status: {
+                type: Object,
+                default: null,
+            },
+        },
+        setup: (props) => () =>
+            h('div', [
+                h('span', {'data-mcp-enabled': ''}, String(props.status?.enabled)),
+                h('span', {'data-mcp-running': ''}, String(props.status?.serverRunning)),
+            ]),
+    }),
+}));
 
 describe('SettingsContent synchronized MCP status', () => {
     beforeEach(() => {
@@ -234,31 +248,38 @@ describe('SettingsContent synchronized MCP status', () => {
         vi.stubGlobal('useToast', () => ({add: vi.fn()}));
     });
 
-
     it('retains runtime completion details when an older status read arrives after the owner event', async () => {
         let resolve!: (status: IAgentMcpIntegrationStatus) => void;
-        mcpStatusRead.mockReturnValueOnce(new Promise(done => { resolve = done; }));
+        mcpStatusRead.mockReturnValueOnce(
+            new Promise((done) => {
+                resolve = done;
+            }),
+        );
         const host = document.createElement('div');
         document.body.append(host);
         const app = createApp(SettingsContent);
-        for (const name of [
-            'UIcon',
-            'UButton',
-            'NuxtLink',
-        ]) app.component(name, {render: () => h('span')});
+        for (const name of ['UIcon', 'UButton', 'NuxtLink']) {
+            app.component(name, {render: () => h('span')});
+        }
         app.component('UFormField', FormFieldStub);
         app.component('USwitch', SwitchStub);
         app.mount(host);
-        const unmount = () => { app.unmount(); host.remove(); activeUnmounts.delete(unmount); };
+        const unmount = () => {
+            app.unmount();
+            host.remove();
+            activeUnmounts.delete(unmount);
+        };
         activeUnmounts.add(unmount);
         await nextTick();
-        for (const listener of runtimeStatusListeners) listener({
-            ...createBrowserAgentMcpStatus(),
-            enabled: true,
-            serverRunning: true,
-            codexInstalled: true,
-            codexConfigured: true,
-        });
+        for (const listener of runtimeStatusListeners) {
+            listener({
+                ...createBrowserAgentMcpStatus(),
+                enabled: true,
+                serverRunning: true,
+                codexInstalled: true,
+                codexConfigured: true,
+            });
+        }
         await nextTick();
         expect(host.querySelector('[data-mcp-running]')?.textContent).toBe('true');
         resolve({
@@ -276,15 +297,15 @@ describe('SettingsContent synchronized MCP status', () => {
 
     it('shows a broadcast setting while an earlier MCP status read is pending', async () => {
         let resolve!: (status: IAgentMcpIntegrationStatus) => void;
-        mcpStatusRead.mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+        mcpStatusRead.mockReturnValueOnce(
+            new Promise((done) => {
+                resolve = done;
+            }),
+        );
         const host = document.createElement('div');
         document.body.append(host);
         const app = createApp(SettingsContent);
-        for (const name of [
-            'UIcon',
-            'UButton',
-            'NuxtLink',
-        ]) {
+        for (const name of ['UIcon', 'UButton', 'NuxtLink']) {
             app.component(name, {render: () => h('span')});
         }
         app.component('UFormField', FormFieldStub);
@@ -304,7 +325,9 @@ describe('SettingsContent synchronized MCP status', () => {
             ...createBrowserAgentMcpStatus(),
             enabled: true,
         };
-        for (const listener of runtimeStatusListeners) listener(readStatus);
+        for (const listener of runtimeStatusListeners) {
+            listener(readStatus);
+        }
         resolve(readStatus);
         await vi.waitFor(() => expect(host.querySelector('[data-mcp-enabled]')?.textContent).toBe('false'));
         for (const listener of runtimeStatusListeners) {
@@ -330,15 +353,22 @@ function mountSettingsRoot(retained = false) {
     const toast = {
         toasts,
         add: (entry: TToast) => {
-            const index = entries.value.findIndex(item => item.id === entry.id);
-            if (index < 0) entries.value.push(entry);
-            else entries.value[index] = entry;
+            const index = entries.value.findIndex((item) => item.id === entry.id);
+            if (index < 0) {
+                entries.value.push(entry);
+            } else {
+                entries.value[index] = entry;
+            }
         },
         update: (id: string | number, update: Partial<TToast>) => {
-            const entry = entries.value.find(item => item.id === id);
-            if (entry) Object.assign(entry, update);
+            const entry = entries.value.find((item) => item.id === id);
+            if (entry) {
+                Object.assign(entry, update);
+            }
         },
-        remove: (id: string) => { entries.value = entries.value.filter(item => item.id !== id); },
+        remove: (id: string) => {
+            entries.value = entries.value.filter((item) => item.id !== id);
+        },
     };
     vi.stubGlobal('useToast', () => toast);
     vi.stubGlobal('useRoute', () => ({
@@ -349,11 +379,13 @@ function mountSettingsRoot(retained = false) {
         preference: 'light',
         value: 'light',
     }));
-    vi.stubGlobal('useLocaleHead', () => ref({
-        htmlAttrs: {},
-        meta: [],
-        link: [],
-    }));
+    vi.stubGlobal('useLocaleHead', () =>
+        ref({
+            htmlAttrs: {},
+            meta: [],
+            link: [],
+        }),
+    );
     vi.stubGlobal('useHead', vi.fn());
     synchronizedSettings.value = {
         ...DEFAULT_SETTINGS,
@@ -369,33 +401,52 @@ function mountSettingsRoot(retained = false) {
     const host = document.createElement('div');
     document.body.append(host);
     const app = createApp(AppRoot);
-    const passthrough = defineComponent({setup: (_props, {slots}) => () => slots.default?.()});
-    app.component('UApp', defineComponent({setup: (_props, {slots}) => () => h('main', [
-        slots.default?.(),
-        ...entries.value.map(entry => h('article', {
-            class: entry.ui?.root,
-            'data-id': entry.id,
-        }, [
-            h('h2', entry.title),
-            typeof entry.description === 'function' ? entry.description() : entry.description,
-            ...(entry.actions ?? []).map(action => h('button', {onClick: action.onClick}, action.label)),
-        ])),
-    ])}));
-    app.component('NuxtPage', defineComponent({setup: () => () => visible.value ? h(SettingsContent) : h('div', 'Workspace')}));
-    for (const name of [
-        'DevOnly',
-        'ClientOnly',
-    ]) app.component(name, passthrough);
-    for (const name of [
-        'UIcon',
-        'UButton',
-        'NuxtLink',
-        'UAlert',
-    ]) app.component(name, {render: () => h('span')});
+    const passthrough = defineComponent({
+        setup:
+            (_props, {slots}) =>
+            () =>
+                slots.default?.(),
+    });
+    app.component(
+        'UApp',
+        defineComponent({
+            setup:
+                (_props, {slots}) =>
+                () =>
+                    h('main', [
+                        slots.default?.(),
+                        ...entries.value.map((entry) =>
+                            h(
+                                'article',
+                                {
+                                    class: entry.ui?.root,
+                                    'data-id': entry.id,
+                                },
+                                [
+                                    h('h2', entry.title),
+                                    typeof entry.description === 'function' ? entry.description() : entry.description,
+                                    ...(entry.actions ?? []).map((action) => h('button', {onClick: action.onClick}, action.label)),
+                                ],
+                            ),
+                        ),
+                    ]),
+        }),
+    );
+    app.component('NuxtPage', defineComponent({setup: () => () => (visible.value ? h(SettingsContent) : h('div', 'Workspace'))}));
+    for (const name of ['DevOnly', 'ClientOnly']) {
+        app.component(name, passthrough);
+    }
+    for (const name of ['UIcon', 'UButton', 'NuxtLink', 'UAlert']) {
+        app.component(name, {render: () => h('span')});
+    }
     app.component('UFormField', FormFieldStub);
     app.component('USwitch', SwitchStub);
     app.mount(host);
-    const unmount = () => {app.unmount(); host.remove(); activeUnmounts.delete(unmount);};
+    const unmount = () => {
+        app.unmount();
+        host.remove();
+        activeUnmounts.delete(unmount);
+    };
     activeUnmounts.add(unmount);
     return {
         host,
@@ -412,51 +463,72 @@ function installSettingsQueue() {
     const queue = createSettingsPersistenceQueue({
         getSettingsSnapshot: () => synchronizedSettings.value,
         getLastSavedSettings: () => stored,
-        savePatch: async patch => {
+        savePatch: async (patch) => {
             if (first) {
                 first = false;
-                await new Promise<void>((_resolve, reject) => {rejectWrite = reject;});
+                await new Promise<void>((_resolve, reject) => {
+                    rejectWrite = reject;
+                });
             }
-            if (nextFailure) throw nextFailure;
+            if (nextFailure) {
+                throw nextFailure;
+            }
             stored = {
                 ...stored,
                 ...patch,
             };
         },
-        onSaved: () => {settingsSaveFailure.value = null;},
+        onSaved: () => {
+            settingsSaveFailure.value = null;
+        },
         onSaveError: () => {
-            settingsSaveFailure.value ??= {failure: {
-                eventId: '0123456789abcdef0123456789abcdef',
-                code: 'SETTINGS_SAVE_FAILED',
-                occurredAt: requireEpochMs(1_790_000_000_000),
-                severity: 'error',
-            }};
+            settingsSaveFailure.value ??= {
+                failure: {
+                    eventId: '0123456789abcdef0123456789abcdef',
+                    code: 'SETTINGS_SAVE_FAILED',
+                    occurredAt: requireEpochMs(1_790_000_000_000),
+                    severity: 'error',
+                },
+            };
         },
         onStatusChanged: (status, error) => {
             settingsSaveStatus.value = status;
-            settingsSaveError.value = error instanceof Error || error instanceof DOMException ? {
-                name: error.name,
-                message: error.message,
-            } : null;
+            settingsSaveError.value =
+                error instanceof Error || error instanceof DOMException
+                    ? {
+                          name: error.name,
+                          message: error.message,
+                      }
+                    : null;
         },
     });
     saveSettings = queue.save;
     return {
         reject: (error: unknown) => rejectWrite(error),
-        failRetry: (error: Error | null) => {nextFailure = error;},
+        failRetry: (error: Error | null) => {
+            nextFailure = error;
+        },
         stored: () => stored,
     };
 }
 
-async function flushUi() { for (let index = 0; index < 8; index++) await nextTick(); }
+async function flushUi() {
+    for (let index = 0; index < 8; index++) {
+        await nextTick();
+    }
+}
 function clickToastButton(host: HTMLElement, label: string) {
-    const button = [...host.querySelectorAll<HTMLButtonElement>('.app-toast-failure button')].find(entry => entry.textContent === label);
+    const button = [...host.querySelectorAll<HTMLButtonElement>('.app-toast-failure button')].find((entry) => entry.textContent === label);
     expect(button).toBeDefined();
     button!.click();
 }
 
 describe('Settings save presentation lifetime', () => {
-    afterEach(() => { realMessages = false; selectedLocale.value = 'en'; saveSettings = async () => true; });
+    afterEach(() => {
+        realMessages = false;
+        selectedLocale.value = 'en';
+        saveSettings = async () => true;
+    });
 
     it('shows a late failure after Settings closes, keeps one receipt on remount and retries the latest choice', async () => {
         const queue = installSettingsQueue();
@@ -501,26 +573,10 @@ describe('Settings save presentation lifetime', () => {
     });
 
     it.each([
-        [
-            'QuotaExceededError',
-            'RAW quota detail',
-            'Хранилище заполнено. Освободите место и повторите попытку.',
-        ],
-        [
-            'SecurityError',
-            'RAW access detail',
-            'Доступ к хранилищу заблокирован. Разрешите доступ и повторите попытку.',
-        ],
-        [
-            'NotAllowedError',
-            'RAW permission detail',
-            'Доступ к хранилищу заблокирован. Разрешите доступ и повторите попытку.',
-        ],
-        [
-            'Error',
-            'RAW unknown detail',
-            'Не удалось записать настройки в хранилище. Повторите попытку.',
-        ],
+        ['QuotaExceededError', 'RAW quota detail', 'Хранилище заполнено. Освободите место и повторите попытку.'],
+        ['SecurityError', 'RAW access detail', 'Доступ к хранилищу заблокирован. Разрешите доступ и повторите попытку.'],
+        ['NotAllowedError', 'RAW permission detail', 'Доступ к хранилищу заблокирован. Разрешите доступ и повторите попытку.'],
+        ['Error', 'RAW unknown detail', 'Не удалось записать настройки в хранилище. Повторите попытку.'],
     ])('localizes %s while keeping raw diagnostics in Copy details after Settings closes', async (name, detail, reason) => {
         selectedLocale.value = 'ru';
         const copied = vi.fn().mockResolvedValue(undefined);
@@ -547,9 +603,13 @@ describe('Settings save presentation lifetime', () => {
         selectedLocale.value = 'en';
         await flushUi();
         expect(mounted.host.querySelectorAll('.app-toast-failure')).toHaveLength(1);
-        expect(mounted.host.querySelector('.app-toast-failure-reason')?.textContent).toBe(name === 'QuotaExceededError'
-            ? 'Storage is full. Free some space and try again.'
-            : name === 'Error' ? 'Settings could not be written to storage. Try again.' : 'Access to storage is blocked. Allow access and try again.');
+        expect(mounted.host.querySelector('.app-toast-failure-reason')?.textContent).toBe(
+            name === 'QuotaExceededError'
+                ? 'Storage is full. Free some space and try again.'
+                : name === 'Error'
+                  ? 'Settings could not be written to storage. Try again.'
+                  : 'Access to storage is blocked. Allow access and try again.',
+        );
     });
 
     it('clears runtime error reports on pagehide while mounted and detaches the listener on unmount', () => {

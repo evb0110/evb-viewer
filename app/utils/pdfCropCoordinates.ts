@@ -1,9 +1,5 @@
-import type {
-    ICropMargins,
-    IPdfBox,
-    TCropUnit,
-} from '@app/types/crop';
-import { clamp } from 'es-toolkit/math';
+import type {ICropMargins, IPdfBox, TCropUnit} from '@app/types/crop';
+import {clamp} from 'es-toolkit/math';
 
 export const PDF_POINTS_PER_INCH = 72;
 const PDF_POINTS_PER_MM = 72 / 25.4;
@@ -11,25 +7,34 @@ const PDF_POINTS_PER_MM = 72 / 25.4;
 export function pointsToUnit(raw: number, unit: TCropUnit, userUnit = 1) {
     const pts = raw * userUnit;
     switch (unit) {
-        case 'pt': return pts;
-        case 'mm': return pts / PDF_POINTS_PER_MM;
-        case 'in': return pts / PDF_POINTS_PER_INCH;
+        case 'pt':
+            return pts;
+        case 'mm':
+            return pts / PDF_POINTS_PER_MM;
+        case 'in':
+            return pts / PDF_POINTS_PER_INCH;
     }
 }
 
 export function unitToPoints(value: number, unit: TCropUnit, userUnit = 1) {
     switch (unit) {
-        case 'pt': return value / userUnit;
-        case 'mm': return value * PDF_POINTS_PER_MM / userUnit;
-        case 'in': return value * PDF_POINTS_PER_INCH / userUnit;
+        case 'pt':
+            return value / userUnit;
+        case 'mm':
+            return (value * PDF_POINTS_PER_MM) / userUnit;
+        case 'in':
+            return (value * PDF_POINTS_PER_INCH) / userUnit;
     }
 }
 
 export function unitStep(unit: TCropUnit) {
     switch (unit) {
-        case 'pt': return 1;
-        case 'mm': return 1;
-        case 'in': return 0.01;
+        case 'pt':
+            return 1;
+        case 'mm':
+            return 1;
+        case 'in':
+            return 0.01;
     }
 }
 
@@ -138,8 +143,8 @@ export function screenRectToMargins(
 
     return {
         left: Math.max(0, pdfLeft - mediaBox.x),
-        right: Math.max(0, (mediaBox.x + mediaBox.width) - pdfRight),
-        top: Math.max(0, (mediaBox.y + mediaBox.height) - pdfTop),
+        right: Math.max(0, mediaBox.x + mediaBox.width - pdfRight),
+        top: Math.max(0, mediaBox.y + mediaBox.height - pdfTop),
         bottom: Math.max(0, pdfBottom - mediaBox.y),
     };
 }
@@ -181,12 +186,7 @@ export function boxToNormalizedRect(
     };
 }
 
-function toDisplayNormalizedPoint(
-    x: number,
-    y: number,
-    mediaBox: IPdfBox,
-    rotation: 0 | 90 | 180 | 270,
-) {
+function toDisplayNormalizedPoint(x: number, y: number, mediaBox: IPdfBox, rotation: 0 | 90 | 180 | 270) {
     const normX = clamp01((x - mediaBox.x) / Math.max(mediaBox.width, 1));
     const normY = clamp01((y - mediaBox.y) / Math.max(mediaBox.height, 1));
 
@@ -214,11 +214,7 @@ function toDisplayNormalizedPoint(
     }
 }
 
-export function boxToDisplayNormalizedRect(
-    box: IPdfBox,
-    mediaBox: IPdfBox,
-    rotation: number,
-) {
+export function boxToDisplayNormalizedRect(box: IPdfBox, mediaBox: IPdfBox, rotation: number) {
     const pageWidth = mediaBox.width;
     const pageHeight = mediaBox.height;
     if (pageWidth <= 0 || pageHeight <= 0) {
@@ -238,10 +234,10 @@ export function boxToDisplayNormalizedRect(
         toDisplayNormalizedPoint(box.x + box.width, box.y + box.height, mediaBox, rot),
     ];
 
-    const left = Math.min(...corners.map(corner => corner.x));
-    const top = Math.min(...corners.map(corner => corner.y));
-    const right = Math.max(...corners.map(corner => corner.x));
-    const bottom = Math.max(...corners.map(corner => corner.y));
+    const left = Math.min(...corners.map((corner) => corner.x));
+    const top = Math.min(...corners.map((corner) => corner.y));
+    const right = Math.max(...corners.map((corner) => corner.x));
+    const bottom = Math.max(...corners.map((corner) => corner.y));
 
     return {
         x: clamp01(left),
@@ -251,10 +247,7 @@ export function boxToDisplayNormalizedRect(
     };
 }
 
-function marginsToPdfBox(
-    margins: ICropMargins,
-    mediaBox: IPdfBox,
-): IPdfBox {
+function marginsToPdfBox(margins: ICropMargins, mediaBox: IPdfBox): IPdfBox {
     return {
         x: mediaBox.x + margins.left,
         y: mediaBox.y + margins.bottom,
@@ -275,10 +268,6 @@ export function marginsToNormalizedRect(
     return boxToNormalizedRect(marginsToPdfBox(margins, mediaBox), mediaBox);
 }
 
-export function marginsToDisplayNormalizedRect(
-    margins: ICropMargins,
-    mediaBox: IPdfBox,
-    rotation: number,
-) {
+export function marginsToDisplayNormalizedRect(margins: ICropMargins, mediaBox: IPdfBox, rotation: number) {
     return boxToDisplayNormalizedRect(marginsToPdfBox(margins, mediaBox), mediaBox, rotation);
 }

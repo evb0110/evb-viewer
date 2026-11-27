@@ -1,10 +1,5 @@
 // @vitest-environment happy-dom
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {shallowRef} from 'vue';
 import {useAnnotationKeyboardCommands} from '@app/modules/pdf-viewer/annotations/editor/useAnnotationKeyboardCommands';
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
@@ -27,12 +22,7 @@ describe('useAnnotationKeyboardCommands', () => {
         const surface = harness();
         const commands = useAnnotationKeyboardCommands({
             surface,
-            pageView: () => [
-                0,
-                0,
-                612,
-                792,
-            ],
+            pageView: () => [0, 0, 612, 792],
         });
         const key = (value: string, init: Partial<KeyboardEvent> = {}) => {
             let prevented = false;
@@ -43,10 +33,14 @@ describe('useAnnotationKeyboardCommands', () => {
                 metaKey: false,
                 shiftKey: false,
                 target: null,
-                preventDefault: () => { prevented = true; },
+                preventDefault: () => {
+                    prevented = true;
+                },
                 stopPropagation: vi.fn(),
                 ...init,
-                get defaultPrevented() { return prevented; },
+                get defaultPrevented() {
+                    return prevented;
+                },
             } as KeyboardEvent;
             commands.handleKeydown(event);
             return event;
@@ -56,23 +50,15 @@ describe('useAnnotationKeyboardCommands', () => {
         expect(key('ArrowRight').defaultPrevented).toBe(true);
         expect(key('ArrowRight', {shiftKey: true}).defaultPrevented).toBe(true);
         expect(key('z', {ctrlKey: true}).defaultPrevented).toBe(true);
-        expect(key('z', {
-            metaKey: true,
-            shiftKey: true,
-        }).defaultPrevented).toBe(true);
+        expect(
+            key('z', {
+                metaKey: true,
+                shiftKey: true,
+            }).defaultPrevented,
+        ).toBe(true);
         expect(surface.deleteSelection).toHaveBeenCalledTimes(1);
-        expect(surface.nudgeSelectionByPdfPoints).toHaveBeenNthCalledWith(1, 1, 0, [
-            0,
-            0,
-            612,
-            792,
-        ], 0);
-        expect(surface.nudgeSelectionByPdfPoints).toHaveBeenNthCalledWith(2, 10, 0, [
-            0,
-            0,
-            612,
-            792,
-        ], 0);
+        expect(surface.nudgeSelectionByPdfPoints).toHaveBeenNthCalledWith(1, 1, 0, [0, 0, 612, 792], 0);
+        expect(surface.nudgeSelectionByPdfPoints).toHaveBeenNthCalledWith(2, 10, 0, [0, 0, 612, 792], 0);
         expect(surface.undo).toHaveBeenCalledOnce();
         expect(surface.redo).toHaveBeenCalledOnce();
     });
@@ -131,16 +117,13 @@ describe('useAnnotationKeyboardCommands', () => {
         expect(surface.nudgeSelectionByPdfPoints).not.toHaveBeenCalled();
         expect(event.preventDefault).not.toHaveBeenCalled();
     });
-    it.each([
-        'input',
-        'textarea',
-        'select',
-        'contenteditable',
-    ])('leaves native Select All in %s', (kind) => {
+    it.each(['input', 'textarea', 'select', 'contenteditable'])('leaves native Select All in %s', (kind) => {
         const surface = harness();
         const commands = useAnnotationKeyboardCommands({surface});
         const host = document.createElement(kind === 'contenteditable' ? 'div' : kind);
-        if (kind === 'contenteditable') host.contentEditable = 'true';
+        if (kind === 'contenteditable') {
+            host.contentEditable = 'true';
+        }
         const target = kind === 'contenteditable' ? host.appendChild(document.createElement('span')) : host;
         const event = new KeyboardEvent('keydown', {
             key: 'a',
@@ -173,5 +156,4 @@ describe('useAnnotationKeyboardCommands', () => {
         expect(commands.handleKeydown(composing)).toBe(false);
         expect(surface.handleEscape).not.toHaveBeenCalled();
     });
-
 });

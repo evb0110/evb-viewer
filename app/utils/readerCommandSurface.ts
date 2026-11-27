@@ -1,15 +1,7 @@
-import { READER_COMMANDS } from '@contracts/readerCommands';
-import type {
-    IReaderCommandSurface,
-    TReaderCommandId,
-    TReaderCommandMap,
-} from '@contracts/readerCommands';
+import {READER_COMMANDS} from '@contracts/readerCommands';
+import type {IReaderCommandSurface, TReaderCommandId, TReaderCommandMap} from '@contracts/readerCommands';
 
-export type {
-    IReaderCommandSurface,
-    TReaderCommandId,
-    TReaderCommandMap,
-} from '@contracts/readerCommands';
+export type {IReaderCommandSurface, TReaderCommandId, TReaderCommandMap} from '@contracts/readerCommands';
 
 function createCommandMap(overrides: Partial<Record<TReaderCommandId, boolean>>): TReaderCommandMap {
     const commandMap: Partial<Record<TReaderCommandId, boolean>> = {};
@@ -21,20 +13,14 @@ function createCommandMap(overrides: Partial<Record<TReaderCommandId, boolean>>)
     return Object.freeze(commandMap) as TReaderCommandMap;
 }
 
-function createSurface(options: {
-    inline: Partial<Record<TReaderCommandId, boolean>>;
-    menu: Partial<Record<TReaderCommandId, boolean>>;
-}) {
+function createSurface(options: {inline: Partial<Record<TReaderCommandId, boolean>>; menu: Partial<Record<TReaderCommandId, boolean>>}) {
     return Object.freeze({
         inline: createCommandMap(options.inline),
         menu: createCommandMap(options.menu),
     }) satisfies IReaderCommandSurface;
 }
 
-const allCommands = createCommandMap(Object.fromEntries(READER_COMMANDS.map(command => [
-    command,
-    true,
-])));
+const allCommands = createCommandMap(Object.fromEntries(READER_COMMANDS.map((command) => [command, true])));
 
 /** Commands that exist only where the runtime can run them. */
 export interface IReaderToolbarCapabilities {
@@ -68,16 +54,10 @@ export const DESKTOP_EDITOR_READER_COMMAND_SURFACE = createReaderToolbarSurface(
     scanCleanup: true,
 });
 
-export function isReaderCommandInline(
-    surface: IReaderCommandSurface | null | undefined,
-    command: TReaderCommandId,
-) {
+export function isReaderCommandInline(surface: IReaderCommandSurface | null | undefined, command: TReaderCommandId) {
     return (surface ?? DESKTOP_EDITOR_READER_COMMAND_SURFACE).inline[command];
 }
 
-export function isReaderCommandInMenu(
-    surface: IReaderCommandSurface | null | undefined,
-    command: TReaderCommandId,
-) {
+export function isReaderCommandInMenu(surface: IReaderCommandSurface | null | undefined, command: TReaderCommandId) {
     return (surface ?? DESKTOP_EDITOR_READER_COMMAND_SURFACE).menu[command];
 }

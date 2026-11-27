@@ -7,7 +7,7 @@ import nl from '../locales/nl';
 import pt from '../locales/pt';
 import ptBr from '../locales/ptBr';
 import ru from '../locales/ru';
-import type { EN_MESSAGE_SCHEMA } from './enMessageSchema';
+import type {EN_MESSAGE_SCHEMA} from './enMessageSchema';
 import {
     DEFAULT_LOCALE,
     LOCALE_CODES,
@@ -19,12 +19,7 @@ import {
     type TTranslationParamsFromSchema,
 } from './core';
 
-export {
-    DEFAULT_LOCALE,
-    LOCALE_CODES,
-    LOCALE_DEFINITIONS,
-    type TLocale,
-};
+export {DEFAULT_LOCALE, LOCALE_CODES, LOCALE_DEFINITIONS, type TLocale};
 
 type TBaseLocaleSchema = typeof EN_MESSAGE_SCHEMA;
 export type TLocaleSchema = TLocaleSchemaFrom<TBaseLocaleSchema>;
@@ -45,7 +40,4 @@ export type TTranslationKey = TTranslationKeyFromNode<TBaseLocaleSchema>;
 
 export type TTranslationParams<TKey extends TTranslationKey> = TTranslationParamsFromSchema<TBaseLocaleSchema, TKey>;
 
-export type TTranslateFn = (
-    key: TTranslationKey,
-    params?: TMessageParams | number,
-) => string;
+export type TTranslateFn = (key: TTranslationKey, params?: TMessageParams | number) => string;

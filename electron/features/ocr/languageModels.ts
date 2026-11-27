@@ -1,50 +1,23 @@
-import { homedir } from 'os';
-import {
-    createHash,
-    randomUUID,
-} from 'node:crypto';
-import {
-    compact,
-    uniq,
-} from 'es-toolkit/array';
-import {
-    createWriteStream,
-    existsSync,
-    openSync,
-    readSync,
-    closeSync,
-    statSync,
-} from 'fs';
-import {
-    copyFile,
-    mkdir,
-    readdir,
-    rename,
-    rm,
-    writeFile,
-} from 'fs/promises';
-import {
-    dirname,
-    join,
-} from 'path';
-import { Readable } from 'stream';
-import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
-import { pipeline } from 'stream/promises';
-import { fileURLToPath } from 'url';
-import type { App } from 'electron';
+import {homedir} from 'os';
+import {createHash, randomUUID} from 'node:crypto';
+import {compact, uniq} from 'es-toolkit/array';
+import {createWriteStream, existsSync, openSync, readSync, closeSync, statSync} from 'fs';
+import {copyFile, mkdir, readdir, rename, rm, writeFile} from 'fs/promises';
+import {dirname, join} from 'path';
+import {Readable} from 'stream';
+import type {ReadableStream as NodeReadableStream} from 'node:stream/web';
+import {pipeline} from 'stream/promises';
+import {fileURLToPath} from 'url';
+import type {App} from 'electron';
 import * as electron from 'electron';
-import {
-    abortErrorFromSignal,
-    createAbortError,
-    isAbortError,
-} from '@electron/utils/abort';
-import { createLogger } from '@electron/utils/createLogger';
-import { forEachConcurrent } from '@electron/utils/concurrency';
-import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
-import { getErrorMessage } from '@electron/utils/error';
-import { hashFileSha256 } from '@electron/utils/hashFileSha256';
-import { getOcrRuntimePolicy } from '@electron/features/ocr/main/ocrRuntimePolicy';
-import { resolveOcrResourcesBase } from '@electron/features/ocr/main/resolveOcrResourcesBase';
+import {abortErrorFromSignal, createAbortError, isAbortError} from '@electron/utils/abort';
+import {createLogger} from '@electron/utils/createLogger';
+import {forEachConcurrent} from '@electron/utils/concurrency';
+import {measureElectronPerfAsync} from '@electron/utils/measureElectronPerfAsync';
+import {getErrorMessage} from '@electron/utils/error';
+import {hashFileSha256} from '@electron/utils/hashFileSha256';
+import {getOcrRuntimePolicy} from '@electron/features/ocr/main/ocrRuntimePolicy';
+import {resolveOcrResourcesBase} from '@electron/features/ocr/main/resolveOcrResourcesBase';
 import type {IOcrModelDownloadProgress} from '@contracts/electronApiOcr';
 import {
     AVAILABLE_OCR_LANGUAGES,
@@ -69,13 +42,7 @@ const RETRY_DELAY_MS = 1_500;
 const PRECHECK_TIMEOUT_MS = 4_000;
 const MIN_TRAINEDDATA_BYTES = 1024;
 const TESSDATA_SEED_MARKER_PREFIX = '.evb-seeded-';
-const NON_RETRYABLE_HTTP_STATUSES = new Set([
-    400,
-    401,
-    403,
-    404,
-    410,
-]);
+const NON_RETRYABLE_HTTP_STATUSES = new Set([400, 401, 403, 404, 410]);
 const NETWORK_UNREACHABLE_CODES = new Set([
     'ENETUNREACH',
     'EHOSTUNREACH',
@@ -149,8 +116,7 @@ function getElectronUserDataPath() {
 }
 
 function normalizeLanguageCodes(languageCodes: string[]): string[] {
-    return uniq(compact(languageCodes
-        .map(languageCode => languageCode.trim().toLowerCase())));
+    return uniq(compact(languageCodes.map((languageCode) => languageCode.trim().toLowerCase())));
 }
 
 function isOcrLanguageModelCode(value: string): value is keyof typeof OCR_LANGUAGE_MODEL_SHA256 {
@@ -194,11 +160,11 @@ function getErrorCode(error: unknown) {
 
     while (current && typeof current === 'object' && !visited.has(current)) {
         visited.add(current);
-        const code = (current as { code?: unknown }).code;
+        const code = (current as {code?: unknown}).code;
         if (typeof code === 'string' && code.length > 0) {
             return code;
         }
-        current = (current as { cause?: unknown }).cause;
+        current = (current as {cause?: unknown}).cause;
     }
 
     return null;
@@ -208,10 +174,7 @@ function isTimeoutError(error: unknown) {
     return error instanceof Error && error.name === 'TimeoutError';
 }
 
-function createTimedAbortSignal(
-    timeoutMs: number,
-    signal?: AbortSignal,
-) {
+function createTimedAbortSignal(timeoutMs: number, signal?: AbortSignal) {
     const controller = new AbortController();
     const onAbort = () => {
         if (controller.signal.aborted) {
@@ -224,7 +187,7 @@ function createTimedAbortSignal(
         if (signal.aborted) {
             onAbort();
         } else {
-            signal.addEventListener('abort', onAbort, { once: true });
+            signal.addEventListener('abort', onAbort, {once: true});
         }
     }
 
@@ -249,10 +212,7 @@ function createTimedAbortSignal(
     };
 }
 
-async function delayWithAbort(
-    delayMs: number,
-    signal?: AbortSignal,
-) {
+async function delayWithAbort(delayMs: number, signal?: AbortSignal) {
     throwIfAborted(signal);
     await new Promise<void>((resolve, reject) => {
         const timeoutHandle = setTimeout(() => {
@@ -271,14 +231,11 @@ async function delayWithAbort(
             signal?.removeEventListener('abort', onAbort);
         };
 
-        signal?.addEventListener('abort', onAbort, { once: true });
+        signal?.addEventListener('abort', onAbort, {once: true});
     });
 }
 
-async function waitForPromiseOrAbort<T>(
-    promise: Promise<T>,
-    signal?: AbortSignal,
-) {
+async function waitForPromiseOrAbort<T>(promise: Promise<T>, signal?: AbortSignal) {
     throwIfAborted(signal);
 
     if (!signal) {
@@ -295,14 +252,17 @@ async function waitForPromiseOrAbort<T>(
             signal.removeEventListener('abort', onAbort);
         };
 
-        signal.addEventListener('abort', onAbort, { once: true });
-        promise.then((value) => {
-            cleanup();
-            resolve(value);
-        }, (error) => {
-            cleanup();
-            reject(error);
-        });
+        signal.addEventListener('abort', onAbort, {once: true});
+        promise.then(
+            (value) => {
+                cleanup();
+                resolve(value);
+            },
+            (error) => {
+                cleanup();
+                reject(error);
+            },
+        );
     });
 }
 
@@ -318,22 +278,16 @@ function createHttpDownloadError(languageCode: string, statusCode: number) {
     }
 
     if (NON_RETRYABLE_HTTP_STATUSES.has(statusCode)) {
-        return new LanguageModelDownloadError(
-            `OCR language model "${languageCode}" download rejected by server (HTTP ${statusCode}).`,
-            {
-                retryable: false,
-                code: `HTTP_${statusCode}`,
-            },
-        );
+        return new LanguageModelDownloadError(`OCR language model "${languageCode}" download rejected by server (HTTP ${statusCode}).`, {
+            retryable: false,
+            code: `HTTP_${statusCode}`,
+        });
     }
 
-    return new LanguageModelDownloadError(
-        `OCR language model "${languageCode}" download failed with HTTP ${statusCode}.`,
-        {
-            retryable: true,
-            code: `HTTP_${statusCode}`,
-        },
-    );
+    return new LanguageModelDownloadError(`OCR language model "${languageCode}" download failed with HTTP ${statusCode}.`, {
+        retryable: true,
+        code: `HTTP_${statusCode}`,
+    });
 }
 
 function classifyDownloadError(languageCode: string, error: unknown, timeoutMs = DOWNLOAD_STALL_TIMEOUT_MS) {
@@ -342,23 +296,17 @@ function classifyDownloadError(languageCode: string, error: unknown, timeoutMs =
     }
 
     if (isTimeoutError(error)) {
-        return new LanguageModelDownloadError(
-            `OCR language model "${languageCode}" download timed out after ${timeoutMs}ms.`,
-            {
-                retryable: true,
-                code: 'DOWNLOAD_TIMEOUT',
-            },
-        );
+        return new LanguageModelDownloadError(`OCR language model "${languageCode}" download timed out after ${timeoutMs}ms.`, {
+            retryable: true,
+            code: 'DOWNLOAD_TIMEOUT',
+        });
     }
 
     if (isAbortError(error)) {
-        return new LanguageModelDownloadError(
-            `OCR language model "${languageCode}" download was canceled.`,
-            {
-                retryable: false,
-                code: 'DOWNLOAD_ABORTED',
-            },
-        );
+        return new LanguageModelDownloadError(`OCR language model "${languageCode}" download was canceled.`, {
+            retryable: false,
+            code: 'DOWNLOAD_ABORTED',
+        });
     }
 
     const errorCode = getErrorCode(error);
@@ -375,27 +323,21 @@ function classifyDownloadError(languageCode: string, error: unknown, timeoutMs =
     const message = getErrorMessage(error);
     const normalizedMessage = message.toLowerCase();
     if (
-        normalizedMessage.includes('network is unreachable')
-        || normalizedMessage.includes('failed to resolve')
-        || normalizedMessage.includes('getaddrinfo')
-        || normalizedMessage.includes('not known')
+        normalizedMessage.includes('network is unreachable') ||
+        normalizedMessage.includes('failed to resolve') ||
+        normalizedMessage.includes('getaddrinfo') ||
+        normalizedMessage.includes('not known')
     ) {
-        return new LanguageModelDownloadError(
-            `Network is offline or DNS is unreachable while downloading OCR model "${languageCode}".`,
-            {
-                retryable: true,
-                code: 'NETWORK_UNREACHABLE',
-            },
-        );
+        return new LanguageModelDownloadError(`Network is offline or DNS is unreachable while downloading OCR model "${languageCode}".`, {
+            retryable: true,
+            code: 'NETWORK_UNREACHABLE',
+        });
     }
 
-    return new LanguageModelDownloadError(
-        `OCR model "${languageCode}" download failed: ${message}`,
-        {
-            retryable: true,
-            code: 'DOWNLOAD_FAILED',
-        },
-    );
+    return new LanguageModelDownloadError(`OCR model "${languageCode}" download failed: ${message}`, {
+        retryable: true,
+        code: 'DOWNLOAD_FAILED',
+    });
 }
 
 function getBundledTessdataDir() {
@@ -420,13 +362,7 @@ function getFileIdentity(path: string) {
         if (!stats.isFile()) {
             return null;
         }
-        return [
-            stats.dev,
-            stats.ino,
-            stats.size,
-            stats.mtimeMs,
-            stats.ctimeMs,
-        ].join(':');
+        return [stats.dev, stats.ino, stats.size, stats.mtimeMs, stats.ctimeMs].join(':');
     } catch {
         return null;
     }
@@ -457,7 +393,7 @@ export function validateTraineddataFile(path: string): {
         };
     }
 
-    const header = Buffer.alloc(4 + (128 * 8));
+    const header = Buffer.alloc(4 + 128 * 8);
     let fd: number | null = null;
     try {
         fd = openSync(path, 'r');
@@ -477,7 +413,7 @@ export function validateTraineddataFile(path: string): {
             };
         }
 
-        const expectedHeaderBytes = 4 + (entryCount * 8);
+        const expectedHeaderBytes = 4 + entryCount * 8;
         if (stats.size <= expectedHeaderBytes || bytesRead < expectedHeaderBytes) {
             return {
                 valid: false,
@@ -487,7 +423,7 @@ export function validateTraineddataFile(path: string): {
 
         let readableOffsetCount = 0;
         for (let index = 0; index < entryCount; index++) {
-            const offset = header.readBigInt64LE(4 + (index * 8));
+            const offset = header.readBigInt64LE(4 + index * 8);
             if (offset === -1n) {
                 continue;
             }
@@ -507,7 +443,7 @@ export function validateTraineddataFile(path: string): {
             };
         }
 
-        return { valid: true };
+        return {valid: true};
     } catch (error) {
         return {
             valid: false,
@@ -531,25 +467,17 @@ async function ensureTessdataInventoryReadable(runtimeDir: string) {
         if (getErrorCode(error) === 'ENOENT') {
             return;
         }
-        throw new Error(
-            `Unable to check OCR language data availability in "${runtimeDir}": ${getErrorMessage(error)}`,
-        );
+        throw new Error(`Unable to check OCR language data availability in "${runtimeDir}": ${getErrorMessage(error)}`);
     }
 
     try {
         await readdir(runtimeDir);
     } catch (error) {
-        throw new Error(
-            `Unable to check OCR language data availability in "${runtimeDir}": ${getErrorMessage(error)}`,
-        );
+        throw new Error(`Unable to check OCR language data availability in "${runtimeDir}": ${getErrorMessage(error)}`);
     }
 }
 
-async function verifyInstalledLanguageModel(
-    languageCode: string,
-    modelPath: string,
-    signal?: AbortSignal,
-) {
+async function verifyInstalledLanguageModel(languageCode: string, modelPath: string, signal?: AbortSignal) {
     throwIfAborted(signal);
     const validation = validateTraineddataFile(modelPath);
     if (!validation.valid || !isOcrLanguageModelCode(languageCode)) {
@@ -566,9 +494,9 @@ async function verifyInstalledLanguageModel(
     const actualSha256 = await hashFileSha256(modelPath, signal);
     const identityAfterHash = getFileIdentity(modelPath);
     if (
-        actualSha256 !== OCR_LANGUAGE_MODEL_SHA256[languageCode]
-        || identityBeforeHash === null
-        || identityBeforeHash !== identityAfterHash
+        actualSha256 !== OCR_LANGUAGE_MODEL_SHA256[languageCode] ||
+        identityBeforeHash === null ||
+        identityBeforeHash !== identityAfterHash
     ) {
         verifiedModels.delete(modelPath);
         return false;
@@ -590,19 +518,17 @@ async function publishVerifiedModel(
 ) {
     await copyFile(sourcePath, temporaryPath);
     throwIfAborted(signal);
-    if (!await verifyInstalledLanguageModel(languageCode, temporaryPath, signal)) {
+    if (!(await verifyInstalledLanguageModel(languageCode, temporaryPath, signal))) {
         throw new Error(`OCR language model "${languageCode}" failed SHA-256 verification before publication`);
     }
     await rename(temporaryPath, destinationPath);
     verifiedModels.delete(destinationPath);
-    if (!await verifyInstalledLanguageModel(languageCode, destinationPath, signal)) {
+    if (!(await verifyInstalledLanguageModel(languageCode, destinationPath, signal))) {
         throw new Error(`OCR language model "${languageCode}" failed SHA-256 verification after publication`);
     }
 }
 
-async function seedBundledModels(
-    runtimeDir: string,
-) {
+async function seedBundledModels(runtimeDir: string) {
     if (!isElectronAppPackaged()) {
         return;
     }
@@ -612,21 +538,18 @@ async function seedBundledModels(
         return;
     }
 
-    await mkdir(runtimeDir, { recursive: true });
-    const bundledFiles = (await readdir(bundledDir))
-        .filter(fileName => fileName.endsWith('.traineddata'))
-        .sort();
+    await mkdir(runtimeDir, {recursive: true});
+    const bundledFiles = (await readdir(bundledDir)).filter((fileName) => fileName.endsWith('.traineddata')).sort();
     const bundledRegistryFingerprint = createHash('sha256')
-        .update(JSON.stringify({
-            ref: TESSDATA_BEST_REF,
-            bundledFiles,
-        }))
+        .update(
+            JSON.stringify({
+                ref: TESSDATA_BEST_REF,
+                bundledFiles,
+            }),
+        )
         .digest('hex')
         .slice(0, 16);
-    const seedMarkerPath = join(
-        runtimeDir,
-        `${TESSDATA_SEED_MARKER_PREFIX}${TESSDATA_BEST_REF}-${bundledRegistryFingerprint}`,
-    );
+    const seedMarkerPath = join(runtimeDir, `${TESSDATA_SEED_MARKER_PREFIX}${TESSDATA_BEST_REF}-${bundledRegistryFingerprint}`);
     for (const fileName of bundledFiles) {
         const languageCode = fileName.slice(0, -'.traineddata'.length);
         if (!isOcrLanguageModelCode(languageCode)) {
@@ -635,7 +558,7 @@ async function seedBundledModels(
         }
         const sourcePath = join(bundledDir, fileName);
         const destinationPath = join(runtimeDir, fileName);
-        if (!await verifyInstalledLanguageModel(languageCode, sourcePath)) {
+        if (!(await verifyInstalledLanguageModel(languageCode, sourcePath))) {
             log.warn(`Skipping invalid bundled OCR language model ${fileName}`);
             continue;
         }
@@ -646,27 +569,29 @@ async function seedBundledModels(
         try {
             await publishVerifiedModel(languageCode, sourcePath, destinationPath, stagingPath);
         } finally {
-            await rm(stagingPath, { force: true }).catch(() => {});
+            await rm(stagingPath, {force: true}).catch(() => {});
         }
     }
     if (existsSync(seedMarkerPath)) {
         return;
     }
     const pendingSeedMarkerPath = `${seedMarkerPath}.${randomUUID()}.tmp`;
-    await writeFile(pendingSeedMarkerPath, JSON.stringify({
-        ref: TESSDATA_BEST_REF,
-        registryFingerprint: bundledRegistryFingerprint,
-        bundledFiles,
-    }), {
-        encoding: 'utf8',
-        mode: 0o600,
-    });
+    await writeFile(
+        pendingSeedMarkerPath,
+        JSON.stringify({
+            ref: TESSDATA_BEST_REF,
+            registryFingerprint: bundledRegistryFingerprint,
+            bundledFiles,
+        }),
+        {
+            encoding: 'utf8',
+            mode: 0o600,
+        },
+    );
     await rename(pendingSeedMarkerPath, seedMarkerPath);
 }
 
-export async function ensureRuntimeTessdataSeeded(
-    options: IEnsureTessdataLanguagesOptions = {},
-) {
+export async function ensureRuntimeTessdataSeeded(options: IEnsureTessdataLanguagesOptions = {}) {
     if (!isElectronAppPackaged()) {
         return;
     }
@@ -684,7 +609,7 @@ export async function ensureRuntimeTessdataSeeded(
 
     const seedPromise = measureElectronPerfAsync('ocr:seed-runtime-tessdata', () => seedBundledModels(runtimeDir), {
         thresholdMs: 25,
-        details: { runtimeDir },
+        details: {runtimeDir},
     });
     runtimeTessdataSeedPromise = seedPromise;
     try {
@@ -697,11 +622,7 @@ export async function ensureRuntimeTessdataSeeded(
     }
 }
 
-async function precheckLanguageDownload(
-    languageCode: string,
-    languageUrl: string,
-    options: IEnsureTessdataLanguagesOptions = {},
-) {
+async function precheckLanguageDownload(languageCode: string, languageUrl: string, options: IEnsureTessdataLanguagesOptions = {}) {
     throwIfAborted(options.signal);
     const timedSignal = createTimedAbortSignal(PRECHECK_TIMEOUT_MS, options.signal);
     try {
@@ -728,9 +649,7 @@ async function precheckLanguageDownload(
             throw classified;
         }
 
-        log.warn(
-            `Skipping OCR model precheck strictness for ${languageCode}: ${classified.message}. Continuing with download attempts.`,
-        );
+        log.warn(`Skipping OCR model precheck strictness for ${languageCode}: ${classified.message}. Continuing with download attempts.`);
     } finally {
         timedSignal.cleanup();
     }
@@ -753,8 +672,8 @@ async function writeDownloadResponseBody(
                 yield chunk;
             }
         },
-        createWriteStream(tempPath, { flags: 'wx' }),
-        { signal: stallTimeout.signal },
+        createWriteStream(tempPath, {flags: 'wx'}),
+        {signal: stallTimeout.signal},
     );
 }
 
@@ -767,9 +686,7 @@ async function downloadLanguageModelAttempt(
     attempt: number,
     options: IEnsureTessdataLanguagesOptions,
 ) {
-    const {
-        signal, onProgress,
-    } = options;
+    const {signal, onProgress} = options;
     throwIfAborted(signal);
     const progress = {
         languageCode,
@@ -794,11 +711,13 @@ async function downloadLanguageModelAttempt(
         }
 
         stallTimeout.restart();
-        await mkdir(runtimeDir, { recursive: true });
-        await writeDownloadResponseBody(response, tempPath, stallTimeout, receivedBytes => onProgress?.({
-            ...progress,
-            receivedBytes,
-        }));
+        await mkdir(runtimeDir, {recursive: true});
+        await writeDownloadResponseBody(response, tempPath, stallTimeout, (receivedBytes) =>
+            onProgress?.({
+                ...progress,
+                receivedBytes,
+            }),
+        );
         // Verification reads the local file; only the caller can cancel it.
         stallTimeout.cleanup();
         throwIfAborted(signal);
@@ -810,38 +729,29 @@ async function downloadLanguageModelAttempt(
         const expectedSha256 = OCR_LANGUAGE_MODEL_SHA256[languageCode];
         const actualSha256 = await hashFileSha256(tempPath, signal);
         if (actualSha256 !== expectedSha256) {
-            throw new LanguageModelDownloadError(
-                `OCR language model "${languageCode}" failed SHA-256 verification.`,
-                {
-                    retryable: false,
-                    code: 'CHECKSUM_MISMATCH',
-                },
-            );
+            throw new LanguageModelDownloadError(`OCR language model "${languageCode}" failed SHA-256 verification.`, {
+                retryable: false,
+                code: 'CHECKSUM_MISMATCH',
+            });
         }
         const downloadedSize = statSync(tempPath).size;
         await rename(tempPath, modelPath);
         verifiedModels.delete(modelPath);
-        if (!await verifyInstalledLanguageModel(languageCode, modelPath, signal)) {
-            throw new LanguageModelDownloadError(
-                `OCR language model "${languageCode}" failed SHA-256 verification after publication.`,
-                {
-                    retryable: false,
-                    code: 'CHECKSUM_MISMATCH',
-                },
-            );
+        if (!(await verifyInstalledLanguageModel(languageCode, modelPath, signal))) {
+            throw new LanguageModelDownloadError(`OCR language model "${languageCode}" failed SHA-256 verification after publication.`, {
+                retryable: false,
+                code: 'CHECKSUM_MISMATCH',
+            });
         }
         return downloadedSize;
     } catch (err) {
         if (signal?.aborted) {
             throw abortErrorFromSignal(signal);
         }
-        throw classifyDownloadError(
-            languageCode,
-            stallTimeout.signal.aborted ? stallTimeout.signal.reason : err,
-        );
+        throw classifyDownloadError(languageCode, stallTimeout.signal.aborted ? stallTimeout.signal.reason : err);
     } finally {
         stallTimeout.cleanup();
-        await rm(tempPath, { force: true }).catch(() => {});
+        await rm(tempPath, {force: true}).catch(() => {});
     }
 }
 
@@ -877,11 +787,7 @@ async function waitBeforeDownloadRetry(
     await delayWithAbort(RETRY_DELAY_MS * attempt, options.signal);
 }
 
-async function downloadLanguageModel(
-    languageCode: TOcrModelCode,
-    runtimeDir: string,
-    options: IEnsureTessdataLanguagesOptions = {},
-) {
+async function downloadLanguageModel(languageCode: TOcrModelCode, runtimeDir: string, options: IEnsureTessdataLanguagesOptions = {}) {
     const modelPath = getModelPath(runtimeDir, languageCode);
     if (await removeInvalidModelIfPresent(languageCode, modelPath)) {
         return;
@@ -908,27 +814,18 @@ async function downloadLanguageModel(
             if (options.signal?.aborted) {
                 throw abortErrorFromSignal(options.signal);
             }
-            await waitBeforeDownloadRetry(
-                languageCode,
-                attempt,
-                classifyDownloadError(languageCode, err),
-                options,
-            );
+            await waitBeforeDownloadRetry(languageCode, attempt, classifyDownloadError(languageCode, err), options);
         }
     }
 }
 
-async function restoreBundledLanguageModel(
-    languageCode: string,
-    runtimeDir: string,
-    options: IEnsureTessdataLanguagesOptions = {},
-) {
+async function restoreBundledLanguageModel(languageCode: string, runtimeDir: string, options: IEnsureTessdataLanguagesOptions = {}) {
     if (!isElectronAppPackaged()) {
         return false;
     }
 
     const bundledPath = getModelPath(getBundledTessdataDir(), languageCode);
-    if (!await verifyInstalledLanguageModel(languageCode, bundledPath, options.signal)) {
+    if (!(await verifyInstalledLanguageModel(languageCode, bundledPath, options.signal))) {
         log.warn(`Bundled OCR language model ${languageCode} is unavailable for offline restore`);
         return false;
     }
@@ -952,25 +849,14 @@ async function restoreBundledLanguageModel(
     }
 }
 
-function releaseDownloadWaiter(
-    languageCode: string,
-    waiterId: symbol,
-    task: ISharedDownloadTask,
-) {
+function releaseDownloadWaiter(languageCode: string, waiterId: symbol, task: ISharedDownloadTask) {
     task.waiters.delete(waiterId);
-    if (
-        task.waiters.size === 0
-        && inFlightDownloads.get(languageCode) === task
-        && !task.controller.signal.aborted
-    ) {
+    if (task.waiters.size === 0 && inFlightDownloads.get(languageCode) === task && !task.controller.signal.aborted) {
         task.controller.abort(createAbortError(`OCR language model "${languageCode}" download was canceled`));
     }
 }
 
-function notifyDownloadProgress(
-    listener: IEnsureTessdataLanguagesOptions['onProgress'],
-    progress: IOcrModelDownloadProgress,
-) {
+function notifyDownloadProgress(listener: IEnsureTessdataLanguagesOptions['onProgress'], progress: IOcrModelDownloadProgress) {
     try {
         listener?.(progress);
     } catch (error) {
@@ -978,18 +864,16 @@ function notifyDownloadProgress(
     }
 }
 
-async function ensureLanguageModel(
-    languageCode: TOcrModelCode,
-    runtimeDir: string,
-    options: IEnsureTessdataLanguagesOptions = {},
-) {
+async function ensureLanguageModel(languageCode: TOcrModelCode, runtimeDir: string, options: IEnsureTessdataLanguagesOptions = {}) {
     throwIfAborted(options.signal);
     const waiterId = Symbol(languageCode);
     const pending = inFlightDownloads.get(languageCode);
     if (pending) {
         pending.waiters.set(waiterId, options.onProgress);
         try {
-            if (pending.progress) notifyDownloadProgress(options.onProgress, pending.progress);
+            if (pending.progress) {
+                notifyDownloadProgress(options.onProgress, pending.progress);
+            }
             await waitForPromiseOrAbort(pending.promise, options.signal);
         } finally {
             releaseDownloadWaiter(languageCode, waiterId, pending);
@@ -999,15 +883,14 @@ async function ensureLanguageModel(
 
     const task: ISharedDownloadTask = {
         controller: new AbortController(),
-        waiters: new Map([[
-            waiterId,
-            options.onProgress,
-        ]]),
+        waiters: new Map([[waiterId, options.onProgress]]),
         promise: Promise.resolve(),
     };
     const onProgress = (progress: IOcrModelDownloadProgress) => {
         task.progress = progress;
-        for (const listener of task.waiters.values()) notifyDownloadProgress(listener, progress);
+        for (const listener of task.waiters.values()) {
+            notifyDownloadProgress(listener, progress);
+        }
     };
     task.promise = (async () => {
         let releaseSlot: (() => void) | null = null;
@@ -1017,7 +900,7 @@ async function ensureLanguageModel(
                 return;
             }
             const restored = await restoreBundledLanguageModel(languageCode, runtimeDir, {signal: task.controller.signal});
-            if (!restored && !await verifyInstalledLanguageModel(languageCode, modelPath, task.controller.signal)) {
+            if (!restored && !(await verifyInstalledLanguageModel(languageCode, modelPath, task.controller.signal))) {
                 releaseSlot = await acquireGlobalModelDownloadSlot(task.controller.signal);
                 await downloadLanguageModel(languageCode, runtimeDir, {
                     signal: task.controller.signal,
@@ -1045,10 +928,7 @@ function getModelDownloadConcurrency() {
 }
 
 function activateNextGlobalDownloadWaiter() {
-    while (
-        globalDownloadWaiters.length > 0
-        && activeModelDownloads < getModelDownloadConcurrency()
-    ) {
+    while (globalDownloadWaiters.length > 0 && activeModelDownloads < getModelDownloadConcurrency()) {
         const next = globalDownloadWaiters.shift();
         if (!next) {
             continue;
@@ -1098,17 +978,14 @@ function acquireGlobalModelDownloadSlot(signal?: AbortSignal): Promise<() => voi
                 }
                 reject(abortErrorFromSignal(signal));
             };
-            signal.addEventListener('abort', waiter.abortHandler, { once: true });
+            signal.addEventListener('abort', waiter.abortHandler, {once: true});
         }
 
         globalDownloadWaiters.push(waiter);
     });
 }
 
-export async function ensureTessdataLanguages(
-    languageCodes: string[],
-    options: IEnsureTessdataLanguagesOptions = {},
-) {
+export async function ensureTessdataLanguages(languageCodes: string[], options: IEnsureTessdataLanguagesOptions = {}) {
     const requiredCodes = normalizeLanguageCodes(languageCodes);
     if (requiredCodes.length === 0) {
         return;
@@ -1122,10 +999,7 @@ export async function ensureTessdataLanguages(
     await ensureTessdataModels(requiredCodes as TOcrLanguageCode[], options);
 }
 
-export async function ensureTessdataModels(
-    modelCodes: readonly TOcrModelCode[],
-    options: IEnsureTessdataLanguagesOptions = {},
-) {
+export async function ensureTessdataModels(modelCodes: readonly TOcrModelCode[], options: IEnsureTessdataLanguagesOptions = {}) {
     const runtimeDir = getRuntimeTessdataDir();
     await ensureRuntimeTessdataSeeded(options);
     // Bound parallel model downloads so OCR requests cannot flood network/disk resources.
@@ -1138,20 +1012,27 @@ export async function getOcrLanguageModelStates() {
     await ensureRuntimeTessdataSeeded();
     const runtimeDir = getRuntimeTessdataDir();
     await ensureTessdataInventoryReadable(runtimeDir);
-    const modelStates = new Map(await Promise.all(OCR_MODEL_CODES.map(async modelCode => [
-        modelCode,
-        inFlightDownloads.has(modelCode)
-            ? 'downloading' as const
-            : await verifyInstalledLanguageModel(modelCode, getModelPath(runtimeDir, modelCode))
-                ? 'installed' as const
-                : 'missing' as const,
-    ] as const)));
+    const modelStates = new Map(
+        await Promise.all(
+            OCR_MODEL_CODES.map(
+                async (modelCode) =>
+                    [
+                        modelCode,
+                        inFlightDownloads.has(modelCode)
+                            ? ('downloading' as const)
+                            : (await verifyInstalledLanguageModel(modelCode, getModelPath(runtimeDir, modelCode)))
+                              ? ('installed' as const)
+                              : ('missing' as const),
+                    ] as const,
+            ),
+        ),
+    );
     // A language is installed once every model file its run reads is.
     return AVAILABLE_OCR_LANGUAGES.map(({code}) => {
-        const states = withOcrModelSublanguages([code]).map(model => modelStates.get(model) ?? 'missing' as const);
+        const states = withOcrModelSublanguages([code]).map((model) => modelStates.get(model) ?? ('missing' as const));
         return {
             code,
-            state: states.find(state => state !== 'installed') ?? 'installed' as const,
+            state: states.find((state) => state !== 'installed') ?? ('installed' as const),
         };
     });
 }

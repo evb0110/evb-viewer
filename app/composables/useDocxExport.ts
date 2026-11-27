@@ -1,15 +1,15 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/public';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import { createDocxFromTextChunks } from '@app/utils/docxStreaming';
-import { useOcrErrorLocalizer } from '@app/composables/useOcrErrorLocalizer';
-import { hasRtlOcrLanguage } from '@app/utils/ocr/hasRtlOcrLanguage';
-import { exportTextAsDocx } from '@app/utils/exportTextAsDocx';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import {createDocxFromTextChunks} from '@app/utils/docxStreaming';
+import {useOcrErrorLocalizer} from '@app/composables/useOcrErrorLocalizer';
+import {hasRtlOcrLanguage} from '@app/utils/ocr/hasRtlOcrLanguage';
+import {exportTextAsDocx} from '@app/utils/exportTextAsDocx';
 
 export const useDocxExport = () => {
-    const { t } = useTypedI18n();
+    const {t} = useTypedI18n();
     const toast = useToast();
-    const { localizeOcrError } = useOcrErrorLocalizer();
+    const {localizeOcrError} = useOcrErrorLocalizer();
 
     const isExportingDocx = ref(false);
     const docxExportError = ref<string | null>(null);
@@ -46,10 +46,10 @@ export const useDocxExport = () => {
                 buildDocxChunks: createDocxFromTextChunks,
                 t,
                 toast,
-                setError: message => {
+                setError: (message) => {
                     docxExportError.value = message;
                 },
-                localizeError: error => localizeOcrError(error, 'errors.ocr.exportDocx'),
+                localizeError: (error) => localizeOcrError(error, 'errors.ocr.exportDocx'),
             });
         } finally {
             if (activeAbortController === abortController) {

@@ -10,11 +10,7 @@ import {
     resolveHostRasterPoolBytes,
     type THostResourceTier,
 } from '@contracts/hostResourceProfile';
-import {
-    normalizeMemoryPressureLevel,
-    type IRuntimeMemoryPressureSignal,
-    type TMemoryPressureLevel,
-} from '@app/utils/viewerResidencyPolicy';
+import {normalizeMemoryPressureLevel, type IRuntimeMemoryPressureSignal, type TMemoryPressureLevel} from '@app/utils/viewerResidencyPolicy';
 
 const MIB = 1024 ** 2;
 
@@ -82,40 +78,31 @@ function clamp(value: number, minimum: number, maximum: number) {
 
 function resolveTotalMemoryBytes(options: IResolveWorkspaceMemoryBudgetOptions) {
     const totalMemoryBytes = options.environment?.totalMemoryBytes;
-    return typeof totalMemoryBytes === 'number' && Number.isFinite(totalMemoryBytes) && totalMemoryBytes > 0
-        ? totalMemoryBytes
-        : null;
+    return typeof totalMemoryBytes === 'number' && Number.isFinite(totalMemoryBytes) && totalMemoryBytes > 0 ? totalMemoryBytes : null;
 }
 
-export function resolveWorkspaceMemoryDeviceTier(
-    performanceProfile: IPerformanceProfile,
-): THostResourceTier {
+export function resolveWorkspaceMemoryDeviceTier(performanceProfile: IPerformanceProfile): THostResourceTier {
     return performanceProfile.tier;
 }
 
-export function resolveWorkspaceMemoryBudget(
-    options: IResolveWorkspaceMemoryBudgetOptions = {},
-): IWorkspaceMemoryBudget {
+export function resolveWorkspaceMemoryBudget(options: IResolveWorkspaceMemoryBudgetOptions = {}): IWorkspaceMemoryBudget {
     const performanceProfile = options.performanceProfile ?? resolvePerformanceProfile(options.environment);
     const deviceTier = resolveWorkspaceMemoryDeviceTier(performanceProfile);
     const pressureLevel = normalizeMemoryPressureLevel(options.pressure?.level);
     const base = BASE_BUDGETS[deviceTier];
     const totalMemoryBytes = resolveTotalMemoryBytes(options);
     const maxWarmViewers = resolvePressureAdjustedWarmViewers(base.maxWarmViewers, pressureLevel);
-    const hostRasterSurfaceBytes = typeof options.hostRasterSurfaceBytes === 'number'
-        && Number.isFinite(options.hostRasterSurfaceBytes)
-        && options.hostRasterSurfaceBytes > 0
-        ? clamp(
-            Math.floor(options.hostRasterSurfaceBytes),
-            HOST_WINDOW_RASTER_SHARE_MIN_BYTES,
-            HOST_RASTER_POOL_MAX_BYTES,
-        )
-        : null;
-    const maxRasterSurfaceBytes = hostRasterSurfaceBytes ?? (
-        totalMemoryBytes === null
+    const hostRasterSurfaceBytes =
+        typeof options.hostRasterSurfaceBytes === 'number' &&
+        Number.isFinite(options.hostRasterSurfaceBytes) &&
+        options.hostRasterSurfaceBytes > 0
+            ? clamp(Math.floor(options.hostRasterSurfaceBytes), HOST_WINDOW_RASTER_SHARE_MIN_BYTES, HOST_RASTER_POOL_MAX_BYTES)
+            : null;
+    const maxRasterSurfaceBytes =
+        hostRasterSurfaceBytes ??
+        (totalMemoryBytes === null
             ? Math.min(base.maxEstimatedWorkspaceBytes, HOST_RASTER_POOL_MAX_BYTES)
-            : resolveHostRasterPoolBytes(totalMemoryBytes) ?? Math.min(base.maxEstimatedWorkspaceBytes, HOST_RASTER_POOL_MAX_BYTES)
-    );
+            : (resolveHostRasterPoolBytes(totalMemoryBytes) ?? Math.min(base.maxEstimatedWorkspaceBytes, HOST_RASTER_POOL_MAX_BYTES)));
 
     return {
         deviceTier,
@@ -127,11 +114,10 @@ export function resolveWorkspaceMemoryBudget(
         maxRasterSurfaceBytes: performanceProfile.mobile
             ? Math.min(maxRasterSurfaceBytes, MOBILE_RASTER_BUDGET_MAX_BYTES)
             : maxRasterSurfaceBytes,
-        systemFreeReserveBytes: totalMemoryBytes === null
-            ? SYSTEM_FREE_RESERVE_MIN_BYTES
-            : clamp(totalMemoryBytes * 0.15, SYSTEM_FREE_RESERVE_MIN_BYTES, SYSTEM_FREE_RESERVE_MAX_BYTES),
-        reclaimTargetBytes: pressureLevel === 'critical'
-            ? base.reclaimTargetBytes * 2
-            : base.reclaimTargetBytes,
+        systemFreeReserveBytes:
+            totalMemoryBytes === null
+                ? SYSTEM_FREE_RESERVE_MIN_BYTES
+                : clamp(totalMemoryBytes * 0.15, SYSTEM_FREE_RESERVE_MIN_BYTES, SYSTEM_FREE_RESERVE_MAX_BYTES),
+        reclaimTargetBytes: pressureLevel === 'critical' ? base.reclaimTargetBytes * 2 : base.reclaimTargetBytes,
     };
 }

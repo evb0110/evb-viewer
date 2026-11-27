@@ -1,10 +1,4 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     loadSettings: vi.fn(),
@@ -25,10 +19,7 @@ describe('Electron translations', () => {
     });
 
     it('keeps te synchronous while switching the active locale', async () => {
-        const {
-            setElectronLocale,
-            te,
-        } = await import('@electron/te');
+        const {setElectronLocale, te} = await import('@electron/te');
 
         expect(te('assistant.open')).toBe('Open EVB Assistant');
         await setElectronLocale('ru');
@@ -38,10 +29,7 @@ describe('Electron translations', () => {
     });
 
     it('ignores a stale locale load that finishes after a newer request', async () => {
-        const {
-            setElectronLocale,
-            te,
-        } = await import('@electron/te');
+        const {setElectronLocale, te} = await import('@electron/te');
 
         const slowSwitch = setElectronLocale('ru');
         await setElectronLocale('en');
@@ -51,10 +39,7 @@ describe('Electron translations', () => {
 
     it('loads the saved locale before startup and falls back to English on failure', async () => {
         mocks.loadSettings.mockResolvedValueOnce({locale: 'ru'});
-        const {
-            initializeElectronTranslations,
-            te,
-        } = await import('@electron/te');
+        const {initializeElectronTranslations, te} = await import('@electron/te');
 
         await initializeElectronTranslations();
         expect(te('assistant.open')).toBe('Открыть EVB Assistant');
@@ -62,8 +47,6 @@ describe('Electron translations', () => {
         mocks.loadSettings.mockRejectedValueOnce(new Error('settings unavailable'));
         await initializeElectronTranslations();
         expect(te('assistant.open')).toBe('Open EVB Assistant');
-        expect(mocks.logger.warn).toHaveBeenCalledWith(
-            'Failed to initialize Electron translations: settings unavailable',
-        );
+        expect(mocks.logger.warn).toHaveBeenCalledWith('Failed to initialize Electron translations: settings unavailable');
     });
 });

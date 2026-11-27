@@ -2,32 +2,17 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import { requireDocumentRef } from '@contracts/documentRef';
-import { requireEpochMs } from '@contracts/timestamps';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    ref,
-} from 'vue';
-import type { App } from 'vue';
-import type { IRecentFile } from '@contracts/shared';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireEpochMs} from '@contracts/timestamps';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {createApp, defineComponent, h, nextTick, ref} from 'vue';
+import type {App} from 'vue';
+import type {IRecentFile} from '@contracts/shared';
 import PdfEmptyState from '@app/modules/pdf-viewer/components/PdfEmptyState.vue';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
-    useTypedI18n: () => ({t: (key: string, values?: {count?: number}) => (
-        values?.count === undefined ? key : `${key}:${values.count}`
-    )}),
+    useTypedI18n: () => ({t: (key: string, values?: {count?: number}) => (values?.count === undefined ? key : `${key}:${values.count}`)}),
 }));
 
 const MINUTE_MS = 60_000;
@@ -38,10 +23,13 @@ const mountedApps = new Set<App>();
 
 function registerUiStubs(app: App) {
     app.component('UIcon', defineComponent({setup: () => () => h('span')}));
-    app.component('UButton', defineComponent({
-        props: {label: String},
-        setup: props => () => h('button', props.label),
-    }));
+    app.component(
+        'UButton',
+        defineComponent({
+            props: {label: String},
+            setup: (props) => () => h('button', props.label),
+        }),
+    );
     app.component('UInput', defineComponent({setup: () => () => h('input')}));
     app.component('UModal', defineComponent({setup: () => () => null}));
 }
@@ -56,13 +44,18 @@ function mountStart() {
     const isVisible = ref(true);
     const host = document.createElement('div');
     document.body.append(host);
-    const app = createApp(defineComponent({setup: () => () => h('div', {style: isVisible.value ? '' : 'display: none'}, [
-        h(PdfEmptyState, {
-            recentFiles: [file],
-            recentFilesResolved: true,
-            isVisible: isVisible.value,
+    const app = createApp(
+        defineComponent({
+            setup: () => () =>
+                h('div', {style: isVisible.value ? '' : 'display: none'}, [
+                    h(PdfEmptyState, {
+                        recentFiles: [file],
+                        recentFilesResolved: true,
+                        isVisible: isVisible.value,
+                    }),
+                ]),
         }),
-    ])}));
+    );
     registerUiStubs(app);
     app.mount(host);
     mountedApps.add(app);
@@ -87,7 +80,9 @@ beforeEach(() => {
 afterEach(() => {
     // A failed assertion leaves its app mounted; tear it down before the clock
     // and visibility are restored.
-    for (const app of mountedApps) app.unmount();
+    for (const app of mountedApps) {
+        app.unmount();
+    }
     mountedApps.clear();
     vi.useRealTimers();
     setDocumentVisibility('visible');

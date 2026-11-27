@@ -1,7 +1,4 @@
-import {
-    isPdfDateString,
-    type TPdfDateString,
-} from '@contracts/pdfDateString';
+import {isPdfDateString, type TPdfDateString} from '@contracts/pdfDateString';
 
 export function toPdfDateString(date: Date = new Date()): TPdfDateString {
     const year = String(date.getFullYear()).padStart(4, '0');
@@ -42,7 +39,7 @@ function toTimezoneOffsetMinutes(value: string | undefined) {
     const hours = Number.parseInt(match[2], 10);
     const minutes = Number.parseInt(match[3], 10);
     const sign = match[1] === '+' ? 1 : -1;
-    return sign * ((hours * 60) + minutes);
+    return sign * (hours * 60 + minutes);
 }
 
 export function parsePdfDateStringTimestamp(value: string | null | undefined) {
@@ -71,6 +68,5 @@ export function parsePdfDateStringTimestamp(value: string | null | undefined) {
         return new Date(year, month - 1, day, hours, minutes, seconds).getTime();
     }
 
-    return Date.UTC(year, month - 1, day, hours, minutes, seconds)
-        - (timezoneOffsetMinutes * 60_000);
+    return Date.UTC(year, month - 1, day, hours, minutes, seconds) - timezoneOffsetMinutes * 60_000;
 }

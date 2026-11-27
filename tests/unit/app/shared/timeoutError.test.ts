@@ -1,21 +1,13 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { withTimeout } from 'es-toolkit/promise';
-import { isTimeoutError } from '@contracts/isTimeoutError';
+import {describe, expect, it, vi} from 'vitest';
+import {withTimeout} from 'es-toolkit/promise';
+import {isTimeoutError} from '@contracts/isTimeoutError';
 
 describe('isTimeoutError', () => {
     it('recognizes the current es-toolkit timeout error shape', async () => {
         vi.useFakeTimers();
 
         try {
-            const promise = withTimeout(
-                () => new Promise<void>(() => undefined),
-                10,
-            ).catch((error: unknown) => error);
+            const promise = withTimeout(() => new Promise<void>(() => undefined), 10).catch((error: unknown) => error);
 
             await vi.advanceTimersByTimeAsync(10);
             const error = await promise;

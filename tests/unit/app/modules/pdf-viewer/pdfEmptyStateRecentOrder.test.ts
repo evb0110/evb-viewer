@@ -3,31 +3,17 @@
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 import type * as TViMockOriginalPlatformModule from '@app/utils/platform';
 
-import { requireDocumentRef } from '@contracts/documentRef';
-import { requireEpochMs } from '@contracts/timestamps';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    ref,
-} from 'vue';
-import type { App } from 'vue';
-import type { IRecentFile } from '@contracts/shared';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireEpochMs} from '@contracts/timestamps';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {createApp, defineComponent, h, nextTick, ref} from 'vue';
+import type {App} from 'vue';
+import type {IRecentFile} from '@contracts/shared';
 import PdfEmptyState from '@app/modules/pdf-viewer/components/PdfEmptyState.vue';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
-    useTypedI18n: () => ({t: (key: string, values?: {count?: number}) => (
-        values?.count === undefined ? key : `${key}:${values.count}`
-    )}),
+    useTypedI18n: () => ({t: (key: string, values?: {count?: number}) => (values?.count === undefined ? key : `${key}:${values.count}`)}),
 }));
 
 // The desktop app lists each file's folder with a button that reveals it.
@@ -53,49 +39,59 @@ function createRecentFile(originalPath: string, timestamp: number): IRecentFile 
 
 function registerUiStubs(app: App) {
     app.component('UIcon', defineComponent({setup: () => () => h('span')}));
-    app.component('UButton', defineComponent({
-        props: {label: String},
-        setup: props => () => h('button', props.label),
-    }));
+    app.component(
+        'UButton',
+        defineComponent({
+            props: {label: String},
+            setup: (props) => () => h('button', props.label),
+        }),
+    );
     app.component('UInput', defineComponent({setup: () => () => h('input')}));
     app.component('UAlert', defineComponent({setup: () => () => h('div')}));
-    app.component('AppTooltip', defineComponent({
-        props: {text: String},
-        setup: (props, {slots}) => () => h('span', {'data-tooltip-text': props.text}, slots.default?.()),
-    }));
+    app.component(
+        'AppTooltip',
+        defineComponent({
+            props: {text: String},
+            setup:
+                (props, {slots}) =>
+                () =>
+                    h('span', {'data-tooltip-text': props.text}, slots.default?.()),
+        }),
+    );
     app.component('UModal', defineComponent({setup: () => () => null}));
 }
 
 function getRecentOrder(host: HTMLElement) {
-    return Array.from(host.querySelectorAll<HTMLElement>('.recent-row--data'))
-        .map(row => row.dataset.recentSource);
+    return Array.from(host.querySelectorAll<HTMLElement>('.recent-row--data')).map((row) => row.dataset.recentSource);
 }
 
 describe('PdfEmptyState recent-file order', () => {
     it('keeps the visible order stable while the selected document is opening', async () => {
         const first = createRecentFile('browser://documents/first.pdf', 2);
         const second = createRecentFile('browser://documents/second.djvu', 1);
-        const recentFiles = ref([
-            first,
-            second,
-        ]);
+        const recentFiles = ref([first, second]);
         const opening = Promise.withResolvers<boolean>();
         const host = document.createElement('div');
         document.body.append(host);
-        const app = createApp(defineComponent({setup: () => () => h(PdfEmptyState, {
-            recentFiles: recentFiles.value,
-            recentFilesResolved: true,
-            onOpenRecent: (file: IRecentFile, _pressed: boolean, follow: (open: Promise<boolean>) => void) => {
-                follow(opening.promise);
-                recentFiles.value = [
-                    {
-                        ...file,
-                        timestamp: requireEpochMs(3),
-                    },
-                    first,
-                ];
-            },
-        })}));
+        const app = createApp(
+            defineComponent({
+                setup: () => () =>
+                    h(PdfEmptyState, {
+                        recentFiles: recentFiles.value,
+                        recentFilesResolved: true,
+                        onOpenRecent: (file: IRecentFile, _pressed: boolean, follow: (open: Promise<boolean>) => void) => {
+                            follow(opening.promise);
+                            recentFiles.value = [
+                                {
+                                    ...file,
+                                    timestamp: requireEpochMs(3),
+                                },
+                                first,
+                            ];
+                        },
+                    }),
+            }),
+        );
         registerUiStubs(app);
 
         app.mount(host);
@@ -105,41 +101,31 @@ describe('PdfEmptyState recent-file order', () => {
         secondRowButton!.click();
         await nextTick();
 
-        expect(getRecentOrder(host)).toEqual([
-            first.originalPath,
-            second.originalPath,
-        ]);
+        expect(getRecentOrder(host)).toEqual([first.originalPath, second.originalPath]);
 
         opening.resolve(true);
         await opening.promise;
         await nextTick();
-        expect(getRecentOrder(host)).toEqual([
-            second.originalPath,
-            first.originalPath,
-        ]);
+        expect(getRecentOrder(host)).toEqual([second.originalPath, first.originalPath]);
 
         app.unmount();
     });
 
     it('keeps distinguishing filename tails visible and exposes each full name in its tooltip', async () => {
-        const standard = createRecentFile(
-            'browser://documents/W4 archive of documents 2026 final edition 1980.pdf',
-            2,
-        );
-        const optimized = createRecentFile(
-            'browser://documents/W4 archive of documents 2026 final edition 1980-optimized.pdf',
-            1,
-        );
+        const standard = createRecentFile('browser://documents/W4 archive of documents 2026 final edition 1980.pdf', 2);
+        const optimized = createRecentFile('browser://documents/W4 archive of documents 2026 final edition 1980-optimized.pdf', 1);
         const host = document.createElement('div');
         document.body.append(host);
-        const app = createApp(defineComponent({setup: () => () => h(PdfEmptyState, {
-            recentFiles: [
-                standard,
-                optimized,
-            ],
-            recentFilesResolved: true,
-            openInProgress: false,
-        })}));
+        const app = createApp(
+            defineComponent({
+                setup: () => () =>
+                    h(PdfEmptyState, {
+                        recentFiles: [standard, optimized],
+                        recentFilesResolved: true,
+                        openInProgress: false,
+                    }),
+            }),
+        );
         registerUiStubs(app);
 
         app.mount(host);
@@ -147,11 +133,8 @@ describe('PdfEmptyState recent-file order', () => {
 
         const names = Array.from(host.querySelectorAll<HTMLElement>('.recent-file-name'));
         expect(names).toHaveLength(2);
-        expect(names.map(name => name.closest('[title]')?.getAttribute('title'))).toEqual([
-            standard.fileName,
-            optimized.fileName,
-        ]);
-        expect(names.map(name => name.querySelector('.recent-file-name-suffix')?.textContent)).toEqual([
+        expect(names.map((name) => name.closest('[title]')?.getAttribute('title'))).toEqual([standard.fileName, optimized.fileName]);
+        expect(names.map((name) => name.querySelector('.recent-file-name-suffix')?.textContent)).toEqual([
             expect.stringContaining('1980.pdf'),
             expect.stringContaining('1980-optimized.pdf'),
         ]);
@@ -171,12 +154,17 @@ describe('PdfEmptyState recent-row press', () => {
         platform.desktop = true;
         const host = document.createElement('div');
         document.body.append(host);
-        const app = createApp(defineComponent({setup: () => () => h(PdfEmptyState, {
-            recentFiles: [file],
-            recentFilesResolved: true,
-            openInProgress: false,
-            onPressRecent: (pressedFile: IRecentFile) => pressed.push(pressedFile.originalPath),
-        })}));
+        const app = createApp(
+            defineComponent({
+                setup: () => () =>
+                    h(PdfEmptyState, {
+                        recentFiles: [file],
+                        recentFilesResolved: true,
+                        openInProgress: false,
+                        onPressRecent: (pressedFile: IRecentFile) => pressed.push(pressedFile.originalPath),
+                    }),
+            }),
+        );
         registerUiStubs(app);
 
         app.mount(host);
@@ -184,10 +172,12 @@ describe('PdfEmptyState recent-row press', () => {
         const press = (selector: string) => {
             const target = host.querySelector<HTMLElement>(selector);
             expect(target, selector).not.toBeNull();
-            target!.dispatchEvent(new PointerEvent('pointerdown', {
-                bubbles: true,
-                button: 0,
-            }));
+            target!.dispatchEvent(
+                new PointerEvent('pointerdown', {
+                    bubbles: true,
+                    button: 0,
+                }),
+            );
             const count = pressed.length;
             pressed.length = 0;
             return count;

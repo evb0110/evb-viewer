@@ -1,54 +1,19 @@
-import { getAppTempDir } from '@electron/utils/appTempDir';
-import {
-    createManagedScratchTempDir,
-    removeManagedScratchTempDir,
-} from '@electron/utils/managedScratchTemp';
-import {
-    copyFile,
-    rm,
-    stat,
-    statfs,
-} from 'fs/promises';
-import { randomUUID } from 'crypto';
-import {
-    extname,
-    dirname,
-    join,
-} from 'path';
-import {
-    cancelConversion,
-    convertDjvuToPdfFile,
-    getDjvuPageCount,
-} from '@electron/features/djvu/public';
-import {
-    assertNonEmptyPdfOutput,
-    getPdfPageCount,
-    runPageStructureCommand,
-} from '@electron/features/page-ops/publicNative';
-import { createLogger } from '@electron/utils/createLogger';
+import {getAppTempDir} from '@electron/utils/appTempDir';
+import {createManagedScratchTempDir, removeManagedScratchTempDir} from '@electron/utils/managedScratchTemp';
+import {copyFile, rm, stat, statfs} from 'fs/promises';
+import {randomUUID} from 'crypto';
+import {extname, dirname, join} from 'path';
+import {cancelConversion, convertDjvuToPdfFile, getDjvuPageCount} from '@electron/features/djvu/public';
+import {assertNonEmptyPdfOutput, getPdfPageCount, runPageStructureCommand} from '@electron/features/page-ops/publicNative';
+import {createLogger} from '@electron/utils/createLogger';
 import {runtimeConfig} from '@electron/runtimeConfig';
-import { getErrorMessage } from '@electron/utils/error';
-import {
-    isNativePdfImageCombineBitmapPath,
-    tryWritePdfWithNativeImageCombiner,
-} from '@electron/image/tryCreatePdfWithNativeImageCombiner';
-import type {
-    IJobBrokerRunContext,
-    TTerminationProofSink,
-} from '@electron/resources/jobBroker';
-import {
-    PdfCombineCapabilityError,
-    isPdfCombineCapabilityError,
-} from '@electron/image/pdfCombineErrors';
-import {
-    abortErrorFromSignal,
-    isAbortError,
-} from '@electron/utils/abort';
-import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
-import {
-    atomicReplace,
-    makeSiblingTempPath,
-} from '@electron/utils/atomicReplace';
+import {getErrorMessage} from '@electron/utils/error';
+import {isNativePdfImageCombineBitmapPath, tryWritePdfWithNativeImageCombiner} from '@electron/image/tryCreatePdfWithNativeImageCombiner';
+import type {IJobBrokerRunContext, TTerminationProofSink} from '@electron/resources/jobBroker';
+import {PdfCombineCapabilityError, isPdfCombineCapabilityError} from '@electron/image/pdfCombineErrors';
+import {abortErrorFromSignal, isAbortError} from '@electron/utils/abort';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
+import {atomicReplace, makeSiblingTempPath} from '@electron/utils/atomicReplace';
 import {
     createPdfCombineOutputTooLargeError,
     isPdfCombineOutputTooLargeError,
@@ -97,22 +62,14 @@ function isStrictNativeFailure(options: INativePdfAssemblerOptions | undefined) 
     return options?.failureMode === 'capability-error';
 }
 
-function createNativeCapabilityError(
-    code: 'native-unavailable' | 'native-failure',
-    message: string,
-    cause?: unknown,
-) {
+function createNativeCapabilityError(code: 'native-unavailable' | 'native-failure', message: string, cause?: unknown) {
     return new PdfCombineCapabilityError(code, message, {
         ...(cause === undefined ? {} : {cause}),
         operation: 'pdf-combine',
     });
 }
 
-function throwNativeCapabilityError(
-    code: 'native-unavailable' | 'native-failure',
-    message: string,
-    cause?: unknown,
-): never {
+function throwNativeCapabilityError(code: 'native-unavailable' | 'native-failure', message: string, cause?: unknown): never {
     throw createNativeCapabilityError(code, message, cause);
 }
 
@@ -130,19 +87,15 @@ function isDjvuPath(inputPath: string) {
 }
 
 function isNativePdfAssemblerInputPath(inputPath: string) {
-    return isPdfPath(inputPath)
-        || isDjvuPath(inputPath)
-        || isNativePdfImageCombineBitmapPath(inputPath);
+    return isPdfPath(inputPath) || isDjvuPath(inputPath) || isNativePdfImageCombineBitmapPath(inputPath);
 }
 
 function canUseNativePdfAssembler(inputPaths: string[]) {
-    return !isNativePdfAssemblerDisabled()
-        && inputPaths.length > 0
-        && inputPaths.every(isNativePdfAssemblerInputPath);
+    return !isNativePdfAssemblerDisabled() && inputPaths.length > 0 && inputPaths.every(isNativePdfAssemblerInputPath);
 }
 
 function describeUnsupportedNativeInput(inputPaths: string[]) {
-    const unsupportedPath = inputPaths.find(inputPath => !isNativePdfAssemblerInputPath(inputPath));
+    const unsupportedPath = inputPaths.find((inputPath) => !isNativePdfAssemblerInputPath(inputPath));
     return unsupportedPath === undefined
         ? 'Native PDF combine is unavailable'
         : `Native PDF combine does not support input path: ${unsupportedPath}`;
@@ -156,11 +109,7 @@ function estimateRemainingMs(elapsedMs: number, processed: number, total: number
     return Math.max(0, Math.round((elapsedMs / processed) * (total - processed)));
 }
 
-function emitProgress(
-    state: IProgressState,
-    options: INativePdfAssemblerOptions | undefined,
-    processed: number,
-) {
+function emitProgress(state: IProgressState, options: INativePdfAssemblerOptions | undefined, processed: number) {
     if (!options?.onProgress) {
         return;
     }
@@ -185,9 +134,7 @@ function throwIfAborted(signal: AbortSignal | undefined) {
 function getResourceLimits(allowLargeOutput: boolean): INativePdfAssemblerResourceLimits {
     return {
         // Only a strict caller may opt out of the shared output cap.
-        maxOutputBytes: allowLargeOutput
-            ? FILE_BACKED_NATIVE_ASSEMBLER_MAX_OUTPUT_BYTES
-            : PDF_COMBINE_MAX_OUTPUT_BYTES,
+        maxOutputBytes: allowLargeOutput ? FILE_BACKED_NATIVE_ASSEMBLER_MAX_OUTPUT_BYTES : PDF_COMBINE_MAX_OUTPUT_BYTES,
         maxPages: FILE_BACKED_NATIVE_ASSEMBLER_MAX_PAGES,
         outputMode: allowLargeOutput ? 'file-backed' : 'memory',
     };
@@ -204,11 +151,11 @@ function assertPageLimit(nextPageCount: number, limits: INativePdfAssemblerResou
 
 function addPageCounts(currentPageCount: number, addedPageCount: number) {
     if (
-        !Number.isSafeInteger(currentPageCount)
-        || currentPageCount < 0
-        || !Number.isSafeInteger(addedPageCount)
-        || addedPageCount < 0
-        || addedPageCount > Number.MAX_SAFE_INTEGER - currentPageCount
+        !Number.isSafeInteger(currentPageCount) ||
+        currentPageCount < 0 ||
+        !Number.isSafeInteger(addedPageCount) ||
+        addedPageCount < 0 ||
+        addedPageCount > Number.MAX_SAFE_INTEGER - currentPageCount
     ) {
         throw new RangeError('Combined PDF page count is outside the safe integer range');
     }
@@ -265,30 +212,22 @@ async function flushImageChunk(
     throwIfAborted(options?.signal);
     const chunkInputPaths = [...imagePaths];
     const chunkPath = join(tempDir, `image-chunk-${chunkPaths.length + 1}-${randomUUID()}.pdf`);
-    const onProgress = (chunkProgress: INativePdfAssemblerProgress) => emitProgress(
-        progress,
-        options,
-        progress.processed + chunkProgress.processed,
-    );
+    const onProgress = (chunkProgress: INativePdfAssemblerProgress) =>
+        emitProgress(progress, options, progress.processed + chunkProgress.processed);
     const ok = await tryWritePdfWithNativeImageCombiner(chunkInputPaths, chunkPath, {
         maxPages: limits.maxPages,
         maxOutputBytes: limits.maxOutputBytes,
         outputMode: limits.outputMode,
-        ...(options?.failureMode === 'capability-error'
-            ? {maxInputBytes: NATIVE_IMAGE_COMBINER_MAX_INPUT_BYTES}
-            : {}),
+        ...(options?.failureMode === 'capability-error' ? {maxInputBytes: NATIVE_IMAGE_COMBINER_MAX_INPUT_BYTES} : {}),
         onProgress,
         ...(options?.brokerRun ? {brokerRun: options.brokerRun} : {}),
         ...(options?.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
-        ...(options?.signal ? { signal: options.signal } : {}),
+        ...(options?.signal ? {signal: options.signal} : {}),
     });
     throwIfAborted(options?.signal);
     if (!ok) {
         if (isStrictNativeFailure(options)) {
-            throwNativeCapabilityError(
-                'native-unavailable',
-                'Native image PDF combine did not produce an output file',
-            );
+            throwNativeCapabilityError('native-unavailable', 'Native image PDF combine did not produce an output file');
         }
         return null;
     }
@@ -297,9 +236,9 @@ async function flushImageChunk(
     const pageCountTerminationProof = options?.brokerRun?.onTerminationProof ?? options?.onTerminationProof;
     const chunkPageCount = countGeneratedPages
         ? await getPdfPageCount(chunkPath, {
-            ...(options?.signal ? { signal: options.signal } : {}),
-            ...(pageCountTerminationProof ? { onTerminationProof: pageCountTerminationProof } : {}),
-        })
+              ...(options?.signal ? {signal: options.signal} : {}),
+              ...(pageCountTerminationProof ? {onTerminationProof: pageCountTerminationProof} : {}),
+          })
         : 0;
     if (countGeneratedPages) {
         assertPageLimit(addPageCounts(currentPageCount, chunkPageCount), limits);
@@ -311,35 +250,26 @@ async function flushImageChunk(
     return chunkPageCount;
 }
 
-async function convertDjvuChunk(
-    inputPath: string,
-    tempDir: string,
-    options?: INativePdfAssemblerOptions,
-) {
+async function convertDjvuChunk(inputPath: string, tempDir: string, options?: INativePdfAssemblerOptions) {
     throwIfAborted(options?.signal);
     const outputPath = join(tempDir, `djvu-chunk-${randomUUID()}.pdf`);
     const jobId = `pdf-native-assembler-djvu-${randomUUID()}`;
     const abortHandler = options?.signal
         ? () => {
-            void cancelConversion(jobId);
-        }
+              void cancelConversion(jobId);
+          }
         : null;
     if (options?.signal && abortHandler) {
-        options.signal.addEventListener('abort', abortHandler, { once: true });
+        options.signal.addEventListener('abort', abortHandler, {once: true});
     }
     try {
         const pageCount = await getOptionalDjvuPageCount(inputPath, options?.signal);
         throwIfAborted(options?.signal);
-        const result = await convertDjvuToPdfFile(
-            inputPath,
-            outputPath,
-            jobId,
-            {
-                subsample: 1,
-                ...(pageCount > 0 ? { pageCount } : {}),
-                ...(options?.signal ? { signal: options.signal } : {}),
-            },
-        );
+        const result = await convertDjvuToPdfFile(inputPath, outputPath, jobId, {
+            subsample: 1,
+            ...(pageCount > 0 ? {pageCount} : {}),
+            ...(options?.signal ? {signal: options.signal} : {}),
+        });
         throwIfAborted(options?.signal);
         if (!result.success) {
             throw new Error(result.error ?? `Failed to convert DjVu file: ${inputPath}`);
@@ -356,7 +286,7 @@ async function convertDjvuChunk(
 
 async function getOptionalDjvuPageCount(inputPath: string, signal?: AbortSignal) {
     try {
-        return await getDjvuPageCount(inputPath, signal ? { signal } : {});
+        return await getDjvuPageCount(inputPath, signal ? {signal} : {});
     } catch (error) {
         if (signal?.aborted || isAbortError(error)) {
             throw error;
@@ -367,17 +297,18 @@ async function getOptionalDjvuPageCount(inputPath: string, signal?: AbortSignal)
 }
 
 /** Every chunk's pages in order, with each chunk's outline and page labels. */
-async function mergePdfChunks(
-    chunkPaths: string[],
-    outputPath: string,
-    signal?: AbortSignal,
-    brokerRun?: IJobBrokerRunContext,
-) {
+async function mergePdfChunks(chunkPaths: string[], outputPath: string, signal?: AbortSignal, brokerRun?: IJobBrokerRunContext) {
     const [first, ...rest] = chunkPaths;
-    await runPageStructureCommand('merge-pages', first!, outputPath, {sources: rest}, {
-        ...(signal ? {signal} : {}),
-        ...(brokerRun ? {brokerRun} : {}),
-    });
+    await runPageStructureCommand(
+        'merge-pages',
+        first!,
+        outputPath,
+        {sources: rest},
+        {
+            ...(signal ? {signal} : {}),
+            ...(brokerRun ? {brokerRun} : {}),
+        },
+    );
 }
 
 async function writePdfFromInputPathsNativeWithTempDir(
@@ -406,38 +337,26 @@ async function writePdfFromInputPathsNativeWithTempDir(
                 continue;
             }
 
-            const addedImagePages = await flushImageChunk(
-                imageChunkPaths,
-                tempDir,
-                chunkPaths,
-                progress,
-                pageCount,
-                limits,
-                true,
-                options,
-            );
+            const addedImagePages = await flushImageChunk(imageChunkPaths, tempDir, chunkPaths, progress, pageCount, limits, true, options);
             if (addedImagePages === null) {
                 return null;
             }
             pageCount = addPageCounts(pageCount, addedImagePages);
 
             if (isPdfPath(inputPath)) {
-                const sourcePageCount = await getPdfPageCount(inputPath, options?.signal ? { signal: options.signal } : {});
+                const sourcePageCount = await getPdfPageCount(inputPath, options?.signal ? {signal: options.signal} : {});
                 assertPageLimit(addPageCounts(pageCount, sourcePageCount), limits);
                 chunkPaths.push(inputPath);
                 pageCount = addPageCounts(pageCount, sourcePageCount);
             } else if (isDjvuPath(inputPath)) {
                 const convertedPath = await convertDjvuChunk(inputPath, tempDir, options);
-                const sourcePageCount = await getPdfPageCount(convertedPath, options?.signal ? { signal: options.signal } : {});
+                const sourcePageCount = await getPdfPageCount(convertedPath, options?.signal ? {signal: options.signal} : {});
                 assertPageLimit(addPageCounts(pageCount, sourcePageCount), limits);
                 chunkPaths.push(convertedPath);
                 pageCount = addPageCounts(pageCount, sourcePageCount);
             } else {
                 if (isStrictNativeFailure(options)) {
-                    throwNativeCapabilityError(
-                        'native-unavailable',
-                        describeUnsupportedNativeInput([inputPath]),
-                    );
+                    throwNativeCapabilityError('native-unavailable', describeUnsupportedNativeInput([inputPath]));
                 }
                 return null;
             }
@@ -447,16 +366,7 @@ async function writePdfFromInputPathsNativeWithTempDir(
         }
 
         throwIfAborted(options?.signal);
-        const addedImagePages = await flushImageChunk(
-            imageChunkPaths,
-            tempDir,
-            chunkPaths,
-            progress,
-            pageCount,
-            limits,
-            true,
-            options,
-        );
+        const addedImagePages = await flushImageChunk(imageChunkPaths, tempDir, chunkPaths, progress, pageCount, limits, true, options);
         if (addedImagePages === null) {
             return null;
         }
@@ -492,11 +402,7 @@ async function writePdfFromInputPathsNativeWithTempDir(
             if (isPdfCombineCapabilityError(error)) {
                 throw error;
             }
-            throw createNativeCapabilityError(
-                'native-failure',
-                `Native PDF assembler failed: ${getErrorMessage(error)}`,
-                error,
-            );
+            throw createNativeCapabilityError('native-failure', `Native PDF assembler failed: ${getErrorMessage(error)}`, error);
         }
         log.warn(`Native PDF assembler failed, falling back to JS combine: ${getErrorMessage(error)}`);
         return null;
@@ -507,24 +413,19 @@ async function assertNativeCombineDiskSpace(inputPaths: string[], outputPath: st
     if (typeof statfs !== 'function') {
         return;
     }
-    const inputStats = await Promise.all(inputPaths.map(async path => ({
-        path,
-        stat: await stat(path, {bigint: true}),
-    })));
+    const inputStats = await Promise.all(
+        inputPaths.map(async (path) => ({
+            path,
+            stat: await stat(path, {bigint: true}),
+        })),
+    );
     const totalInputBytes = inputStats.reduce(
-        (total, entry) => addSafeByteCounts(
-            total,
-            toSafeByteCount(entry.stat.size, `Input file ${entry.path}`),
-            'Combined input files',
-        ),
+        (total, entry) => addSafeByteCounts(total, toSafeByteCount(entry.stat.size, `Input file ${entry.path}`), 'Combined input files'),
         0,
     );
     const estimatedOutputBytes = Math.min(
         limits.maxOutputBytes,
-        Math.max(
-            MIN_NATIVE_DISK_RESERVATION_BYTES,
-            multiplySafeByteCount(totalInputBytes, 2, 'Estimated PDF combine output'),
-        ),
+        Math.max(MIN_NATIVE_DISK_RESERVATION_BYTES, multiplySafeByteCount(totalInputBytes, 2, 'Estimated PDF combine output')),
     );
     const filesystem = await statfs(dirname(outputPath), {bigint: true});
     const availableBytes = multiplySafeByteCount(
@@ -545,16 +446,10 @@ export async function tryWritePdfFromInputPathsNative(
 ): Promise<boolean> {
     const strict = isStrictNativeFailure(options);
     if (strict && isNativePdfAssemblerDisabled()) {
-        throwNativeCapabilityError(
-            'native-unavailable',
-            'Native PDF combine is disabled or unavailable',
-        );
+        throwNativeCapabilityError('native-unavailable', 'Native PDF combine is disabled or unavailable');
     }
     if (strict && inputPaths.length > 0 && !inputPaths.every(isNativePdfAssemblerInputPath)) {
-        throwNativeCapabilityError(
-            'native-unavailable',
-            describeUnsupportedNativeInput(inputPaths),
-        );
+        throwNativeCapabilityError('native-unavailable', describeUnsupportedNativeInput(inputPaths));
     }
     if (!canUseNativePdfAssembler(inputPaths)) {
         return false;
@@ -585,29 +480,17 @@ export async function tryWritePdfFromInputPathsNative(
 
     try {
         await assertNativeCombineDiskSpace(inputPaths, normalizedOutputPath, limits);
-        const expectedPageCount = await writePdfFromInputPathsNativeWithTempDir(
-            inputPaths,
-            stagedOutputPath,
-            tempDir,
-            limits,
-            options,
-        );
+        const expectedPageCount = await writePdfFromInputPathsNativeWithTempDir(inputPaths, stagedOutputPath, tempDir, limits, options);
         if (expectedPageCount === null) {
             if (strict) {
-                throwNativeCapabilityError(
-                    'native-failure',
-                    'Native PDF assembler did not produce an output file',
-                );
+                throwNativeCapabilityError('native-failure', 'Native PDF assembler did not produce an output file');
             }
             return false;
         }
 
         const outputStat = await stat(stagedOutputPath);
         assertOutputLimit(toSafeByteCount(outputStat.size, `Native PDF output ${stagedOutputPath}`), limits);
-        const outputPageCount = await getPdfPageCount(
-            stagedOutputPath,
-            options?.signal ? {signal: options.signal} : {},
-        );
+        const outputPageCount = await getPdfPageCount(stagedOutputPath, options?.signal ? {signal: options.signal} : {});
         if (outputPageCount !== expectedPageCount || outputPageCount < 1) {
             throw new Error(`Combined PDF page-count postcondition failed: expected ${expectedPageCount}, got ${outputPageCount}`);
         }
@@ -632,14 +515,10 @@ export async function tryWritePdfFromInputPathsNative(
         if (isPdfCombineCapabilityError(error)) {
             throw error;
         }
-        throw createNativeCapabilityError(
-            'native-failure',
-            `Native PDF assembler failed: ${getErrorMessage(error)}`,
-            error,
-        );
+        throw createNativeCapabilityError('native-failure', `Native PDF assembler failed: ${getErrorMessage(error)}`, error);
     } finally {
         if (!retainNativeCleanup) {
-            await rm(stagedOutputPath, { force: true }).catch(() => undefined);
+            await rm(stagedOutputPath, {force: true}).catch(() => undefined);
             await removeManagedScratchTempDir(tempDir, 'pdfExport-scope-', scratchRoot).catch(() => undefined);
         }
     }

@@ -1,68 +1,24 @@
-import {
-    app,
-    net,
-    protocol,
-} from 'electron';
-import { readdirSync } from 'node:fs';
-import {
-    basename,
-    dirname,
-    extname,
-    join,
-    normalize,
-    relative,
-} from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { config } from '@electron/config';
+import {app, net, protocol} from 'electron';
+import {readdirSync} from 'node:fs';
+import {basename, dirname, extname, join, normalize, relative} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {config} from '@electron/config';
 
 const APP_PROTOCOL_SCHEME = 'evb-viewer';
 const APP_PROTOCOL_HOST = 'app';
 
 const MIME_TYPES = new Map([
-    [
-        '.css',
-        'text/css; charset=utf-8',
-    ],
-    [
-        '.html',
-        'text/html; charset=utf-8',
-    ],
-    [
-        '.ico',
-        'image/x-icon',
-    ],
-    [
-        '.js',
-        'text/javascript; charset=utf-8',
-    ],
-    [
-        '.json',
-        'application/json; charset=utf-8',
-    ],
-    [
-        '.mjs',
-        'text/javascript; charset=utf-8',
-    ],
-    [
-        '.png',
-        'image/png',
-    ],
-    [
-        '.svg',
-        'image/svg+xml; charset=utf-8',
-    ],
-    [
-        '.wasm',
-        'application/wasm',
-    ],
-    [
-        '.woff',
-        'font/woff',
-    ],
-    [
-        '.woff2',
-        'font/woff2',
-    ],
+    ['.css', 'text/css; charset=utf-8'],
+    ['.html', 'text/html; charset=utf-8'],
+    ['.ico', 'image/x-icon'],
+    ['.js', 'text/javascript; charset=utf-8'],
+    ['.json', 'application/json; charset=utf-8'],
+    ['.mjs', 'text/javascript; charset=utf-8'],
+    ['.png', 'image/png'],
+    ['.svg', 'image/svg+xml; charset=utf-8'],
+    ['.wasm', 'application/wasm'],
+    ['.woff', 'font/woff'],
+    ['.woff2', 'font/woff2'],
 ]);
 
 type TStaticEntryKind = 'file' | 'directory';
@@ -79,17 +35,19 @@ export function registerAppProtocolScheme() {
         return;
     }
     isSchemeRegistered = true;
-    protocol.registerSchemesAsPrivileged([{
-        scheme: APP_PROTOCOL_SCHEME,
-        privileges: {
-            bypassCSP: false,
-            corsEnabled: true,
-            secure: true,
-            standard: true,
-            supportFetchAPI: true,
-            codeCache: true,
+    protocol.registerSchemesAsPrivileged([
+        {
+            scheme: APP_PROTOCOL_SCHEME,
+            privileges: {
+                bypassCSP: false,
+                corsEnabled: true,
+                secure: true,
+                standard: true,
+                supportFetchAPI: true,
+                codeCache: true,
+            },
         },
-    }]);
+    ]);
 }
 
 function createResponse(body: BodyInit | null, init: ResponseInit = {}) {
@@ -162,13 +120,8 @@ function readStaticEntryKind(entryPath: string): TStaticEntryKind | null {
     }
 
     try {
-        const entry = readdirSync(directoryPath, {withFileTypes: true})
-            .find(candidate => candidate.name === name);
-        return entry?.isFile()
-            ? 'file'
-            : entry?.isDirectory()
-                ? 'directory'
-                : null;
+        const entry = readdirSync(directoryPath, {withFileTypes: true}).find((candidate) => candidate.name === name);
+        return entry?.isFile() ? 'file' : entry?.isDirectory() ? 'directory' : null;
     } catch {
         return null;
     }
@@ -206,9 +159,7 @@ function resolveUncachedStaticFilePath(url: URL) {
     if (!extname(normalizedPath)) {
         const fallbackPath = join(
             config.renderer.staticRoot,
-            normalizedPath === 'electron' || normalizedPath.startsWith('electron/')
-                ? 'electron/index.html'
-                : 'index.html',
+            normalizedPath === 'electron' || normalizedPath.startsWith('electron/') ? 'electron/index.html' : 'index.html',
         );
         if (readStaticEntryKind(fallbackPath) === 'file') {
             return fallbackPath;

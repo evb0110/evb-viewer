@@ -1,42 +1,18 @@
 import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
 import type * as TInputLimits from '@contracts/scan-cleanup/inputLimits';
 
-import {
-    existsSync,
-    writeFileSync,
-} from 'node:fs';
-import {
-    mkdir,
-    mkdtemp,
-    readFile,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
+import {existsSync, writeFileSync} from 'node:fs';
+import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {
-    dirname,
-    join,
-} from 'node:path';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {dirname, join} from 'node:path';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import type {WebContents} from 'electron';
 import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
 import type * as TJobBrokerModule from '@electron/resources/jobBroker';
 import type * as TPageOpsModule from '@electron/features/page-ops/public';
 import {createScanCleanupService} from '@electron/features/scan-cleanup/createScanCleanupService';
 import {createMainJobRegistry} from '@electron/operation-lifecycle/createMainJobRegistry';
-import {
-    cleanupWorkingCopy,
-    openDocumentFromFile,
-    openDocuments,
-    setDocumentStoreRootForTests,
-} from '@electron/file-access/documentStore';
+import {cleanupWorkingCopy, openDocumentFromFile, openDocuments, setDocumentStoreRootForTests} from '@electron/file-access/documentStore';
 import {clearWorkingCopyQuarantinesForTests} from '@electron/file-access/workingCopyQuarantine';
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 import {
@@ -53,22 +29,17 @@ import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputL
 import {scanCleanupPreviewLifecycle} from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
 import {claimScanCleanupDetectionResultStore} from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
 import {createArrayBackedPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
-import {
-    createScanCleanupPreviewDependencies,
-    DOCUMENT_PAGE_SIZES,
-    lifecycleSender,
-} from '@tests/unit/electron/scanCleanupPreviewHarness';
+import {createScanCleanupPreviewDependencies, DOCUMENT_PAGE_SIZES, lifecycleSender} from '@tests/unit/electron/scanCleanupPreviewHarness';
 import {writeScanCleanupDetectionMetadata} from '@tests/unit/electron/writeScanCleanupDetectionMetadata';
 import {cast} from '@tests/helpers/cast';
 
 // The close test needs a completed store above the streaming boundary. Three
 // pages exercise that handoff and its real file-backed store without 1,025
 // pages of unrelated detection I/O, as in scanCleanupDetectionLifecycle.test.
-vi.mock('@contracts/scan-cleanup/inputLimits', async importOriginal => ({
-    ...await importOriginal<typeof TInputLimits>(),
+vi.mock('@contracts/scan-cleanup/inputLimits', async (importOriginal) => ({
+    ...(await importOriginal<typeof TInputLimits>()),
     SCAN_CLEANUP_STREAMING_BATCH_PAGES: 2,
 }));
-
 
 const state = vi.hoisted(() => ({
     // Every main-process logger in the close path writes here, so a test can
@@ -81,21 +52,23 @@ const state = vi.hoisted(() => ({
     tempRoot: '',
 }));
 
-vi.mock('@electron/utils/createLogger', () => ({createLogger: (source: string) => {
-    const record = (level: 'debug' | 'info' | 'warn' | 'error') => (message: string) => {
-        state.logs.push({
-            level,
-            source,
-            message,
-        });
-    };
-    return {
-        debug: record('debug'),
-        info: record('info'),
-        warn: record('warn'),
-        error: record('error'),
-    };
-}}));
+vi.mock('@electron/utils/createLogger', () => ({
+    createLogger: (source: string) => {
+        const record = (level: 'debug' | 'info' | 'warn' | 'error') => (message: string) => {
+            state.logs.push({
+                level,
+                source,
+                message,
+            });
+        };
+        return {
+            debug: record('debug'),
+            info: record('info'),
+            warn: record('warn'),
+            error: record('error'),
+        };
+    },
+}));
 
 const mocks = vi.hoisted(() => {
     const host: IHostResourceProfileSnapshot = {
@@ -109,10 +82,12 @@ const mocks = vi.hoisted(() => {
     return {
         // Every grant from the main broker passes through here; a test may
         // park a request instead of admitting it.
-        acquire: vi.fn((
-            request: TJobBrokerModule.IJobBrokerRequest,
-            admit: (request: TJobBrokerModule.IJobBrokerRequest) => Promise<TJobBrokerModule.IJobBrokerLease>,
-        ) => admit(request)),
+        acquire: vi.fn(
+            (
+                request: TJobBrokerModule.IJobBrokerRequest,
+                admit: (request: TJobBrokerModule.IJobBrokerRequest) => Promise<TJobBrokerModule.IJobBrokerLease>,
+            ) => admit(request),
+        ),
         broker: null as TJobBrokerModule.JobBroker | null,
         createBroker: null as (() => TJobBrokerModule.JobBroker) | null,
         ensureMaterialized: vi.fn(),
@@ -123,14 +98,12 @@ const mocks = vi.hoisted(() => {
     };
 });
 
-vi.mock('@electron/features/scan-cleanup/runScanCleanupWorkerTask', () => (
-    {runScanCleanupWorkerTask: mocks.runWorker}
-));
-vi.mock('@electron/resources/jobBroker', async importOriginal => {
+vi.mock('@electron/features/scan-cleanup/runScanCleanupWorkerTask', () => ({runScanCleanupWorkerTask: mocks.runWorker}));
+vi.mock('@electron/resources/jobBroker', async (importOriginal) => {
     const actual = await importOriginal<typeof TJobBrokerModule>();
     class TestJobBroker extends actual.JobBroker {
         override acquire(request: TJobBrokerModule.IJobBrokerRequest) {
-            return mocks.acquire(request, admitted => super.acquire(admitted));
+            return mocks.acquire(request, (admitted) => super.acquire(admitted));
         }
     }
     mocks.createBroker = () => new TestJobBroker(actual.resolveMainJobBrokerCapacity(mocks.hostProfile()));
@@ -155,11 +128,9 @@ vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal_1) => ({
     }),
 }));
 vi.mock('@electron/native-tools/resolveNativeToolPath', () => ({resolveNativeToolPath: () => '/scan-cleanup'}));
-vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => (
-    {resolveNativePdfImageCombinePath: () => '/pdf-image-combine'}
-));
-vi.mock('@electron/features/page-ops/public', async importOriginal => ({
-    ...await importOriginal<typeof TPageOpsModule>(),
+vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => ({resolveNativePdfImageCombinePath: () => '/pdf-image-combine'}));
+vi.mock('@electron/features/page-ops/public', async (importOriginal) => ({
+    ...(await importOriginal<typeof TPageOpsModule>()),
     resolveNativePageOpsPath: () => '/page-ops',
 }));
 vi.mock('@electron/features/scan-cleanup/public/generatedOutputs', () => ({
@@ -173,17 +144,14 @@ vi.mock('@electron/file-access/openPathCapabilities', () => ({
     OPEN_PATH_CAPABILITY_TTL_MS: 60_000,
 }));
 
-vi.mock('@electron/file-access/documentStore', async importOriginal => ({
-    ...await importOriginal<Record<string, unknown>>(),
+vi.mock('@electron/file-access/documentStore', async (importOriginal) => ({
+    ...(await importOriginal<Record<string, unknown>>()),
     ensureWorkingCopyMaterialized: mocks.ensureMaterialized,
 }));
 vi.mock('@electron/utils/appTempDir', () => ({
     getAppTempDir: () => state.tempRoot,
     getLegacyAppTempDirPath: () => join(dirname(state.tempRoot), 'evb-viewer-legacy'),
-    getManagedAppTempRoots: () => [
-        state.tempRoot,
-        join(dirname(state.tempRoot), 'evb-viewer-retired'),
-    ],
+    getManagedAppTempRoots: () => [state.tempRoot, join(dirname(state.tempRoot), 'evb-viewer-retired')],
 }));
 vi.mock('@electron/file-access/pageIdentityStore', () => ({
     clearPageIdentityStoreInitializations: vi.fn(),
@@ -194,13 +162,11 @@ vi.mock('@electron/file-access/pageIdentityStore', () => ({
 // application-error reports, so this is the whole set a close is allowed to
 // produce: none.
 function errorLogs() {
-    return state.logs.filter(entry => entry.level === 'error');
+    return state.logs.filter((entry) => entry.level === 'error');
 }
 
 function toAbortError(signal: AbortSignal) {
-    return signal.reason instanceof Error
-        ? signal.reason
-        : new Error(String(signal.reason));
+    return signal.reason instanceof Error ? signal.reason : new Error(String(signal.reason));
 }
 
 const OWNER_WEB_CONTENTS_ID = 42;
@@ -265,9 +231,7 @@ describe('closing a source document during scan cleanup', () => {
         mocks.acquire.mockClear();
         mocks.acquire.mockImplementation((request, admit) => admit(request));
         mocks.ensureMaterialized.mockReset();
-        mocks.ensureMaterialized.mockImplementation(async (sourcePdfPath: string) => (
-            {physicalWorkingCopyPath: sourcePdfPath}
-        ));
+        mocks.ensureMaterialized.mockImplementation(async (sourcePdfPath: string) => ({physicalWorkingCopyPath: sourcePdfPath}));
         mocks.runWorker.mockReset();
         state.logs.length = 0;
     });
@@ -327,8 +291,7 @@ describe('closing a source document during scan cleanup', () => {
         expect(started.started).toBe(true);
         await entered.promise;
         try {
-            expect(service.subscribe(subscriber, started.jobId, owner))
-                .toMatchObject({jobId: started.jobId, status: 'queued'});
+            expect(service.subscribe(subscriber, started.jobId, owner)).toMatchObject({jobId: started.jobId, status: 'queued'});
             contents.emit('did-start-navigation', {}, 'about:blank', false, true);
 
             expect(contents.send).toHaveBeenCalledWith(
@@ -348,12 +311,7 @@ describe('closing a source document during scan cleanup', () => {
         const {workingPath} = await createManagedWorkingCopy('restart');
         const entered = Promise.withResolvers<AbortSignal>();
         const release = Promise.withResolvers<never>();
-        mocks.runWorker.mockImplementation(async (
-            _request: unknown,
-            _paths: unknown,
-            _policy: unknown,
-            signal: AbortSignal,
-        ) => {
+        mocks.runWorker.mockImplementation(async (_request: unknown, _paths: unknown, _policy: unknown, signal: AbortSignal) => {
             entered.resolve(signal);
             return release.promise;
         });
@@ -361,7 +319,9 @@ describe('closing a source document during scan cleanup', () => {
         const webContents = sender();
         try {
             const first = await service.start(webContents, startRequest(workingPath));
-            if (!first.started) throw new Error('Expected the original cleanup to start');
+            if (!first.started) {
+                throw new Error('Expected the original cleanup to start');
+            }
             const signal = await entered.promise;
             expect(service.cancel(webContents, first.jobId, owner)).toBe(true);
             expect(signal.aborted).toBe(true);
@@ -402,10 +362,18 @@ describe('closing a source document during scan cleanup', () => {
         const webContents = lifecycleSender(OWNER_WEB_CONTENTS_ID);
         const completed = Promise.withResolvers<TScanCleanupDetectionJobState>();
         webContents.send.mockImplementation((channel: string, frame: TScanCleanupDetectionJobState) => {
-            if (channel !== SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState) return;
-            if (frame.status === 'completed') completed.resolve(frame);
-            if (frame.status === 'failed') completed.reject(new Error(frame.error));
-            if (frame.status === 'canceled') completed.reject(new Error(frame.status));
+            if (channel !== SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState) {
+                return;
+            }
+            if (frame.status === 'completed') {
+                completed.resolve(frame);
+            }
+            if (frame.status === 'failed') {
+                completed.reject(new Error(frame.error));
+            }
+            if (frame.status === 'canceled') {
+                completed.reject(new Error(frame.status));
+            }
         });
         const detection = {
             ...startRequest(workingPath),
@@ -443,127 +411,131 @@ describe('closing a source document during scan cleanup', () => {
             }
             await expect(borrower!.resultStore.getPage(1)).resolves.toEqual(firstPage);
             await borrower!.release();
-            await expect(Promise.resolve().then(() => borrower!.resultStore.readRange(1, 2)), 'the last borrower must release the retired evidence files').rejects.toThrow(/closed/iu);
+            await expect(
+                Promise.resolve().then(() => borrower!.resultStore.readRange(1, 2)),
+                'the last borrower must release the retired evidence files',
+            ).rejects.toThrow(/closed/iu);
         } finally {
             await borrower?.release();
             await service.dispose();
         }
     });
 
-    it.each([
-        'queued',
-        'materializing',
-        'probing',
-        'rendering',
-    ] as const)('cancels a %s run and waits for it before deleting the working copy', async (stage) => {
-        const {
-            originalPath,
-            workingPath,
-        } = await createManagedWorkingCopy(stage);
-        const workDir = dirname(workingPath);
-        const observed = Promise.withResolvers<AbortSignal>();
-        // Every dependency the run can be parked on has to release only after
-        // the close asks it to, and the directory it reads has to still be there
-        // at that moment.
-        const sourceExistedWhileStopping = Promise.withResolvers<boolean>();
-        const parkUntilAborted = (signal: AbortSignal) => new Promise<never>((_, reject) => {
-            signal.addEventListener('abort', () => {
-                // Stopping is asynchronous: a real run is unwinding a
-                // cooperative worker cancel and its native children here, and
-                // only lets go of the working copy when it finally rejects.
-                setTimeout(() => {
-                    sourceExistedWhileStopping.resolve(existsSync(workDir));
-                    reject(toAbortError(signal));
-                }, 25);
-            }, {once: true});
-        });
-
-        if (stage === 'queued') {
-            mocks.acquire.mockImplementation(async (request) => {
-                observed.resolve(request.signal!);
-                return parkUntilAborted(request.signal!);
-            });
-        } else if (stage === 'materializing') {
-            mocks.ensureMaterialized.mockImplementation(async (
-                _path: string,
-                options: {signal?: AbortSignal},
-            ) => {
-                observed.resolve(options.signal!);
-                return parkUntilAborted(options.signal!);
-            });
-        } else {
-            mocks.runWorker.mockImplementation(async (
-                _request: unknown,
-                _paths: unknown,
-                _policy: unknown,
-                signal: AbortSignal,
-                onProgress: (progress: unknown) => void,
-            ) => {
-                onProgress({
-                    stage,
-                    completedUnits: 0,
-                    totalUnits: 4,
-                    percent: 0,
-                    completedPageNumbers: [],
+    it.each(['queued', 'materializing', 'probing', 'rendering'] as const)(
+        'cancels a %s run and waits for it before deleting the working copy',
+        async (stage) => {
+            const {originalPath, workingPath} = await createManagedWorkingCopy(stage);
+            const workDir = dirname(workingPath);
+            const observed = Promise.withResolvers<AbortSignal>();
+            // Every dependency the run can be parked on has to release only after
+            // the close asks it to, and the directory it reads has to still be there
+            // at that moment.
+            const sourceExistedWhileStopping = Promise.withResolvers<boolean>();
+            const parkUntilAborted = (signal: AbortSignal) =>
+                new Promise<never>((_, reject) => {
+                    signal.addEventListener(
+                        'abort',
+                        () => {
+                            // Stopping is asynchronous: a real run is unwinding a
+                            // cooperative worker cancel and its native children here, and
+                            // only lets go of the working copy when it finally rejects.
+                            setTimeout(() => {
+                                sourceExistedWhileStopping.resolve(existsSync(workDir));
+                                reject(toAbortError(signal));
+                            }, 25);
+                        },
+                        {once: true},
+                    );
                 });
-                observed.resolve(signal);
-                return parkUntilAborted(signal);
-            });
-        }
 
-        const service = createScanCleanupService();
-        const webContents = sender();
-        const started = await service.start(webContents, startRequest(workingPath));
-        if (!started.started) throw new Error('Expected scan cleanup to start');
-        const signal = await observed.promise;
-        expect(signal.aborted).toBe(false);
-        expect(snapshotMainOperations()).toEqual([expect.objectContaining({
-            kind: 'critical-write',
-            workingCopyPath: workingPath,
-            commitStarted: false,
-        })]);
+            if (stage === 'queued') {
+                mocks.acquire.mockImplementation(async (request) => {
+                    observed.resolve(request.signal!);
+                    return parkUntilAborted(request.signal!);
+                });
+            } else if (stage === 'materializing') {
+                mocks.ensureMaterialized.mockImplementation(async (_path: string, options: {signal?: AbortSignal}) => {
+                    observed.resolve(options.signal!);
+                    return parkUntilAborted(options.signal!);
+                });
+            } else {
+                mocks.runWorker.mockImplementation(
+                    async (
+                        _request: unknown,
+                        _paths: unknown,
+                        _policy: unknown,
+                        signal: AbortSignal,
+                        onProgress: (progress: unknown) => void,
+                    ) => {
+                        onProgress({
+                            stage,
+                            completedUnits: 0,
+                            totalUnits: 4,
+                            percent: 0,
+                            completedPageNumbers: [],
+                        });
+                        observed.resolve(signal);
+                        return parkUntilAborted(signal);
+                    },
+                );
+            }
 
-        await cleanupWorkingCopy(workingPath, OWNER_WEB_CONTENTS_ID);
+            const service = createScanCleanupService();
+            const webContents = sender();
+            const started = await service.start(webContents, startRequest(workingPath));
+            if (!started.started) {
+                throw new Error('Expected scan cleanup to start');
+            }
+            const signal = await observed.promise;
+            expect(signal.aborted).toBe(false);
+            expect(snapshotMainOperations()).toEqual([
+                expect.objectContaining({
+                    kind: 'critical-write',
+                    workingCopyPath: workingPath,
+                    commitStarted: false,
+                }),
+            ]);
 
-        expect(signal.aborted).toBe(true);
-        await expect(sourceExistedWhileStopping.promise).resolves.toBe(true);
-        expect(snapshotMainOperations()).toEqual([]);
-        expect(existsSync(workDir)).toBe(false);
-        expect(existsSync(originalPath)).toBe(true);
-        expect(service.getState(webContents, started.jobId, owner)).toMatchObject({status: 'canceled'});
-        // Closing a tab is the user's decision, not a fault. Any error-level
-        // line here becomes an application-error report in the renderer.
-        expect(errorLogs()).toEqual([]);
-    });
+            await cleanupWorkingCopy(workingPath, OWNER_WEB_CONTENTS_ID);
+
+            expect(signal.aborted).toBe(true);
+            await expect(sourceExistedWhileStopping.promise).resolves.toBe(true);
+            expect(snapshotMainOperations()).toEqual([]);
+            expect(existsSync(workDir)).toBe(false);
+            expect(existsSync(originalPath)).toBe(true);
+            expect(service.getState(webContents, started.jobId, owner)).toMatchObject({status: 'canceled'});
+            // Closing a tab is the user's decision, not a fault. Any error-level
+            // line here becomes an application-error report in the renderer.
+            expect(errorLogs()).toEqual([]);
+        },
+    );
 
     it('ends as canceled when the stopping run reports a source-read failure', async () => {
         const {workingPath} = await createManagedWorkingCopy('enoent');
         const observed = Promise.withResolvers<AbortSignal>();
-        mocks.runWorker.mockImplementation(async (
-            _request: unknown,
-            _paths: unknown,
-            _policy: unknown,
-            signal: AbortSignal,
-        ) => {
+        mocks.runWorker.mockImplementation(async (_request: unknown, _paths: unknown, _policy: unknown, signal: AbortSignal) => {
             observed.resolve(signal);
             return new Promise<never>((_, reject) => {
-                signal.addEventListener('abort', () => {
-                    // Poppler was mid-page when the cancel arrived, so what the
-                    // run actually reports is a read failure rather than an
-                    // abort. The user closed a tab: that is a cancellation.
-                    const failure = Object.assign(
-                        new Error('pdftoppm: No such file or directory'),
-                        {code: 'ENOENT'},
-                    );
-                    setTimeout(() => reject(failure), 5);
-                }, {once: true});
+                signal.addEventListener(
+                    'abort',
+                    () => {
+                        // Poppler was mid-page when the cancel arrived, so what the
+                        // run actually reports is a read failure rather than an
+                        // abort. The user closed a tab: that is a cancellation.
+                        const failure = Object.assign(new Error('pdftoppm: No such file or directory'), {code: 'ENOENT'});
+                        setTimeout(() => reject(failure), 5);
+                    },
+                    {once: true},
+                );
             });
         });
 
         const service = createScanCleanupService();
         const webContents = sender();
         const started = await service.start(webContents, startRequest(workingPath));
-        if (!started.started) throw new Error('Expected scan cleanup to start');
+        if (!started.started) {
+            throw new Error('Expected scan cleanup to start');
+        }
         await observed.promise;
 
         await cleanupWorkingCopy(workingPath, OWNER_WEB_CONTENTS_ID);
@@ -589,7 +561,9 @@ describe('closing a source document during scan cleanup', () => {
         const service = createScanCleanupService();
         const webContents = sender();
         const started = await service.start(webContents, startRequest(workingPath));
-        if (!started.started) throw new Error('Expected scan cleanup to start');
+        if (!started.started) {
+            throw new Error('Expected scan cleanup to start');
+        }
         await vi.waitFor(() => {
             expect(service.getState(webContents, started.jobId, owner)).toMatchObject({
                 status: 'failed',
@@ -613,12 +587,7 @@ describe('closing a source document during scan cleanup', () => {
         const closing = await createManagedWorkingCopy('closing');
         const other = await createManagedWorkingCopy('other');
         const observed = Promise.withResolvers<AbortSignal>();
-        mocks.runWorker.mockImplementation(async (
-            _request: unknown,
-            _paths: unknown,
-            _policy: unknown,
-            signal: AbortSignal,
-        ) => {
+        mocks.runWorker.mockImplementation(async (_request: unknown, _paths: unknown, _policy: unknown, signal: AbortSignal) => {
             observed.resolve(signal);
             return new Promise<never>((_, reject) => {
                 signal.addEventListener('abort', () => reject(toAbortError(signal)), {once: true});
@@ -628,7 +597,9 @@ describe('closing a source document during scan cleanup', () => {
         const service = createScanCleanupService();
         const webContents = sender();
         const started = await service.start(webContents, startRequest(other.workingPath));
-        if (!started.started) throw new Error('Expected scan cleanup to start');
+        if (!started.started) {
+            throw new Error('Expected scan cleanup to start');
+        }
         const signal = await observed.promise;
 
         await cleanupWorkingCopy(closing.workingPath, OWNER_WEB_CONTENTS_ID);
@@ -636,8 +607,7 @@ describe('closing a source document during scan cleanup', () => {
         expect(signal.aborted).toBe(false);
         expect(existsSync(dirname(closing.workingPath))).toBe(false);
         expect(existsSync(dirname(other.workingPath))).toBe(true);
-        expect(service.getState(webContents, started.jobId, owner))
-            .toMatchObject({status: expect.stringMatching(/queued|running/u)});
+        expect(service.getState(webContents, started.jobId, owner)).toMatchObject({status: expect.stringMatching(/queued|running/u)});
 
         service.cancel(webContents, started.jobId, owner);
         await vi.waitFor(() => {
@@ -648,35 +618,49 @@ describe('closing a source document during scan cleanup', () => {
     it('retains the source bytes and the broker charge when the run could not prove its native tree died', async () => {
         const {workingPath} = await createManagedWorkingCopy('unproven');
         const observed = Promise.withResolvers<AbortSignal>();
-        mocks.runWorker.mockImplementation(async (
-            _request: unknown,
-            _paths: unknown,
-            _policy: unknown,
-            signal: AbortSignal,
-            _onProgress: unknown,
-            _jobId: unknown,
-            options?: {brokerRun?: {onTerminationProof?: (proof: Promise<boolean>) => void}},
-        ) => {
-            observed.resolve(signal);
-            return new Promise<never>((_, reject) => {
-                signal.addEventListener('abort', () => {
-                    // The worker asked its Poppler tree to die and never got an
-                    // answer. A surviving child would still be reading the
-                    // source, so the run reports the stop as unproven, to the
-                    // lease its children run under as the worker task does.
-                    options?.brokerRun?.onTerminationProof?.(Promise.resolve(false));
-                    setTimeout(() => reject(markUnprovenNativeTermination(
-                        toAbortError(signal),
-                        'evb-scan-cleanup process tree (pid=4242) was not proven dead within 8000ms of termination',
-                    )), 5);
-                }, {once: true});
-            });
-        });
+        mocks.runWorker.mockImplementation(
+            async (
+                _request: unknown,
+                _paths: unknown,
+                _policy: unknown,
+                signal: AbortSignal,
+                _onProgress: unknown,
+                _jobId: unknown,
+                options?: {brokerRun?: {onTerminationProof?: (proof: Promise<boolean>) => void}},
+            ) => {
+                observed.resolve(signal);
+                return new Promise<never>((_, reject) => {
+                    signal.addEventListener(
+                        'abort',
+                        () => {
+                            // The worker asked its Poppler tree to die and never got an
+                            // answer. A surviving child would still be reading the
+                            // source, so the run reports the stop as unproven, to the
+                            // lease its children run under as the worker task does.
+                            options?.brokerRun?.onTerminationProof?.(Promise.resolve(false));
+                            setTimeout(
+                                () =>
+                                    reject(
+                                        markUnprovenNativeTermination(
+                                            toAbortError(signal),
+                                            'evb-scan-cleanup process tree (pid=4242) was not proven dead within 8000ms of termination',
+                                        ),
+                                    ),
+                                5,
+                            );
+                        },
+                        {once: true},
+                    );
+                });
+            },
+        );
 
         const service = createScanCleanupService();
         const webContents = sender();
         const started = await service.start(webContents, startRequest(workingPath));
-        if (!started.started) throw new Error('Expected scan cleanup to start');
+        if (!started.started) {
+            throw new Error('Expected scan cleanup to start');
+        }
         await observed.promise;
 
         await cleanupWorkingCopy(workingPath, OWNER_WEB_CONTENTS_ID);
@@ -696,10 +680,14 @@ describe('closing a source document during scan cleanup', () => {
 
     it('keeps a scan-cleanup critical write that has crossed its commit boundary', async () => {
         const {workingPath} = await createManagedWorkingCopy('committed');
-        const jobs = createMainJobRegistry<{step: string}, {ok: true}, {
-            code: string;
-            message: string;
-        }>({
+        const jobs = createMainJobRegistry<
+            {step: string},
+            {ok: true},
+            {
+                code: string;
+                message: string;
+            }
+        >({
             retention: {
                 eventReplayTtlMs: 1_000,
                 terminalRecordTtlMs: 1_000,
@@ -709,9 +697,9 @@ describe('closing a source document during scan cleanup', () => {
                 message: getErrorMessage(cause),
             }),
             terminalProgress: {
-                completed: latest => latest,
-                canceled: latest => latest,
-                failed: latest => latest,
+                completed: (latest) => latest,
+                canceled: (latest) => latest,
+                failed: (latest) => latest,
             },
         });
         const committing = Promise.withResolvers<'committing'>();
@@ -724,7 +712,7 @@ describe('closing a source document during scan cleanup', () => {
                 cancelOnWorkingCopyClose: true,
             },
             initialProgress: {step: 'start'},
-            run: async job => {
+            run: async (job) => {
                 job.markCommitStarted();
                 committing.resolve('committing');
                 return release.promise;
@@ -745,11 +733,13 @@ describe('closing a source document during scan cleanup', () => {
             await cleanupWorkingCopy(workingPath, OWNER_WEB_CONTENTS_ID);
 
             expect(handle.signal.aborted).toBe(false);
-            expect(snapshotMainOperations()).toEqual([expect.objectContaining({
-                kind: 'critical-write',
-                commitStarted: true,
-                aborted: false,
-            })]);
+            expect(snapshotMainOperations()).toEqual([
+                expect.objectContaining({
+                    kind: 'critical-write',
+                    commitStarted: true,
+                    aborted: false,
+                }),
+            ]);
 
             release.resolve({ok: true});
             await expect(handle.terminal).resolves.toMatchObject({status: 'completed'});
@@ -773,41 +763,45 @@ describe('closing a source document during scan cleanup', () => {
         const canceledEntryDir = join(checkpointDir, `entry-${'a'.repeat(64)}`);
         const workerReady = Promise.withResolvers<void>();
         const releaseWorker = Promise.withResolvers<void>();
-        mocks.runWorker.mockImplementation(async (
-            _request: unknown,
-            paths: {
-                checkpointDir?: string;
-                deferCheckpointCleanup?: boolean;
+        mocks.runWorker.mockImplementation(
+            async (
+                _request: unknown,
+                paths: {
+                    checkpointDir?: string;
+                    deferCheckpointCleanup?: boolean;
+                },
+                _policy: unknown,
+                _signal: AbortSignal,
+                _onProgress: unknown,
+                _jobId: string,
+                options?: {onCheckpointReady?: (entryDir: string) => void},
+            ) => {
+                expect(paths.checkpointDir).toBe(checkpointDir);
+                expect(paths.deferCheckpointCleanup).toBe(true);
+                await mkdir(canceledEntryDir, {recursive: true});
+                await writeFile(join(canceledEntryDir, 'checkpoint.json'), '{}');
+                options?.onCheckpointReady?.(canceledEntryDir);
+                workerReady.resolve();
+                await releaseWorker.promise;
+                return {
+                    inputPages: 1,
+                    outputPages: 1,
+                    spreadsSplit: 0,
+                    offcutsDiscarded: 0,
+                    deskewSkipped: 0,
+                    cropSkipped: 0,
+                    excludedPages: 0,
+                    blankPagesSkipped: 0,
+                    accessibilityTagsRemoved: false,
+                    warnings: [],
+                };
             },
-            _policy: unknown,
-            _signal: AbortSignal,
-            _onProgress: unknown,
-            _jobId: string,
-            options?: {onCheckpointReady?: (entryDir: string) => void},
-        ) => {
-            expect(paths.checkpointDir).toBe(checkpointDir);
-            expect(paths.deferCheckpointCleanup).toBe(true);
-            await mkdir(canceledEntryDir, {recursive: true});
-            await writeFile(join(canceledEntryDir, 'checkpoint.json'), '{}');
-            options?.onCheckpointReady?.(canceledEntryDir);
-            workerReady.resolve();
-            await releaseWorker.promise;
-            return {
-                inputPages: 1,
-                outputPages: 1,
-                spreadsSplit: 0,
-                offcutsDiscarded: 0,
-                deskewSkipped: 0,
-                cropSkipped: 0,
-                excludedPages: 0,
-                blankPagesSkipped: 0,
-                accessibilityTagsRemoved: false,
-                warnings: [],
-            };
-        });
+        );
 
         const startedCanceled = await service.start(webContents, startRequest(workingPath));
-        if (!startedCanceled.started) throw new Error('Expected scan cleanup to start');
+        if (!startedCanceled.started) {
+            throw new Error('Expected scan cleanup to start');
+        }
         try {
             await workerReady.promise;
             // Cancel arrives BEFORE the worker's result reaches main's markCommitStarted().
@@ -824,36 +818,40 @@ describe('closing a source document during scan cleanup', () => {
 
         // 2. When no cancellation occurs, main crosses markCommitStarted() and
         // reclaims the completed checkpoint cleanly.
-        mocks.runWorker.mockImplementation(async (
-            _request: unknown,
-            paths: {
-                checkpointDir?: string;
-                deferCheckpointCleanup?: boolean;
+        mocks.runWorker.mockImplementation(
+            async (
+                _request: unknown,
+                paths: {
+                    checkpointDir?: string;
+                    deferCheckpointCleanup?: boolean;
+                },
+                _policy: unknown,
+                _signal: AbortSignal,
+                _onProgress: unknown,
+                _jobId: string,
+                options?: {onCheckpointReady?: (entryDir: string) => void},
+            ) => {
+                expect(paths.deferCheckpointCleanup).toBe(true);
+                options?.onCheckpointReady?.(canceledEntryDir);
+                return {
+                    inputPages: 1,
+                    outputPages: 1,
+                    spreadsSplit: 0,
+                    offcutsDiscarded: 0,
+                    deskewSkipped: 0,
+                    cropSkipped: 0,
+                    excludedPages: 0,
+                    blankPagesSkipped: 0,
+                    accessibilityTagsRemoved: false,
+                    warnings: [],
+                };
             },
-            _policy: unknown,
-            _signal: AbortSignal,
-            _onProgress: unknown,
-            _jobId: string,
-            options?: {onCheckpointReady?: (entryDir: string) => void},
-        ) => {
-            expect(paths.deferCheckpointCleanup).toBe(true);
-            options?.onCheckpointReady?.(canceledEntryDir);
-            return {
-                inputPages: 1,
-                outputPages: 1,
-                spreadsSplit: 0,
-                offcutsDiscarded: 0,
-                deskewSkipped: 0,
-                cropSkipped: 0,
-                excludedPages: 0,
-                blankPagesSkipped: 0,
-                accessibilityTagsRemoved: false,
-                warnings: [],
-            };
-        });
+        );
 
         const startedCommitted = await service.start(webContents, startRequest(workingPath));
-        if (!startedCommitted.started) throw new Error('Expected second scan cleanup to start');
+        if (!startedCommitted.started) {
+            throw new Error('Expected second scan cleanup to start');
+        }
         await vi.waitFor(() => {
             expect(service.getState(webContents, startedCommitted.jobId, owner)).toMatchObject({status: 'completed'});
         });

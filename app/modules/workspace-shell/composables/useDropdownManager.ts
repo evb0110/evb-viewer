@@ -1,17 +1,9 @@
-import type { Ref } from 'vue';
+import type {Ref} from 'vue';
 
 type TDropdownName = 'zoom' | 'page' | 'ocr';
 
-export const useDropdownManager = (deps: {
-    zoomOpen: Ref<boolean>;
-    pageOpen: Ref<boolean>;
-    ocrOpen: Ref<boolean>;
-}) => {
-    const {
-        zoomOpen,
-        pageOpen,
-        ocrOpen,
-    } = deps;
+export const useDropdownManager = (deps: {zoomOpen: Ref<boolean>; pageOpen: Ref<boolean>; ocrOpen: Ref<boolean>}) => {
+    const {zoomOpen, pageOpen, ocrOpen} = deps;
 
     function setOpenState(dropdown: TDropdownName, value: boolean) {
         if (dropdown === 'zoom') {

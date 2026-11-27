@@ -1,7 +1,4 @@
-import {
-    OCR_LANGUAGE_MODEL_SHA256,
-    type TOcrModelCode,
-} from '@contracts/ocrLanguages';
+import {OCR_LANGUAGE_MODEL_SHA256, type TOcrModelCode} from '@contracts/ocrLanguages';
 import type {TOcrScanCleanupMode} from '@contracts/scan-cleanup/ocrPreprocessing';
 import {createBrowserPdfRasterTilesSchema} from '@contracts/browserPdfRaster';
 import * as v from 'valibot';
@@ -20,10 +17,8 @@ export const BROWSER_OCR_MAX_RASTER_DIMENSION_PX = 40_000;
 export const BROWSER_OCR_ENGINE_MAX_IMAGE_BYTES = BROWSER_OCR_MAX_RASTER_PIXELS * 3 + 64;
 
 const requestIdSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
-const bytesSchema = v.custom<Uint8Array>(value => value instanceof Uint8Array);
-const modelCodeSchema = v.custom<TOcrModelCode>(
-    value => typeof value === 'string' && Object.hasOwn(OCR_LANGUAGE_MODEL_SHA256, value),
-);
+const bytesSchema = v.custom<Uint8Array>((value) => value instanceof Uint8Array);
+const modelCodeSchema = v.custom<TOcrModelCode>((value) => typeof value === 'string' && Object.hasOwn(OCR_LANGUAGE_MODEL_SHA256, value));
 const enginePathSchema = v.pipe(v.string(), v.startsWith('/work/'), v.maxLength(256));
 const rasterSchema = createBrowserPdfRasterTilesSchema(BROWSER_OCR_MAX_RASTER_PIXELS, BROWSER_OCR_MAX_RASTER_DIMENSION_PX);
 
@@ -35,7 +30,10 @@ const passSchema = v.object({
 
 /** A PNM page (the assembled PPM, or a cleaned page as PGM/PPM) or the rendered tiles to assemble. */
 const imageSchema = v.union([
-    v.pipe(bytesSchema, v.check(image => image.byteLength <= BROWSER_OCR_ENGINE_MAX_IMAGE_BYTES)),
+    v.pipe(
+        bytesSchema,
+        v.check((image) => image.byteLength <= BROWSER_OCR_ENGINE_MAX_IMAGE_BYTES),
+    ),
     rasterSchema,
 ]);
 
@@ -55,18 +53,12 @@ const preprocessRequestSchema = v.object({
     type: v.literal('preprocess'),
     payload: v.object({
         image: imageSchema,
-        mode: v.picklist([
-            'clean',
-            'polarity-only',
-        ] as const satisfies readonly TOcrScanCleanupMode[]),
+        mode: v.picklist(['clean', 'polarity-only'] as const satisfies readonly TOcrScanCleanupMode[]),
         dpi: v.pipe(v.number(), v.safeInteger(), v.minValue(1)),
     }),
 });
 
-const requestSchema = v.variant('type', [
-    recognizeRequestSchema,
-    preprocessRequestSchema,
-]);
+const requestSchema = v.variant('type', [recognizeRequestSchema, preprocessRequestSchema]);
 
 const passResultSchema = v.object({
     stderr: v.pipe(v.string(), v.maxLength(BROWSER_OCR_ENGINE_MAX_STDERR_CHARACTERS)),
@@ -85,16 +77,21 @@ const dimensionSchema = v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValu
  * rendered raster itself, recognized as on desktop with a diagnostic.
  */
 export const BROWSER_OCR_PREPROCESS_RESULT_SCHEMA = v.object({
-    image: v.pipe(bytesSchema, v.check(image => image.byteLength <= BROWSER_OCR_ENGINE_MAX_IMAGE_BYTES)),
+    image: v.pipe(
+        bytesSchema,
+        v.check((image) => image.byteLength <= BROWSER_OCR_ENGINE_MAX_IMAGE_BYTES),
+    ),
     width: dimensionSchema,
     height: dimensionSchema,
     inverseMatrix: v.optional(v.pipe(v.array(v.pipe(v.array(finiteSchema), v.length(3))), v.length(3))),
     failure: v.optional(v.pipe(v.string(), v.maxLength(4096))),
     /** The cleaned page's size when it differs from the render's; the image is then the render. */
-    preprocessedSize: v.optional(v.object({
-        width: v.pipe(v.number(), v.integer(), v.minValue(1)),
-        height: v.pipe(v.number(), v.integer(), v.minValue(1)),
-    })),
+    preprocessedSize: v.optional(
+        v.object({
+            width: v.pipe(v.number(), v.integer(), v.minValue(1)),
+            height: v.pipe(v.number(), v.integer(), v.minValue(1)),
+        }),
+    ),
 });
 
 export type TBrowserOcrEngineRequest = v.InferOutput<typeof requestSchema>;

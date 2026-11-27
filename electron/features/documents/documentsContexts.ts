@@ -1,8 +1,5 @@
-import type {
-    BrowserWindow,
-    WebContents,
-} from 'electron';
-import type { TOpenPathOwner } from '@electron/features/documents/main/openPathOwner';
+import type {BrowserWindow, WebContents} from 'electron';
+import type {TOpenPathOwner} from '@electron/features/documents/main/openPathOwner';
 
 /** Sender facts each documents handler receives from its IPC binding. */
 export interface IDocumentsWebContentsContext {
@@ -10,7 +7,9 @@ export interface IDocumentsWebContentsContext {
     senderId: number;
 }
 
-export interface IDocumentsDialogContext extends IDocumentsWebContentsContext { parentWindow: BrowserWindow | null; }
+export interface IDocumentsDialogContext extends IDocumentsWebContentsContext {
+    parentWindow: BrowserWindow | null;
+}
 
 export interface IDocumentsSenderIdContext {
     sender?: WebContents;
@@ -23,4 +22,6 @@ export interface IDocumentsWindowContext {
     window: BrowserWindow | null;
 }
 
-export interface IDocumentsOpenPathContext { owner?: TOpenPathOwner; }
+export interface IDocumentsOpenPathContext {
+    owner?: TOpenPathOwner;
+}

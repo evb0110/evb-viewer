@@ -1,7 +1,7 @@
 import * as fsPromises from 'node:fs/promises';
-import { isErrnoException } from '@contracts/runtimeGuards';
-import type { ILogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
+import {isErrnoException} from '@contracts/runtimeGuards';
+import type {ILogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
 
 export async function removeOcrResultArtifacts(path: string, logger: ILogger) {
     try {

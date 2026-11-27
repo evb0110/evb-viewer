@@ -1,24 +1,13 @@
 import {stat} from 'fs/promises';
 import {hasNativeErrorCode} from '@contracts/nativeErrors';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';
-import {
-    runDesktopQpdfWasm,
-    type IRunDesktopQpdfWasmOptions,
-} from '@electron/native-tools/qpdfWasmWorkerClient';
+import {runDesktopQpdfWasm, type IRunDesktopQpdfWasmOptions} from '@electron/native-tools/qpdfWasmWorkerClient';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
-import {
-    getPdfPageCount,
-    QPDF_OUTPUT_SUCCESS_EXIT_CODES,
-    QPDF_TIMEOUT_MS,
-} from '@electron/pdf/pdfPageCount';
+import {getPdfPageCount, QPDF_OUTPUT_SUCCESS_EXIT_CODES, QPDF_TIMEOUT_MS} from '@electron/pdf/pdfPageCount';
 
 // qpdf runs what the native page engine does not do: image export's page
 // preparation and the strict structure check before a page edit commits.
-export {
-    getPdfPageCount,
-    QPDF_OUTPUT_SUCCESS_EXIT_CODES,
-    QPDF_TIMEOUT_MS,
-};
+export {getPdfPageCount, QPDF_OUTPUT_SUCCESS_EXIT_CODES, QPDF_TIMEOUT_MS};
 
 export interface IQpdfOperationOptions {
     signal?: AbortSignal;
@@ -27,14 +16,8 @@ export interface IQpdfOperationOptions {
 
 type TRunQpdfCommandOptions = IRunDesktopQpdfWasmOptions & {scratchDirectory?: string};
 
-export async function runQpdfCommand(
-    args: string[],
-    options: TRunQpdfCommandOptions,
-) {
-    const {
-        scratchDirectory: _unusedScratchDirectory,
-        ...qpdfOptions
-    } = options;
+export async function runQpdfCommand(args: string[], options: TRunQpdfCommandOptions) {
+    const {scratchDirectory: _unusedScratchDirectory, ...qpdfOptions} = options;
     await runDesktopQpdfWasm(args, qpdfOptions);
 }
 
@@ -44,12 +27,7 @@ export async function verifyPdfStructureStrict(pdfPath: string, options: IQpdfOp
     // rewrite without stream decoding covers what they can break. `qpdf --check`
     // also decodes every image, which takes most of a minute on a large scan.
     try {
-        await runDesktopQpdfWasm([
-            '--decode-level=none',
-            '--compress-streams=n',
-            pdfPath,
-            '/dev/null',
-        ], {
+        await runDesktopQpdfWasm(['--decode-level=none', '--compress-streams=n', pdfPath, '/dev/null'], {
             timeoutMs: QPDF_TIMEOUT_MS,
             allowedExitCodes: [0],
             commandLabel: 'qpdf(strict-structure-check)',
@@ -64,12 +42,7 @@ export async function verifyPdfStructureStrict(pdfPath: string, options: IQpdfOp
             if (!pageOpsPath) {
                 throw error;
             }
-            const {stdout} = await runNativeToolCommand(pageOpsPath, [
-                'pdf-conformance',
-                '--input',
-                pdfPath,
-                '--strict',
-            ], {
+            const {stdout} = await runNativeToolCommand(pageOpsPath, ['pdf-conformance', '--input', pdfPath, '--strict'], {
                 timeoutMs: QPDF_TIMEOUT_MS,
                 allowedExitCodes: [0],
                 maxStdoutBytes: 64 * 1024,

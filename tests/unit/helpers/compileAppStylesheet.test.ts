@@ -1,20 +1,8 @@
-import {
-    mkdir,
-    mkdtemp,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { compileAppStylesheet } from '@tests/helpers/compileAppStylesheet';
+import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {compileAppStylesheet} from '@tests/helpers/compileAppStylesheet';
 
 /**
  * `compileAppStylesheet` has to install a fallback `defineAppConfig` to read
@@ -80,7 +68,7 @@ describe('compileAppStylesheet', () => {
         // A browser test builds its page with `setContent`, where a root-relative
         // font URL resolves against nothing and text silently falls back to a
         // system face that measures differently.
-        expect(css).not.toContain('url(\'/fonts/noto-sans/noto-sans-variable.woff2\')');
+        expect(css).not.toContain("url('/fonts/noto-sans/noto-sans-variable.woff2')");
         expect(css).toContain('url("data:font/woff2;base64,');
         // Only fonts: inlining every root-relative asset would drag images into
         // the stylesheet as base64 for no measurement benefit.

@@ -1,12 +1,8 @@
 // @vitest-environment happy-dom
 
-import { requirePageNumber } from '@contracts/pageNumbers';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { isPdfInitialVisualCanvasReady } from '@app/modules/pdf-viewer/runtime/lifecycle/isPdfInitialVisualCanvasReady';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {describe, expect, it} from 'vitest';
+import {isPdfInitialVisualCanvasReady} from '@app/modules/pdf-viewer/runtime/lifecycle/isPdfInitialVisualCanvasReady';
 
 function rect(left: number, top: number, width: number, height: number): DOMRect {
     return {
@@ -37,16 +33,13 @@ function createSurface(canvasRect = rect(20, 20, 200, 300)) {
 
 describe('isPdfInitialVisualCanvasReady', () => {
     it('accepts the connected, painted current-page canvas when it intersects the viewport', () => {
-        const { container } = createSurface();
+        const {container} = createSurface();
 
         expect(isPdfInitialVisualCanvasReady(container, requirePageNumber(2), 2)).toBe(true);
     });
 
     it('rejects a non-current, unpainted, or disconnected canvas', () => {
-        const {
-            canvas,
-            container,
-        } = createSurface();
+        const {canvas, container} = createSurface();
 
         expect(isPdfInitialVisualCanvasReady(container, requirePageNumber(2), 1)).toBe(false);
         canvas.width = 0;

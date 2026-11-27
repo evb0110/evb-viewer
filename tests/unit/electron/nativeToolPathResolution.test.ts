@@ -1,28 +1,18 @@
 import path from 'node:path';
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { resolvePdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
-import { getNativeToolBinaryPath } from '@electron/native-tools/getNativeToolBinaryPath';
-import {
-    getNativeResourcesBaseCandidates,
-    resolveNativeResourcesBase,
-} from '@electron/native-tools/resolveNativeResourcesBase';
-import {
-    getNativeToolPathCandidates,
-    resolveNativeToolPath,
-} from '@electron/native-tools/resolveNativeToolPath';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {resolvePdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
+import {getNativeToolBinaryPath} from '@electron/native-tools/getNativeToolBinaryPath';
+import {getNativeResourcesBaseCandidates, resolveNativeResourcesBase} from '@electron/native-tools/resolveNativeResourcesBase';
+import {getNativeToolPathCandidates, resolveNativeToolPath} from '@electron/native-tools/resolveNativeToolPath';
 
-const mocks = vi.hoisted(() => ({logger: {
-    debug: vi.fn(),
-    error: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-}}));
+const mocks = vi.hoisted(() => ({
+    logger: {
+        debug: vi.fn(),
+        error: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+    },
+}));
 
 const baseOptions = {
     binaryName: 'evb-pdf-page-ops.exe',
@@ -35,7 +25,7 @@ const baseOptions = {
 };
 
 vi.mock('electron', () => ({app: {isPackaged: false}}));
-vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => mocks.logger }));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 
 beforeEach(() => {
     vi.clearAllMocks();
@@ -52,14 +42,18 @@ describe('native resource base resolution', () => {
     });
 
     it('resolves a generic native resource root without requiring OCR resources', () => {
-        expect(resolveNativeResourcesBase('/repo/dist-electron', false, {
-            cwd: '/worktree',
-            exists: candidate => candidate === path.join('/repo', 'resources', 'poppler'),
-        })).toBe(path.join('/repo', 'resources'));
+        expect(
+            resolveNativeResourcesBase('/repo/dist-electron', false, {
+                cwd: '/worktree',
+                exists: (candidate) => candidate === path.join('/repo', 'resources', 'poppler'),
+            }),
+        ).toBe(path.join('/repo', 'resources'));
     });
 
     it('keeps packaged resources on Electron resourcesPath', () => {
-        expect(resolveNativeResourcesBase('/app/Contents/Resources/app.asar/dist-electron', true, {resourcesPath: '/app/Contents/Resources'})).toBe('/app/Contents/Resources');
+        expect(
+            resolveNativeResourcesBase('/app/Contents/Resources/app.asar/dist-electron', true, {resourcesPath: '/app/Contents/Resources'}),
+        ).toBe('/app/Contents/Resources');
     });
 });
 
@@ -75,13 +69,15 @@ describe('PDF native tool path boundary', () => {
             path.join(popplerBase, 'etc', 'fonts'),
         ]);
 
-        expect(resolvePdfNativeToolPaths({
-            exists: candidate => existingPaths.has(candidate),
-            isPackaged: false,
-            nativeToolsBase: '/repo/resources',
-            platform: 'darwin',
-            platformArch: 'darwin-arm64',
-        })).toEqual({
+        expect(
+            resolvePdfNativeToolPaths({
+                exists: (candidate) => existingPaths.has(candidate),
+                isPackaged: false,
+                nativeToolsBase: '/repo/resources',
+                platform: 'darwin',
+                platformArch: 'darwin-arm64',
+            }),
+        ).toEqual({
             pdfinfo: path.join(popplerBase, 'bin', 'pdfinfo'),
             pdftoppm: path.join(popplerBase, 'bin', 'pdftoppm'),
             pdftotext: path.join(popplerBase, 'bin', 'pdftotext'),
@@ -106,13 +102,15 @@ describe('PDF native tool path boundary', () => {
     });
 
     it('keeps pdfimages and Poppler runtime directories optional', () => {
-        expect(resolvePdfNativeToolPaths({
-            exists: () => false,
-            isPackaged: false,
-            nativeToolsBase: '/repo/resources',
-            platform: 'linux',
-            platformArch: 'linux-x64',
-        })).toEqual({
+        expect(
+            resolvePdfNativeToolPaths({
+                exists: () => false,
+                isPackaged: false,
+                nativeToolsBase: '/repo/resources',
+                platform: 'linux',
+                platformArch: 'linux-x64',
+            }),
+        ).toEqual({
             pdfinfo: 'pdfinfo',
             pdftoppm: 'pdftoppm',
             pdftotext: 'pdftotext',
@@ -122,54 +120,68 @@ describe('PDF native tool path boundary', () => {
 
 describe('native tool binary path primitives', () => {
     it('uses bundled binaries before dev system fallbacks', () => {
-        expect(getNativeToolBinaryPath({
-            dir: '/repo/resources/qpdf/darwin-arm64',
-            exists: candidate => candidate === path.join('/repo/resources/qpdf/darwin-arm64', 'bin', 'qpdf'),
-            isPackaged: false,
-            name: 'qpdf',
-            platform: 'darwin',
-        })).toBe(path.join('/repo/resources/qpdf/darwin-arm64', 'bin', 'qpdf'));
+        expect(
+            getNativeToolBinaryPath({
+                dir: '/repo/resources/qpdf/darwin-arm64',
+                exists: (candidate) => candidate === path.join('/repo/resources/qpdf/darwin-arm64', 'bin', 'qpdf'),
+                isPackaged: false,
+                name: 'qpdf',
+                platform: 'darwin',
+            }),
+        ).toBe(path.join('/repo/resources/qpdf/darwin-arm64', 'bin', 'qpdf'));
     });
 
     it('keeps the existing macOS Homebrew fallback for development builds', () => {
-        expect(getNativeToolBinaryPath({
-            dir: '/repo/resources/qpdf/darwin-arm64',
-            exists: candidate => candidate === path.join('/opt/homebrew/bin', 'qpdf'),
-            isPackaged: false,
-            name: 'qpdf',
-            platform: 'darwin',
-        })).toBe(path.join('/opt/homebrew/bin', 'qpdf'));
+        expect(
+            getNativeToolBinaryPath({
+                dir: '/repo/resources/qpdf/darwin-arm64',
+                exists: (candidate) => candidate === path.join('/opt/homebrew/bin', 'qpdf'),
+                isPackaged: false,
+                name: 'qpdf',
+                platform: 'darwin',
+            }),
+        ).toBe(path.join('/opt/homebrew/bin', 'qpdf'));
     });
 
     it('throws a standardized missing-binary error for required packaged tools', () => {
-        expect(() => getNativeToolBinaryPath({
-            dir: '/app/Contents/MacOS/native-tools/qpdf/darwin-arm64',
-            exists: () => false,
-            isPackaged: true,
-            name: 'qpdf',
-            platform: 'darwin',
-        })).toThrow(`Missing required native tool binary "qpdf" at ${
-            path.join('/app/Contents/MacOS/native-tools/qpdf/darwin-arm64', 'bin', 'qpdf')
-        }`);
+        expect(() =>
+            getNativeToolBinaryPath({
+                dir: '/app/Contents/MacOS/native-tools/qpdf/darwin-arm64',
+                exists: () => false,
+                isPackaged: true,
+                name: 'qpdf',
+                platform: 'darwin',
+            }),
+        ).toThrow(
+            `Missing required native tool binary "qpdf" at ${path.join(
+                '/app/Contents/MacOS/native-tools/qpdf/darwin-arm64',
+                'bin',
+                'qpdf',
+            )}`,
+        );
     });
 
     it('keeps optional missing tools empty and Windows executables suffixed', () => {
-        expect(getNativeToolBinaryPath({
-            dir: '/repo/resources/poppler/win32-x64',
-            exists: () => false,
-            isPackaged: false,
-            name: 'pdfimages',
-            optional: true,
-            platform: 'win32',
-        })).toBe('');
+        expect(
+            getNativeToolBinaryPath({
+                dir: '/repo/resources/poppler/win32-x64',
+                exists: () => false,
+                isPackaged: false,
+                name: 'pdfimages',
+                optional: true,
+                platform: 'win32',
+            }),
+        ).toBe('');
 
-        expect(getNativeToolBinaryPath({
-            dir: '/repo/resources/qpdf/win32-x64',
-            exists: candidate => candidate === path.join('/repo/resources/qpdf/win32-x64', 'bin', 'qpdf.exe'),
-            isPackaged: false,
-            name: 'qpdf',
-            platform: 'win32',
-        })).toBe(path.join('/repo/resources/qpdf/win32-x64', 'bin', 'qpdf.exe'));
+        expect(
+            getNativeToolBinaryPath({
+                dir: '/repo/resources/qpdf/win32-x64',
+                exists: (candidate) => candidate === path.join('/repo/resources/qpdf/win32-x64', 'bin', 'qpdf.exe'),
+                isPackaged: false,
+                name: 'qpdf',
+                platform: 'win32',
+            }),
+        ).toBe(path.join('/repo/resources/qpdf/win32-x64', 'bin', 'qpdf.exe'));
     });
 });
 
@@ -184,29 +196,27 @@ describe('native tool path resolution', () => {
     });
 
     it('uses the launchable Contents/MacOS/native-tools root for packaged macOS tools', () => {
-        expect(getNativeToolPathCandidates({
-            binaryName: 'evb-pdf-page-ops',
-            crateName: 'pdf-page-ops',
-            currentDir: '/app/Contents/Resources/app.asar/dist-electron',
-            isPackaged: true,
-            platformArch: 'darwin-arm64',
-            projectRoot: '/repo',
-            resourcesBase: '/app/Contents/Resources',
-        })).toEqual([path.join(
-            '/app/Contents/MacOS/native-tools',
-            'pdf-page-ops',
-            'darwin-arm64',
-            'bin',
-            'evb-pdf-page-ops',
-        )]);
+        expect(
+            getNativeToolPathCandidates({
+                binaryName: 'evb-pdf-page-ops',
+                crateName: 'pdf-page-ops',
+                currentDir: '/app/Contents/Resources/app.asar/dist-electron',
+                isPackaged: true,
+                platformArch: 'darwin-arm64',
+                projectRoot: '/repo',
+                resourcesBase: '/app/Contents/Resources',
+            }),
+        ).toEqual([path.join('/app/Contents/MacOS/native-tools', 'pdf-page-ops', 'darwin-arm64', 'bin', 'evb-pdf-page-ops')]);
     });
 
     it('prefers the override path when it exists', () => {
-        expect(resolveNativeToolPath({
-            ...baseOptions,
-            envOverridePath: '/custom/evb-pdf-page-ops.exe',
-            exists: candidate => candidate === '/custom/evb-pdf-page-ops.exe',
-        })).toBe('/custom/evb-pdf-page-ops.exe');
+        expect(
+            resolveNativeToolPath({
+                ...baseOptions,
+                envOverridePath: '/custom/evb-pdf-page-ops.exe',
+                exists: (candidate) => candidate === '/custom/evb-pdf-page-ops.exe',
+            }),
+        ).toBe('/custom/evb-pdf-page-ops.exe');
     });
 
     it('ignores env overrides and cwd-relative fallback candidates in packaged builds by default', () => {
@@ -214,18 +224,15 @@ describe('native tool path resolution', () => {
         const stagedPath = path.join('/repo', '.tmp', 'pdf-page-ops', 'win32-arm64', 'bin', 'evb-pdf-page-ops.exe');
         const crossTargetPath = path.join('/repo', 'native', 'target', 'aarch64-pc-windows-msvc', 'release', 'evb-pdf-page-ops.exe');
 
-        expect(resolveNativeToolPath({
-            ...baseOptions,
-            envOverridePath: '/custom/evb-pdf-page-ops.exe',
-            isPackaged: true,
-            resourcesBase: '/app/resources',
-            exists: candidate => [
-                '/custom/evb-pdf-page-ops.exe',
-                bundledPath,
-                stagedPath,
-                crossTargetPath,
-            ].includes(candidate),
-        })).toBe(bundledPath);
+        expect(
+            resolveNativeToolPath({
+                ...baseOptions,
+                envOverridePath: '/custom/evb-pdf-page-ops.exe',
+                isPackaged: true,
+                resourcesBase: '/app/resources',
+                exists: (candidate) => ['/custom/evb-pdf-page-ops.exe', bundledPath, stagedPath, crossTargetPath].includes(candidate),
+            }),
+        ).toBe(bundledPath);
 
         expect(mocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining('Ignoring packaged native tool override'));
     });
@@ -233,12 +240,14 @@ describe('native tool path resolution', () => {
     it('logs and rejects packaged cwd-relative fallback candidates when the bundled path is missing', () => {
         const stagedPath = path.join('/repo', '.tmp', 'pdf-page-ops', 'win32-arm64', 'bin', 'evb-pdf-page-ops.exe');
 
-        expect(resolveNativeToolPath({
-            ...baseOptions,
-            isPackaged: true,
-            resourcesBase: '/app/resources',
-            exists: candidate => candidate === stagedPath,
-        })).toBeNull();
+        expect(
+            resolveNativeToolPath({
+                ...baseOptions,
+                isPackaged: true,
+                resourcesBase: '/app/resources',
+                exists: (candidate) => candidate === stagedPath,
+            }),
+        ).toBeNull();
 
         expect(mocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining('Ignoring packaged native tool fallback'));
     });
@@ -246,45 +255,49 @@ describe('native tool path resolution', () => {
     it('allows packaged override and fallback diagnostics behind an explicit flag', () => {
         const stagedPath = path.join('/repo', '.tmp', 'pdf-page-ops', 'win32-arm64', 'bin', 'evb-pdf-page-ops.exe');
 
-        expect(resolveNativeToolPath({
-            ...baseOptions,
-            envOverridePath: '/custom/evb-pdf-page-ops.exe',
-            isPackaged: true,
-            allowPackagedDiagnosticsPaths: true,
-            resourcesBase: '/app/resources',
-            exists: candidate => candidate === '/custom/evb-pdf-page-ops.exe',
-        })).toBe('/custom/evb-pdf-page-ops.exe');
+        expect(
+            resolveNativeToolPath({
+                ...baseOptions,
+                envOverridePath: '/custom/evb-pdf-page-ops.exe',
+                isPackaged: true,
+                allowPackagedDiagnosticsPaths: true,
+                resourcesBase: '/app/resources',
+                exists: (candidate) => candidate === '/custom/evb-pdf-page-ops.exe',
+            }),
+        ).toBe('/custom/evb-pdf-page-ops.exe');
 
-        expect(getNativeToolPathCandidates({
-            ...baseOptions,
-            isPackaged: true,
-            allowPackagedDiagnosticsPaths: true,
-            resourcesBase: '/app/resources',
-        })).toContain(stagedPath);
+        expect(
+            getNativeToolPathCandidates({
+                ...baseOptions,
+                isPackaged: true,
+                allowPackagedDiagnosticsPaths: true,
+                resourcesBase: '/app/resources',
+            }),
+        ).toContain(stagedPath);
     });
 
     it('falls through to the staged dev binary before raw Cargo outputs', () => {
         const stagedPath = path.join('/repo', '.tmp', 'pdf-page-ops', 'win32-arm64', 'bin', 'evb-pdf-page-ops.exe');
         const crossTargetPath = path.join('/repo', 'native', 'target', 'aarch64-pc-windows-msvc', 'release', 'evb-pdf-page-ops.exe');
 
-        expect(resolveNativeToolPath({
-            ...baseOptions,
-            exists: candidate => candidate === stagedPath || candidate === crossTargetPath,
-        })).toBe(stagedPath);
+        expect(
+            resolveNativeToolPath({
+                ...baseOptions,
+                exists: (candidate) => candidate === stagedPath || candidate === crossTargetPath,
+            }),
+        ).toBe(stagedPath);
     });
 
     it('supports nested non-Rust binary layouts without Cargo fallbacks', () => {
-        expect(getNativeToolPathCandidates({
-            ...baseOptions,
-            binaryName: 'nested-tool.exe',
-            binaryRelativePath: [
-                'bin',
-                'nested-tool',
-                'nested-tool.exe',
-            ],
-            crateName: 'nested-tool',
-            includeRustTargetCandidates: false,
-        })).toEqual([
+        expect(
+            getNativeToolPathCandidates({
+                ...baseOptions,
+                binaryName: 'nested-tool.exe',
+                binaryRelativePath: ['bin', 'nested-tool', 'nested-tool.exe'],
+                crateName: 'nested-tool',
+                includeRustTargetCandidates: false,
+            }),
+        ).toEqual([
             path.join('/repo/resources', 'nested-tool', 'win32-arm64', 'bin', 'nested-tool', 'nested-tool.exe'),
             path.join('/repo', '.tmp', 'nested-tool', 'win32-arm64', 'bin', 'nested-tool', 'nested-tool.exe'),
         ]);

@@ -1,6 +1,13 @@
 <template>
-    <nav v-if="isBrowserRuntime" class="app-menu-bar" :aria-label="t('toolbar.appMenu')">
-        <Teleport v-if="isPortalMounted" to="body">
+    <nav
+        v-if="isBrowserRuntime"
+        class="app-menu-bar"
+        :aria-label="t('toolbar.appMenu')"
+    >
+        <Teleport
+            v-if="isPortalMounted"
+            to="body"
+        >
             <div :data-text-edit-menu="menuPortalId" />
         </Teleport>
         <UDropdownMenu
@@ -14,16 +21,22 @@
             <button
                 type="button"
                 data-text-edit-menu
-                :class="['app-menu-trigger', { 'is-open': menuOpen }]"
+                :class="['app-menu-trigger', {'is-open': menuOpen}]"
                 :aria-label="t('toolbar.appMenu')"
                 aria-haspopup="menu"
                 :aria-expanded="menuOpen"
                 @pointerdown.capture="captureTextEditSource()"
                 @mousedown.prevent
             >
-                <UIcon name="i-ph-list" class="app-menu-trigger-icon" />
+                <UIcon
+                    name="i-ph-list"
+                    class="app-menu-trigger-icon"
+                />
                 <span class="app-menu-trigger-label">{{ t('toolbar.appMenu') }}</span>
-                <UIcon name="i-ph-caret-down" class="app-menu-trigger-chevron" />
+                <UIcon
+                    name="i-ph-caret-down"
+                    class="app-menu-trigger-chevron"
+                />
             </button>
 
             <template #print-current-page-leading>
@@ -32,19 +45,36 @@
                     name="i-ph-circle-notch"
                     class="app-menu-icon toolbar-menu-icon animate-spin"
                 />
-                <PrintCurrentPageIcon v-else class="app-menu-icon toolbar-menu-icon" />
+                <PrintCurrentPageIcon
+                    v-else
+                    class="app-menu-icon toolbar-menu-icon"
+                />
             </template>
 
             <template #facing-first-single-leading>
                 <span class="app-menu-icon toolbar-menu-icon toolbar-menu-icon--facing-first-single">
-                    <UIcon name="i-ph-book-open" class="size-[var(--app-toolbar-icon-size)]" />
-                    <span class="toolbar-menu-icon-badge" aria-hidden="true">1</span>
+                    <UIcon
+                        name="i-ph-book-open"
+                        class="size-[var(--app-toolbar-icon-size)]"
+                    />
+                    <span
+                        class="toolbar-menu-icon-badge"
+                        aria-hidden="true"
+                        >1</span
+                    >
                 </span>
             </template>
 
-            <template #item-trailing="{ item }">
-                <UIcon v-if="hasMenuChildren(item)" name="i-ph-caret-right" class="app-menu-submenu-icon" />
-                <span v-else-if="getMenuShortcut(item)" class="app-menu-shortcut toolbar-menu-shortcut">
+            <template #item-trailing="{item}">
+                <UIcon
+                    v-if="hasMenuChildren(item)"
+                    name="i-ph-caret-right"
+                    class="app-menu-submenu-icon"
+                />
+                <span
+                    v-else-if="getMenuShortcut(item)"
+                    class="app-menu-shortcut toolbar-menu-shortcut"
+                >
                     {{ getMenuShortcut(item) }}
                 </span>
             </template>
@@ -53,17 +83,14 @@
 </template>
 
 <script setup lang="ts">
-import { useEventListener } from '@vueuse/core';
-import { useShortcutLabels } from '@app/constants/shortcuts';
+import {useEventListener} from '@vueuse/core';
+import {useShortcutLabels} from '@app/constants/shortcuts';
 import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue';
-import { isReaderPrintCommandDisabled } from '@app/utils/isReaderPrintCommandDisabled';
-import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
-import { getReaderCommandMenuIcon } from '@app/utils/readerCommandIcons';
-import {
-    keepMenuFocusWhenItemsChange,
-    keepMovedFocus,
-} from '@app/utils/menuFocus';
-import { useRecentFiles } from '@app/composables/useRecentFiles';
+import {isReaderPrintCommandDisabled} from '@app/utils/isReaderPrintCommandDisabled';
+import {useRuntimeEnvironment} from '@app/composables/useRuntimeEnvironment';
+import {getReaderCommandMenuIcon} from '@app/utils/readerCommandIcons';
+import {keepMenuFocusWhenItemsChange, keepMovedFocus} from '@app/utils/menuFocus';
+import {useRecentFiles} from '@app/composables/useRecentFiles';
 import {
     dispatchBrowserMenuEvent,
     onBrowserMenuDocumentStateChange,
@@ -72,9 +99,9 @@ import {
     type TBrowserMenuEventName,
 } from '@app/platform/browserMenuBar';
 
-const { t } = useTypedI18n();
-const { isBrowserRuntime } = useRuntimeEnvironment();
-const { recentFiles } = useRecentFiles();
+const {t} = useTypedI18n();
+const {isBrowserRuntime} = useRuntimeEnvironment();
+const {recentFiles} = useRecentFiles();
 
 type TToolbarAppMenuItem = IToolbarAppMenuStructuralItem | IToolbarAppMenuCommandItem | IToolbarAppMenuSubmenuItem;
 
@@ -112,23 +139,23 @@ interface IMenuEventItemOptions {
 }
 
 interface IProps {
-    open: boolean
-    hasPdf: boolean
-    canPrint?: boolean
-    canSave: boolean
-    canSaveAs?: boolean
-    canRepairSave: boolean
-    canOptimizePdf: boolean
-    canUndo: boolean
-    canRedo: boolean
-    canExportDocx: boolean
-    isAnySaving: boolean
-    isHistoryBusy: boolean
-    isExportingDocx: boolean
-    isPreparingPrint: boolean
-    isPreparingCurrentPagePrint?: boolean
-    isDjvuMode: boolean
-    documentBusy?: boolean
+    open: boolean;
+    hasPdf: boolean;
+    canPrint?: boolean;
+    canSave: boolean;
+    canSaveAs?: boolean;
+    canRepairSave: boolean;
+    canOptimizePdf: boolean;
+    canUndo: boolean;
+    canRedo: boolean;
+    canExportDocx: boolean;
+    isAnySaving: boolean;
+    isHistoryBusy: boolean;
+    isExportingDocx: boolean;
+    isPreparingPrint: boolean;
+    isPreparingCurrentPagePrint?: boolean;
+    isDjvuMode: boolean;
+    documentBusy?: boolean;
 }
 
 const {
@@ -163,31 +190,32 @@ const shortcutLabels = useShortcutLabels();
 // The state the renderer reports for desktop's native menu (useMenuSync); the
 // items below that desktop's menu also shows take their availability from it.
 const menuState = shallowRef(readBrowserMenuDocumentState());
-onScopeDispose(onBrowserMenuDocumentStateChange((state) => {
-    menuState.value = state;
-}));
+onScopeDispose(
+    onBrowserMenuDocumentStateChange((state) => {
+        menuState.value = state;
+    }),
+);
 const hasInteractiveDocument = computed(() => hasPdf && documentBusy !== true);
 const hasExportableRasterSource = computed(() => (hasPdf || isDjvuMode) && documentBusy !== true);
-const isPrintCommandDisabled = computed(() => isReaderPrintCommandDisabled({
-    hasInteractiveDocument: hasInteractiveDocument.value,
-    canPrint,
-    isPreparingPrint,
-    isAnySaving,
-    isHistoryBusy,
-}));
-const isExportDocxCommandDisabled = computed(() => !isExportingDocx && (
-    !hasInteractiveDocument.value
-    || isDjvuMode
-    || !canExportDocx
-    || isAnySaving
-    || isHistoryBusy
-));
+const isPrintCommandDisabled = computed(() =>
+    isReaderPrintCommandDisabled({
+        hasInteractiveDocument: hasInteractiveDocument.value,
+        canPrint,
+        isPreparingPrint,
+        isAnySaving,
+        isHistoryBusy,
+    }),
+);
+const isExportDocxCommandDisabled = computed(
+    () => !isExportingDocx && (!hasInteractiveDocument.value || isDjvuMode || !canExportDocx || isAnySaving || isHistoryBusy),
+);
 const menuContentOptions = {
     side: 'bottom' as const,
     align: 'start' as const,
     sideOffset: 8,
     collisionPadding: 8,
-    onPointerDownOutside: (event: CustomEvent<{originalEvent: Event}>) => inTextEditMenu(event.detail.originalEvent.target) || (textEditSource.value = null),
+    onPointerDownOutside: (event: CustomEvent<{originalEvent: Event}>) =>
+        inTextEditMenu(event.detail.originalEvent.target) || (textEditSource.value = null),
     onCloseAutoFocus: (event: Event) => {
         // Dismissing the menu returns to the text it was opened over.
         const source = textEditSource.value;
@@ -216,18 +244,24 @@ interface ITextEditSource {
     element: HTMLElement;
     /** The element had focus, so restoring it must regain focus. */
     focused: boolean;
-    selection: {
-        start: number;
-        end: number;
-        direction: 'forward' | 'backward' | 'none';
-    } | Range[];
+    selection:
+        | {
+              start: number;
+              end: number;
+              direction: 'forward' | 'backward' | 'none';
+          }
+        | Range[];
 }
 const textEditSource = shallowRef<ITextEditSource | null>(null);
 const toast = useToast();
 
 function textControl(element: Element | null) {
-    if (element instanceof HTMLTextAreaElement) return element;
-    if (!(element instanceof HTMLInputElement)) return null;
+    if (element instanceof HTMLTextAreaElement) {
+        return element;
+    }
+    if (!(element instanceof HTMLInputElement)) {
+        return null;
+    }
     try {
         return element.selectionStart === null ? null : element;
     } catch {
@@ -237,7 +271,9 @@ function textControl(element: Element | null) {
 
 function editingHost(element: Element | null) {
     let host = element instanceof HTMLElement && element.isContentEditable ? element : null;
-    while (host?.parentElement?.isContentEditable) host = host.parentElement;
+    while (host?.parentElement?.isContentEditable) {
+        host = host.parentElement;
+    }
     return host;
 }
 
@@ -253,48 +289,69 @@ function readTextEditSource(focused: Element | null): ITextEditSource | null {
     // A focused annotation keeps its own selection routing, with or without selected text.
     const annotation = owner?.closest('.pdf-annotation-editor-layer') ? owner : null;
     const ranges = currentRanges();
-    const selected = ranges.filter(range => !range.collapsed);
+    const selected = ranges.filter((range) => !range.collapsed);
     // Selected document text leaves focus on the page; its range is the source.
     const container = selected[0]?.commonAncestorContainer;
     const focusedSource = control ?? host ?? annotation;
-    const element = focusedSource ?? (container instanceof HTMLElement ? container : container?.parentElement ?? null);
-    if (element === null || inTextEditMenu(element)) return null;
+    const element = focusedSource ?? (container instanceof HTMLElement ? container : (container?.parentElement ?? null));
+    if (element === null || inTextEditMenu(element)) {
+        return null;
+    }
     return {
         element,
         focused: focusedSource !== null,
-        selection: control === null ? host === null ? selected : ranges : {
-            start: control.selectionStart ?? 0,
-            end: control.selectionEnd ?? 0,
-            direction: control.selectionDirection ?? 'none',
-        },
+        selection:
+            control === null
+                ? host === null
+                    ? selected
+                    : ranges
+                : {
+                      start: control.selectionStart ?? 0,
+                      end: control.selectionEnd ?? 0,
+                      direction: control.selectionDirection ?? 'none',
+                  },
     };
 }
 
 function captureTextEditSource(focused: Element | null = document.activeElement) {
     // The open menu's own trigger dismisses it; the source stays for that dismissal.
-    if (!menuOpen.value) textEditSource.value = readTextEditSource(focused);
+    if (!menuOpen.value) {
+        textEditSource.value = readTextEditSource(focused);
+    }
 }
 
 // Keyboard entry: focus leaving a source for this menu names the source.
-useEventListener(typeof document === 'undefined' ? undefined : document, 'focusout', (event: FocusEvent) => {
-    if (inTextEditMenu(event.relatedTarget) && event.target instanceof Element && !inTextEditMenu(event.target)) {
-        captureTextEditSource(event.target);
-    }
-}, {capture: true});
+useEventListener(
+    typeof document === 'undefined' ? undefined : document,
+    'focusout',
+    (event: FocusEvent) => {
+        if (inTextEditMenu(event.relatedTarget) && event.target instanceof Element && !inTextEditMenu(event.target)) {
+            captureTextEditSource(event.target);
+        }
+    },
+    {capture: true},
+);
 
 function isTextEditSourceCurrent(source: ITextEditSource) {
-    return source.element.isConnected
-        && source.element.closest('[data-workspace-active]')?.getAttribute('data-workspace-active') !== 'false'
-        && (!Array.isArray(source.selection) || source.selection.every(range => range.startContainer.isConnected && range.endContainer.isConnected));
+    return (
+        source.element.isConnected &&
+        source.element.closest('[data-workspace-active]')?.getAttribute('data-workspace-active') !== 'false' &&
+        (!Array.isArray(source.selection) ||
+            source.selection.every((range) => range.startContainer.isConnected && range.endContainer.isConnected))
+    );
 }
 
 function restoreTextEditSource(source: ITextEditSource) {
-    if (!isTextEditSourceCurrent(source)) return false;
+    if (!isTextEditSourceCurrent(source)) {
+        return false;
+    }
     source.element.focus({preventScroll: true});
     if (Array.isArray(source.selection)) {
         const selection = window.getSelection();
         selection?.removeAllRanges();
-        for (const range of source.selection) selection?.addRange(range);
+        for (const range of source.selection) {
+            selection?.addRange(range);
+        }
     } else {
         (source.element as HTMLInputElement).setSelectionRange(source.selection.start, source.selection.end, source.selection.direction);
     }
@@ -304,12 +361,12 @@ function restoreTextEditSource(source: ITextEditSource) {
 function textEditState() {
     const source = textEditSource.value;
     const control = source === null ? null : textControl(source.element);
-    const writable = control !== null
-        ? !control.readOnly && !control.disabled
-        : source !== null && editingHost(source.element) !== null;
-    const selected = source !== null && (Array.isArray(source.selection)
-        ? source.selection.some(range => !range.collapsed)
-        : source.selection.start !== source.selection.end);
+    const writable = control !== null ? !control.readOnly && !control.disabled : source !== null && editingHost(source.element) !== null;
+    const selected =
+        source !== null &&
+        (Array.isArray(source.selection)
+            ? source.selection.some((range) => !range.collapsed)
+            : source.selection.start !== source.selection.end);
     const secret = control?.type === 'password';
     return {
         canCut: writable && selected && !secret,
@@ -351,23 +408,14 @@ function snapshotTextEditTarget(source: ITextEditSource): unknown[] {
     const control = textControl(source.element);
     return control === null
         ? [
-            source.element.textContent,
-            ...currentRanges().flatMap(range => [
-                range.startContainer,
-                range.startOffset,
-                range.endContainer,
-                range.endOffset,
-            ]),
-        ]
-        : [
-            control.value,
-            control.selectionStart,
-            control.selectionEnd,
-        ];
+              source.element.textContent,
+              ...currentRanges().flatMap((range) => [range.startContainer, range.startOffset, range.endContainer, range.endOffset]),
+          ]
+        : [control.value, control.selectionStart, control.selectionEnd];
 }
 
-const isSameSnapshot = (left: unknown[], right: unknown[]) => left.length === right.length
-    && left.every((value, index) => value === right[index]);
+const isSameSnapshot = (left: unknown[], right: unknown[]) =>
+    left.length === right.length && left.every((value, index) => value === right[index]);
 
 function pasteText() {
     const source = takeTextEditSource();
@@ -378,22 +426,28 @@ function pasteText() {
     }
     const before = snapshotTextEditTarget(source);
     // Read within the user's activation; the permission prompt, if any, is the browser's.
-    void navigator.clipboard.readText().then((text) => {
-        if (text === '') {
-            toast.add({
-                color: 'warning',
-                title: t('menu.clipboardEmpty'),
-            });
-        } else if (!isTextEditSourceCurrent(source) || !source.element.contains(document.activeElement)
-            || !isSameSnapshot(snapshotTextEditTarget(source), before)) {
-            toast.add({
-                color: 'warning',
-                title: t('menu.pasteTargetChanged'),
-            });
-        } else if (!runEditingCommand('insertText', text)) {
-            warnTextEdit('menu.pasteUnavailable', shortcutLabels.value.paste);
-        }
-    }, () => warnTextEdit('menu.pasteUnavailable', shortcutLabels.value.paste));
+    void navigator.clipboard.readText().then(
+        (text) => {
+            if (text === '') {
+                toast.add({
+                    color: 'warning',
+                    title: t('menu.clipboardEmpty'),
+                });
+            } else if (
+                !isTextEditSourceCurrent(source) ||
+                !source.element.contains(document.activeElement) ||
+                !isSameSnapshot(snapshotTextEditTarget(source), before)
+            ) {
+                toast.add({
+                    color: 'warning',
+                    title: t('menu.pasteTargetChanged'),
+                });
+            } else if (!runEditingCommand('insertText', text)) {
+                warnTextEdit('menu.pasteUnavailable', shortcutLabels.value.paste);
+            }
+        },
+        () => warnTextEdit('menu.pasteUnavailable', shortcutLabels.value.paste),
+    );
 }
 
 function selectAllText() {
@@ -423,20 +477,28 @@ const menuOpen = computed({
 const appMenuItems = computed((): TToolbarAppMenuItem[][] => [
     buildFileItems(),
     buildEditItems(),
-    menuState.value?.supportsPdfMutation ?? menuState.value?.hasDocument
+    (menuState.value?.supportsPdfMutation ?? menuState.value?.hasDocument)
         ? [createSubmenu(t('menu.pages'), 'i-ph-files', buildPagesItems())]
         : [],
     [createSubmenu(t('menu.view'), 'i-ph-eye', buildViewItems())],
-    [createSubmenu(t('menu.help'), 'i-ph-question', [{
-        label: t('menu.acknowledgements'),
-        icon: 'i-ph-info',
-        onSelect: () => {
-            close();
-            void navigateTo('/about');
-        },
-    }])],
+    [
+        createSubmenu(t('menu.help'), 'i-ph-question', [
+            {
+                label: t('menu.acknowledgements'),
+                icon: 'i-ph-info',
+                onSelect: () => {
+                    close();
+                    void navigateTo('/about');
+                },
+            },
+        ]),
+    ],
 ]);
-keepMenuFocusWhenItemsChange(() => menuOpen.value, () => appMenuItems.value, '.app-menu.toolbar-menu-panel');
+keepMenuFocusWhenItemsChange(
+    () => menuOpen.value,
+    () => appMenuItems.value,
+    '.app-menu.toolbar-menu-panel',
+);
 
 function buildFileItems(): TToolbarAppMenuItem[] {
     const writeBlocked = !hasInteractiveDocument.value || isAnySaving || isHistoryBusy;
@@ -445,14 +507,20 @@ function buildFileItems(): TToolbarAppMenuItem[] {
             type: 'label',
             label: t('menu.file'),
         },
-        createMenuEventItem('onMenuOpenPdf', t('menu.openFile'), getReaderCommandMenuIcon('open-file'), {shortcut: shortcutLabels.value.openFile}),
+        createMenuEventItem('onMenuOpenPdf', t('menu.openFile'), getReaderCommandMenuIcon('open-file'), {
+            shortcut: shortcutLabels.value.openFile,
+        }),
         createSubmenu(t('menu.openRecent'), 'i-ph-clock', buildOpenRecentItems()),
         createMenuEventItem('onMenuSave', t('menu.save'), getReaderCommandMenuIcon('save'), {
             disabled: writeBlocked || !canSave || isDjvuMode,
             shortcut: shortcutLabels.value.save,
         }),
-        createMenuEventItem('onMenuRepairSave', t('menu.repairAndSave'), 'i-ph-magic-wand', {disabled: writeBlocked || !canRepairSave || isDjvuMode}),
-        createMenuEventItem('onMenuOptimizePdfForInteraction', t('menu.optimizePdfForInteraction'), 'i-ph-gauge', {disabled: writeBlocked || !canOptimizePdf || isDjvuMode}),
+        createMenuEventItem('onMenuRepairSave', t('menu.repairAndSave'), 'i-ph-magic-wand', {
+            disabled: writeBlocked || !canRepairSave || isDjvuMode,
+        }),
+        createMenuEventItem('onMenuOptimizePdfForInteraction', t('menu.optimizePdfForInteraction'), 'i-ph-gauge', {
+            disabled: writeBlocked || !canOptimizePdf || isDjvuMode,
+        }),
         createMenuEventItem('onMenuSaveAs', t('menu.saveAs'), getReaderCommandMenuIcon('save-as'), {
             disabled: writeBlocked || !canSaveAs,
             shortcut: shortcutLabels.value.saveAs,
@@ -471,7 +539,7 @@ function buildFileItems(): TToolbarAppMenuItem[] {
             disabled: isPrintCommandDisabled.value,
             slot: 'print-current-page',
         }),
-        { type: 'separator' },
+        {type: 'separator'},
         {
             label: t('menu.combineFiles'),
             icon: 'i-ph-stack-plus',
@@ -480,7 +548,7 @@ function buildFileItems(): TToolbarAppMenuItem[] {
                 close();
             },
         },
-        { type: 'separator' },
+        {type: 'separator'},
         // Desktop's File > Export submenu.
         createSubmenu(t('menu.export'), 'i-ph-export', [
             createMenuEventItem(
@@ -493,12 +561,14 @@ function buildFileItems(): TToolbarAppMenuItem[] {
                 },
             ),
             createMenuEventItem('onMenuExportImages', t('menu.exportImages'), 'i-ph-image', {disabled: !hasExportableRasterSource.value}),
-            createMenuEventItem('onMenuExportMultiPageTiff', t('menu.exportMultiPageTiff'), 'i-ph-images', {disabled: !hasExportableRasterSource.value}),
+            createMenuEventItem('onMenuExportMultiPageTiff', t('menu.exportMultiPageTiff'), 'i-ph-images', {
+                disabled: !hasExportableRasterSource.value,
+            }),
         ]),
     ];
     if (isDjvuMode) {
         items.push(
-            { type: 'separator' },
+            {type: 'separator'},
             {
                 label: t('menu.convertToPdf'),
                 icon: 'i-ph-arrows-clockwise',
@@ -511,7 +581,7 @@ function buildFileItems(): TToolbarAppMenuItem[] {
         );
     }
     items.push(
-        { type: 'separator' },
+        {type: 'separator'},
         createMenuEventItem('onMenuNewTab', t('menu.newTab'), 'i-ph-plus'),
         createMenuEventItem('onMenuCloseTab', t('menu.closeTab'), 'i-ph-x', {disabled: menuState.value?.canCloseTab !== true}),
     );
@@ -522,7 +592,7 @@ function buildEditItems(): TToolbarAppMenuItem[] {
     const editDisabled = !hasInteractiveDocument.value || isDjvuMode;
     const historyDisabled = editDisabled || isAnySaving || isHistoryBusy;
     return [
-        { type: 'separator' },
+        {type: 'separator'},
         {
             type: 'label',
             label: t('menu.edit'),
@@ -535,16 +605,18 @@ function buildEditItems(): TToolbarAppMenuItem[] {
             disabled: historyDisabled || !canRedo,
             shortcut: shortcutLabels.value.redo,
         }),
-        { type: 'separator' },
+        {type: 'separator'},
         ...buildTextEditItems(),
         createMenuEventItem('onMenuFind', t('menu.find'), 'i-ph-magnifying-glass', {
             disabled: !hasInteractiveDocument.value,
             shortcut: shortcutLabels.value.search,
         }),
-        { type: 'separator' },
+        {type: 'separator'},
         createMenuEventItem('onMenuInsertImageFromFile', t('menu.insertImageFromFile'), 'i-ph-image', {disabled: editDisabled}),
-        createMenuEventItem('onMenuPasteImageFromClipboard', t('menu.pasteImageFromClipboard'), 'i-ph-clipboard-text', {disabled: editDisabled}),
-        { type: 'separator' },
+        createMenuEventItem('onMenuPasteImageFromClipboard', t('menu.pasteImageFromClipboard'), 'i-ph-clipboard-text', {
+            disabled: editDisabled,
+        }),
+        {type: 'separator'},
     ];
 }
 
@@ -567,16 +639,18 @@ function buildTextEditItems(): TToolbarAppMenuItem[] {
 
 function buildOpenRecentItems(): TToolbarAppMenuItem[] {
     if (recentFiles.value.length === 0) {
-        return [{
-            label: t('menu.noRecentFiles'),
-            disabled: true,
-            onSelect: () => {},
-        }];
+        return [
+            {
+                label: t('menu.noRecentFiles'),
+                disabled: true,
+                onSelect: () => {},
+            },
+        ];
     }
 
     return [
-        ...recentFiles.value.map(file => createMenuEventItem('onMenuOpenRecentFile', file.fileName, undefined, {}, file.originalPath)),
-        { type: 'separator' },
+        ...recentFiles.value.map((file) => createMenuEventItem('onMenuOpenRecentFile', file.fileName, undefined, {}, file.originalPath)),
+        {type: 'separator'},
         createMenuEventItem('onMenuClearRecentFiles', t('menu.clearRecentFiles')),
     ];
 }
@@ -587,13 +661,19 @@ function buildPagesItems(): TToolbarAppMenuItem[] {
     const selectedPageCount = state?.selectedPageCount ?? 0;
     const canOperateOnSelection = (state?.canMutatePages ?? state?.hasDocument ?? false) && selectedPageCount > 0;
     return [
-        createMenuEventItem('onMenuDeletePages', t('menu.deleteSelectedPages'), 'i-ph-trash', {disabled: !canOperateOnSelection || selectedPageCount >= (state?.totalPages ?? 0)}),
+        createMenuEventItem('onMenuDeletePages', t('menu.deleteSelectedPages'), 'i-ph-trash', {
+            disabled: !canOperateOnSelection || selectedPageCount >= (state?.totalPages ?? 0),
+        }),
         createMenuEventItem('onMenuExtractPages', t('menu.extractSelectedPages'), 'i-ph-export', {disabled: !canOperateOnSelection}),
-        { type: 'separator' },
+        {type: 'separator'},
         createMenuEventItem('onMenuRotateCw', t('menu.rotateClockwise'), 'i-ph-arrow-clockwise', {disabled: !canOperateOnSelection}),
-        createMenuEventItem('onMenuRotateCcw', t('menu.rotateCounterclockwise'), 'i-ph-arrow-counter-clockwise', {disabled: !canOperateOnSelection}),
-        { type: 'separator' },
-        createMenuEventItem('onMenuInsertPages', t('menu.insertPages'), 'i-ph-file-plus', {disabled: !(state?.canMutatePages ?? state?.hasDocument ?? false)}),
+        createMenuEventItem('onMenuRotateCcw', t('menu.rotateCounterclockwise'), 'i-ph-arrow-counter-clockwise', {
+            disabled: !canOperateOnSelection,
+        }),
+        {type: 'separator'},
+        createMenuEventItem('onMenuInsertPages', t('menu.insertPages'), 'i-ph-file-plus', {
+            disabled: !(state?.canMutatePages ?? state?.hasDocument ?? false),
+        }),
     ];
 }
 
@@ -612,7 +692,7 @@ function buildViewItems(): TToolbarAppMenuItem[] {
             disabled,
             shortcut: shortcutLabels.value.zoomOut,
         }),
-        { type: 'separator' },
+        {type: 'separator'},
         createMenuEventItem('onMenuActualSize', t('menu.actualSize'), 'i-ph-frame-corners', {
             disabled,
             shortcut: shortcutLabels.value.actualSize,
@@ -631,7 +711,7 @@ function buildViewItems(): TToolbarAppMenuItem[] {
     ];
     if (state?.supportsContinuousScroll ?? state?.canContinuousScroll) {
         items.push(
-            { type: 'separator' },
+            {type: 'separator'},
             createMenuEventItem('onMenuToggleContinuousScroll', t('zoom.continuousScroll'), getReaderCommandMenuIcon('continuous-scroll'), {
                 disabled: disabled || state?.canContinuousScroll !== true,
                 checked: state?.continuousScroll === true,
@@ -641,7 +721,7 @@ function buildViewItems(): TToolbarAppMenuItem[] {
     if (state?.supportsViewMode ?? hasDocument) {
         const viewMode = state?.viewMode ?? 'single';
         items.push(
-            { type: 'separator' },
+            {type: 'separator'},
             createMenuEventItem('onMenuViewModeSingle', t('menu.singlePage'), 'i-ph-file', {
                 disabled,
                 checked: viewMode === 'single',
@@ -659,18 +739,24 @@ function buildViewItems(): TToolbarAppMenuItem[] {
     }
     if (state?.supportsViewRotation ?? hasDocument) {
         items.push(
-            { type: 'separator' },
+            {type: 'separator'},
             createMenuEventItem('onMenuViewRotationCw', t('menu.rotateViewClockwise'), 'i-ph-arrow-clockwise', {disabled}),
             createMenuEventItem('onMenuViewRotationCcw', t('menu.rotateViewCounterclockwise'), 'i-ph-arrow-counter-clockwise', {disabled}),
         );
     }
     const paneDisabled = state?.canCreatePane === false;
     items.push(
-        { type: 'separator' },
-        createMenuEventItem('onMenuSplitEditor', t('menu.newPaneRight'), 'i-ph-square-split-horizontal', {
-            disabled: paneDisabled,
-            shortcut: shortcutLabels.value.newPaneRight,
-        }, 'right'),
+        {type: 'separator'},
+        createMenuEventItem(
+            'onMenuSplitEditor',
+            t('menu.newPaneRight'),
+            'i-ph-square-split-horizontal',
+            {
+                disabled: paneDisabled,
+                shortcut: shortcutLabels.value.newPaneRight,
+            },
+            'right',
+        ),
         createMenuEventItem('onMenuSplitEditor', t('menu.newPaneDown'), 'i-ph-square-split-vertical', {disabled: paneDisabled}, 'down'),
     );
     return items;
@@ -846,5 +932,4 @@ function getMenuShortcut(item: unknown) {
         display: none;
     }
 }
-
 </style>

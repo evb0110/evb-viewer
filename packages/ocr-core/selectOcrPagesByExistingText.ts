@@ -1,13 +1,7 @@
-import type {
-    IOcrDiagnostic,
-    TOcrTextSupersessionPolicy,
-} from '@contracts/electronApiOcr';
+import type {IOcrDiagnostic, TOcrTextSupersessionPolicy} from '@contracts/electronApiOcr';
 import type {IPdfOcrPageTextVisibility} from '@contracts/pdfOcrTextVisibility';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import {
-    classifyOcrPageText,
-    shouldOcrClassifiedPage,
-} from '@ocr-core/pageTextClassifier';
+import {classifyOcrPageText, shouldOcrClassifiedPage} from '@ocr-core/pageTextClassifier';
 
 /** Stands for a page whose text could not be extracted; it is never read as a page without text. */
 export const OCR_TEXT_PROBE_UNAVAILABLE = '[text-probe-unavailable]';
@@ -52,14 +46,14 @@ export function selectOcrPagesByExistingText<TPage extends IOcrSelectablePage>(i
         const unsupported = pageVisibility?.unsupported ?? null;
         const extractedText = input.texts.get(page.pageNumber) ?? OCR_TEXT_PROBE_UNAVAILABLE;
         if (extractedText === OCR_TEXT_PROBE_UNAVAILABLE) {
-            const canReplaceWithoutTextProbe = input.supersessionPolicy === 'replace-all'
-                || input.supersessionPolicy === 'replace-evb' && pageVisibility?.evbOcrLayer === true;
+            const canReplaceWithoutTextProbe =
+                input.supersessionPolicy === 'replace-all' ||
+                (input.supersessionPolicy === 'replace-evb' && pageVisibility?.evbOcrLayer === true);
             if (canReplaceWithoutTextProbe && unsupported !== null) {
                 skipUnsupportedPage(page.pageNumber, unsupported);
                 continue;
             }
-            if (canReplaceWithoutTextProbe && !pageVisibility?.paintedText
-                && (pageVisibility?.uncertain ?? null) === null) {
+            if (canReplaceWithoutTextProbe && !pageVisibility?.paintedText && (pageVisibility?.uncertain ?? null) === null) {
                 const message = `Scheduled page ${page.pageNumber}: existing-text probe was unavailable under ${input.supersessionPolicy} policy`;
                 input.log?.('warn', message);
                 warnings.push(message);

@@ -1,10 +1,7 @@
-import type { TPageNumber } from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 import {isEqual} from 'es-toolkit/predicate';
 
-import type {
-    IScanCleanupPageOverride,
-    TScanCleanupPageOverrides,
-} from '@contracts/scan-cleanup/domain';
+import type {IScanCleanupPageOverride, TScanCleanupPageOverrides} from '@contracts/scan-cleanup/domain';
 import type {IScanCleanupMarginsMm} from '@contracts/scan-cleanup/geometry';
 
 export const DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE: Readonly<IScanCleanupPageOverride> = Object.freeze({
@@ -19,42 +16,35 @@ export {SCAN_CLEANUP_OUTPUT_HALVES} from '@contracts/scan-cleanup/domain';
 // Page overrides are plain data at structured-clone and persistence
 // boundaries. Keep the document-wide default associated with the in-memory
 // record so shared callers can resolve a page with only its page number.
-const scanCleanupPageOverrideDefaults = new WeakMap<
-    TScanCleanupPageOverrides,
-    IScanCleanupPageOverride
->();
+const scanCleanupPageOverrideDefaults = new WeakMap<TScanCleanupPageOverrides, IScanCleanupPageOverride>();
 
 export function createScanCleanupPageOverride(
     value: Partial<IScanCleanupPageOverride> = {},
     documentMargins?: IScanCleanupMarginsMm,
 ): IScanCleanupPageOverride {
-    const {
-        manualContentBoxes,
-        manualZones,
-        manualSkewDegrees,
-        marginsMm,
-        outputModeOverride,
-        placementOverrides,
-        ...scalarValues
-    } = value;
+    const {manualContentBoxes, manualZones, manualSkewDegrees, marginsMm, outputModeOverride, placementOverrides, ...scalarValues} = value;
     return {
         ...DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
         ...scalarValues,
         ...(manualSkewDegrees === undefined ? {} : {manualSkewDegrees}),
         ...(Object.keys(manualContentBoxes ?? {}).length > 0 ? {manualContentBoxes: {...manualContentBoxes}} : {}),
-        ...(manualZones && manualZones.picture.length + manualZones.fill.length > 0 ? {manualZones: {
-            picture: manualZones.picture.map(zone => ({
-                layer: zone.layer,
-                polygon: {
-                    points: zone.polygon.points.map(point => ({...point})),
-                    rotationDegrees: zone.polygon.rotationDegrees,
-                },
-            })),
-            fill: manualZones.fill.map(polygon => ({
-                points: polygon.points.map(point => ({...point})),
-                rotationDegrees: polygon.rotationDegrees,
-            })),
-        }} : {}),
+        ...(manualZones && manualZones.picture.length + manualZones.fill.length > 0
+            ? {
+                  manualZones: {
+                      picture: manualZones.picture.map((zone) => ({
+                          layer: zone.layer,
+                          polygon: {
+                              points: zone.polygon.points.map((point) => ({...point})),
+                              rotationDegrees: zone.polygon.rotationDegrees,
+                          },
+                      })),
+                      fill: manualZones.fill.map((polygon) => ({
+                          points: polygon.points.map((point) => ({...point})),
+                          rotationDegrees: polygon.rotationDegrees,
+                      })),
+                  },
+              }
+            : {}),
         ...(outputModeOverride ? {outputModeOverride} : {}),
         ...(marginsMm && (!documentMargins || !areScanCleanupMarginsMmEqual(marginsMm, documentMargins))
             ? {marginsMm: {...marginsMm}}
@@ -72,10 +62,7 @@ export function attachScanCleanupPageOverrideDefaults(
         scanCleanupPageOverrideDefaults.delete(overrides);
         return;
     }
-    scanCleanupPageOverrideDefaults.set(
-        overrides,
-        createScanCleanupPageOverride(defaults, documentMargins),
-    );
+    scanCleanupPageOverrideDefaults.set(overrides, createScanCleanupPageOverride(defaults, documentMargins));
 }
 
 export function setScanCleanupPageOverrideDefaults(
@@ -99,20 +86,13 @@ export function getScanCleanupPageOverride(
     documentMargins?: IScanCleanupMarginsMm,
 ): IScanCleanupPageOverride {
     const explicit = overrides[String(pageNumber)];
-    const fallback = arguments.length >= 3
-        ? defaults
-        : scanCleanupPageOverrideDefaults.get(overrides);
-    return explicit === undefined
-        ? createScanCleanupPageOverride(fallback, documentMargins)
-        : createScanCleanupPageOverride(explicit);
+    const fallback = arguments.length >= 3 ? defaults : scanCleanupPageOverrideDefaults.get(overrides);
+    return explicit === undefined ? createScanCleanupPageOverride(fallback, documentMargins) : createScanCleanupPageOverride(explicit);
 }
 
 // The one rule for "differs from what the page inherits": a page whose normalized value
 // (empty collections omitted) equals the all-pages defaults is redundant and not customized.
-export function isScanCleanupPageOverrideInherited(
-    overrides: TScanCleanupPageOverrides,
-    value: IScanCleanupPageOverride,
-) {
+export function isScanCleanupPageOverrideInherited(overrides: TScanCleanupPageOverrides, value: IScanCleanupPageOverride) {
     return isEqual(value, getScanCleanupPageOverrideDefaults(overrides));
 }
 
@@ -133,25 +113,21 @@ export function setScanCleanupPageOverride(
 }
 
 export function isDefaultScanCleanupPageOverride(value: IScanCleanupPageOverride) {
-    return value.rotationDegrees === DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.rotationDegrees
-        && value.layoutOverride === DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.layoutOverride
-        && value.excluded === DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.excluded
-        && value.manualSplit === DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.manualSplit
-        && value.manualSkewDegrees === undefined
-        && value.outputModeOverride === undefined
-        && Object.keys(value.manualContentBoxes ?? {}).length === 0
-        && (value.manualZones?.picture.length ?? 0) === 0
-        && (value.manualZones?.fill.length ?? 0) === 0
-        && value.marginsMm === undefined
-        && Object.keys(value.placementOverrides ?? {}).length === 0;
+    return (
+        value.rotationDegrees === DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.rotationDegrees &&
+        value.layoutOverride === DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.layoutOverride &&
+        value.excluded === DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.excluded &&
+        value.manualSplit === DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.manualSplit &&
+        value.manualSkewDegrees === undefined &&
+        value.outputModeOverride === undefined &&
+        Object.keys(value.manualContentBoxes ?? {}).length === 0 &&
+        (value.manualZones?.picture.length ?? 0) === 0 &&
+        (value.manualZones?.fill.length ?? 0) === 0 &&
+        value.marginsMm === undefined &&
+        Object.keys(value.placementOverrides ?? {}).length === 0
+    );
 }
 
-export function areScanCleanupMarginsMmEqual(
-    left: IScanCleanupMarginsMm,
-    right: IScanCleanupMarginsMm,
-) {
-    return left.leftMm === right.leftMm
-        && left.topMm === right.topMm
-        && left.rightMm === right.rightMm
-        && left.bottomMm === right.bottomMm;
+export function areScanCleanupMarginsMmEqual(left: IScanCleanupMarginsMm, right: IScanCleanupMarginsMm) {
+    return left.leftMm === right.leftMm && left.topMm === right.topMm && left.rightMm === right.rightMm && left.bottomMm === right.bottomMm;
 }

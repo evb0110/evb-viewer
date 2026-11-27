@@ -1,7 +1,7 @@
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import type { IAnnotationContextMenuState } from '@app/types/pdfContextMenu';
-import { usePositionedMenu } from '@app/composables/usePositionedMenu';
-import { annotationKindLabelFromSubtype } from '@app/services/pdf/annotationSubtype';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
+import type {IAnnotationContextMenuState} from '@app/types/pdfContextMenu';
+import {usePositionedMenu} from '@app/composables/usePositionedMenu';
+import {annotationKindLabelFromSubtype} from '@app/services/pdf/annotationSubtype';
 
 export interface IContextMenuDeleteLabels {
     delete: string;
@@ -31,7 +31,7 @@ const MARKUP_DELETE_LABEL_BY_SUBTYPE: Readonly<Record<string, TMarkupDeleteLabel
     squiggly: 'deleteSquiggly',
 };
 
-function normalizeCommentSubtype(comment: {subtype?: string | null | undefined;}) {
+function normalizeCommentSubtype(comment: {subtype?: string | null | undefined}) {
     return (comment.subtype ?? '').trim().toLowerCase();
 }
 
@@ -43,10 +43,7 @@ function resolveMarkupDeleteLabel(comment: IContextMenuDeleteComment, labels: IC
     return labelKey ? labels[labelKey] : null;
 }
 
-export function resolveContextMenuDeleteActionLabel(
-    comment: IContextMenuDeleteComment | null,
-    labels: IContextMenuDeleteLabels,
-) {
+export function resolveContextMenuDeleteActionLabel(comment: IContextMenuDeleteComment | null, labels: IContextMenuDeleteLabels) {
     if (!comment) {
         return labels.delete;
     }
@@ -68,7 +65,7 @@ export function resolveContextMenuDeleteActionLabel(
 }
 
 export const useAnnotationContextMenu = () => {
-    const { t } = useTypedI18n();
+    const {t} = useTypedI18n();
 
     function createInitialAnnotationContextMenuState(): IAnnotationContextMenuState {
         return {
@@ -88,37 +85,34 @@ export const useAnnotationContextMenu = () => {
         menuStyle: annotationContextMenuStyle,
         showPositionedMenu,
         resetMenu,
-    } = usePositionedMenu<IAnnotationContextMenuState>(
-        '.annotation-context-menu',
-        createInitialAnnotationContextMenuState,
-        { autoDismiss: { onOutsideClick: true } },
-    );
+    } = usePositionedMenu<IAnnotationContextMenuState>('.annotation-context-menu', createInitialAnnotationContextMenuState, {
+        autoDismiss: {onOutsideClick: true},
+    });
 
     const annotationContextMenuCanCopy = computed(() => {
         const text = annotationContextMenu.value.comment?.text.trim();
         return Boolean(text);
     });
 
-    const annotationContextMenuCanCopySelection = computed(() => (
-        annotationContextMenu.value.selectionText.trim().length > 0
-    ));
+    const annotationContextMenuCanCopySelection = computed(() => annotationContextMenu.value.selectionText.trim().length > 0);
 
-    const annotationContextMenuCanCreateFree = computed(() => (
-        Number.isFinite(annotationContextMenu.value.pageNumber)
-        && Number.isFinite(annotationContextMenu.value.pageX)
-        && Number.isFinite(annotationContextMenu.value.pageY)
-    ));
+    const annotationContextMenuCanCreateFree = computed(
+        () =>
+            Number.isFinite(annotationContextMenu.value.pageNumber) &&
+            Number.isFinite(annotationContextMenu.value.pageX) &&
+            Number.isFinite(annotationContextMenu.value.pageY),
+    );
 
-    const annotationContextMenuCanInsertImage = computed(() => (
-        Number.isFinite(annotationContextMenu.value.pageNumber)
-        && Number.isFinite(annotationContextMenu.value.pageX)
-        && Number.isFinite(annotationContextMenu.value.pageY)
-    ));
+    const annotationContextMenuCanInsertImage = computed(
+        () =>
+            Number.isFinite(annotationContextMenu.value.pageNumber) &&
+            Number.isFinite(annotationContextMenu.value.pageX) &&
+            Number.isFinite(annotationContextMenu.value.pageY),
+    );
 
     const annotationContextMenuIsImage = computed(() => {
         const comment = annotationContextMenu.value.comment;
-        return comment?.annotationKind === 'placed-image'
-            || normalizeCommentSubtype(comment ?? {}) === 'stamp';
+        return comment?.annotationKind === 'placed-image' || normalizeCommentSubtype(comment ?? {}) === 'stamp';
     });
 
     const contextMenuAnnotationLabel = computed(() => {
@@ -134,9 +128,7 @@ export const useAnnotationContextMenu = () => {
             return t('annotations.text');
         }
         const kindLabel = comment.kindLabel?.trim();
-        return kindLabel && kindLabel.length > 0
-            ? kindLabel
-            : t(annotationKindLabelFromSubtype(subtype).key);
+        return kindLabel && kindLabel.length > 0 ? kindLabel : t(annotationKindLabelFromSubtype(subtype).key);
     });
 
     const contextMenuDeleteActionLabel = computed(() => {
@@ -180,7 +172,7 @@ export const useAnnotationContextMenu = () => {
             y: payload.clientY,
             fallbackWidth,
             fallbackHeight: estimatedHeight,
-            buildState: position => ({
+            buildState: (position) => ({
                 visible: true,
                 x: position.x,
                 y: position.y,

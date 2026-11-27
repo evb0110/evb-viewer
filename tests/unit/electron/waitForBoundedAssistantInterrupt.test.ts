@@ -1,6 +1,4 @@
-import {
-    afterEach, describe, expect, it, vi,
-} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {waitForBoundedOperation} from '@node-runtime/waitForBoundedOperation';
 
 afterEach(() => vi.useRealTimers());
@@ -10,19 +8,23 @@ const never = () => new Promise<never>(() => undefined);
 describe('waitForBoundedOperation', () => {
     it('resolves with the operation value and clears its deadline', async () => {
         vi.useFakeTimers();
-        await expect(waitForBoundedOperation(Promise.resolve('done'), {
-            timeoutMs: 250,
-            timeoutError: () => new Error('late'),
-        })).resolves.toBe('done');
+        await expect(
+            waitForBoundedOperation(Promise.resolve('done'), {
+                timeoutMs: 250,
+                timeoutError: () => new Error('late'),
+            }),
+        ).resolves.toBe('done');
         expect(vi.getTimerCount()).toBe(0);
     });
 
     it('preserves an operation failure and clears its deadline', async () => {
         vi.useFakeTimers();
-        await expect(waitForBoundedOperation(Promise.reject(new Error('process failed')), {
-            timeoutMs: 250,
-            timeoutResult: 'timeout',
-        })).rejects.toThrow('process failed');
+        await expect(
+            waitForBoundedOperation(Promise.reject(new Error('process failed')), {
+                timeoutMs: 250,
+                timeoutResult: 'timeout',
+            }),
+        ).rejects.toThrow('process failed');
         expect(vi.getTimerCount()).toBe(0);
     });
 
@@ -43,11 +45,13 @@ describe('waitForBoundedOperation', () => {
         vi.useFakeTimers();
         class StatTimeoutError extends Error {}
         const onTimeout = vi.fn();
-        const wait = expect(waitForBoundedOperation(never(), {
-            timeoutMs: 250,
-            timeoutError: () => new StatTimeoutError('Assistant interrupt timed out.'),
-            onTimeout,
-        })).rejects.toBeInstanceOf(StatTimeoutError);
+        const wait = expect(
+            waitForBoundedOperation(never(), {
+                timeoutMs: 250,
+                timeoutError: () => new StatTimeoutError('Assistant interrupt timed out.'),
+                onTimeout,
+            }),
+        ).rejects.toBeInstanceOf(StatTimeoutError);
         await vi.advanceTimersByTimeAsync(1_000);
         await wait;
         expect(onTimeout).toHaveBeenCalledTimes(1);
@@ -69,13 +73,18 @@ describe('waitForBoundedOperation', () => {
     it('aborts the signal it gives the operation at the deadline, not before', async () => {
         vi.useFakeTimers();
         let deadline: AbortSignal | undefined;
-        const wait = expect(waitForBoundedOperation((signal) => {
-            deadline = signal;
-            return never();
-        }, {
-            timeoutMs: 250,
-            timeoutError: () => new Error('Latest release fetch exceeded its total deadline.'),
-        })).rejects.toThrow('Latest release fetch exceeded its total deadline.');
+        const wait = expect(
+            waitForBoundedOperation(
+                (signal) => {
+                    deadline = signal;
+                    return never();
+                },
+                {
+                    timeoutMs: 250,
+                    timeoutError: () => new Error('Latest release fetch exceeded its total deadline.'),
+                },
+            ),
+        ).rejects.toThrow('Latest release fetch exceeded its total deadline.');
         expect(deadline?.aborted).toBe(false);
         await vi.advanceTimersByTimeAsync(250);
         await wait;
@@ -83,7 +92,7 @@ describe('waitForBoundedOperation', () => {
     });
 
     it('keeps the process alive while waiting unless unref is asked for', async () => {
-        const liveTimers = () => process.getActiveResourcesInfo().filter(resource => resource === 'Timeout').length;
+        const liveTimers = () => process.getActiveResourcesInfo().filter((resource) => resource === 'Timeout').length;
         const settle = Promise.withResolvers<void>();
         const before = liveTimers();
         const released = waitForBoundedOperation(settle.promise, {timeoutMs: 60_000, timeoutResult: undefined, unref: true});

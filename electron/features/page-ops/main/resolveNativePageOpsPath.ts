@@ -1,6 +1,6 @@
-import { dirname } from 'path';
-import { fileURLToPath } from 'url';
-import { resolvePdfPageOpsWasmPath } from '@node-runtime/pdfPageOpsWasmRunner';
+import {dirname} from 'path';
+import {fileURLToPath} from 'url';
+import {resolvePdfPageOpsWasmPath} from '@node-runtime/pdfPageOpsWasmRunner';
 import {runtimeConfig} from '@electron/runtimeConfig';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

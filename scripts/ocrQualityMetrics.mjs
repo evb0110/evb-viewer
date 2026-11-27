@@ -7,9 +7,7 @@ const OCR_WORD_TOKENIZER = 'letters, marks and numbers, with internal hyphen, sl
 const MARK_PATTERN = /\p{M}/gu;
 
 function normalizeWhitespace(value) {
-    return value
-        .replace(/\s+/gu, ' ')
-        .trim();
+    return value.replace(/\s+/gu, ' ').trim();
 }
 
 /** Primary score normalization. It preserves case, marks, punctuation and numeral forms. */
@@ -19,10 +17,12 @@ export function normalizeFaithfulOcrText(value) {
 
 /** Compatibility score normalization retained for existing benchmark consumers. */
 export function normalizeCompatibilityOcrText(value) {
-    return normalizeWhitespace(value
-        .normalize('NFKC')
-        .toLocaleLowerCase('und')
-        .replace(/[\u2010-\u2015\u2212]/gu, '-'));
+    return normalizeWhitespace(
+        value
+            .normalize('NFKC')
+            .toLocaleLowerCase('und')
+            .replace(/[\u2010-\u2015\u2212]/gu, '-'),
+    );
 }
 
 export function tokenizeOcrWords(value) {
@@ -44,8 +44,12 @@ export function editDistance(expected, actual) {
         expectedEnd -= 1;
         actualEnd -= 1;
     }
-    if (expectedEnd === start) return actualEnd - start;
-    if (actualEnd === start) return expectedEnd - start;
+    if (expectedEnd === start) {
+        return actualEnd - start;
+    }
+    if (actualEnd === start) {
+        return expectedEnd - start;
+    }
     if (start > 0 || expectedEnd < expected.length || actualEnd < actual.length) {
         return editDistance(expected.slice(start, expectedEnd), actual.slice(start, actualEnd));
     }
@@ -56,11 +60,13 @@ export function editDistance(expected, actual) {
     for (let actualIndex = 0; actualIndex < actual.length; actualIndex += 1) {
         const current = [actualIndex + 1];
         for (let expectedIndex = 0; expectedIndex < expected.length; expectedIndex += 1) {
-            current.push(Math.min(
-                current[expectedIndex] + 1,
-                previous[expectedIndex + 1] + 1,
-                previous[expectedIndex] + (expected[expectedIndex] === actual[actualIndex] ? 0 : 1),
-            ));
+            current.push(
+                Math.min(
+                    current[expectedIndex] + 1,
+                    previous[expectedIndex + 1] + 1,
+                    previous[expectedIndex] + (expected[expectedIndex] === actual[actualIndex] ? 0 : 1),
+                ),
+            );
         }
         previous = current;
     }
@@ -68,20 +74,8 @@ export function editDistance(expected, actual) {
 }
 
 export function measureOcrQuality(expected, actual) {
-    const faithful = measureScore(
-        expected,
-        actual,
-        normalizeFaithfulOcrText,
-        tokenizeFaithfulOcrWords,
-        FAITHFUL_NORMALIZATION,
-    );
-    const compatibility = measureScore(
-        expected,
-        actual,
-        normalizeCompatibilityOcrText,
-        tokenizeOcrWords,
-        COMPATIBILITY_NORMALIZATION,
-    );
+    const faithful = measureScore(expected, actual, normalizeFaithfulOcrText, tokenizeFaithfulOcrWords, FAITHFUL_NORMALIZATION);
+    const compatibility = measureScore(expected, actual, normalizeCompatibilityOcrText, tokenizeOcrWords, COMPATIBILITY_NORMALIZATION);
     return {
         faithful,
         compatibility,
@@ -97,9 +91,12 @@ export function measureUnicodeMarks(expected, actual) {
         actual: actualMarks.length,
         missing: Math.max(0, expectedMarks.length - actualMarks.length),
         extra: Math.max(0, actualMarks.length - expectedMarks.length),
-        retainedRatio: expectedMarks.length === 0
-            ? (actualMarks.length === 0 ? 1 : 0)
-            : Math.min(expectedMarks.length, actualMarks.length) / expectedMarks.length,
+        retainedRatio:
+            expectedMarks.length === 0
+                ? actualMarks.length === 0
+                    ? 1
+                    : 0
+                : Math.min(expectedMarks.length, actualMarks.length) / expectedMarks.length,
     };
 }
 
@@ -111,10 +108,8 @@ function measureScore(expected, actual, normalize, tokenize, normalization) {
     const expectedWords = tokenize(normalizedExpected);
     const actualWords = tokenize(normalizedActual);
     return {
-        cer: editDistance(expectedCharacters, actualCharacters)
-            / Math.max(1, expectedCharacters.length),
-        wer: editDistance(expectedWords, actualWords)
-            / Math.max(1, expectedWords.length),
+        cer: editDistance(expectedCharacters, actualCharacters) / Math.max(1, expectedCharacters.length),
+        wer: editDistance(expectedWords, actualWords) / Math.max(1, expectedWords.length),
         normalizedExpected,
         normalizedActual,
         expectedScalarCount: expectedCharacters.length,

@@ -5,9 +5,9 @@ const PNG_SIGNATURE_LENGTH = 8;
 const PNG_CHUNK_HEADER_LENGTH = 8;
 const PNG_CHUNK_CRC_LENGTH = 4;
 const PNG_PHYS_CHUNK_LENGTH = 9;
-const JPEG_APP0_MARKER = 0xE0;
-const JPEG_START_OF_SCAN_MARKER = 0xDA;
-const JPEG_APP1_MARKER = 0xE1;
+const JPEG_APP0_MARKER = 0xe0;
+const JPEG_START_OF_SCAN_MARKER = 0xda;
+const JPEG_APP1_MARKER = 0xe1;
 
 function readUint32BE(buf: Uint8Array, offset: number) {
     return ((buf[offset]! << 24) | (buf[offset + 1]! << 16) | (buf[offset + 2]! << 8) | buf[offset + 3]!) >>> 0;
@@ -23,12 +23,7 @@ interface IPngChunk {
 }
 
 function isPngPhysChunk(data: Uint8Array, offset: number) {
-    return (
-        data[offset + 4] === 0x70
-        && data[offset + 5] === 0x48
-        && data[offset + 6] === 0x59
-        && data[offset + 7] === 0x73
-    );
+    return data[offset + 4] === 0x70 && data[offset + 5] === 0x48 && data[offset + 6] === 0x59 && data[offset + 7] === 0x73;
 }
 
 function parsePngPhysDpi(data: Uint8Array, offset: number) {
@@ -87,11 +82,11 @@ function readPngDpi(data: Uint8Array) {
 
 function isJfifSegment(data: Uint8Array, offset: number) {
     return (
-        data[offset + 4] === 0x4A
-        && data[offset + 5] === 0x46
-        && data[offset + 6] === 0x49
-        && data[offset + 7] === 0x46
-        && data[offset + 8] === 0x00
+        data[offset + 4] === 0x4a &&
+        data[offset + 5] === 0x46 &&
+        data[offset + 6] === 0x49 &&
+        data[offset + 7] === 0x46 &&
+        data[offset + 8] === 0x00
     );
 }
 
@@ -112,11 +107,7 @@ function parseJfifDensityDpi(units: number, xDensity: number, yDensity: number) 
 }
 
 function readJfifDensityDpi(data: Uint8Array, offset: number) {
-    return parseJfifDensityDpi(
-        data[offset + 11]!,
-        readUint16BE(data, offset + 12),
-        readUint16BE(data, offset + 14),
-    );
+    return parseJfifDensityDpi(data[offset + 11]!, readUint16BE(data, offset + 12), readUint16BE(data, offset + 14));
 }
 
 function readJpegSegmentDpi(data: Uint8Array, offset: number, marker: number) {
@@ -133,14 +124,16 @@ function readJpegSegmentDpi(data: Uint8Array, offset: number, marker: number) {
 }
 
 function readJpegDpi(data: Uint8Array) {
-    if (data.length < 20 || data[0] !== 0xFF || data[1] !== 0xD8) {
+    if (data.length < 20 || data[0] !== 0xff || data[1] !== 0xd8) {
         return null;
     }
 
     let offset = 2;
 
     while (offset + 4 < data.length) {
-        if (data[offset] !== 0xFF) break;
+        if (data[offset] !== 0xff) {
+            break;
+        }
         const marker = data[offset + 1]!;
 
         const dpi = readJpegSegmentDpi(data, offset, marker);
@@ -148,7 +141,9 @@ function readJpegDpi(data: Uint8Array) {
             return dpi;
         }
 
-        if (marker === JPEG_START_OF_SCAN_MARKER) break;
+        if (marker === JPEG_START_OF_SCAN_MARKER) {
+            break;
+        }
 
         const segLength = readUint16BE(data, offset + 2);
         offset += 2 + segLength;
@@ -158,9 +153,7 @@ function readJpegDpi(data: Uint8Array) {
 }
 
 function readUint16(data: Uint8Array, offset: number, littleEndian: boolean) {
-    return littleEndian
-        ? data[offset]! | (data[offset + 1]! << 8)
-        : readUint16BE(data, offset);
+    return littleEndian ? data[offset]! | (data[offset + 1]! << 8) : readUint16BE(data, offset);
 }
 
 function readUint32(data: Uint8Array, offset: number, littleEndian: boolean) {
@@ -171,10 +164,7 @@ function readUint32(data: Uint8Array, offset: number, littleEndian: boolean) {
 }
 
 function readExifOrientationSegment(data: Uint8Array, payloadOffset: number, payloadLength: number) {
-    if (
-        payloadLength < 14
-        || String.fromCharCode(...data.subarray(payloadOffset, payloadOffset + 6)) !== 'Exif\0\0'
-    ) {
+    if (payloadLength < 14 || String.fromCharCode(...data.subarray(payloadOffset, payloadOffset + 6)) !== 'Exif\0\0') {
         return 1;
     }
     const tiffOffset = payloadOffset + 6;
@@ -188,11 +178,13 @@ function readExifOrientationSegment(data: Uint8Array, payloadOffset: number, pay
     }
     const entryCount = readUint16(data, ifdOffset, littleEndian);
     for (let index = 0; index < entryCount; index += 1) {
-        const entryOffset = ifdOffset + 2 + (index * 12);
-        if (entryOffset + 12 > payloadOffset + payloadLength) break;
+        const entryOffset = ifdOffset + 2 + index * 12;
+        if (entryOffset + 12 > payloadOffset + payloadLength) {
+            break;
+        }
         if (readUint16(data, entryOffset, littleEndian) === 0x0112) {
             const orientation = readUint16(data, entryOffset + 8, littleEndian);
-            return orientation >= 2 && orientation <= 8 ? orientation as 2 | 3 | 4 | 5 | 6 | 7 | 8 : 1;
+            return orientation >= 2 && orientation <= 8 ? (orientation as 2 | 3 | 4 | 5 | 6 | 7 | 8) : 1;
         }
     }
     return 1;
@@ -205,9 +197,13 @@ export function readJpegExifOrientation(data: Uint8Array): 1 | 2 | 3 | 4 | 5 | 6
     let offset = 2;
     while (offset + 4 < data.length && data[offset] === 0xff) {
         const marker = data[offset + 1]!;
-        if (marker === JPEG_START_OF_SCAN_MARKER) break;
+        if (marker === JPEG_START_OF_SCAN_MARKER) {
+            break;
+        }
         const segmentLength = readUint16BE(data, offset + 2);
-        if (segmentLength < 2 || offset + 2 + segmentLength > data.length) break;
+        if (segmentLength < 2 || offset + 2 + segmentLength > data.length) {
+            break;
+        }
         if (marker === JPEG_APP1_MARKER) {
             return readExifOrientationSegment(data, offset + 4, segmentLength - 2);
         }

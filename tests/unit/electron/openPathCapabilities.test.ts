@@ -1,27 +1,8 @@
-import { EventEmitter } from 'node:events';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    existsSync,
-    mkdirSync,
-    mkdtempSync,
-    readFileSync,
-    realpathSync,
-    rmSync,
-    symlinkSync,
-    writeFileSync,
-} from 'fs';
-import { tmpdir } from 'os';
-import {
-    join,
-    sep,
-} from 'path';
+import {EventEmitter} from 'node:events';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync} from 'fs';
+import {tmpdir} from 'os';
+import {join, sep} from 'path';
 
 interface ITestOwner extends EventEmitter {
     id: number;
@@ -83,10 +64,7 @@ describe('open path capabilities', () => {
         const filePath = join(tempRoot, 'opened.pdf');
         writeFileSync(filePath, new Uint8Array([1]));
 
-        const {
-            allowOpenPath,
-            requireOpenPath,
-        } = await import('@electron/file-access/openPathCapabilities');
+        const {allowOpenPath, requireOpenPath} = await import('@electron/file-access/openPathCapabilities');
 
         expect(allowOpenPath(filePath)).not.toBeNull();
         expect(() => requireOpenPath(filePath)).not.toThrow();
@@ -100,10 +78,7 @@ describe('open path capabilities', () => {
         const filePath = join(tempRoot, 'exact-percent-%25.pdf ');
         writeFileSync(filePath, new Uint8Array([1]));
 
-        const {
-            allowOpenPath,
-            requireOpenPath,
-        } = await import('@electron/file-access/openPathCapabilities');
+        const {allowOpenPath, requireOpenPath} = await import('@electron/file-access/openPathCapabilities');
         expect(allowOpenPath(filePath)).toBe(filePath);
         expect(requireOpenPath(filePath)).toBe(filePath);
     });
@@ -114,11 +89,7 @@ describe('open path capabilities', () => {
         writeFileSync(target, 'document');
         symlinkSync(target, requested);
         const canonical = realpathSync.native(target);
-        const {
-            allowOpenPath,
-            requireOpenPath,
-            removeAllowedOpenPath,
-        } = await import('@electron/file-access/openPathCapabilities');
+        const {allowOpenPath, requireOpenPath, removeAllowedOpenPath} = await import('@electron/file-access/openPathCapabilities');
 
         expect(allowOpenPath(requested, 47)).toBe(requested);
         expect(requireOpenPath(canonical, 47)).toBe(canonical);
@@ -133,10 +104,7 @@ describe('open path capabilities', () => {
         writeFileSync(filePath, new Uint8Array([1]));
 
         const owner = createOwner(42);
-        const {
-            allowOpenPath,
-            requireOpenPath,
-        } = await import('@electron/file-access/openPathCapabilities');
+        const {allowOpenPath, requireOpenPath} = await import('@electron/file-access/openPathCapabilities');
 
         expect(allowOpenPath(filePath, owner as never)).not.toBeNull();
         expect(() => requireOpenPath(filePath, owner as never)).not.toThrow();
@@ -151,10 +119,7 @@ describe('open path capabilities', () => {
         writeFileSync(filePath, new Uint8Array([1]));
 
         const owner = createOwner(43);
-        const {
-            allowOpenPath,
-            requireOpenPath,
-        } = await import('@electron/file-access/openPathCapabilities');
+        const {allowOpenPath, requireOpenPath} = await import('@electron/file-access/openPathCapabilities');
 
         expect(allowOpenPath(filePath, owner as never)).not.toBeNull();
         triggerRenderProcessGone(owner);
@@ -167,10 +132,7 @@ describe('open path capabilities', () => {
         writeFileSync(filePath, new Uint8Array([1]));
 
         const owner = createOwner(44);
-        const {
-            allowOpenPath,
-            requireOpenPath,
-        } = await import('@electron/file-access/openPathCapabilities');
+        const {allowOpenPath, requireOpenPath} = await import('@electron/file-access/openPathCapabilities');
 
         expect(allowOpenPath(filePath, owner as never)).not.toBeNull();
         triggerMainFrameNavigation(owner);
@@ -183,11 +145,7 @@ describe('open path capabilities', () => {
         writeFileSync(filePath, new Uint8Array([1]));
 
         const owner = createOwner(45);
-        const {
-            allowRevealPath,
-            requireOpenPath,
-            requireRevealPath,
-        } = await import('@electron/file-access/openPathCapabilities');
+        const {allowRevealPath, requireOpenPath, requireRevealPath} = await import('@electron/file-access/openPathCapabilities');
 
         expect(allowRevealPath(filePath, owner as never)).not.toBeNull();
 
@@ -204,10 +162,7 @@ describe('open path capabilities', () => {
         writeFileSync(filePath, new Uint8Array([1]));
 
         const owner = createOwner(46);
-        const {
-            allowOpenPath,
-            requireRevealPath,
-        } = await import('@electron/file-access/openPathCapabilities');
+        const {allowOpenPath, requireRevealPath} = await import('@electron/file-access/openPathCapabilities');
 
         expect(allowOpenPath(filePath, owner as never)).not.toBeNull();
 
@@ -221,7 +176,7 @@ describe('open path capabilities', () => {
         writeFileSync(secondPath, new Uint8Array([2]));
 
         const owner = createOwner(7);
-        const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
 
         allowOpenPath(firstPath, owner as never);
         allowOpenPath(secondPath, owner as never);
@@ -254,28 +209,15 @@ describe('open path capabilities', () => {
             candidates.push(outsideLink);
         }
 
-        const {
-            allowOpenPath,
-            allowOpenPaths,
-            allowRevealPath,
-            allowRevealPaths,
-            isOpenPathAccessible,
-            requireOpenPath,
-            requireRevealPath,
-        } = await import('@electron/file-access/openPathCapabilities');
+        const {allowOpenPath, allowOpenPaths, allowRevealPath, allowRevealPaths, isOpenPathAccessible, requireOpenPath, requireRevealPath} =
+            await import('@electron/file-access/openPathCapabilities');
 
         expect(allowOpenPath(normalFile, 9)).not.toBeNull();
         for (const candidate of candidates) {
             expect(allowOpenPath(candidate, 9)).toBeNull();
-            expect(allowOpenPaths([normalFile, candidate], 9)).toEqual([
-                expect.any(String),
-                null,
-            ]);
+            expect(allowOpenPaths([normalFile, candidate], 9)).toEqual([expect.any(String), null]);
             expect(allowRevealPath(candidate, 9)).toBeNull();
-            expect(allowRevealPaths([normalFile, candidate], 9)).toEqual([
-                expect.any(String),
-                null,
-            ]);
+            expect(allowRevealPaths([normalFile, candidate], 9)).toEqual([expect.any(String), null]);
             expect(isOpenPathAccessible(candidate)).toBe(false);
             expect(() => requireOpenPath(candidate, 9)).toThrow('Path not allowed');
             expect(() => requireRevealPath(candidate, 9)).toThrow('Path not allowed');
@@ -305,10 +247,8 @@ describe('open path capabilities', () => {
             requireOpenPath: requireOpenPathMock,
         }));
         try {
-            const {
-                resolveExistingReadableDocumentOrImagePath,
-                resolveExistingReadablePdfPath,
-            } = await import('@electron/features/documents/main/documentFilePathResolution');
+            const {resolveExistingReadableDocumentOrImagePath, resolveExistingReadablePdfPath} =
+                await import('@electron/features/documents/main/documentFilePathResolution');
 
             await expect(resolveExistingReadablePdfPath(pinnedFile, 8)).rejects.toThrow('reads only allowed');
             await expect(resolveExistingReadableDocumentOrImagePath(pinnedFile, 8)).rejects.toThrow('reads only allowed');
@@ -366,12 +306,8 @@ describe('open path capabilities', () => {
         resetPathValidatorCachesForTests();
         const {getAppTempDirPath} = await import('@electron/utils/appTempDir');
         const appTempRoot = getAppTempDirPath();
-        const {
-            documentRevisionToken,
-            openDocumentFromFile,
-            pinOpenDocumentRevision,
-            setDocumentStoreRootForTests,
-        } = await import('@electron/file-access/documentStore');
+        const {documentRevisionToken, openDocumentFromFile, pinOpenDocumentRevision, setDocumentStoreRootForTests} =
+            await import('@electron/file-access/documentStore');
         const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
         const {pageOpsMainBindings} = await import('@electron/features/page-ops/main/pageOpsMainBindings');
         const {validateImageExportPath} = await import('@electron/features/image-export/main/export');
@@ -469,7 +405,9 @@ describe('open path capabilities', () => {
             };
             const unmaterializedPin = await pinOpenDocumentRevision(entry.ref, documentRevisionToken(entry), 7);
             await expect(pageOpsMainBindings.readOutline(context, unmaterializedPin)).rejects.toThrow('Path is not a managed working copy');
-            await expect(pageOpsMainBindings.readOutline(otherContext, unmaterializedPin)).rejects.toThrow('Path is not a managed working copy');
+            await expect(pageOpsMainBindings.readOutline(otherContext, unmaterializedPin)).rejects.toThrow(
+                'Path is not a managed working copy',
+            );
             expect(existsSync(unmaterializedPin)).toBe(false);
         } finally {
             await setDocumentStoreRootForTests(null);
@@ -483,10 +421,7 @@ describe('open path capabilities', () => {
         const filePath = join(tempRoot, 'branded.pdf');
         writeFileSync(filePath, new Uint8Array([1]));
 
-        const {
-            allowOpenPath,
-            requireOpenPath,
-        } = await import('@electron/file-access/openPathCapabilities');
+        const {allowOpenPath, requireOpenPath} = await import('@electron/file-access/openPathCapabilities');
         const {requireDocumentRevisionToken} = await import('@contracts/documentRevision');
 
         expect(allowOpenPath(filePath)).not.toBeNull();

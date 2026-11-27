@@ -1,29 +1,19 @@
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    nextTick,
-    ref,
-} from 'vue';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {nextTick, ref} from 'vue';
 import {LOCALE_MESSAGES} from '@i18n-app';
-import { usePageDragDrop } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageDragDrop';
-import { requireDocumentRef } from '@contracts/documentRef';
+import {usePageDragDrop} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageDragDrop';
+import {requireDocumentRef} from '@contracts/documentRef';
 import {
     createAllPageSelection,
     createExplicitPageSelection,
     createRangePageSelection,
     type TPageMoveOperation,
 } from '@contracts/pageNumbers';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
-import { toastDescriptionContaining } from '@tests/helpers/toastDescription';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
+import {toastDescriptionContaining} from '@tests/helpers/toastDescription';
 
 vi.mock('vue', async () => ({
-    ...await vi.importActual('vue'),
+    ...(await vi.importActual('vue')),
     onUnmounted: vi.fn(),
 }));
 
@@ -45,10 +35,12 @@ function createDropEvent(paths: string[]) {
 
 function createDragEventTarget() {
     const windowTarget = new EventTarget();
-    const body = {style: {
-        cursor: '',
-        userSelect: '',
-    }};
+    const body = {
+        style: {
+            cursor: '',
+            userSelect: '',
+        },
+    };
     class MockHTMLElement {
         public scrollHeight = 0;
         public clientHeight = 0;
@@ -65,26 +57,29 @@ function createDragEventTarget() {
         createElement: () => container,
     });
     vi.stubGlobal('HTMLElement', MockHTMLElement);
-    vi.stubGlobal('MouseEvent', class extends Event {
-        public readonly button: number;
-        public readonly buttons: number;
-        public readonly clientX: number;
-        public readonly clientY: number;
-        public readonly shiftKey: boolean;
-        public readonly metaKey: boolean;
-        public readonly ctrlKey: boolean;
+    vi.stubGlobal(
+        'MouseEvent',
+        class extends Event {
+            public readonly button: number;
+            public readonly buttons: number;
+            public readonly clientX: number;
+            public readonly clientY: number;
+            public readonly shiftKey: boolean;
+            public readonly metaKey: boolean;
+            public readonly ctrlKey: boolean;
 
-        public constructor(type: string, init: MouseEventInit = {}) {
-            super(type);
-            this.button = init.button ?? 0;
-            this.buttons = init.buttons ?? 0;
-            this.clientX = init.clientX ?? 0;
-            this.clientY = init.clientY ?? 0;
-            this.shiftKey = init.shiftKey ?? false;
-            this.metaKey = init.metaKey ?? false;
-            this.ctrlKey = init.ctrlKey ?? false;
-        }
-    });
+            public constructor(type: string, init: MouseEventInit = {}) {
+                super(type);
+                this.button = init.button ?? 0;
+                this.buttons = init.buttons ?? 0;
+                this.clientX = init.clientX ?? 0;
+                this.clientY = init.clientY ?? 0;
+                this.shiftKey = init.shiftKey ?? false;
+                this.metaKey = init.metaKey ?? false;
+                this.ctrlKey = init.ctrlKey ?? false;
+            }
+        },
+    );
 
     return {
         body,
@@ -96,9 +91,9 @@ function createDragEventTarget() {
 describe('usePageDragDrop', () => {
     beforeEach(() => {
         toastAddMock.mockClear();
-        localeTranslator.translate = key => key;
-        vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
-        vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
+        localeTranslator.translate = (key) => key;
+        vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
+        vi.stubGlobal('useToast', () => ({add: toastAddMock}));
     });
 
     afterEach(() => {
@@ -108,7 +103,10 @@ describe('usePageDragDrop', () => {
     it('cancels and releases a pending drop when rewritten pages replace its source', async () => {
         let finishRegistration!: (paths: Array<ReturnType<typeof requireDocumentRef>>) => void;
         const cleanupFile = vi.fn(async () => {});
-        const pickerRegisterFilesForOpen = () => new Promise<Array<ReturnType<typeof requireDocumentRef>>>(resolve => {finishRegistration = resolve;});
+        const pickerRegisterFilesForOpen = () =>
+            new Promise<Array<ReturnType<typeof requireDocumentRef>>>((resolve) => {
+                finishRegistration = resolve;
+            });
         vi.stubGlobal('window', {
             ...globalThis,
             electronAPI: createElectronPlatformApiFixture({
@@ -136,17 +134,25 @@ describe('usePageDragDrop', () => {
     });
 
     it.each(Object.entries(LOCALE_MESSAGES))('explains a cancelled drop using the %s catalog', async (_locale, messages) => {
-        localeTranslator.translate = key => {
-            const value = key.split('.').reduce<unknown>((current, part) => (
-                current && typeof current === 'object' ? Reflect.get(current, part) : undefined
-            ), messages);
+        localeTranslator.translate = (key) => {
+            const value = key
+                .split('.')
+                .reduce<unknown>(
+                    (current, part) => (current && typeof current === 'object' ? Reflect.get(current, part) : undefined),
+                    messages,
+                );
             return typeof value === 'string' ? value : key;
         };
         let finishRegistration!: (paths: Array<ReturnType<typeof requireDocumentRef>>) => void;
         vi.stubGlobal('window', {
             ...globalThis,
             electronAPI: createElectronPlatformApiFixture({
-                documentPicker: {registerFilesForOpen: () => new Promise(resolve => {finishRegistration = resolve;})},
+                documentPicker: {
+                    registerFilesForOpen: () =>
+                        new Promise((resolve) => {
+                            finishRegistration = resolve;
+                        }),
+                },
                 documentWorkingCopy: {cleanupFile: async () => {}},
             }),
         });
@@ -164,10 +170,12 @@ describe('usePageDragDrop', () => {
         await pending;
         const expected = localeTranslator.translate('errors.pageOps.dropCancelled');
         expect(expected).not.toBe('errors.pageOps.dropCancelled');
-        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
-            title: localeTranslator.translate('errors.pageOps.insertFile'),
-            description: expected,
-        }));
+        expect(toastAddMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                title: localeTranslator.translate('errors.pageOps.insertFile'),
+                description: expected,
+            }),
+        );
     });
 
     it('registers external dropped paths through the split picker capability', async () => {
@@ -179,7 +187,7 @@ describe('usePageDragDrop', () => {
         ]);
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: createElectronPlatformApiFixture({documentPicker: { registerFilesForOpen: pickerRegisterFilesForOpen }}),
+            electronAPI: createElectronPlatformApiFixture({documentPicker: {registerFilesForOpen: pickerRegisterFilesForOpen}}),
         });
 
         const onExternalFileDrop = vi.fn();
@@ -193,20 +201,14 @@ describe('usePageDragDrop', () => {
         });
         dragDrop.dropInsertIndex.value = 3;
 
-        await dragDrop.handleExternalDrop(createDropEvent([
-            '/ignored/a.pdf',
-            '/ignored/b.png',
-        ]));
+        await dragDrop.handleExternalDrop(createDropEvent(['/ignored/a.pdf', '/ignored/b.png']));
 
-        expect(onExternalFileDrop).toHaveBeenCalledWith(3, [
-            '/docs/a.pdf',
-            '/docs/b.png',
-        ]);
+        expect(onExternalFileDrop).toHaveBeenCalledWith(3, ['/docs/a.pdf', '/docs/b.png']);
         expect(pickerRegisterFilesForOpen).toHaveBeenCalledTimes(2);
     });
 
     it('reports failed page-insert registration and inserts remaining valid files', async () => {
-        const registerFilesForOpen = vi.fn(async (files: Array<{ name: string }>) => {
+        const registerFilesForOpen = vi.fn(async (files: Array<{name: string}>) => {
             if (files[0]?.name === 'file-0') {
                 throw new Error('page ingestion failed');
             }
@@ -214,7 +216,7 @@ describe('usePageDragDrop', () => {
         });
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: createElectronPlatformApiFixture({ documentPicker: { registerFilesForOpen } }),
+            electronAPI: createElectronPlatformApiFixture({documentPicker: {registerFilesForOpen}}),
         });
 
         const onExternalFileDrop = vi.fn();
@@ -228,25 +230,20 @@ describe('usePageDragDrop', () => {
         });
         dragDrop.dropInsertIndex.value = 3;
 
-        await dragDrop.handleExternalDrop(createDropEvent([
-            '/ignored/a.pdf',
-            '/ignored/b.png',
-        ]));
+        await dragDrop.handleExternalDrop(createDropEvent(['/ignored/a.pdf', '/ignored/b.png']));
 
-        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
-            color: 'error',
-            title: 'errors.file.open',
-            description: toastDescriptionContaining('page ingestion failed'),
-        }));
+        expect(toastAddMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                color: 'error',
+                title: 'errors.file.open',
+                description: toastDescriptionContaining('page ingestion failed'),
+            }),
+        );
         expect(onExternalFileDrop).toHaveBeenCalledWith(3, ['/docs/b.png']);
     });
 
     it('clears active thumbnail drag state when the window loses the drag', async () => {
-        const {
-            body,
-            container,
-            windowTarget,
-        } = createDragEventTarget();
+        const {body, container, windowTarget} = createDragEventTarget();
         const onReorder = vi.fn();
         const dragDrop = usePageDragDrop({
             getDocumentSource: () => null,
@@ -257,17 +254,22 @@ describe('usePageDragDrop', () => {
             onReorder,
         });
 
-        dragDrop.handleMouseDown(new MouseEvent('mousedown', {
-            button: 0,
-            clientX: 0,
-            clientY: 0,
-        }), 1);
+        dragDrop.handleMouseDown(
+            new MouseEvent('mousedown', {
+                button: 0,
+                clientX: 0,
+                clientY: 0,
+            }),
+            1,
+        );
         await nextTick();
-        window.dispatchEvent(new MouseEvent('mousemove', {
-            buttons: 1,
-            clientX: 20,
-            clientY: 0,
-        }));
+        window.dispatchEvent(
+            new MouseEvent('mousemove', {
+                buttons: 1,
+                clientX: 20,
+                clientY: 0,
+            }),
+        );
 
         expect(dragDrop.isDragging.value).toBe(true);
         expect(body.style.cursor).toBe('grabbing');
@@ -284,10 +286,7 @@ describe('usePageDragDrop', () => {
     });
 
     it('cancels active thumbnail drag when mousemove reports no pressed button', async () => {
-        const {
-            container,
-            windowTarget,
-        } = createDragEventTarget();
+        const {container, windowTarget} = createDragEventTarget();
         const dragDrop = usePageDragDrop({
             getDocumentSource: () => null,
             containerRef: ref(container),
@@ -297,24 +296,31 @@ describe('usePageDragDrop', () => {
             onReorder: vi.fn(),
         });
 
-        dragDrop.handleMouseDown(new MouseEvent('mousedown', {
-            button: 0,
-            clientX: 0,
-            clientY: 0,
-        }), 1);
+        dragDrop.handleMouseDown(
+            new MouseEvent('mousedown', {
+                button: 0,
+                clientX: 0,
+                clientY: 0,
+            }),
+            1,
+        );
         await nextTick();
-        windowTarget.dispatchEvent(new MouseEvent('mousemove', {
-            buttons: 1,
-            clientX: 20,
-            clientY: 0,
-        }));
+        windowTarget.dispatchEvent(
+            new MouseEvent('mousemove', {
+                buttons: 1,
+                clientX: 20,
+                clientY: 0,
+            }),
+        );
         expect(dragDrop.isDragging.value).toBe(true);
 
-        windowTarget.dispatchEvent(new MouseEvent('mousemove', {
-            buttons: 0,
-            clientX: 20,
-            clientY: 0,
-        }));
+        windowTarget.dispatchEvent(
+            new MouseEvent('mousemove', {
+                buttons: 0,
+                clientX: 20,
+                clientY: 0,
+            }),
+        );
 
         expect(dragDrop.isDragging.value).toBe(false);
         expect(dragDrop.draggedPages.value).toEqual([]);
@@ -322,49 +328,46 @@ describe('usePageDragDrop', () => {
     });
 
     it('flushes the mouseup position before committing a page reorder', async () => {
-        const {
-            container,
-            windowTarget,
-        } = createDragEventTarget();
+        const {container, windowTarget} = createDragEventTarget();
         const onReorder = vi.fn();
         const dragDrop = usePageDragDrop({
             getDocumentSource: () => null,
             containerRef: ref(container),
             totalPages: ref(3),
             selectedPages: ref([]),
-            resolveDropIndex: clientY => clientY >= 100 ? 3 : 1,
+            resolveDropIndex: (clientY) => (clientY >= 100 ? 3 : 1),
             onReorder,
         });
 
-        dragDrop.handleMouseDown(new MouseEvent('mousedown', {
-            button: 0,
-            clientX: 0,
-            clientY: 0,
-        }), 1);
-        await nextTick();
-        windowTarget.dispatchEvent(new MouseEvent('mousemove', {
-            buttons: 1,
-            clientX: 20,
-            clientY: 10,
-        }));
-        windowTarget.dispatchEvent(new MouseEvent('mouseup', {
-            buttons: 0,
-            clientX: 20,
-            clientY: 100,
-        }));
-
-        expect(onReorder).toHaveBeenCalledExactlyOnceWith([
-            2,
-            3,
+        dragDrop.handleMouseDown(
+            new MouseEvent('mousedown', {
+                button: 0,
+                clientX: 0,
+                clientY: 0,
+            }),
             1,
-        ]);
+        );
+        await nextTick();
+        windowTarget.dispatchEvent(
+            new MouseEvent('mousemove', {
+                buttons: 1,
+                clientX: 20,
+                clientY: 10,
+            }),
+        );
+        windowTarget.dispatchEvent(
+            new MouseEvent('mouseup', {
+                buttons: 0,
+                clientX: 20,
+                clientY: 100,
+            }),
+        );
+
+        expect(onReorder).toHaveBeenCalledExactlyOnceWith([2, 3, 1]);
     });
 
     it('emits a compact native move for a selected page in a million-page document', async () => {
-        const {
-            container,
-            windowTarget,
-        } = createDragEventTarget();
+        const {container, windowTarget} = createDragEventTarget();
         const onReorder = vi.fn();
         const onMove = vi.fn<(move: TPageMoveOperation) => void>();
         const dragDrop = usePageDragDrop({
@@ -378,22 +381,29 @@ describe('usePageDragDrop', () => {
             onMove,
         });
 
-        dragDrop.handleMouseDown(new MouseEvent('mousedown', {
-            button: 0,
-            clientX: 0,
-            clientY: 0,
-        }), 900_000);
+        dragDrop.handleMouseDown(
+            new MouseEvent('mousedown', {
+                button: 0,
+                clientX: 0,
+                clientY: 0,
+            }),
+            900_000,
+        );
         await nextTick();
-        windowTarget.dispatchEvent(new MouseEvent('mousemove', {
-            buttons: 1,
-            clientX: 20,
-            clientY: 0,
-        }));
-        windowTarget.dispatchEvent(new MouseEvent('mouseup', {
-            buttons: 0,
-            clientX: 20,
-            clientY: 0,
-        }));
+        windowTarget.dispatchEvent(
+            new MouseEvent('mousemove', {
+                buttons: 1,
+                clientX: 20,
+                clientY: 0,
+            }),
+        );
+        windowTarget.dispatchEvent(
+            new MouseEvent('mouseup', {
+                buttons: 0,
+                clientX: 20,
+                clientY: 0,
+            }),
+        );
 
         expect(onMove).toHaveBeenCalledExactlyOnceWith({
             pageCount: 1_000_000,
@@ -405,10 +415,7 @@ describe('usePageDragDrop', () => {
     });
 
     it('emits compact multi-range moves for explicit xlarge selections', async () => {
-        const {
-            container,
-            windowTarget,
-        } = createDragEventTarget();
+        const {container, windowTarget} = createDragEventTarget();
         const onReorder = vi.fn();
         const onMove = vi.fn<(move: TPageMoveOperation) => void>();
         const dragDrop = usePageDragDrop({
@@ -416,31 +423,35 @@ describe('usePageDragDrop', () => {
             containerRef: ref(container),
             totalPages: ref(1_000_000),
             selectedPages: ref([]),
-            selectedPageSelection: ref(createExplicitPageSelection(1_000_000, [
-                900_000,
-                900_002,
-            ])),
+            selectedPageSelection: ref(createExplicitPageSelection(1_000_000, [900_000, 900_002])),
             resolveDropIndex: () => 0,
             onReorder,
             onMove,
         });
 
-        dragDrop.handleMouseDown(new MouseEvent('mousedown', {
-            button: 0,
-            clientX: 0,
-            clientY: 0,
-        }), 900_000);
+        dragDrop.handleMouseDown(
+            new MouseEvent('mousedown', {
+                button: 0,
+                clientX: 0,
+                clientY: 0,
+            }),
+            900_000,
+        );
         await nextTick();
-        windowTarget.dispatchEvent(new MouseEvent('mousemove', {
-            buttons: 1,
-            clientX: 20,
-            clientY: 0,
-        }));
-        windowTarget.dispatchEvent(new MouseEvent('mouseup', {
-            buttons: 0,
-            clientX: 20,
-            clientY: 0,
-        }));
+        windowTarget.dispatchEvent(
+            new MouseEvent('mousemove', {
+                buttons: 1,
+                clientX: 20,
+                clientY: 0,
+            }),
+        );
+        windowTarget.dispatchEvent(
+            new MouseEvent('mouseup', {
+                buttons: 0,
+                clientX: 20,
+                clientY: 0,
+            }),
+        );
 
         expect(onMove).toHaveBeenCalledExactlyOnceWith({
             pageCount: 1_000_000,
@@ -460,10 +471,7 @@ describe('usePageDragDrop', () => {
     });
 
     it('routes contiguous explicit selections through the compact move callback', async () => {
-        const {
-            container,
-            windowTarget,
-        } = createDragEventTarget();
+        const {container, windowTarget} = createDragEventTarget();
         const onReorder = vi.fn();
         const onMove = vi.fn<(move: TPageMoveOperation) => void>();
         const dragDrop = usePageDragDrop({
@@ -471,31 +479,35 @@ describe('usePageDragDrop', () => {
             containerRef: ref(container),
             totalPages: ref(1_000_000),
             selectedPages: ref([]),
-            selectedPageSelection: ref(createExplicitPageSelection(1_000_000, [
-                900_000,
-                900_001,
-            ])),
+            selectedPageSelection: ref(createExplicitPageSelection(1_000_000, [900_000, 900_001])),
             resolveDropIndex: () => 0,
             onReorder,
             onMove,
         });
 
-        dragDrop.handleMouseDown(new MouseEvent('mousedown', {
-            button: 0,
-            clientX: 0,
-            clientY: 0,
-        }), 900_000);
+        dragDrop.handleMouseDown(
+            new MouseEvent('mousedown', {
+                button: 0,
+                clientX: 0,
+                clientY: 0,
+            }),
+            900_000,
+        );
         await nextTick();
-        windowTarget.dispatchEvent(new MouseEvent('mousemove', {
-            buttons: 1,
-            clientX: 20,
-            clientY: 0,
-        }));
-        windowTarget.dispatchEvent(new MouseEvent('mouseup', {
-            buttons: 0,
-            clientX: 20,
-            clientY: 0,
-        }));
+        windowTarget.dispatchEvent(
+            new MouseEvent('mousemove', {
+                buttons: 1,
+                clientX: 20,
+                clientY: 0,
+            }),
+        );
+        windowTarget.dispatchEvent(
+            new MouseEvent('mouseup', {
+                buttons: 0,
+                clientX: 20,
+                clientY: 0,
+            }),
+        );
 
         expect(onMove).toHaveBeenCalledExactlyOnceWith({
             pageCount: 1_000_000,
@@ -507,10 +519,7 @@ describe('usePageDragDrop', () => {
     });
 
     it('keeps a million-page contiguous range drag bounded', async () => {
-        const {
-            container,
-            windowTarget,
-        } = createDragEventTarget();
+        const {container, windowTarget} = createDragEventTarget();
         const onReorder = vi.fn();
         const onMove = vi.fn<(move: TPageMoveOperation) => void>();
         const dragDrop = usePageDragDrop({
@@ -524,23 +533,30 @@ describe('usePageDragDrop', () => {
             onMove,
         });
 
-        dragDrop.handleMouseDown(new MouseEvent('mousedown', {
-            button: 0,
-            clientX: 0,
-            clientY: 0,
-        }), 900_000);
+        dragDrop.handleMouseDown(
+            new MouseEvent('mousedown', {
+                button: 0,
+                clientX: 0,
+                clientY: 0,
+            }),
+            900_000,
+        );
         await nextTick();
-        windowTarget.dispatchEvent(new MouseEvent('mousemove', {
-            buttons: 1,
-            clientX: 20,
-            clientY: 0,
-        }));
+        windowTarget.dispatchEvent(
+            new MouseEvent('mousemove', {
+                buttons: 1,
+                clientX: 20,
+                clientY: 0,
+            }),
+        );
         expect(dragDrop.draggedPages.value).toEqual([900_000]);
-        windowTarget.dispatchEvent(new MouseEvent('mouseup', {
-            buttons: 0,
-            clientX: 20,
-            clientY: 0,
-        }));
+        windowTarget.dispatchEvent(
+            new MouseEvent('mouseup', {
+                buttons: 0,
+                clientX: 20,
+                clientY: 0,
+            }),
+        );
 
         expect(onMove).toHaveBeenCalledExactlyOnceWith({
             pageCount: 1_000_000,

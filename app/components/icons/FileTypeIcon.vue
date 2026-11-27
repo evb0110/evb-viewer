@@ -17,7 +17,7 @@ const FILE_TYPE_ICON_NAMES: Record<TFileTypeKind, string> = {
     document: 'evb:file-type-document',
 };
 
-const { kind } = defineProps<{ kind: TFileTypeKind }>();
+const {kind} = defineProps<{kind: TFileTypeKind}>();
 
 const iconName = computed(() => FILE_TYPE_ICON_NAMES[kind]);
 </script>

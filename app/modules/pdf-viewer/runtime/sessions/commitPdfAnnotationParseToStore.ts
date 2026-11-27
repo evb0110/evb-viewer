@@ -1,7 +1,5 @@
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
-import type {
-    IPdfAnnotationParseResult, TPdfAnnotationParseEntity,
-} from '@contracts/pdfAnnotationParseTypes';
+import type {IPdfAnnotationParseResult, TPdfAnnotationParseEntity} from '@contracts/pdfAnnotationParseTypes';
 import type {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {
     mapPdfAnnotationParseEntity,
@@ -26,12 +24,18 @@ export function applyParsedHighlightTextToStore(options: {
     parsedEntities: readonly TPdfAnnotationParseEntity[];
 }) {
     // One pass over the parsed highlights, each looked up in the map.
-    options.targetStore.batch(() => options.parsedEntities.forEach((parsed) => {
-        if (parsed.kind !== 'highlight') return;
-        const pdfRef = pdfAnnotationRefKey(parsed.objectNumber, parsed.generationNumber);
-        const id = options.selectedTextByPdfRef.has(pdfRef) && options.targetStore.resolveExternal({pdfRef});
-        if (id) options.targetStore.updateTextMarkupSelectedText(id, options.selectedTextByPdfRef.get(pdfRef) ?? null, parsed.quadPoints);
-    }));
+    options.targetStore.batch(() =>
+        options.parsedEntities.forEach((parsed) => {
+            if (parsed.kind !== 'highlight') {
+                return;
+            }
+            const pdfRef = pdfAnnotationRefKey(parsed.objectNumber, parsed.generationNumber);
+            const id = options.selectedTextByPdfRef.has(pdfRef) && options.targetStore.resolveExternal({pdfRef});
+            if (id) {
+                options.targetStore.updateTextMarkupSelectedText(id, options.selectedTextByPdfRef.get(pdfRef) ?? null, parsed.quadPoints);
+            }
+        }),
+    );
 }
 
 /**
@@ -40,25 +44,29 @@ export function applyParsedHighlightTextToStore(options: {
  * that keeps edits made since, while foreign records remain inert store
  * metadata.
  */
-export function commitPdfAnnotationParseToStore(
-    options: ICommitPdfAnnotationParseToStoreOptions,
-) {
+export function commitPdfAnnotationParseToStore(options: ICommitPdfAnnotationParseToStoreOptions) {
     if (
-        !options.isTransitionCurrent()
-        || options.targetStore !== options.currentStore
-        || options.currentRevisionToken !== options.expectedRevisionToken
-        || options.result.documentRevisionToken !== options.expectedRevisionToken
+        !options.isTransitionCurrent() ||
+        options.targetStore !== options.currentStore ||
+        options.currentRevisionToken !== options.expectedRevisionToken ||
+        options.result.documentRevisionToken !== options.expectedRevisionToken
     ) {
         return false;
     }
 
     options.targetStore.replaceFromDocument(
-        options.result.entities.map((entry) => mapPdfAnnotationParseEntity(
-            entry,
-            options.selectedTextByPdfRef?.get(pdfAnnotationRefKey(entry.objectNumber, entry.generationNumber)),
-        )),
+        options.result.entities.map((entry) =>
+            mapPdfAnnotationParseEntity(
+                entry,
+                options.selectedTextByPdfRef?.get(pdfAnnotationRefKey(entry.objectNumber, entry.generationNumber)),
+            ),
+        ),
         options.result.foreign.map(mapPdfAnnotationParseForeign),
-        undefined, [], [], options.preserveSavedBaseline, options.result.documentRevisionToken,
+        undefined,
+        [],
+        [],
+        options.preserveSavedBaseline,
+        options.result.documentRevisionToken,
     );
     return true;
 }

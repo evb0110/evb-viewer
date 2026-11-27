@@ -15,23 +15,26 @@
             />
         </UFormField>
 
-        <NuxtLink class="settings-privacy-link" to="/privacy">
+        <NuxtLink
+            class="settings-privacy-link"
+            to="/privacy"
+        >
             {{ t('settings.clientDiagnosticsPrivacyNotice') }}
         </NuxtLink>
     </fieldset>
 </template>
 
 <script setup lang="ts">
-import type { ISettingsData } from '@contracts/shared';
-import type { TClientDiagnosticsPreference } from '@contracts/diagnostics/diagnosticsPreference';
+import type {ISettingsData} from '@contracts/shared';
+import type {TClientDiagnosticsPreference} from '@contracts/diagnostics/diagnosticsPreference';
 
-defineProps<{settings: ISettingsData;}>();
+defineProps<{settings: ISettingsData}>();
 
-const emit = defineEmits<{'update:client-diagnostics-preference': [value: TClientDiagnosticsPreference];}>();
+const emit = defineEmits<{'update:client-diagnostics-preference': [value: TClientDiagnosticsPreference]}>();
 
-const { t } = useTypedI18n();
-const settingsControlUi = { label: 'settings-control-label' };
-const settingsFormFieldUi = { help: 'settings-field-hint mt-1' };
+const {t} = useTypedI18n();
+const settingsControlUi = {label: 'settings-control-label'};
+const settingsFormFieldUi = {help: 'settings-field-hint mt-1'};
 </script>
 
 <style lang="scss" scoped>

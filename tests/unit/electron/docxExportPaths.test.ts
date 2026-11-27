@@ -1,15 +1,7 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { EventEmitter } from 'node:events';
-import { resolve } from 'path';
-import {
-    allowDocxWritePath,
-    consumeAllowedDocxWritePath,
-    normalizeDocxPath,
-} from '@electron/file-access/docxExportPaths';
+import {describe, expect, it} from 'vitest';
+import {EventEmitter} from 'node:events';
+import {resolve} from 'path';
+import {allowDocxWritePath, consumeAllowedDocxWritePath, normalizeDocxPath} from '@electron/file-access/docxExportPaths';
 
 describe('docxExportPaths', () => {
     it('allows consuming a path that was provided by save dialog', () => {
@@ -40,7 +32,7 @@ describe('docxExportPaths', () => {
     it('removes sender-owned grants when the sender is destroyed', () => {
         const filePath = './tmp-destroyed-sender-export.docx';
         const absolutePath = resolve(filePath);
-        const sender = new EventEmitter() as EventEmitter & { id: number };
+        const sender = new EventEmitter() as EventEmitter & {id: number};
         sender.id = 12;
 
         allowDocxWritePath(filePath, sender as never);
@@ -52,7 +44,7 @@ describe('docxExportPaths', () => {
     it('removes sender-owned grants on main-frame navigation', () => {
         const filePath = './tmp-navigated-sender-export.docx';
         const absolutePath = resolve(filePath);
-        const sender = new EventEmitter() as EventEmitter & { id: number };
+        const sender = new EventEmitter() as EventEmitter & {id: number};
         sender.id = 13;
 
         allowDocxWritePath(filePath, sender as never);

@@ -1,8 +1,4 @@
-import {
-    buildAbsoluteUrl,
-    normalizeSiteUrl,
-    SEO_IMAGE_PATH,
-} from '~~/shared/seo';
+import {buildAbsoluteUrl, normalizeSiteUrl, SEO_IMAGE_PATH} from '~~/shared/seo';
 
 interface IUseLandingPageSeoOptions {
     title: () => string;

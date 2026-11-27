@@ -62,16 +62,16 @@ export function withLargePdfMutationAdmission<T>(
         return Promise.reject(abortErrorFromSignal(signal));
     }
     if (queuedLargePdfMutations.length >= LARGE_PDF_MUTATION_QUEUE_LIMIT) {
-        return Promise.reject(new Error(
-            `Large PDF mutation queue is full (maximum ${String(LARGE_PDF_MUTATION_QUEUE_LIMIT)} queued operation)`,
-        ));
+        return Promise.reject(
+            new Error(`Large PDF mutation queue is full (maximum ${String(LARGE_PDF_MUTATION_QUEUE_LIMIT)} queued operation)`),
+        );
     }
 
     return new Promise<T>((resolve, reject) => {
         const entry: ILargePdfMutationEntry = {
             operation: operation,
             signal,
-            resolve: value => resolve(value as T),
+            resolve: (value) => resolve(value as T),
             reject,
             removeAbortListener: () => undefined,
         };

@@ -1,10 +1,7 @@
 import type {IAssistantSendRequest} from '@contracts/assistant';
-import { randomUUID } from 'crypto';
+import {randomUUID} from 'crypto';
 import type {IAgentAssistantImageAttachment} from '@contracts/agent';
-import {
-    ASSISTANT_MAX_IMAGE_ATTACHMENTS,
-    ASSISTANT_MAX_IMAGE_BYTES,
-} from '@contracts/agent';
+import {ASSISTANT_MAX_IMAGE_ATTACHMENTS, ASSISTANT_MAX_IMAGE_BYTES} from '@contracts/agent';
 
 interface IParsedAssistantImageDataUrl {
     base64: string;
@@ -12,14 +9,12 @@ interface IParsedAssistantImageDataUrl {
     sizeBytes: number;
 }
 
-interface INormalizeOutgoingAttachmentsOptions {createId?: () => string;}
+interface INormalizeOutgoingAttachmentsOptions {
+    createId?: () => string;
+}
 
 export function estimateBase64ByteSize(base64: string) {
-    const padding = base64.endsWith('==')
-        ? 2
-        : base64.endsWith('=')
-            ? 1
-            : 0;
+    const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
     return Math.floor((base64.length * 3) / 4) - padding;
 }
 
@@ -29,7 +24,10 @@ export function parseAssistantImageDataUrl(dataUrl: string): IParsedAssistantIma
         return null;
     }
 
-    const headerParts = match[1]!.split(';').map(part => part.trim().toLowerCase()).filter(Boolean);
+    const headerParts = match[1]!
+        .split(';')
+        .map((part) => part.trim().toLowerCase())
+        .filter(Boolean);
     const mimeType = headerParts[0] ?? '';
     if (!mimeType.startsWith('image/') || !headerParts.includes('base64')) {
         return null;

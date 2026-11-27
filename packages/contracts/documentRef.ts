@@ -35,18 +35,14 @@ export function isBrowserLegacyDocumentRef(value: unknown): value is TDocumentRe
 }
 
 export function isNativeLegacyDocumentRef(value: unknown): value is TDocumentRef {
-    return typeof value === 'string'
-        && (
-            POSIX_ABSOLUTE_PATH_PATTERN.test(value)
-            || WINDOWS_ABSOLUTE_PATH_PATTERN.test(value)
-            || WINDOWS_UNC_PATH_PATTERN.test(value)
-        );
+    return (
+        typeof value === 'string' &&
+        (POSIX_ABSOLUTE_PATH_PATTERN.test(value) || WINDOWS_ABSOLUTE_PATH_PATTERN.test(value) || WINDOWS_UNC_PATH_PATTERN.test(value))
+    );
 }
 
 export function parseDocumentRef(value: unknown): TDocumentRef | null {
-    return isBrowserLegacyDocumentRef(value) || isNativeLegacyDocumentRef(value)
-        ? value
-        : null;
+    return isBrowserLegacyDocumentRef(value) || isNativeLegacyDocumentRef(value) ? value : null;
 }
 
 export function requireDocumentRef(value: unknown): TDocumentRef {
@@ -58,17 +54,11 @@ export function requireDocumentRef(value: unknown): TDocumentRef {
 }
 
 export function isBrowserStructuredDocumentRef(value: unknown): value is IBrowserDocumentRef {
-    return isRecord(value)
-        && value.kind === 'browser-document-ref'
-        && value.backend === 'browser'
-        && isBrowserLegacyDocumentRef(value.ref);
+    return isRecord(value) && value.kind === 'browser-document-ref' && value.backend === 'browser' && isBrowserLegacyDocumentRef(value.ref);
 }
 
 export function isNativeStructuredDocumentRef(value: unknown): value is INativeDocumentRef {
-    return isRecord(value)
-        && value.kind === 'native-document-ref'
-        && value.backend === 'electron'
-        && isNativeLegacyDocumentRef(value.path);
+    return isRecord(value) && value.kind === 'native-document-ref' && value.backend === 'electron' && isNativeLegacyDocumentRef(value.path);
 }
 
 export function createBrowserDocumentRefValue(ref: string): IBrowserDocumentRef {

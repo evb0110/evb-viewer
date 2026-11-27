@@ -1,4 +1,4 @@
-import { clamp } from 'es-toolkit/math';
+import {clamp} from 'es-toolkit/math';
 
 export function clamp01(value: number) {
     if (!Number.isFinite(value)) {

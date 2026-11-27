@@ -1,14 +1,8 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { buildCanvasCapturePlan } from '@app/modules/pdf-viewer/engine/pdf-region-capture/buildCanvasCapturePlan';
-import { intersectClientRects } from '@app/modules/document-viewer/region-geometry/intersectClientRects';
-import { normalizeClientRect } from '@app/modules/document-viewer/region-geometry/normalizeClientRect';
-import { writePngBlobToClipboard } from '@app/modules/pdf-viewer/engine/pdf-region-clipboard/writePngBlobToClipboard';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {buildCanvasCapturePlan} from '@app/modules/pdf-viewer/engine/pdf-region-capture/buildCanvasCapturePlan';
+import {intersectClientRects} from '@app/modules/document-viewer/region-geometry/intersectClientRects';
+import {normalizeClientRect} from '@app/modules/document-viewer/region-geometry/normalizeClientRect';
+import {writePngBlobToClipboard} from '@app/modules/pdf-viewer/engine/pdf-region-clipboard/writePngBlobToClipboard';
 
 describe('pdfRegionSnip geometry', () => {
     it('normalizes rectangle regardless of drag direction', () => {
@@ -36,11 +30,11 @@ describe('pdfRegionSnip geometry', () => {
         const selection = normalizeClientRect(50, 60, 360, 460);
         const firstCanvas = {
             width: 1200,
-            height: 1600, 
+            height: 1600,
         } as HTMLCanvasElement;
         const secondCanvas = {
             width: 1000,
-            height: 1400, 
+            height: 1400,
         } as HTMLCanvasElement;
 
         const plan = buildCanvasCapturePlan(selection, [
@@ -87,18 +81,20 @@ describe('pdfRegionSnip geometry', () => {
     });
 
     it('leaves a page canvas without pixels out of the capture', () => {
-        const plan = buildCanvasCapturePlan(normalizeClientRect(0, 0, 400, 400), [{
-            canvas: {
-                width: 0,
-                height: 1000,
-            } as HTMLCanvasElement,
-            rect: {
-                left: 100,
-                top: 100,
-                right: 300,
-                bottom: 300,
+        const plan = buildCanvasCapturePlan(normalizeClientRect(0, 0, 400, 400), [
+            {
+                canvas: {
+                    width: 0,
+                    height: 1000,
+                } as HTMLCanvasElement,
+                rect: {
+                    left: 100,
+                    top: 100,
+                    right: 300,
+                    bottom: 300,
+                },
             },
-        }]);
+        ]);
 
         expect(plan.outputRect).toBeNull();
         expect(plan.fragments).toHaveLength(0);
@@ -106,27 +102,31 @@ describe('pdfRegionSnip geometry', () => {
 
     it('returns no output when selection does not intersect any rendered page canvas', () => {
         const selection = normalizeClientRect(10, 10, 40, 40);
-        const plan = buildCanvasCapturePlan(selection, [{
-            canvas: {
-                width: 800,
-                height: 1000, 
-            } as HTMLCanvasElement,
-            rect: {
+        const plan = buildCanvasCapturePlan(selection, [
+            {
+                canvas: {
+                    width: 800,
+                    height: 1000,
+                } as HTMLCanvasElement,
+                rect: {
+                    left: 100,
+                    top: 100,
+                    right: 300,
+                    bottom: 300,
+                },
+            },
+        ]);
+
+        expect(plan.outputRect).toBeNull();
+        expect(plan.fragments).toHaveLength(0);
+        expect(
+            intersectClientRects(selection, {
                 left: 100,
                 top: 100,
                 right: 300,
                 bottom: 300,
-            },
-        }]);
-
-        expect(plan.outputRect).toBeNull();
-        expect(plan.fragments).toHaveLength(0);
-        expect(intersectClientRects(selection, {
-            left: 100,
-            top: 100,
-            right: 300,
-            bottom: 300,
-        })).toBeNull();
+            }),
+        ).toBeNull();
     });
 });
 
@@ -137,17 +137,14 @@ describe('pdfRegionSnip clipboard', () => {
 
     it('writes png blob to clipboard when API is available', async () => {
         const write = vi.fn(async (_items: unknown[]) => {});
-        const ClipboardItemMock = vi.fn(function ClipboardItem(
-            this: { items: Record<string, Blob> },
-            items: Record<string, Blob>,
-        ) {
+        const ClipboardItemMock = vi.fn(function ClipboardItem(this: {items: Record<string, Blob>}, items: Record<string, Blob>) {
             this.items = items;
         });
 
-        vi.stubGlobal('navigator', { clipboard: { write } });
+        vi.stubGlobal('navigator', {clipboard: {write}});
         vi.stubGlobal('ClipboardItem', ClipboardItemMock);
 
-        await writePngBlobToClipboard(new Blob(['ok'], { type: 'image/png' }));
+        await writePngBlobToClipboard(new Blob(['ok'], {type: 'image/png'}));
 
         expect(ClipboardItemMock).toHaveBeenCalledOnce();
         expect(write).toHaveBeenCalledOnce();
@@ -157,16 +154,13 @@ describe('pdfRegionSnip clipboard', () => {
         const write = vi.fn(async () => {
             throw new Error('permission denied');
         });
-        const ClipboardItemMock = vi.fn(function ClipboardItem(
-            this: { items: Record<string, Blob> },
-            items: Record<string, Blob>,
-        ) {
+        const ClipboardItemMock = vi.fn(function ClipboardItem(this: {items: Record<string, Blob>}, items: Record<string, Blob>) {
             this.items = items;
         });
 
-        vi.stubGlobal('navigator', { clipboard: { write } });
+        vi.stubGlobal('navigator', {clipboard: {write}});
         vi.stubGlobal('ClipboardItem', ClipboardItemMock);
 
-        await expect(writePngBlobToClipboard(new Blob(['x'], { type: 'image/png' }))).rejects.toThrow('permission denied');
+        await expect(writePngBlobToClipboard(new Blob(['x'], {type: 'image/png'}))).rejects.toThrow('permission denied');
     });
 });

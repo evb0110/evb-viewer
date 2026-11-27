@@ -18,53 +18,59 @@ const rectSchema = v.strictObject({
     width: finiteSchema,
     height: finiteSchema,
 });
-const matrixSchema = v.tuple([
-    finiteSchema,
-    finiteSchema,
-    finiteSchema,
-    finiteSchema,
-    finiteSchema,
-    finiteSchema,
-]);
+const matrixSchema = v.tuple([finiteSchema, finiteSchema, finiteSchema, finiteSchema, finiteSchema, finiteSchema]);
 const provenanceStampHexSchema = v.optional(v.pipe(v.string(), v.regex(/^(?:[0-9a-f]{2})+$/)));
 
 export const SPLIT_PAGES_INSTRUCTIONS_SCHEMA = v.strictObject({
-    pages: v.pipe(v.array(v.strictObject({
-        sourcePageIndex: nonNegativeIntegerSchema,
-        rotationQuarterTurns: v.pipe(v.number(), v.safeInteger()),
-        outputs: v.array(v.strictObject({
-            cropRect: rectSchema,
-            contentTransform: v.optional(v.strictObject({
-                scale: finiteSchema,
-                translateX: finiteSchema,
-                translateY: finiteSchema,
-            })),
-        })),
-    })), v.minLength(1)),
+    pages: v.pipe(
+        v.array(
+            v.strictObject({
+                sourcePageIndex: nonNegativeIntegerSchema,
+                rotationQuarterTurns: v.pipe(v.number(), v.safeInteger()),
+                outputs: v.array(
+                    v.strictObject({
+                        cropRect: rectSchema,
+                        contentTransform: v.optional(
+                            v.strictObject({
+                                scale: finiteSchema,
+                                translateX: finiteSchema,
+                                translateY: finiteSchema,
+                            }),
+                        ),
+                    }),
+                ),
+            }),
+        ),
+        v.minLength(1),
+    ),
     provenanceStampHex: provenanceStampHexSchema,
     /** `assembly` carries navigation, labels and page dependencies; omitted, the split keeps the source catalog. */
-    catalog: v.optional(v.picklist([
-        'source',
-        'assembly',
-    ])),
+    catalog: v.optional(v.picklist(['source', 'assembly'])),
 });
 export type ISplitPagesInstructions = v.InferOutput<typeof SPLIT_PAGES_INSTRUCTIONS_SCHEMA>;
 
 export const OVERLAY_TEXT_INSTRUCTIONS_SCHEMA = v.strictObject({
-    pages: v.pipe(v.array(v.strictObject({
-        sourcePageIndex: nonNegativeIntegerSchema,
-        outputPageIndex: nonNegativeIntegerSchema,
-        /** PDF `cm` operands mapping source-page user space into output-page user space. */
-        matrix: matrixSchema,
-        sourceRegion: v.optional(v.strictObject({
-            rect: rectSchema,
-            matrix: matrixSchema,
-        })),
-        filterToOutputPage: v.optional(v.boolean()),
-        normalizeGreekMicroSign: v.optional(v.boolean()),
-        linkOnly: v.optional(v.boolean()),
-        unmappedGeometry: v.optional(v.boolean()),
-    })), v.minLength(1)),
+    pages: v.pipe(
+        v.array(
+            v.strictObject({
+                sourcePageIndex: nonNegativeIntegerSchema,
+                outputPageIndex: nonNegativeIntegerSchema,
+                /** PDF `cm` operands mapping source-page user space into output-page user space. */
+                matrix: matrixSchema,
+                sourceRegion: v.optional(
+                    v.strictObject({
+                        rect: rectSchema,
+                        matrix: matrixSchema,
+                    }),
+                ),
+                filterToOutputPage: v.optional(v.boolean()),
+                normalizeGreekMicroSign: v.optional(v.boolean()),
+                linkOnly: v.optional(v.boolean()),
+                unmappedGeometry: v.optional(v.boolean()),
+            }),
+        ),
+        v.minLength(1),
+    ),
     provenanceStampHex: provenanceStampHexSchema,
 });
 export type IOverlayTextInstructions = v.InferOutput<typeof OVERLAY_TEXT_INSTRUCTIONS_SCHEMA>;
@@ -78,12 +84,14 @@ export const RECOMPRESS_IMAGES_INSTRUCTIONS_SCHEMA = v.strictObject({
 export type IRecompressImagesInstructions = v.InferOutput<typeof RECOMPRESS_IMAGES_INSTRUCTIONS_SCHEMA>;
 
 export const REPLACE_PAGE_IMAGES_INSTRUCTIONS_SCHEMA = v.strictObject({
-    pages: v.array(v.strictObject({
-        pageNumber: positiveIntegerSchema,
-        /** Index of the replacement PDF in the request's `replacementPdfs`. */
-        replacement: nonNegativeIntegerSchema,
-        replacementPageNumber: positiveIntegerSchema,
-    })),
+    pages: v.array(
+        v.strictObject({
+            pageNumber: positiveIntegerSchema,
+            /** Index of the replacement PDF in the request's `replacementPdfs`. */
+            replacement: nonNegativeIntegerSchema,
+            replacementPageNumber: positiveIntegerSchema,
+        }),
+    ),
     maxByteRatio: finiteSchema,
 });
 export type IReplacePageImagesInstructions = v.InferOutput<typeof REPLACE_PAGE_IMAGES_INSTRUCTIONS_SCHEMA>;
@@ -102,36 +110,36 @@ const byteCountSchema = nonNegativeIntegerSchema;
 
 export const RECOMPRESS_IMAGES_REPORT_SCHEMA = v.object({
     format: v.literal('evb-pdf-recompress-images'),
-    images: v.array(v.object({
-        objectNumber: positiveIntegerSchema,
-        outcome: v.picklist([
-            'recompressed',
-            'not-smaller',
-            'unsupported',
-        ]),
-        sourceBytes: byteCountSchema,
-        recompressedBytes: byteCountSchema,
-    })),
+    images: v.array(
+        v.object({
+            objectNumber: positiveIntegerSchema,
+            outcome: v.picklist(['recompressed', 'not-smaller', 'unsupported']),
+            sourceBytes: byteCountSchema,
+            recompressedBytes: byteCountSchema,
+        }),
+    ),
     /** Pages whose images were recompressed. */
     pages: v.array(positiveIntegerSchema),
 });
 
 export const REPLACE_PAGE_IMAGES_REPORT_SCHEMA = v.object({
     format: v.literal('evb-pdf-replace-page-images'),
-    pages: v.array(v.object({
-        pageNumber: positiveIntegerSchema,
-        outcome: v.picklist([
-            'replaced',
-            'not-smaller',
-            'no-images',
-            'visible-text',
-            'visible-drawing',
-            'form-xobject',
-            'unsupported-text',
-            'tagged-content',
-            'optional-content',
-        ]),
-        sourceBytes: byteCountSchema,
-        replacementBytes: byteCountSchema,
-    })),
+    pages: v.array(
+        v.object({
+            pageNumber: positiveIntegerSchema,
+            outcome: v.picklist([
+                'replaced',
+                'not-smaller',
+                'no-images',
+                'visible-text',
+                'visible-drawing',
+                'form-xobject',
+                'unsupported-text',
+                'tagged-content',
+                'optional-content',
+            ]),
+            sourceBytes: byteCountSchema,
+            replacementBytes: byteCountSchema,
+        }),
+    ),
 });

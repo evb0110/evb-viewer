@@ -12,11 +12,8 @@ import type {
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {resolveScanCleanupEffectiveOutputMode} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
-import {
-    resolveScanCleanupMarginsMm,
-    resolveScanCleanupPageLayout,
-} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
-import { requirePageNumber } from '@contracts/pageNumbers';
+import {resolveScanCleanupMarginsMm, resolveScanCleanupPageLayout} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import type {IPdfPageSize} from '@evb/scan-cleanup/core/types';
 import {
     SCAN_CLEANUP_MAX_BILEVEL_PIXELS,
@@ -30,20 +27,10 @@ export function resolveReusablePagePlan(
     evidenceByPage: Partial<Record<string, IScanCleanupPagePlanEvidence>> | undefined,
     pageNumber: number,
 ) {
-    return resolveReusablePagePlanResult(
-        options,
-        layoutByPage,
-        evidenceByPage,
-        pageNumber,
-    ).plan;
+    return resolveReusablePagePlanResult(options, layoutByPage, evidenceByPage, pageNumber).plan;
 }
 
-export type TReusablePagePlanStatus =
-    | 'matched'
-    | 'absent'
-    | 'page-number-mismatch'
-    | 'rotation-mismatch'
-    | 'layout-mismatch';
+export type TReusablePagePlanStatus = 'matched' | 'absent' | 'page-number-mismatch' | 'rotation-mismatch' | 'layout-mismatch';
 
 export function resolveReusablePagePlanResult(
     options: IScanCleanupOptions,
@@ -52,7 +39,7 @@ export function resolveReusablePagePlanResult(
     pageNumber: number,
 ): {
     plan: ReturnType<typeof reusablePlanFromEvidence>;
-    status: TReusablePagePlanStatus
+    status: TReusablePagePlanStatus;
 } {
     const evidence = evidenceByPage?.[String(pageNumber)];
     const pageOverride = getScanCleanupPageOverride(
@@ -93,34 +80,24 @@ export function resolveReusablePagePlanResult(
 }
 
 function reusablePlanFromEvidence(evidence: IScanCleanupPagePlanEvidence) {
-    const automaticContentBoxes = Object.fromEntries(Object.entries(evidence.outputs).flatMap(([
-        half,
-        output,
-    ]) => output.contentBox === undefined ? [] : [[
-        half,
-        output.contentBox,
-    ]]));
-    const automaticSkewDegrees = Object.fromEntries(Object.entries(evidence.outputs).flatMap(([
-        half,
-        output,
-    ]) => output.detectedSkewDegrees === undefined ? [] : [[
-        half,
-        output.detectedSkewDegrees,
-    ]]));
-    const resolvedTextToneDiagnostics = Object.fromEntries(Object.entries(evidence.outputs).flatMap(([
-        half,
-        output,
-    ]) => output.textToneDiagnostics === undefined ? [] : [[
-        half,
-        output.textToneDiagnostics,
-    ]]));
+    const automaticContentBoxes = Object.fromEntries(
+        Object.entries(evidence.outputs).flatMap(([half, output]) => (output.contentBox === undefined ? [] : [[half, output.contentBox]])),
+    );
+    const automaticSkewDegrees = Object.fromEntries(
+        Object.entries(evidence.outputs).flatMap(([half, output]) =>
+            output.detectedSkewDegrees === undefined ? [] : [[half, output.detectedSkewDegrees]],
+        ),
+    );
+    const resolvedTextToneDiagnostics = Object.fromEntries(
+        Object.entries(evidence.outputs).flatMap(([half, output]) =>
+            output.textToneDiagnostics === undefined ? [] : [[half, output.textToneDiagnostics]],
+        ),
+    );
     return {
         ...(evidence.automaticSplit === undefined ? {} : {automaticSplit: evidence.automaticSplit}),
         ...(Object.keys(automaticContentBoxes).length === 0 ? {} : {automaticContentBoxes}),
         ...(Object.keys(automaticSkewDegrees).length === 0 ? {} : {automaticSkewDegrees}),
-        ...(Object.keys(resolvedTextToneDiagnostics).length === 0
-            ? {}
-            : {resolvedTextToneDiagnostics}),
+        ...(Object.keys(resolvedTextToneDiagnostics).length === 0 ? {} : {resolvedTextToneDiagnostics}),
     };
 }
 
@@ -160,11 +137,7 @@ export interface IEffectiveNativeScanCleanupOptionsV3 extends INativeScanCleanup
     manualZones: IScanCleanupManualZones;
 }
 
-export {
-    SCAN_CLEANUP_MAX_BILEVEL_PIXELS,
-    SCAN_CLEANUP_MAX_CONTINUOUS_TONE_PIXELS,
-    SCAN_CLEANUP_MAX_DIMENSION_PX,
-};
+export {SCAN_CLEANUP_MAX_BILEVEL_PIXELS, SCAN_CLEANUP_MAX_CONTINUOUS_TONE_PIXELS, SCAN_CLEANUP_MAX_DIMENSION_PX};
 
 /**
  * One canvas is shared by every output of the document, so it has to fit the
@@ -178,9 +151,7 @@ export {
  * pixels, so a canvas sized for a binary layer could be a grid a page resolved
  * to colour is not allowed to be rendered on.
  */
-export function resolveScanCleanupMatchedCanvasMaxPixels(
-    configuredModes: Iterable<TScanCleanupOutputModeSetting>,
-) {
+export function resolveScanCleanupMatchedCanvasMaxPixels(configuredModes: Iterable<TScanCleanupOutputModeSetting>) {
     for (const mode of configuredModes) {
         if (mode !== 'bw') {
             return SCAN_CLEANUP_MAX_CONTINUOUS_TONE_PIXELS;
@@ -191,16 +162,10 @@ export function resolveScanCleanupMatchedCanvasMaxPixels(
 
 // An unresolved (absent) mode gets the bilevel budget because the native
 // engine may still resolve the page to a binary layer.
-export function resolveScanCleanupPipelineMaxPixels(
-    outputMode?: TScanCleanupOutputMode,
-    rasterMaxPixels?: number,
-) {
-    const modeMaxPixels = outputMode === undefined || outputMode === 'bw'
-        ? SCAN_CLEANUP_MAX_BILEVEL_PIXELS
-        : SCAN_CLEANUP_MAX_CONTINUOUS_TONE_PIXELS;
-    return rasterMaxPixels === undefined
-        ? modeMaxPixels
-        : Math.max(1, Math.min(modeMaxPixels, Math.floor(rasterMaxPixels)));
+export function resolveScanCleanupPipelineMaxPixels(outputMode?: TScanCleanupOutputMode, rasterMaxPixels?: number) {
+    const modeMaxPixels =
+        outputMode === undefined || outputMode === 'bw' ? SCAN_CLEANUP_MAX_BILEVEL_PIXELS : SCAN_CLEANUP_MAX_CONTINUOUS_TONE_PIXELS;
+    return rasterMaxPixels === undefined ? modeMaxPixels : Math.max(1, Math.min(modeMaxPixels, Math.floor(rasterMaxPixels)));
 }
 
 // Tonal layers do not own crisp text on mixed pages; the high-resolution
@@ -234,14 +199,19 @@ function resolveSafeRenderDpi(
     probe: {
         dpi: number;
         width: number;
-        height: number
+        height: number;
     },
 ) {
-    return Math.max(1, Math.floor(Math.min(
-        requestedRenderDpi,
-        probe.dpi * Math.min(SCAN_CLEANUP_MAX_DIMENSION_PX / probe.width, SCAN_CLEANUP_MAX_DIMENSION_PX / probe.height),
-        probe.dpi * Math.sqrt(maxPixels / (probe.width * probe.height)),
-    )));
+    return Math.max(
+        1,
+        Math.floor(
+            Math.min(
+                requestedRenderDpi,
+                probe.dpi * Math.min(SCAN_CLEANUP_MAX_DIMENSION_PX / probe.width, SCAN_CLEANUP_MAX_DIMENSION_PX / probe.height),
+                probe.dpi * Math.sqrt(maxPixels / (probe.width * probe.height)),
+            ),
+        ),
+    );
 }
 
 /**
@@ -253,10 +223,12 @@ function resolveSafeRenderDpi(
  * pixel grid is the same whether or not that page was one of the pages cleaned.
  */
 export function resolveScanCleanupDocumentGuardrail(
-    _detected: {
-        width: number;
-        height: number
-    } | undefined,
+    _detected:
+        | {
+              width: number;
+              height: number;
+          }
+        | undefined,
     _sourceDpi: number | undefined,
     pageSize: IPdfPageSize | undefined,
 ) {
@@ -266,8 +238,8 @@ export function resolveScanCleanupDocumentGuardrail(
     const swapsAxes = Math.abs(Math.round(pageSize.rotation / 90)) % 2 === 1;
     return {
         dpi: SCAN_CLEANUP_SIZE_PROBE_DPI,
-        width: (swapsAxes ? pageSize.heightPoints : pageSize.widthPoints) / 72 * SCAN_CLEANUP_SIZE_PROBE_DPI,
-        height: (swapsAxes ? pageSize.widthPoints : pageSize.heightPoints) / 72 * SCAN_CLEANUP_SIZE_PROBE_DPI,
+        width: ((swapsAxes ? pageSize.heightPoints : pageSize.widthPoints) / 72) * SCAN_CLEANUP_SIZE_PROBE_DPI,
+        height: ((swapsAxes ? pageSize.widthPoints : pageSize.heightPoints) / 72) * SCAN_CLEANUP_SIZE_PROBE_DPI,
     };
 }
 
@@ -278,17 +250,15 @@ export function resolveScanCleanupDocumentGuardrail(
 // and output work quadratically.
 const SCAN_CLEANUP_SYNTHETIC_BINARY_RENDER_DPI_FLOOR = 600;
 
-export function resolveScanCleanupRequestedRenderDpi(
-    {
-        sourceDpi,
-        outputCarriesBinaryLayer,
-        sourceRasterDetected,
-    }: {
-        sourceDpi: number;
-        outputCarriesBinaryLayer: boolean;
-        sourceRasterDetected: boolean;
-    },
-) {
+export function resolveScanCleanupRequestedRenderDpi({
+    sourceDpi,
+    outputCarriesBinaryLayer,
+    sourceRasterDetected,
+}: {
+    sourceDpi: number;
+    outputCarriesBinaryLayer: boolean;
+    sourceRasterDetected: boolean;
+}) {
     return outputCarriesBinaryLayer && !sourceRasterDetected
         ? Math.max(sourceDpi, SCAN_CLEANUP_SYNTHETIC_BINARY_RENDER_DPI_FLOOR)
         : sourceDpi;
@@ -299,11 +269,13 @@ export interface IResolveScanCleanupPlannedDpiInput {
     outputCarriesBinaryLayer: boolean;
     sourceRasterDetected: boolean;
     maxPixels: number;
-    guardrail: {
-        dpi: number;
-        width: number;
-        height: number
-    } | undefined;
+    guardrail:
+        | {
+              dpi: number;
+              width: number;
+              height: number;
+          }
+        | undefined;
 }
 
 /**
@@ -327,9 +299,7 @@ export function resolveScanCleanupPlannedDpi({
     return {
         sourceDpi,
         requestedRenderDpi,
-        dpi: guardrail === undefined
-            ? requestedRenderDpi
-            : resolveSafeRenderDpi(requestedRenderDpi, maxPixels, guardrail),
+        dpi: guardrail === undefined ? requestedRenderDpi : resolveSafeRenderDpi(requestedRenderDpi, maxPixels, guardrail),
     };
 }
 
@@ -344,8 +314,9 @@ export function resolveScanCleanupPlannedDpi({
  * floor only when the page has no measured source raster.
  */
 export function resolveScanCleanupCanvasPageDpi(
-    input: Omit<IResolveScanCleanupPlannedDpiInput, 'outputCarriesBinaryLayer' | 'maxPixels'>
-        & {configuredMode: TScanCleanupOutputModeSetting},
+    input: Omit<IResolveScanCleanupPlannedDpiInput, 'outputCarriesBinaryLayer' | 'maxPixels'> & {
+        configuredMode: TScanCleanupOutputModeSetting;
+    },
 ) {
     return resolveScanCleanupPlannedDpi({
         ...input,
@@ -354,9 +325,7 @@ export function resolveScanCleanupCanvasPageDpi(
     }).dpi;
 }
 
-function resolveScanCleanupDespeckleLevel(
-    options: IScanCleanupOptions,
-): TScanCleanupDespeckleLevel {
+function resolveScanCleanupDespeckleLevel(options: IScanCleanupOptions): TScanCleanupDespeckleLevel {
     const legacyEnabled = options.despeckle ?? true;
     return options.despeckleLevel ?? (legacyEnabled ? 'normal' : 'off');
 }
@@ -385,32 +354,31 @@ export function resolveEffectiveScanCleanupOptions({
     const lossless = qualityPath === 'lossless';
     const outputMode = lossless
         ? 'color'
-        : resolvedOutputMode ?? resolveScanCleanupEffectiveOutputMode({
-            options,
-            pageOverride,
-        }) ?? 'auto';
-    const autoResolvedColor = !lossless
-        && options.outputMode === 'auto'
-        && pageOverride.outputModeOverride === undefined
-        && resolvedOutputMode === 'color';
+        : (resolvedOutputMode ??
+          resolveScanCleanupEffectiveOutputMode({
+              options,
+              pageOverride,
+          }) ??
+          'auto');
+    const autoResolvedColor =
+        !lossless && options.outputMode === 'auto' && pageOverride.outputModeOverride === undefined && resolvedOutputMode === 'color';
     const hasBinaryLayer = outputMode === 'auto' || outputMode === 'bw' || outputMode === 'mixed';
     const dewarpRequested = !lossless && experimental.autoDewarp;
-    const despeckleLevel = !lossless && hasBinaryLayer
-        ? resolveScanCleanupDespeckleLevel(options)
-        : 'off';
+    const despeckleLevel = !lossless && hasBinaryLayer ? resolveScanCleanupDespeckleLevel(options) : 'off';
     const configuredLayout = resolveScanCleanupPageLayout(options.layoutMode, pageOverride.layoutOverride);
-    const layout = configuredLayout !== 'auto' || pageOverride.manualSplit !== null
-        ? configuredLayout
-        : observedLayout === 'single-uncut-page'
-            ? 'force-single'
-            : observedLayout === 'two-page-spread' && automaticSplit !== undefined
+    const layout =
+        configuredLayout !== 'auto' || pageOverride.manualSplit !== null
+            ? configuredLayout
+            : observedLayout === 'single-uncut-page'
+              ? 'force-single'
+              : observedLayout === 'two-page-spread' && automaticSplit !== undefined
                 ? 'force-two-page'
                 : observedLayout === 'page-with-offcut' && automaticSplit !== undefined
-                    ? 'page-with-offcut'
-                    // A split label without its normalized cutter is not a render
+                  ? 'page-with-offcut'
+                  : // A split label without its normalized cutter is not a render
                     // plan. Re-running only the label at another DPI can select a
                     // different gutter and delete real page content.
-                    : 'auto';
+                    'auto';
     return {
         dpi,
         sourceDpi,
@@ -424,9 +392,7 @@ export function resolveEffectiveScanCleanupOptions({
         // content rather than paper plus ink. Normalizing it would make preview
         // differ from the unchanged compact source objects final assembly keeps.
         // Explicit Color remains user-controlled and may normalize.
-        normalizeIllumination: !lossless
-            && !autoResolvedColor
-            && (options.normalizeIllumination ?? true),
+        normalizeIllumination: !lossless && !autoResolvedColor && (options.normalizeIllumination ?? true),
         despeckle: despeckleLevel !== 'off',
         despeckleLevel,
         outputMode,
@@ -441,9 +407,7 @@ export function resolveEffectiveScanCleanupOptions({
         ...(facingPairGeometry ? {facingPairGeometry: true} : {}),
         manualSplit: pageOverride.manualSplit,
         ...(automaticSplit === undefined ? {} : {automaticSplit}),
-        ...(pageOverride.manualSkewDegrees === undefined
-            ? {}
-            : {manualSkewDegrees: pageOverride.manualSkewDegrees}),
+        ...(pageOverride.manualSkewDegrees === undefined ? {} : {manualSkewDegrees: pageOverride.manualSkewDegrees}),
         manualContentBoxes: pageOverride.manualContentBoxes ?? {},
         ...(automaticContentBoxes === undefined ? {} : {automaticContentBoxes}),
         ...(automaticSkewDegrees === undefined ? {} : {automaticSkewDegrees}),
@@ -459,9 +423,7 @@ export function resolveEffectiveScanCleanupOptions({
         margins: {...resolveScanCleanupMarginsMm(options.marginsMm, pageOverride)},
         experimental: {
             autoDewarp: dewarpRequested,
-            ...(dewarpRequested && experimental.autoDewarpDepth !== undefined
-                ? {autoDewarpDepth: experimental.autoDewarpDepth}
-                : {}),
+            ...(dewarpRequested && experimental.autoDewarpDepth !== undefined ? {autoDewarpDepth: experimental.autoDewarpDepth} : {}),
         },
         rotationDegrees: pageOverride.rotationDegrees,
         excluded: pageOverride.excluded,

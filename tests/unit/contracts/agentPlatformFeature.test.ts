@@ -1,11 +1,7 @@
-import {
-    describe, expect, it, vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import * as v from 'valibot';
 import {AGENT_PLATFORM_FEATURE} from '@contracts/agentPlatformFeature';
-import {
-    ASSISTANT_INSTANCES_SCHEMA, type IAssistantState, type IAssistantItem,
-} from '@contracts/assistant';
+import {ASSISTANT_INSTANCES_SCHEMA, type IAssistantState, type IAssistantItem} from '@contracts/assistant';
 import {requireIsoTimestamp} from '@contracts/timestamps';
 import {createPlatformFeaturePreloadClient} from '@electron/preload/ipcClient';
 import type {IpcRenderer} from 'electron';
@@ -37,28 +33,32 @@ function createAssistantState(): IAssistantState {
         enabled: true,
         selection,
 
-        instances: [{
-            id: 'codex_proxy',
-            driver: 'codex',
-            label: 'Codex · Proxy',
-            enabled: true,
-            state: 'ready',
-            auth: 'authenticated',
-            binaryPath: '/bin/codex',
-            version: '1.0',
-            homePath: '/homes/proxy',
-            customEndpoint: true,
-            account: {type: 'apiKey'},
-            models: [{
-                id: 'gpt-5.4',
-                label: 'GPT 5.4',
-            }],
-            defaultModel: 'gpt-5.4',
-            checkedAt: requireIsoTimestamp('2026-11-12T00:00:00.000Z'),
+        instances: [
+            {
+                id: 'codex_proxy',
+                driver: 'codex',
+                label: 'Codex · Proxy',
+                enabled: true,
+                state: 'ready',
+                auth: 'authenticated',
+                binaryPath: '/bin/codex',
+                version: '1.0',
+                homePath: '/homes/proxy',
+                customEndpoint: true,
+                account: {type: 'apiKey'},
+                models: [
+                    {
+                        id: 'gpt-5.4',
+                        label: 'GPT 5.4',
+                    },
+                ],
+                defaultModel: 'gpt-5.4',
+                checkedAt: requireIsoTimestamp('2026-11-12T00:00:00.000Z'),
 
-            canSignIn: true,
-            loginPending: false,
-        }],
+                canSignIn: true,
+                loginPending: false,
+            },
+        ],
         chat: {
             sessionKey: 'codex_proxy:document:a',
             scope,
@@ -69,73 +69,100 @@ function createAssistantState(): IAssistantState {
         },
     };
 }
-const {
-    methods, events, invokeChannels: channels,
-} = AGENT_PLATFORM_FEATURE;
+const {methods, events, invokeChannels: channels} = AGENT_PLATFORM_FEATURE;
 
 describe('Agent platform feature with assistant instances', () => {
     it('exposes the complete caller method and event set', () => {
-
-        expect(AGENT_PLATFORM_FEATURE.platformDescriptors.capabilities).toEqual([{
-            path: ['agent'],
-            required: {
-                browser: true,
-                electron: true,
+        expect(AGENT_PLATFORM_FEATURE.platformDescriptors.capabilities).toEqual([
+            {
+                path: ['agent'],
+                required: {
+                    browser: true,
+                    electron: true,
+                },
+                manifestPath: ['agent'],
             },
-            manifestPath: ['agent'],
-        }]);
+        ]);
         expect(AGENT_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(17);
     });
     it('reconstructs state and nested instances and items at the main IPC boundary', () => {
         const state = createAssistantState();
-        expect(v.parse(methods.getAssistantState.ipc.result, {
-            ...state,
-            ignored: true,
-            instances: state.instances.map(instance => ({
-                ...instance,
+        expect(
+            v.parse(methods.getAssistantState.ipc.result, {
+                ...state,
                 ignored: true,
-            })),
-            chat: {
-                ...state.chat,
-                items: [{
-                    ...item,
+                instances: state.instances.map((instance) => ({
+                    ...instance,
                     ignored: true,
-                }],
-            },
-        })).toEqual(state);
-        expect(() => v.parse(methods.getAssistantState.ipc.result, {
-            ...state,
-            instances: [null],
-        })).toThrow('invalid assistant state');
+                })),
+                chat: {
+                    ...state.chat,
+                    items: [
+                        {
+                            ...item,
+                            ignored: true,
+                        },
+                    ],
+                },
+            }),
+        ).toEqual(state);
+        expect(() =>
+            v.parse(methods.getAssistantState.ipc.result, {
+                ...state,
+                instances: [null],
+            }),
+        ).toThrow('invalid assistant state');
     });
     it('decodes required instance selection and chat/login request payloads', () => {
-        expect(v.parse(methods.sendAssistantMessage.ipc.args, [{
-            text: 'Inspect',
-            scope,
-            selection,
-        }])).toEqual([{
-            text: 'Inspect',
-            scope,
-            selection,
-        }]);
-        expect(() => v.parse(methods.sendAssistantMessage.ipc.args, [{
-            text: 'Inspect',
-            scope,
-        }])).toThrow();
-        expect(v.parse(methods.interruptAssistant.ipc.args, [{
-            scope,
-            instanceId: 'codex_proxy',
-        }])).toEqual([{
-            scope,
-            instanceId: 'codex_proxy',
-        }]);
-        expect(v.parse(methods.startAssistantLogin.ipc.args, [{
-            instanceId: 'codex_proxy',
-            mode: 'device-code',
-        }])).toEqual([{
-            instanceId: 'codex_proxy',
-            mode: 'device-code',
-        }]);
+        expect(
+            v.parse(methods.sendAssistantMessage.ipc.args, [
+                {
+                    text: 'Inspect',
+                    scope,
+                    selection,
+                },
+            ]),
+        ).toEqual([
+            {
+                text: 'Inspect',
+                scope,
+                selection,
+            },
+        ]);
+        expect(() =>
+            v.parse(methods.sendAssistantMessage.ipc.args, [
+                {
+                    text: 'Inspect',
+                    scope,
+                },
+            ]),
+        ).toThrow();
+        expect(
+            v.parse(methods.interruptAssistant.ipc.args, [
+                {
+                    scope,
+                    instanceId: 'codex_proxy',
+                },
+            ]),
+        ).toEqual([
+            {
+                scope,
+                instanceId: 'codex_proxy',
+            },
+        ]);
+        expect(
+            v.parse(methods.startAssistantLogin.ipc.args, [
+                {
+                    instanceId: 'codex_proxy',
+                    mode: 'device-code',
+                },
+            ]),
+        ).toEqual([
+            {
+                instanceId: 'codex_proxy',
+                mode: 'device-code',
+            },
+        ]);
         expect(() => v.parse(methods.cancelAssistantLogin.ipc.args, [])).toThrow();
     });
     it('reconstructs operation, login and instance-save results', () => {
@@ -146,34 +173,40 @@ describe('Agent platform feature with assistant instances', () => {
             retryable: false,
             details: {timestamp: 0},
         };
-        expect(v.parse(methods.sendAssistantMessage.ipc.result, {
-            ok: false,
-            state,
-            error,
-            ignored: true,
-        })).toEqual({
+        expect(
+            v.parse(methods.sendAssistantMessage.ipc.result, {
+                ok: false,
+                state,
+                error,
+                ignored: true,
+            }),
+        ).toEqual({
             ok: false,
             state,
             error,
         });
-        expect(v.parse(methods.startAssistantLogin.ipc.result, {
-            ok: true,
-            state,
-            authUrl: 'https://auth.example.test',
-            userCode: 'ABCD',
-            ignored: true,
-        })).toEqual({
+        expect(
+            v.parse(methods.startAssistantLogin.ipc.result, {
+                ok: true,
+                state,
+                authUrl: 'https://auth.example.test',
+                userCode: 'ABCD',
+                ignored: true,
+            }),
+        ).toEqual({
             ok: true,
             state,
             authUrl: 'https://auth.example.test',
             userCode: 'ABCD',
         });
-        expect(v.parse(methods.saveAssistantInstances.ipc.result, {
-            ok: true,
-            instances: [],
-            notices: [],
-            ignored: true,
-        })).toEqual({
+        expect(
+            v.parse(methods.saveAssistantInstances.ipc.result, {
+                ok: true,
+                instances: [],
+                notices: [],
+                ignored: true,
+            }),
+        ).toEqual({
             ok: true,
             instances: [],
             notices: [],
@@ -212,20 +245,26 @@ describe('Agent platform feature with assistant instances', () => {
                 },
             },
         ];
-        for (const payload of payloads) expect(v.parse(events.onAssistantEvent.payload, payload)).toEqual(payload);
+        for (const payload of payloads) {
+            expect(v.parse(events.onAssistantEvent.payload, payload)).toEqual(payload);
+        }
         expect(() => v.parse(events.onAssistantEvent.payload, {type: 'heartbeat'})).toThrow('invalid assistant event');
-        expect(() => v.parse(events.onAssistantEvent.payload, {
-            type: 'item-delta',
-            delta: 'late',
-        })).toThrow();
-        expect(() => v.parse(events.onAssistantEvent.payload, {
-            type: 'item',
-            sessionKey: 'scope',
-            item: {
-                ...item,
-                status: 'hung',
-            },
-        })).toThrow();
+        expect(() =>
+            v.parse(events.onAssistantEvent.payload, {
+                type: 'item-delta',
+                delta: 'late',
+            }),
+        ).toThrow();
+        expect(() =>
+            v.parse(events.onAssistantEvent.payload, {
+                type: 'item',
+                sessionKey: 'scope',
+                item: {
+                    ...item,
+                    status: 'hung',
+                },
+            }),
+        ).toThrow();
     });
     it('validates instance identity and preserves redaction metadata', () => {
         const config = {
@@ -236,30 +275,39 @@ describe('Agent platform feature with assistant instances', () => {
             launchArgs: '',
             launchArgsSecret: true,
             launchArgsConfigured: true,
-            environment: [{
-                name: 'API_KEY',
-                value: '',
-                secret: true,
-                configured: true,
-            }],
+            environment: [
+                {
+                    name: 'API_KEY',
+                    value: '',
+                    secret: true,
+                    configured: true,
+                },
+            ],
         };
         expect(v.parse(ASSISTANT_INSTANCES_SCHEMA, [config])).toEqual([config]);
-        expect(() => v.parse(ASSISTANT_INSTANCES_SCHEMA, [
-            config,
-            config,
-        ])).toThrow('unique');
-        expect(() => v.parse(ASSISTANT_INSTANCES_SCHEMA, [{
-            ...config,
-            id: '../escape',
-        }])).toThrow();
-        expect(() => v.parse(ASSISTANT_INSTANCES_SCHEMA, [{
-            ...config,
-            environment: [{
-                name: 'INVALID NAME',
-                value: '',
-                secret: false,
-            }],
-        }])).toThrow();
+        expect(() => v.parse(ASSISTANT_INSTANCES_SCHEMA, [config, config])).toThrow('unique');
+        expect(() =>
+            v.parse(ASSISTANT_INSTANCES_SCHEMA, [
+                {
+                    ...config,
+                    id: '../escape',
+                },
+            ]),
+        ).toThrow();
+        expect(() =>
+            v.parse(ASSISTANT_INSTANCES_SCHEMA, [
+                {
+                    ...config,
+                    environment: [
+                        {
+                            name: 'INVALID NAME',
+                            value: '',
+                            secret: false,
+                        },
+                    ],
+                },
+            ]),
+        ).toThrow();
     });
     it('forwards trusted main results through preload unchanged', async () => {
         const state = createAssistantState();

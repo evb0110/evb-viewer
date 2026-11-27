@@ -25,14 +25,18 @@ export interface ICodexCliInfo {
     minimumVersion: string;
 }
 export async function resolveCodexCliPath(env?: NodeJS.ProcessEnv) {
-    return resolveInstalledAssistantExecutable('codex', env ?? await getAssistantShellEnvironment());
+    return resolveInstalledAssistantExecutable('codex', env ?? (await getAssistantShellEnvironment()));
 }
 // Codex reports a failure, including a timeout or a launch that never ran, as a
 // result rather than an error, so callers can show what the command printed.
-export async function runCodexCli(codexPath: string, args: string[], options: {env?: NodeJS.ProcessEnv} = {}): Promise<ICodexCliCommandResult> {
+export async function runCodexCli(
+    codexPath: string,
+    args: string[],
+    options: {env?: NodeJS.ProcessEnv} = {},
+): Promise<ICodexCliCommandResult> {
     const env = {
         NO_COLOR: '1',
-        ...await getAssistantShellEnvironment(),
+        ...(await getAssistantShellEnvironment()),
         ...options.env,
     };
     try {
@@ -57,9 +61,7 @@ export async function runCodexCli(codexPath: string, args: string[], options: {e
         const failed = error instanceof NativeProcessError ? error : null;
         const captured = error as {stdout?: string; stderr?: string} | null | undefined;
         const message = getErrorMessage(error);
-        const diagnostic = failed
-            ? failed.stderr
-            : captured?.stderr ? `${captured.stderr.trimEnd()}\n${message}` : message;
+        const diagnostic = failed ? failed.stderr : captured?.stderr ? `${captured.stderr.trimEnd()}\n${message}` : message;
         const unproven = getUnprovenNativeTerminationDetail(error);
         return {
             ok: false,
@@ -75,8 +77,8 @@ function parseCodexVersion(stdout: string) {
 }
 
 function compareVersions(left: string, right: string) {
-    const leftParts = left.split('.').map(part => Number.parseInt(part, 10));
-    const rightParts = right.split('.').map(part => Number.parseInt(part, 10));
+    const leftParts = left.split('.').map((part) => Number.parseInt(part, 10));
+    const rightParts = right.split('.').map((part) => Number.parseInt(part, 10));
     for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index += 1) {
         const rawLeftPart = leftParts[index];
         const rawRightPart = rightParts[index];
@@ -119,22 +121,26 @@ async function getCodexVersion(codexPath: string) {
     if (identity && codexCliVersion?.identity === identity) {
         return codexCliVersion.result;
     }
-    const result = runCodexCli(codexPath, ['--version']).then(versionResult => {
-        const version = versionResult.ok ? parseCodexVersion(versionResult.stdout || versionResult.stderr) : null;
-        if (version === null && codexCliVersion?.result === result) {
-            codexCliVersion = null;
-        }
-        return version;
-    }).catch((error: unknown) => {
-        if (codexCliVersion?.result === result) {
-            codexCliVersion = null;
-        }
-        throw error;
-    });
-    codexCliVersion = identity ? {
-        identity,
-        result,
-    } : null;
+    const result = runCodexCli(codexPath, ['--version'])
+        .then((versionResult) => {
+            const version = versionResult.ok ? parseCodexVersion(versionResult.stdout || versionResult.stderr) : null;
+            if (version === null && codexCliVersion?.result === result) {
+                codexCliVersion = null;
+            }
+            return version;
+        })
+        .catch((error: unknown) => {
+            if (codexCliVersion?.result === result) {
+                codexCliVersion = null;
+            }
+            throw error;
+        });
+    codexCliVersion = identity
+        ? {
+              identity,
+              result,
+          }
+        : null;
     return result;
 }
 

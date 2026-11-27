@@ -1,24 +1,7 @@
-import {
-    mkdirSync,
-    mkdtempSync,
-    readFileSync,
-    readdirSync,
-    rmSync,
-    statSync,
-    unlinkSync,
-    utimesSync,
-    writeFileSync,
-} from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync} from 'node:fs';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import type * as FsPromises from 'node:fs/promises';
 import {createTestEventSender} from '@tests/helpers/electronEventEmitterHarness';
 
@@ -32,7 +15,7 @@ await import('@electron/features/djvu/main/viewing');
 await import('@electron/features/djvu/main/djvuPageSourceInfoCache');
 
 const mocks = vi.hoisted(() => {
-    const app = { getPath: vi.fn() };
+    const app = {getPath: vi.fn()};
     const settings = {rememberDocumentView: true};
     const logger = {
         debug: vi.fn(),
@@ -67,8 +50,8 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock('@electron/settings', () => ({loadSettings: async () => mocks.settings}));
-vi.mock('electron', () => ({ app: mocks.app }));
-vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => mocks.logger }));
+vi.mock('electron', () => ({app: mocks.app}));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 vi.mock('fs/promises', async (importOriginal) => {
     const actual = await importOriginal<typeof FsPromises>();
     mocks.setActualStat((...args: unknown[]) => actual.stat(...(args as Parameters<typeof actual.stat>)));
@@ -156,28 +139,16 @@ describe('recentFiles persistence', () => {
         await recentFiles.addRecentFile(fileB);
         await recentFiles.addRecentFile(fileA);
 
-        expect((await recentFiles.getRecentFiles()).map(file => file.originalPath)).toEqual([
-            fileA,
-            fileB,
-        ]);
-        expect(recentFiles.getRecentFilesSync()).toEqual([
-            fileA,
-            fileB,
-        ]);
+        expect((await recentFiles.getRecentFiles()).map((file) => file.originalPath)).toEqual([fileA, fileB]);
+        expect(recentFiles.getRecentFilesSync()).toEqual([fileA, fileB]);
 
         recentFiles = await loadRecentFilesModule();
         expect(recentFiles.getRecentFilesSync()).toEqual([]);
 
         await recentFiles.initRecentFilesCache();
 
-        expect(recentFiles.getRecentFilesSync()).toEqual([
-            fileA,
-            fileB,
-        ]);
-        expect((await recentFiles.getRecentFiles()).map(file => file.originalPath)).toEqual([
-            fileA,
-            fileB,
-        ]);
+        expect(recentFiles.getRecentFilesSync()).toEqual([fileA, fileB]);
+        expect((await recentFiles.getRecentFiles()).map((file) => file.originalPath)).toEqual([fileA, fileB]);
     });
 
     it('persists and refreshes modified-time identity for same-size source replacements', async () => {
@@ -210,21 +181,12 @@ describe('recentFiles persistence', () => {
         const fileB = writeFixture('concurrent-beta.pdf');
         let recentFiles = await loadRecentFilesModule();
 
-        await Promise.all([
-            recentFiles.addRecentFile(fileA),
-            recentFiles.addRecentFile(fileB),
-        ]);
+        await Promise.all([recentFiles.addRecentFile(fileA), recentFiles.addRecentFile(fileB)]);
 
-        expect(new Set(recentFiles.getRecentFilesSync())).toEqual(new Set([
-            fileA,
-            fileB,
-        ]));
+        expect(new Set(recentFiles.getRecentFilesSync())).toEqual(new Set([fileA, fileB]));
         recentFiles = await loadRecentFilesModule();
         await recentFiles.initRecentFilesCache();
-        expect(new Set(recentFiles.getRecentFilesSync())).toEqual(new Set([
-            fileA,
-            fileB,
-        ]));
+        expect(new Set(recentFiles.getRecentFilesSync())).toEqual(new Set([fileA, fileB]));
     });
 
     it('persists the original document identity instead of a managed working-copy path', async () => {
@@ -237,7 +199,7 @@ describe('recentFiles persistence', () => {
         await recentFiles.addRecentFile(workingPath, 42);
 
         expect(recentFiles.getRecentFilesSync()).toEqual([originalPath]);
-        expect((await recentFiles.getRecentFiles()).map(file => file.originalPath)).toEqual([originalPath]);
+        expect((await recentFiles.getRecentFiles()).map((file) => file.originalPath)).toEqual([originalPath]);
         await workingCopyStore.setDocumentStoreRootForTests(join(userDataDir, 'store'));
     });
 
@@ -277,9 +239,7 @@ describe('recentFiles persistence', () => {
 
         it('records a closed view while restoration is off, then restores it after opting in', async () => {
             const originalPath = writeFixture('reading.pdf', 'reading bytes');
-            const {
-                recentFiles, readingViews, workingCopyStore,
-            } = await load();
+            const {recentFiles, readingViews, workingCopyStore} = await load();
             const firstOpen = await openWorkingCopy(originalPath, 'first');
             await recentFiles.addRecentFile(firstOpen, 42);
             mocks.settings.rememberDocumentView = false;
@@ -300,9 +260,7 @@ describe('recentFiles persistence', () => {
 
         it('starts a changed source at the defaults', async () => {
             const originalPath = writeFixture('changed.pdf', 'first bytes');
-            const {
-                recentFiles, readingViews, workingCopyStore,
-            } = await load();
+            const {recentFiles, readingViews, workingCopyStore} = await load();
             const firstOpen = await openWorkingCopy(originalPath, 'first');
             await recentFiles.addRecentFile(firstOpen, 42);
             await readingViews.rememberRecentReadingView(firstOpen, readingView, 42);
@@ -317,9 +275,7 @@ describe('recentFiles persistence', () => {
 
         it('does not bring back a removed or cleared entry', async () => {
             const originalPath = writeFixture('forgotten.pdf');
-            const {
-                recentFiles, readingViews, workingCopyStore,
-            } = await load();
+            const {recentFiles, readingViews, workingCopyStore} = await load();
             const workingPath = await openWorkingCopy(originalPath, 'forgotten');
             await recentFiles.addRecentFile(workingPath, 42);
             await recentFiles.removeRecentFile(originalPath);
@@ -343,9 +299,7 @@ describe('recentFiles persistence', () => {
                 sender: createTestEventSender(senderId) as never,
                 senderId,
             };
-            const {
-                sourceModifiedAt, sourceSize,
-            } = await readDjvuSourceRevision(djvuPath);
+            const {sourceModifiedAt, sourceSize} = await readDjvuSourceRevision(djvuPath);
             viewing.adoptDjvuViewingPath(context, djvuPath, {
                 sourceModifiedAt,
                 sourceSize,
@@ -355,9 +309,7 @@ describe('recentFiles persistence', () => {
 
         it('reopens an unchanged DjVu at the view its sender left, for that sender only', async () => {
             const djvuPath = writeFixture('reading.djvu', 'djvu bytes');
-            const {
-                recentFiles, readingViews,
-            } = await load();
+            const {recentFiles, readingViews} = await load();
             const closeFirst = await openDjvu(djvuPath, 42);
             await recentFiles.addRecentFile(djvuPath, 42);
             await readingViews.rememberRecentReadingView(djvuPath, readingView, 7);
@@ -374,9 +326,7 @@ describe('recentFiles persistence', () => {
 
         it('does not remember or restore a DjVu view over bytes changed since its open', async () => {
             const djvuPath = writeFixture('changed.djvu', 'first djvu bytes');
-            const {
-                recentFiles, readingViews,
-            } = await load();
+            const {recentFiles, readingViews} = await load();
             const closeFirst = await openDjvu(djvuPath, 42);
             await recentFiles.addRecentFile(djvuPath, 42);
             writeFileSync(djvuPath, 'replaced with longer djvu bytes');
@@ -396,9 +346,7 @@ describe('recentFiles persistence', () => {
 
         it('remembers no DjVu view while two live opens of it read different bytes, until both are released', async () => {
             const djvuPath = writeFixture('ambiguous.djvu', 'first djvu bytes');
-            const {
-                recentFiles, readingViews,
-            } = await load();
+            const {recentFiles, readingViews} = await load();
             const closeFirst = await openDjvu(djvuPath, 42);
             await recentFiles.addRecentFile(djvuPath, 42);
             writeFileSync(djvuPath, 'replaced with longer djvu bytes');
@@ -417,30 +365,24 @@ describe('recentFiles persistence', () => {
         });
 
         it.each([
-            [
-                'a negative page',
-                {currentPage: -3},
-            ],
-            [
-                'a page past the document',
-                {currentPage: 41},
-            ],
+            ['a negative page', {currentPage: -3}],
+            ['a page past the document', {currentPage: 41}],
             [
                 'an anchor past the document',
-                {anchor: {
-                    page: 41,
-                    pageXFraction: 0,
-                    pageYFraction: 0,
-                    viewportXFraction: 0,
-                    viewportYFraction: 0,
-                    affinity: 'start',
-                }},
+                {
+                    anchor: {
+                        page: 41,
+                        pageXFraction: 0,
+                        pageYFraction: 0,
+                        viewportXFraction: 0,
+                        viewportYFraction: 0,
+                        affinity: 'start',
+                    },
+                },
             ],
         ])('forgets a stored view with %s over unchanged bytes and keeps its entry', async (_label, edit) => {
             const originalPath = writeFixture('stored.pdf', 'stored bytes');
-            const {
-                recentFiles, readingViews, workingCopyStore,
-            } = await load();
+            const {recentFiles, readingViews, workingCopyStore} = await load();
             const workingPath = await openWorkingCopy(originalPath, 'stored');
             await recentFiles.addRecentFile(workingPath, 42);
             await readingViews.rememberRecentReadingView(workingPath, readingView, 42);
@@ -452,28 +394,17 @@ describe('recentFiles persistence', () => {
             writeFileSync(recentFilesJsonPath(), JSON.stringify(stored));
 
             expect(await readingViews.getRecentReadingView(workingPath, 42)).toBeNull();
-            expect((await recentFiles.getRecentFiles()).map(file => file.originalPath)).toEqual([originalPath]);
+            expect((await recentFiles.getRecentFiles()).map((file) => file.originalPath)).toEqual([originalPath]);
             await workingCopyStore.setDocumentStoreRootForTests(join(userDataDir, 'store'));
         });
 
         it.each([
-            [
-                'a negative source size',
-                '"sourceSize":-1',
-            ],
-            [
-                'a fractional source size',
-                '"sourceSize":1.5',
-            ],
-            [
-                'an infinite modification time',
-                '"sourceModifiedAtMs":1e400',
-            ],
+            ['a negative source size', '"sourceSize":-1'],
+            ['a fractional source size', '"sourceSize":1.5'],
+            ['an infinite modification time', '"sourceModifiedAtMs":1e400'],
         ])('drops a stored view with %s and keeps its entry', async (_label, witness) => {
             const originalPath = writeFixture('witness.pdf', 'witness bytes');
-            const {
-                recentFiles, readingViews, workingCopyStore,
-            } = await load();
+            const {recentFiles, readingViews, workingCopyStore} = await load();
             const workingPath = await openWorkingCopy(originalPath, 'witness');
             await recentFiles.addRecentFile(workingPath, 42);
             await readingViews.rememberRecentReadingView(workingPath, readingView, 42);
@@ -484,47 +415,51 @@ describe('recentFiles persistence', () => {
             // The next write saves what the store admitted.
             await recentFiles.addRecentFile(workingPath, 42);
             expect(storedReadingViews()).toEqual([undefined]);
-            expect((await recentFiles.getRecentFiles()).map(file => file.originalPath)).toEqual([originalPath]);
+            expect((await recentFiles.getRecentFiles()).map((file) => file.originalPath)).toEqual([originalPath]);
             await workingCopyStore.setDocumentStoreRootForTests(join(userDataDir, 'store'));
         });
 
         it('binds a view left after a Save to the saved file, so it reopens where the reader left it', async () => {
             const originalPath = writeFixture('saved.pdf', 'saved bytes');
-            const {
-                recentFiles, readingViews, workingCopyStore,
-            } = await load();
+            const {recentFiles, readingViews, workingCopyStore} = await load();
             const workingPath = await openWorkingCopy(originalPath, 'saved');
             await recentFiles.addRecentFile(workingPath, 42);
             const entry = workingCopyStore.requireOpenDocument(workingPath);
             const edited = writeFixture('edited.pdf', 'edited and longer bytes');
-            expect(await workingCopyStore.saveOpenDocument(entry, '1' as never, {commit: {kind: 'rewrite', source: edited}})).toMatchObject({status: 'saved'});
+            expect(await workingCopyStore.saveOpenDocument(entry, '1' as never, {commit: {kind: 'rewrite', source: edited}})).toMatchObject(
+                {status: 'saved'},
+            );
             await readingViews.rememberRecentReadingView(workingPath, readingView, 42);
             await workingCopyStore.discardOpenDocument(entry);
 
             expect(readFileSync(originalPath, 'utf8')).toBe('edited and longer bytes');
-            expect(await readingViews.readRecentReadingViewOf({
-                originalPath,
-                ...readingViews.readingViewSourceOf(statSync(originalPath, {bigint: true})),
-            })).toEqual(readingView);
+            expect(
+                await readingViews.readRecentReadingViewOf({
+                    originalPath,
+                    ...readingViews.readingViewSourceOf(statSync(originalPath, {bigint: true})),
+                }),
+            ).toEqual(readingView);
             await workingCopyStore.setDocumentStoreRootForTests(join(userDataDir, 'store'));
         });
 
-        it('restores a view through the opening preflight\'s own stat of a source with a sub-millisecond modification time', async () => {
+        it("restores a view through the opening preflight's own stat of a source with a sub-millisecond modification time", async () => {
             // A freshly written file keeps the file system's nanoseconds; `utimes` would round them to microseconds.
             const originalPath = writeFixture('fractional.pdf', 'fractional bytes');
-            const {
-                recentFiles, readingViews, workingCopyStore,
-            } = await load();
+            const {recentFiles, readingViews, workingCopyStore} = await load();
             const workingPath = await openWorkingCopy(originalPath, 'fractional');
             await recentFiles.addRecentFile(workingPath, 42);
             await readingViews.rememberRecentReadingView(workingPath, readingView, 42);
             await workingCopyStore.discardOpenDocument(workingCopyStore.requireOpenDocument(workingPath));
 
-            expect(Number.isInteger(JSON.parse(readFileSync(recentFilesJsonPath(), 'utf8')).files[0].readingView.sourceModifiedAtMs)).toBe(false);
-            expect(await readingViews.readRecentReadingViewOf({
-                originalPath,
-                ...readingViews.readingViewSourceOf(statSync(originalPath, {bigint: true})),
-            })).toEqual(readingView);
+            expect(Number.isInteger(JSON.parse(readFileSync(recentFilesJsonPath(), 'utf8')).files[0].readingView.sourceModifiedAtMs)).toBe(
+                false,
+            );
+            expect(
+                await readingViews.readRecentReadingViewOf({
+                    originalPath,
+                    ...readingViews.readingViewSourceOf(statSync(originalPath, {bigint: true})),
+                }),
+            ).toEqual(readingView);
             await workingCopyStore.setDocumentStoreRootForTests(join(userDataDir, 'store'));
         });
     });
@@ -556,15 +491,20 @@ describe('recentFiles persistence', () => {
         const recentFiles = await loadRecentFilesModule();
         const workingPath = await closedDocumentRef();
         const storagePath = join(userDataDir, 'recentFiles.json');
-        writeFileSync(storagePath, JSON.stringify({
-            version: 1,
-            files: [{
-                originalPath: workingPath,
-                fileName: 'internal.pdf',
-                timestamp: 123,
-                fileSize: 7,
-            }],
-        }));
+        writeFileSync(
+            storagePath,
+            JSON.stringify({
+                version: 1,
+                files: [
+                    {
+                        originalPath: workingPath,
+                        fileName: 'internal.pdf',
+                        timestamp: 123,
+                        fileSize: 7,
+                    },
+                ],
+            }),
+        );
 
         await expect(recentFiles.getRecentFiles()).resolves.toEqual([]);
         expect(JSON.parse(readFileSync(storagePath, 'utf-8'))).toEqual({
@@ -600,14 +540,16 @@ describe('recentFiles persistence', () => {
 
         const recentFiles = await loadRecentFilesModule();
 
-        await expect(recentFiles.getRecentFiles()).resolves.toEqual([{
-            originalPath: validPath,
-            backend: 'electron',
-            fileName: 'missing-compatible.pdf',
-            timestamp: 123,
-            fileSize: 7,
-            modifiedAt: 122,
-        }]);
+        await expect(recentFiles.getRecentFiles()).resolves.toEqual([
+            {
+                originalPath: validPath,
+                backend: 'electron',
+                fileName: 'missing-compatible.pdf',
+                timestamp: 123,
+                fileSize: 7,
+                modifiedAt: 122,
+            },
+        ]);
         expect(JSON.parse(readFileSync(storagePath, 'utf-8'))).toEqual(persisted);
         expect(mocks.logger.warn).toHaveBeenCalledWith('Dropped invalid recent file entry 1');
     });
@@ -617,21 +559,30 @@ describe('recentFiles persistence', () => {
         const recentFiles = await loadRecentFilesModule();
         const workingCopyStore = await import('@electron/file-access/documentStore');
         const workingPath = await openDocument(originalPath);
-        writeFileSync(join(userDataDir, 'recentFiles.json'), JSON.stringify({
-            version: 1,
-            files: [{
-                originalPath: workingPath,
+        writeFileSync(
+            join(userDataDir, 'recentFiles.json'),
+            JSON.stringify({
+                version: 1,
+                files: [
+                    {
+                        originalPath: workingPath,
+                        fileName: 'historical-original.pdf',
+                        timestamp: 123,
+                        fileSize: 7,
+                    },
+                ],
+            }),
+        );
+        await expect(recentFiles.getRecentFiles()).resolves.toMatchObject([
+            {
+                originalPath,
                 fileName: 'historical-original.pdf',
-                timestamp: 123,
-                fileSize: 7,
-            }],
-        }));
-        await expect(recentFiles.getRecentFiles()).resolves.toMatchObject([{
-            originalPath,
-            fileName: 'historical-original.pdf',
-        }]);
-        const persisted = JSON.parse(readFileSync(join(userDataDir, 'recentFiles.json'), 'utf-8')) as {files: Array<{originalPath: string}>};
-        expect(persisted.files.map(file => file.originalPath)).toEqual([originalPath]);
+            },
+        ]);
+        const persisted = JSON.parse(readFileSync(join(userDataDir, 'recentFiles.json'), 'utf-8')) as {
+            files: Array<{originalPath: string}>;
+        };
+        expect(persisted.files.map((file) => file.originalPath)).toEqual([originalPath]);
         await workingCopyStore.setDocumentStoreRootForTests(join(userDataDir, 'store'));
     });
 
@@ -656,10 +607,7 @@ describe('recentFiles persistence', () => {
         await expect(recentFiles.addRecentFile(filePath)).rejects.toThrow();
 
         expect(readdirSync(storagePath)).toEqual([]);
-        expect(readdirSync(userDataDir).sort()).toEqual([
-            'atomic-failure.pdf',
-            'recentFiles.json',
-        ]);
+        expect(readdirSync(userDataDir).sort()).toEqual(['atomic-failure.pdf', 'recentFiles.json']);
     });
 
     it('quarantines malformed persisted JSON and writes a clean empty store', async () => {
@@ -673,7 +621,7 @@ describe('recentFiles persistence', () => {
             version: 1,
             files: [],
         });
-        expect(readdirSync(userDataDir).some(name => /^recentFiles\.json\.\d+\.corrupt$/u.test(name))).toBe(true);
+        expect(readdirSync(userDataDir).some((name) => /^recentFiles\.json\.\d+\.corrupt$/u.test(name))).toBe(true);
         expect(mocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining('Quarantined corrupt recent-files state'));
     });
 
@@ -689,41 +637,38 @@ describe('recentFiles persistence', () => {
     it('dedupes persisted recent files by path when rebuilding the cache from disk', async () => {
         const fileA = writeFixture('alpha.pdf');
         const fileB = writeFixture('beta.pdf');
-        writeFileSync(join(userDataDir, 'recentFiles.json'), JSON.stringify({
-            version: 1,
-            files: [
-                {
-                    originalPath: fileA,
-                    fileName: 'alpha-new.pdf',
-                    timestamp: 3,
-                    fileSize: 5,
-                },
-                {
-                    originalPath: fileB,
-                    fileName: 'beta.pdf',
-                    timestamp: 2,
-                    fileSize: 4,
-                },
-                {
-                    originalPath: fileA,
-                    fileName: 'alpha-old.pdf',
-                    timestamp: 1,
-                    fileSize: 5,
-                },
-            ],
-        }));
+        writeFileSync(
+            join(userDataDir, 'recentFiles.json'),
+            JSON.stringify({
+                version: 1,
+                files: [
+                    {
+                        originalPath: fileA,
+                        fileName: 'alpha-new.pdf',
+                        timestamp: 3,
+                        fileSize: 5,
+                    },
+                    {
+                        originalPath: fileB,
+                        fileName: 'beta.pdf',
+                        timestamp: 2,
+                        fileSize: 4,
+                    },
+                    {
+                        originalPath: fileA,
+                        fileName: 'alpha-old.pdf',
+                        timestamp: 1,
+                        fileSize: 5,
+                    },
+                ],
+            }),
+        );
 
         const recentFiles = await loadRecentFilesModule();
         await recentFiles.initRecentFilesCache();
 
-        expect(recentFiles.getRecentFilesSync()).toEqual([
-            fileA,
-            fileB,
-        ]);
-        expect((await recentFiles.getRecentFiles()).map(file => file.fileName)).toEqual([
-            'alpha-new.pdf',
-            'beta.pdf',
-        ]);
+        expect(recentFiles.getRecentFilesSync()).toEqual([fileA, fileB]);
+        expect((await recentFiles.getRecentFiles()).map((file) => file.fileName)).toEqual(['alpha-new.pdf', 'beta.pdf']);
     });
 
     it('preserves missing files when rebuilding the cache from disk', async () => {
@@ -753,53 +698,43 @@ describe('recentFiles persistence', () => {
         const visibleB = writeFixture('visible-b.pdf');
         const missingPath = join(userDataDir, 'missing-output.pdf');
         const storagePath = join(userDataDir, 'recentFiles.json');
-        writeFileSync(storagePath, JSON.stringify({
-            version: 1,
-            files: [
-                {
-                    originalPath: visibleA,
-                    fileName: 'visible-a.pdf',
-                    timestamp: 3,
-                    fileSize: 1,
-                },
-                {
-                    originalPath: missingPath,
-                    fileName: 'missing-output.pdf',
-                    timestamp: 2,
-                    fileSize: 1,
-                },
-                {
-                    originalPath: visibleB,
-                    fileName: 'visible-b.pdf',
-                    timestamp: 1,
-                    fileSize: 1,
-                },
-            ],
-        }));
+        writeFileSync(
+            storagePath,
+            JSON.stringify({
+                version: 1,
+                files: [
+                    {
+                        originalPath: visibleA,
+                        fileName: 'visible-a.pdf',
+                        timestamp: 3,
+                        fileSize: 1,
+                    },
+                    {
+                        originalPath: missingPath,
+                        fileName: 'missing-output.pdf',
+                        timestamp: 2,
+                        fileSize: 1,
+                    },
+                    {
+                        originalPath: visibleB,
+                        fileName: 'visible-b.pdf',
+                        timestamp: 1,
+                        fileSize: 1,
+                    },
+                ],
+            }),
+        );
         const recentFiles = await loadRecentFilesModule();
 
         await recentFiles.initRecentFilesCache();
-        expect(recentFiles.getRecentFilesSync()).toEqual([
-            visibleA,
-            missingPath,
-            visibleB,
-        ]);
+        expect(recentFiles.getRecentFilesSync()).toEqual([visibleA, missingPath, visibleB]);
 
         await recentFiles.removeRecentFile(visibleA);
 
-        expect(recentFiles.getRecentFilesSync()).toEqual([
-            missingPath,
-            visibleB,
-        ]);
-        expect((await recentFiles.getRecentFiles()).map(file => file.originalPath)).toEqual([
-            missingPath,
-            visibleB,
-        ]);
+        expect(recentFiles.getRecentFilesSync()).toEqual([missingPath, visibleB]);
+        expect((await recentFiles.getRecentFiles()).map((file) => file.originalPath)).toEqual([missingPath, visibleB]);
         const persisted = JSON.parse(readFileSync(storagePath, 'utf-8')) as {files: Array<{originalPath: string}>};
-        expect(persisted.files.map(file => file.originalPath)).toEqual([
-            missingPath,
-            visibleB,
-        ]);
+        expect(persisted.files.map((file) => file.originalPath)).toEqual([missingPath, visibleB]);
 
         // Removing an entry that is not there leaves the saved file untouched.
         const savedBytes = readFileSync(storagePath, 'utf-8');
@@ -811,21 +746,23 @@ describe('recentFiles persistence', () => {
 
     it('shares one cold refresh across concurrent getters and cache initialization', async () => {
         const filePath = writeFixture('single-flight.pdf');
-        writeFileSync(join(userDataDir, 'recentFiles.json'), JSON.stringify({
-            version: 1,
-            files: [{
-                originalPath: filePath,
-                fileName: 'single-flight.pdf',
-                timestamp: 1,
-                fileSize: 1,
-            }],
-        }));
+        writeFileSync(
+            join(userDataDir, 'recentFiles.json'),
+            JSON.stringify({
+                version: 1,
+                files: [
+                    {
+                        originalPath: filePath,
+                        fileName: 'single-flight.pdf',
+                        timestamp: 1,
+                        fileSize: 1,
+                    },
+                ],
+            }),
+        );
         const recentFiles = await loadRecentFilesModule();
 
-        const [
-            first,
-            second,
-        ] = await Promise.all([
+        const [first, second] = await Promise.all([
             recentFiles.getRecentFiles(),
             recentFiles.getRecentFiles(),
             recentFiles.initRecentFilesCache(),
@@ -837,15 +774,20 @@ describe('recentFiles persistence', () => {
 
     it('does not stat Recent paths again during a fresh TTL hit', async () => {
         const filePath = writeFixture('ttl-hit.pdf');
-        writeFileSync(join(userDataDir, 'recentFiles.json'), JSON.stringify({
-            version: 1,
-            files: [{
-                originalPath: filePath,
-                fileName: 'ttl-hit.pdf',
-                timestamp: 1,
-                fileSize: 1,
-            }],
-        }));
+        writeFileSync(
+            join(userDataDir, 'recentFiles.json'),
+            JSON.stringify({
+                version: 1,
+                files: [
+                    {
+                        originalPath: filePath,
+                        fileName: 'ttl-hit.pdf',
+                        timestamp: 1,
+                        fileSize: 1,
+                    },
+                ],
+            }),
+        );
         const recentFiles = await loadRecentFilesModule();
         await recentFiles.initRecentFilesCache();
         mocks.stat.mockClear();
@@ -860,24 +802,26 @@ describe('recentFiles persistence', () => {
         vi.useFakeTimers();
         vi.setSystemTime(10_000);
         const filePath = writeFixture('ttl-expired.pdf');
-        writeFileSync(join(userDataDir, 'recentFiles.json'), JSON.stringify({
-            version: 1,
-            files: [{
-                originalPath: filePath,
-                fileName: 'ttl-expired.pdf',
-                timestamp: 1,
-                fileSize: 1,
-            }],
-        }));
+        writeFileSync(
+            join(userDataDir, 'recentFiles.json'),
+            JSON.stringify({
+                version: 1,
+                files: [
+                    {
+                        originalPath: filePath,
+                        fileName: 'ttl-expired.pdf',
+                        timestamp: 1,
+                        fileSize: 1,
+                    },
+                ],
+            }),
+        );
         const recentFiles = await loadRecentFilesModule();
         await recentFiles.initRecentFilesCache();
         mocks.stat.mockClear();
         vi.setSystemTime(15_001);
 
-        await Promise.all([
-            recentFiles.getRecentFiles(),
-            recentFiles.getRecentFiles(),
-        ]);
+        await Promise.all([recentFiles.getRecentFiles(), recentFiles.getRecentFiles()]);
 
         expect(mocks.stat).toHaveBeenCalledTimes(1);
     });
@@ -942,23 +886,20 @@ describe('recentFiles persistence', () => {
             join(userDataDir, 'permission-denied.pdf'),
             offlineVolumePath,
         ];
-        writeFileSync(join(userDataDir, 'recentFiles.json'), JSON.stringify({
-            version: 1,
-            files: paths.map((originalPath, index) => ({
-                originalPath,
-                fileName: originalPath.split('/').at(-1),
-                timestamp: index + 1,
-                fileSize: 9,
-            })),
-        }));
+        writeFileSync(
+            join(userDataDir, 'recentFiles.json'),
+            JSON.stringify({
+                version: 1,
+                files: paths.map((originalPath, index) => ({
+                    originalPath,
+                    fileName: originalPath.split('/').at(-1),
+                    timestamp: index + 1,
+                    fileSize: 9,
+                })),
+            }),
+        );
         mocks.stat.mockImplementation((path: unknown) => {
-            const code = path === paths[0]
-                ? 'ENOTDIR'
-                : path === paths[1]
-                    ? 'EIO'
-                    : path === paths[2]
-                        ? 'EACCES'
-                        : 'ENOENT';
+            const code = path === paths[0] ? 'ENOTDIR' : path === paths[1] ? 'EIO' : path === paths[2] ? 'EACCES' : 'ENOENT';
             return Promise.reject(Object.assign(new Error(code), {code}));
         });
 
@@ -974,22 +915,33 @@ describe('recentFiles persistence', () => {
         process.env.EVB_AUTOMATION_BOOTSTRAP_DEV_PROFILE = '1';
         const filePath = writeFixture('bootstrap.pdf');
         const canonicalDir = join(appDataDir, 'EVB Viewer Dev');
-        mkdirSync(canonicalDir, { recursive: true });
-        writeFileSync(join(canonicalDir, 'recentFiles.json'), JSON.stringify({
-            version: 1,
-            files: [{
-                originalPath: filePath,
-                fileName: 'bootstrap.pdf',
-                timestamp: 123,
-                fileSize: 9,
-            }],
-        }, null, 2));
+        mkdirSync(canonicalDir, {recursive: true});
+        writeFileSync(
+            join(canonicalDir, 'recentFiles.json'),
+            JSON.stringify(
+                {
+                    version: 1,
+                    files: [
+                        {
+                            originalPath: filePath,
+                            fileName: 'bootstrap.pdf',
+                            timestamp: 123,
+                            fileSize: 9,
+                        },
+                    ],
+                },
+                null,
+                2,
+            ),
+        );
 
         let recentFiles = await loadRecentFilesModule();
-        expect((await recentFiles.getRecentFiles()).map(file => file.originalPath)).toEqual([filePath]);
+        expect((await recentFiles.getRecentFiles()).map((file) => file.originalPath)).toEqual([filePath]);
 
-        const persisted = JSON.parse(readFileSync(join(userDataDir, 'recentFiles.json'), 'utf-8')) as { files: Array<{ originalPath: string }>; };
-        expect(persisted.files.map(file => file.originalPath)).toEqual([filePath]);
+        const persisted = JSON.parse(readFileSync(join(userDataDir, 'recentFiles.json'), 'utf-8')) as {
+            files: Array<{originalPath: string}>;
+        };
+        expect(persisted.files.map((file) => file.originalPath)).toEqual([filePath]);
 
         await recentFiles.clearRecentFiles();
 
@@ -1007,15 +959,20 @@ describe('recentFiles persistence', () => {
         const statStarted = new Promise<void>((resolve) => {
             resolveStatStarted = resolve;
         });
-        writeFileSync(join(userDataDir, 'recentFiles.json'), JSON.stringify({
-            version: 1,
-            files: [{
-                originalPath: filePath,
-                fileName: 'network-share.pdf',
-                timestamp: 123,
-                fileSize: 9,
-            }],
-        }));
+        writeFileSync(
+            join(userDataDir, 'recentFiles.json'),
+            JSON.stringify({
+                version: 1,
+                files: [
+                    {
+                        originalPath: filePath,
+                        fileName: 'network-share.pdf',
+                        timestamp: 123,
+                        fileSize: 9,
+                    },
+                ],
+            }),
+        );
         mocks.stat.mockImplementation((path: unknown) => {
             if (path === filePath) {
                 resolveStatStarted?.();
@@ -1028,14 +985,14 @@ describe('recentFiles persistence', () => {
         const pendingRecentFiles = recentFiles.getRecentFiles();
         await statStarted;
         await vi.advanceTimersByTimeAsync(1_500);
-        await expect(pendingRecentFiles).resolves.toMatchObject([{
-            originalPath: filePath,
-            fileName: 'network-share.pdf',
-        }]);
+        await expect(pendingRecentFiles).resolves.toMatchObject([
+            {
+                originalPath: filePath,
+                fileName: 'network-share.pdf',
+            },
+        ]);
         expect(recentFiles.getRecentFilesSync()).toEqual([filePath]);
-        expect(mocks.logger.warn).toHaveBeenCalledWith(
-            `Recent file path stat timed out; preserving entry (${filePath})`,
-        );
+        expect(mocks.logger.warn).toHaveBeenCalledWith(`Recent file path stat timed out; preserving entry (${filePath})`);
     });
 
     it('preserves entries when availability checks report directory, I/O, or permission failures', async () => {
@@ -1044,31 +1001,27 @@ describe('recentFiles persistence', () => {
             join(userDataDir, 'io-error.pdf'),
             join(userDataDir, 'permission-denied.pdf'),
         ];
-        writeFileSync(join(userDataDir, 'recentFiles.json'), JSON.stringify({
-            version: 1,
-            files: paths.map((originalPath, index) => ({
-                originalPath,
-                fileName: originalPath.split('/').at(-1),
-                timestamp: index + 1,
-                fileSize: 9,
-            })),
-        }));
+        writeFileSync(
+            join(userDataDir, 'recentFiles.json'),
+            JSON.stringify({
+                version: 1,
+                files: paths.map((originalPath, index) => ({
+                    originalPath,
+                    fileName: originalPath.split('/').at(-1),
+                    timestamp: index + 1,
+                    fileSize: 9,
+                })),
+            }),
+        );
         mocks.stat.mockImplementation((path: unknown) => {
-            const code = path === paths[0]
-                ? 'ENOTDIR'
-                : path === paths[1]
-                    ? 'EIO'
-                    : 'EACCES';
+            const code = path === paths[0] ? 'ENOTDIR' : path === paths[1] ? 'EIO' : 'EACCES';
             return Promise.reject(Object.assign(new Error(code), {code}));
         });
 
         const recentFiles = await loadRecentFilesModule();
-        await expect(recentFiles.getRecentFiles()).resolves.toEqual(
-            paths.map(originalPath => expect.objectContaining({originalPath})),
-        );
+        await expect(recentFiles.getRecentFiles()).resolves.toEqual(paths.map((originalPath) => expect.objectContaining({originalPath})));
         expect(recentFiles.getRecentFilesSync()).toEqual(paths);
-        expect(JSON.parse(readFileSync(join(userDataDir, 'recentFiles.json'), 'utf-8')).files)
-            .toHaveLength(paths.length);
+        expect(JSON.parse(readFileSync(join(userDataDir, 'recentFiles.json'), 'utf-8')).files).toHaveLength(paths.length);
     });
 
     it('retries a transient ENOENT before preserving a recent path', async () => {

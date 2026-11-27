@@ -1,34 +1,21 @@
-import {
-    app,
-    dialog,
-    shell,
-} from 'electron';
-import type { BrowserWindow } from 'electron';
-import { readFile } from 'fs/promises';
-import { join } from 'path';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { isRecord } from '@contracts/runtimeGuards';
-import {
-    loadSettings,
-    updateSettings,
-} from '@electron/settings';
-import { te } from '@electron/te';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
+import {app, dialog, shell} from 'electron';
+import type {BrowserWindow} from 'electron';
+import {readFile} from 'fs/promises';
+import {join} from 'path';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+import {isRecord} from '@contracts/runtimeGuards';
+import {loadSettings, updateSettings} from '@electron/settings';
+import {te} from '@electron/te';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
 
 const logger = createLogger('defaultViewer');
 const execFileAsync = promisify(execFile);
 const LINUX_DESKTOP_ID = 'evb-viewer.desktop';
-const LINUX_MIME_TYPES = [
-    'application/pdf',
-    'image/vnd.djvu',
-] as const;
+const LINUX_MIME_TYPES = ['application/pdf', 'image/vnd.djvu'] as const;
 // A development profile's answer does not speak for the installed app.
-const KNOWN_USER_DATA_DIR_NAMES = [
-    'EVB Viewer',
-    'EVB-Viewer',
-] as const;
+const KNOWN_USER_DATA_DIR_NAMES = ['EVB Viewer', 'EVB-Viewer'] as const;
 
 function hasSuppressedDefaultViewerPrompt(raw: string) {
     const parsed: unknown = JSON.parse(raw);
@@ -85,15 +72,11 @@ export async function promptSetDefaultViewer(window: BrowserWindow) {
     const BUTTON_DONT_ASK_AGAIN = 1;
     const BUTTON_NOT_NOW = 2;
 
-    const { response } = await dialog.showMessageBox(window, {
+    const {response} = await dialog.showMessageBox(window, {
         type: 'question',
         title: te('dialogs.defaultViewer.title'),
         message: te('dialogs.defaultViewer.message'),
-        buttons: [
-            setDefault,
-            dontAskAgain,
-            notNow,
-        ],
+        buttons: [setDefault, dontAskAgain, notNow],
         defaultId: BUTTON_SET_DEFAULT,
         cancelId: BUTTON_NOT_NOW,
     });
@@ -132,24 +115,13 @@ async function showDefaultAppsInstructions(window: BrowserWindow) {
         }
     } else {
         try {
-            await execFileAsync('xdg-mime', [
-                'default',
-                LINUX_DESKTOP_ID,
-                ...LINUX_MIME_TYPES,
-            ], { timeout: 10_000 });
+            await execFileAsync('xdg-mime', ['default', LINUX_DESKTOP_ID, ...LINUX_MIME_TYPES], {timeout: 10_000});
             for (const mimeType of LINUX_MIME_TYPES) {
-                const { stdout } = await execFileAsync('xdg-mime', [
-                    'query',
-                    'default',
-                    mimeType,
-                ], { timeout: 10_000 });
+                const {stdout} = await execFileAsync('xdg-mime', ['query', 'default', mimeType], {timeout: 10_000});
                 if (stdout.trim() !== LINUX_DESKTOP_ID) {
                     // Some xdg-utils versions misread quoted Exec paths containing
                     // spaces. Ask GLib before treating that query as a failure.
-                    const { stdout: gioOutput } = await execFileAsync('gio', [
-                        'mime',
-                        mimeType,
-                    ], {
+                    const {stdout: gioOutput} = await execFileAsync('gio', ['mime', mimeType], {
                         timeout: 10_000,
                         env: {
                             ...process.env,
@@ -179,10 +151,7 @@ async function showDefaultAppsInstructions(window: BrowserWindow) {
 // Matches appId in electron-builder.yml.
 const MAC_BUNDLE_ID = 'com.evb.viewer';
 // com.lizardtech.djvu is imported by the app's Info.plist.
-const MAC_CONTENT_TYPES = [
-    'com.adobe.pdf',
-    'com.lizardtech.djvu',
-] as const;
+const MAC_CONTENT_TYPES = ['com.adobe.pdf', 'com.lizardtech.djvu'] as const;
 
 /**
  * Asks LaunchServices to make the app the handler for PDF and DjVu. macOS 27
@@ -196,14 +165,9 @@ async function setMacDefaultViewer() {
             $.LSSetDefaultRoleHandlerForContentType($(type), $.kLSRolesAll, $('${MAC_BUNDLE_ID}'))
         )));
     `;
-    const {stdout} = await execFileAsync('osascript', [
-        '-l',
-        'JavaScript',
-        '-e',
-        script,
-    ], {timeout: 10_000});
+    const {stdout} = await execFileAsync('osascript', ['-l', 'JavaScript', '-e', script], {timeout: 10_000});
     const statuses: unknown = JSON.parse(stdout.trim());
-    if (!Array.isArray(statuses) || statuses.some(status => status !== 0)) {
+    if (!Array.isArray(statuses) || statuses.some((status) => status !== 0)) {
         throw new Error(`LaunchServices returned ${stdout.trim()}`);
     }
 }

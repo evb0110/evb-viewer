@@ -1,10 +1,4 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 import type {IScanCleanupWasmAnalyzeResult} from '@contracts/scan-cleanup/browserScanCleanupWasm';
 import type {TScanCleanupProgress} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {WasmAnalysisPageV3} from '@contracts/scan-cleanup/nativeWire.generated';
@@ -102,24 +96,25 @@ describe('browser scan cleanup runtime scheduling & progress', () => {
             return {status: 'ok', result};
         });
 
-        const makeAnalyzeResult = (sourcePageIndex: number): IScanCleanupWasmAnalyzeResult => cast<IScanCleanupWasmAnalyzeResult>({
-            pageMetadata: {
-                pageNumber: sourcePageIndex + 1,
-                canvasScope: 'page',
-                layoutClassification: 'single-uncut-page',
-                layoutConfidence: 0.9,
-                cutterXPx: null,
-                rotationDegrees: 0,
-                excluded: false,
-                blankOutputsSkipped: 0,
-                outputCount: 1,
-                tier1Verdict: 'single-uncut-page',
-                reconciled: false,
-                clusterAgreement: 0,
-            },
-            pageMetadataJson: JSON.stringify({sourcePageIndex}),
-            reconciliation: null,
-        });
+        const makeAnalyzeResult = (sourcePageIndex: number): IScanCleanupWasmAnalyzeResult =>
+            cast<IScanCleanupWasmAnalyzeResult>({
+                pageMetadata: {
+                    pageNumber: sourcePageIndex + 1,
+                    canvasScope: 'page',
+                    layoutClassification: 'single-uncut-page',
+                    layoutConfidence: 0.9,
+                    cutterXPx: null,
+                    rotationDegrees: 0,
+                    excluded: false,
+                    blankOutputsSkipped: 0,
+                    outputCount: 1,
+                    tier1Verdict: 'single-uncut-page',
+                    reconciled: false,
+                    clusterAgreement: 0,
+                },
+                pageMetadataJson: JSON.stringify({sourcePageIndex}),
+                reconciliation: null,
+            });
 
         const analyzedIndices: number[] = [];
         const completedRecords: Array<{
@@ -130,10 +125,7 @@ describe('browser scan cleanup runtime scheduling & progress', () => {
         let activeCallbacks = 0;
         let maxConcurrentCallbacks = 0;
         const analysis = runBrowserScanCleanupAnalysis({
-            pages: [
-                {sourcePageIndex: 0, options: {}} as WasmAnalysisPageV3,
-                {sourcePageIndex: 1, options: {}} as WasmAnalysisPageV3,
-            ],
+            pages: [{sourcePageIndex: 0, options: {}} as WasmAnalysisPageV3, {sourcePageIndex: 1, options: {}} as WasmAnalysisPageV3],
             canvasScope: 'page',
             renderMode: 'preview',
             signal: new AbortController().signal,
@@ -192,72 +184,87 @@ describe('browser scan cleanup runtime scheduling & progress', () => {
         const progressEvents: TScanCleanupProgress[] = [];
         let stageAtMerge: TScanCleanupProgress['stage'] | undefined;
 
-        mocks.runBrowserPageOpsWorkerRequest.mockImplementation(async (type: string, _payload: unknown, opts?: {onEngineIdentity?: (sha: string) => void}) => {
-            opts?.onEngineIdentity?.('page-ops-sha');
-            if (type === 'renderScanCleanupRaster') {
+        mocks.runBrowserPageOpsWorkerRequest.mockImplementation(
+            async (type: string, _payload: unknown, opts?: {onEngineIdentity?: (sha: string) => void}) => {
+                opts?.onEngineIdentity?.('page-ops-sha');
+                if (type === 'renderScanCleanupRaster') {
+                    return {
+                        data: new Uint8Array(10 * 10 * 3),
+                        report: {width: 10, height: 10},
+                    };
+                }
+                if (type === 'ocrTextVisibility') {
+                    return {pages: []};
+                }
+                return {status: 'failed', error: {code: 'unsupported', message: 'unused'}};
+            },
+        );
+
+        mocks.runBrowserScanCleanupWorkerRequest.mockImplementation(
+            async (_type: string, payload: {page: {sourcePageIndex: number}}, _signal: AbortSignal, onIdentity?: (sha: string) => void) => {
+                onIdentity?.('scan-cleanup-sha');
+                const pageNumber = payload.page.sourcePageIndex + 1;
                 return {
-                    data: new Uint8Array(10 * 10 * 3),
-                    report: {width: 10, height: 10},
-                };
-            }
-            if (type === 'ocrTextVisibility') {
-                return {pages: []};
-            }
-            return {status: 'failed', error: {code: 'unsupported', message: 'unused'}};
-        });
-
-        mocks.runBrowserScanCleanupWorkerRequest.mockImplementation(async (_type: string, payload: {page: {sourcePageIndex: number}}, _signal: AbortSignal, onIdentity?: (sha: string) => void) => {
-            onIdentity?.('scan-cleanup-sha');
-            const pageNumber = payload.page.sourcePageIndex + 1;
-            return {
-                status: 'ok',
-                result: {
-                    pageMetadata: {
-                        pageNumber,
-                        canvasScope: 'document',
-                        layoutClassification: 'single-uncut-page',
-                        layoutConfidence: 0.95,
-                        cutterXPx: null,
-                        rotationDegrees: 0,
-                        excluded: false,
-                        blankOutputsSkipped: 0,
-                        outputCount: 1,
-                        tier1Verdict: 'single-uncut-page',
-                        reconciled: false,
-                        clusterAgreement: 0,
-                    },
-                    outputs: [{
-                        metadata: {
-                            half: 'full',
-                            outputMode: 'bw',
+                    status: 'ok',
+                    result: {
+                        pageMetadata: {
+                            pageNumber,
+                            canvasScope: 'document',
+                            layoutClassification: 'single-uncut-page',
+                            layoutConfidence: 0.95,
+                            cutterXPx: null,
                             rotationDegrees: 0,
-                            skewApplied: false,
-                            skewDegrees: 0,
-                            canvasWidthPx: 10,
-                            canvasHeightPx: 10,
-                            renderDpi: 150,
-                            bilevelWritten: false,
-                            layeredWritten: false,
-                            contentBox: {x: 0, y: 0, width: 10, height: 10},
+                            excluded: false,
+                            blankOutputsSkipped: 0,
+                            outputCount: 1,
+                            tier1Verdict: 'single-uncut-page',
+                            reconciled: false,
+                            clusterAgreement: 0,
                         },
-                        planes: [{
-                            role: 'composite',
-                            encoding: 'png',
-                            width: 10,
-                            height: 10,
-                            data: new Uint8Array([pageNumber]),
-                        }],
-                    }],
-                },
-            };
-        });
+                        outputs: [
+                            {
+                                metadata: {
+                                    half: 'full',
+                                    outputMode: 'bw',
+                                    rotationDegrees: 0,
+                                    skewApplied: false,
+                                    skewDegrees: 0,
+                                    canvasWidthPx: 10,
+                                    canvasHeightPx: 10,
+                                    renderDpi: 150,
+                                    bilevelWritten: false,
+                                    layeredWritten: false,
+                                    contentBox: {x: 0, y: 0, width: 10, height: 10},
+                                },
+                                planes: [
+                                    {
+                                        role: 'composite',
+                                        encoding: 'png',
+                                        width: 10,
+                                        height: 10,
+                                        data: new Uint8Array([pageNumber]),
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                };
+            },
+        );
 
-        mocks.runBrowserPdfCombineWorkerRequest.mockImplementation(async (_type: string, payload: {inputs: Array<{fileName: string}>}, _signal: AbortSignal, opts?: {onEngineIdentity?: (sha: string) => void}) => {
-            opts?.onEngineIdentity?.('combine-sha');
-            const name = payload.inputs[0]!.fileName;
-            combineStarted.push(name);
-            return name.startsWith('p1-') ? page1CombineGate.promise : page2CombineGate.promise;
-        });
+        mocks.runBrowserPdfCombineWorkerRequest.mockImplementation(
+            async (
+                _type: string,
+                payload: {inputs: Array<{fileName: string}>},
+                _signal: AbortSignal,
+                opts?: {onEngineIdentity?: (sha: string) => void},
+            ) => {
+                opts?.onEngineIdentity?.('combine-sha');
+                const name = payload.inputs[0]!.fileName;
+                combineStarted.push(name);
+                return name.startsWith('p1-') ? page1CombineGate.promise : page2CombineGate.promise;
+            },
+        );
 
         mocks.createOrderedPdfMerge.mockReturnValue({
             append: (bytes: Uint8Array) => appended.push(bytes),
@@ -266,16 +273,18 @@ describe('browser scan cleanup runtime scheduling & progress', () => {
                 return new Uint8Array([9, 9]);
             },
         });
-        mocks.overlayPdfTextLayers.mockImplementation(async (assembled: Uint8Array, _source: Uint8Array, _req: unknown, opts?: {onEngineIdentity?: (sha: string) => void}) => {
-            opts?.onEngineIdentity?.('page-ops-sha');
-            return {
-                data: assembled,
-                report: {
-                    accessibilityTagsRemoved: false,
-                    textOmittedSourcePages: [],
-                },
-            };
-        });
+        mocks.overlayPdfTextLayers.mockImplementation(
+            async (assembled: Uint8Array, _source: Uint8Array, _req: unknown, opts?: {onEngineIdentity?: (sha: string) => void}) => {
+                opts?.onEngineIdentity?.('page-ops-sha');
+                return {
+                    data: assembled,
+                    report: {
+                        accessibilityTagsRemoved: false,
+                        textOmittedSourcePages: [],
+                    },
+                };
+            },
+        );
         mocks.runBrowserQpdfCommand.mockResolvedValue({
             exitCode: 0,
             stdout: '',
@@ -319,18 +328,22 @@ describe('browser scan cleanup runtime scheduling & progress', () => {
             },
             readSource: async () => new Uint8Array([37, 80, 68, 70]),
             signal: new AbortController().signal,
-            onProgress: progress => progressEvents.push(progress),
+            onProgress: (progress) => progressEvents.push(progress),
         });
 
         // Both pages enter combinePdfs concurrently before either finishes.
         await vi.waitFor(() => expect(combineStarted).toHaveLength(2));
-        expect(progressEvents.some(event => event.stage === 'rendering' && (event.rasterizedUnits ?? 0) === 2)).toBe(true);
+        expect(progressEvents.some((event) => event.stage === 'rendering' && (event.rasterizedUnits ?? 0) === 2)).toBe(true);
 
         // Page 2 finishes combinePdfs first and reports out-of-order progress immediately.
         page2CombineGate.resolve({data: new Uint8Array([22])});
-        await vi.waitFor(() => expect(progressEvents.some(
-            event => event.stage === 'rendering' && event.completedUnits === 1 && event.completedPageNumbers?.includes(2),
-        )).toBe(true));
+        await vi.waitFor(() =>
+            expect(
+                progressEvents.some(
+                    (event) => event.stage === 'rendering' && event.completedUnits === 1 && event.completedPageNumbers?.includes(2),
+                ),
+            ).toBe(true),
+        );
 
         page1CombineGate.resolve({data: new Uint8Array([11])});
         await conversion;
@@ -384,9 +397,24 @@ describe('browserScanCleanupRasterCache', () => {
 
     it('clones buffers on put and get, replays pageOpsEngineSha256, and evicts in LRU order', () => {
         const cache = createBrowserScanCleanupRasterCache(128);
-        const key1 = buildScanCleanupRasterCacheKey({ref: 'browser://doc/1', revision: 'rev-1', pageSize: makeRasterCachePageSize({pageNumber: 1}), dpi: 150});
-        const key2 = buildScanCleanupRasterCacheKey({ref: 'browser://doc/1', revision: 'rev-1', pageSize: makeRasterCachePageSize({pageNumber: 2}), dpi: 150});
-        const key3 = buildScanCleanupRasterCacheKey({ref: 'browser://doc/1', revision: 'rev-1', pageSize: makeRasterCachePageSize({pageNumber: 3}), dpi: 150});
+        const key1 = buildScanCleanupRasterCacheKey({
+            ref: 'browser://doc/1',
+            revision: 'rev-1',
+            pageSize: makeRasterCachePageSize({pageNumber: 1}),
+            dpi: 150,
+        });
+        const key2 = buildScanCleanupRasterCacheKey({
+            ref: 'browser://doc/1',
+            revision: 'rev-1',
+            pageSize: makeRasterCachePageSize({pageNumber: 2}),
+            dpi: 150,
+        });
+        const key3 = buildScanCleanupRasterCacheKey({
+            ref: 'browser://doc/1',
+            revision: 'rev-1',
+            pageSize: makeRasterCachePageSize({pageNumber: 3}),
+            dpi: 150,
+        });
 
         const input1 = makeCachedRaster(11, 64);
         cache.set(key1, input1, 'sha-pageops-1');
@@ -413,7 +441,12 @@ describe('browserScanCleanupRasterCache', () => {
         const base = makeRasterCachePageSize({pageNumber: 1, rotation: 0});
         const rev1Key = buildScanCleanupRasterCacheKey({ref: 'browser://doc/1', revision: 'rev-1', pageSize: base, dpi: 150});
         const rev2Key = buildScanCleanupRasterCacheKey({ref: 'browser://doc/1', revision: 'rev-2', pageSize: base, dpi: 150});
-        const rotatedKey = buildScanCleanupRasterCacheKey({ref: 'browser://doc/1', revision: 'rev-1', pageSize: makeRasterCachePageSize({pageNumber: 1, rotation: 90}), dpi: 150});
+        const rotatedKey = buildScanCleanupRasterCacheKey({
+            ref: 'browser://doc/1',
+            revision: 'rev-1',
+            pageSize: makeRasterCachePageSize({pageNumber: 1, rotation: 90}),
+            dpi: 150,
+        });
         const otherDocKey = buildScanCleanupRasterCacheKey({ref: 'browser://doc/2', revision: 'rev-1', pageSize: base, dpi: 150});
 
         cache.set(rev1Key, makeCachedRaster(1, 32), null);
@@ -445,12 +478,10 @@ describe('stale OPFS Blob refresh on NotReadableError', () => {
         const notReadable = new Error('The requested file could not be read.');
         notReadable.name = 'NotReadableError';
 
-        mocks.runBrowserPageOpsWorkerRequest
-            .mockRejectedValueOnce(notReadable)
-            .mockResolvedValueOnce({
-                data: new Uint8Array(4 * 4 * 3).fill(128),
-                report: {width: 4, height: 4, compatibility: 'exact'},
-            });
+        mocks.runBrowserPageOpsWorkerRequest.mockRejectedValueOnce(notReadable).mockResolvedValueOnce({
+            data: new Uint8Array(4 * 4 * 3).fill(128),
+            report: {width: 4, height: 4, compatibility: 'exact'},
+        });
 
         const raster = await renderPageRaster(
             cast({
@@ -490,7 +521,8 @@ describe('stale OPFS Blob refresh on NotReadableError', () => {
         const initialBlob = new Blob([pinnedBytes]);
         const refreshedBlob = new Blob([pinnedBytes]);
 
-        const readableRevisionSpy = vi.spyOn(browserDocumentStore, 'readableRevision')
+        const readableRevisionSpy = vi
+            .spyOn(browserDocumentStore, 'readableRevision')
             .mockResolvedValueOnce({
                 blob: initialBlob,
                 token,
@@ -507,23 +539,27 @@ describe('stale OPFS Blob refresh on NotReadableError', () => {
         const readSpy = vi.spyOn(browserDocumentStore, 'read');
         mocks.runBrowserPageOpsWorkerRequest.mockResolvedValueOnce({
             pageCount: 1,
-            pages: [{
-                pageNumber: 1,
-                xPoints: 0,
-                yPoints: 0,
-                widthPoints: 612,
-                heightPoints: 792,
-                rotation: 0,
-                userUnit: 1,
-                rasterUses: [],
-                rasterInventoryComplete: true,
-                hasAnnotations: false,
-            }],
+            pages: [
+                {
+                    pageNumber: 1,
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 612,
+                    heightPoints: 792,
+                    rotation: 0,
+                    userUnit: 1,
+                    rasterUses: [],
+                    rasterInventoryComplete: true,
+                    hasAnnotations: false,
+                },
+            ],
         });
         const pdfMod = await import('@app/platform/browser-api/loadBrowserPdfjsDocument');
-        vi.spyOn(pdfMod, 'loadBrowserPdfjsDocument').mockResolvedValue(cast({
-            loadingTask: {destroy: vi.fn(async () => undefined)},
-        }));
+        vi.spyOn(pdfMod, 'loadBrowserPdfjsDocument').mockResolvedValue(
+            cast({
+                loadingTask: {destroy: vi.fn(async () => undefined)},
+            }),
+        );
 
         const borrow = borrowBrowserScanCleanupSource(ref, token);
         try {

@@ -1,12 +1,4 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    onTestFinished,
-    afterEach,
-    vi,
-} from 'vitest';
+import {beforeEach, describe, expect, it, onTestFinished, afterEach, vi} from 'vitest';
 import {ref} from 'vue';
 import {createKeyboardEventFixture} from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import {createPointerDownEvent} from '@tests/unit/app/modules/workspace-shell/composables/createPointerDownEvent';
@@ -24,7 +16,9 @@ import {
 
 const mocks = getPageShortcutsMocks();
 
-async function mountShortcuts(deps: Parameters<(typeof import('@app/modules/workspace-shell/composables/usePageShortcuts'))['usePageShortcuts']>[0]) {
+async function mountShortcuts(
+    deps: Parameters<(typeof import('@app/modules/workspace-shell/composables/usePageShortcuts'))['usePageShortcuts']>[0],
+) {
     const {usePageShortcuts} = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
     usePageShortcuts(deps);
 }
@@ -61,24 +55,48 @@ describe('usePageShortcuts', () => {
         {name: 'web actual size', key: '0', code: 'Digit0', command: 'handleActualSize'},
         {name: 'web fit height', key: '2', code: 'Digit2', command: 'handleFitMode', argument: 'height'},
         {name: 'Electron fit height ownership', key: '2', code: 'Digit2', command: 'handleFitMode', renderer: false},
-    ])('routes $name', async ({key, code = `Key${key.toUpperCase()}`, command, renderer = true, hasPdf = true, enabled = true, capture = false, argument}) => {
-        mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(renderer);
-        const deps = createDeps();
-        if (!hasPdf) deps.pdfSrc.value = null;
-        deps.canPrint.value = enabled;
-        deps.canSave.value = enabled;
-        await mountShortcuts(deps);
-        const stopPropagation = vi.fn();
-        const preventDefault = pressShortcut(key, {
-            code, metaKey: true, stopPropagation,
-            target: capture ? {nodeName: 'TEXTAREA'} : null,
-        }, capture ? getCapturedKeyDown() : getCapturedOnEventFired());
+    ])(
+        'routes $name',
+        async ({
+            key,
+            code = `Key${key.toUpperCase()}`,
+            command,
+            renderer = true,
+            hasPdf = true,
+            enabled = true,
+            capture = false,
+            argument,
+        }) => {
+            mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(renderer);
+            const deps = createDeps();
+            if (!hasPdf) {
+                deps.pdfSrc.value = null;
+            }
+            deps.canPrint.value = enabled;
+            deps.canSave.value = enabled;
+            await mountShortcuts(deps);
+            const stopPropagation = vi.fn();
+            const preventDefault = pressShortcut(
+                key,
+                {
+                    code,
+                    metaKey: true,
+                    stopPropagation,
+                    target: capture ? {nodeName: 'TEXTAREA'} : null,
+                },
+                capture ? getCapturedKeyDown() : getCapturedOnEventFired(),
+            );
 
-        expect(preventDefault.mock.calls.length > 0).toBe(renderer);
-        if (capture) expect(stopPropagation).toHaveBeenCalledTimes(Number(renderer));
-        expect(deps[command]).toHaveBeenCalledTimes(Number(renderer && enabled));
-        if (argument) expect(deps[command]).toHaveBeenCalledWith(argument);
-    });
+            expect(preventDefault.mock.calls.length > 0).toBe(renderer);
+            if (capture) {
+                expect(stopPropagation).toHaveBeenCalledTimes(Number(renderer));
+            }
+            expect(deps[command]).toHaveBeenCalledTimes(Number(renderer && enabled));
+            if (argument) {
+                expect(deps[command]).toHaveBeenCalledWith(argument);
+            }
+        },
+    );
 
     it('routes web Cmd/Ctrl+S to save while focus is inside editable annotation UI', async () => {
         mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(true);
@@ -87,7 +105,7 @@ describe('usePageShortcuts', () => {
 
         const fakeInput = {
             isContentEditable: false,
-            closest: (selector: string) => selector.includes('input') ? fakeInput : null,
+            closest: (selector: string) => (selector.includes('input') ? fakeInput : null),
         };
         vi.stubGlobal('HTMLElement', class HTMLElementStub {});
         Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
@@ -134,7 +152,7 @@ describe('usePageShortcuts', () => {
         // Simulate an input element target using a minimal HTMLElement-like object
         const fakeInput = {
             isContentEditable: false,
-            closest: (selector: string) => selector.includes('input') ? fakeInput : null,
+            closest: (selector: string) => (selector.includes('input') ? fakeInput : null),
         };
         vi.stubGlobal('HTMLElement', class HTMLElementStub {});
         Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
@@ -149,7 +167,7 @@ describe('usePageShortcuts', () => {
 
         const fakeInput = {
             isContentEditable: false,
-            closest: (selector: string) => selector.includes('input') ? fakeInput : null,
+            closest: (selector: string) => (selector.includes('input') ? fakeInput : null),
         };
         vi.stubGlobal('HTMLElement', class HTMLElementStub {});
         Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
@@ -172,10 +190,7 @@ describe('usePageShortcuts', () => {
         expect(deps.handleAnnotationToolChange).not.toHaveBeenCalled();
     });
 
-    it.each([
-        false,
-        true,
-    ])('leaves editable Escape to the focused text editor with menus open %s', async menusOpen => {
+    it.each([false, true])('leaves editable Escape to the focused text editor with menus open %s', async (menusOpen) => {
         const deps = createDeps();
         deps.annotationTool.value = 'text';
         deps.annotationContextMenuVisible.value = menusOpen;
@@ -195,7 +210,9 @@ describe('usePageShortcuts', () => {
             closest: () => null,
         };
         vi.stubGlobal('HTMLElement', class HTMLElementStub {});
-        onTestFinished(() => { vi.unstubAllGlobals(); });
+        onTestFinished(() => {
+            vi.unstubAllGlobals();
+        });
         Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
         const preventDefault = pressShortcut('Escape', {target: fakeInput});
         expect(handleAnnotationEscape).not.toHaveBeenCalled();
@@ -256,16 +273,13 @@ describe('usePageShortcuts', () => {
         const deps = createDeps();
         const fakeInput = {
             isContentEditable: false,
-            closest: (selector: string) => selector.includes('input') ? fakeInput : null,
+            closest: (selector: string) => (selector.includes('input') ? fakeInput : null),
         };
         vi.stubGlobal('HTMLElement', class HTMLElementStub {});
         Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
         await mountShortcuts(deps);
 
-        for (const key of [
-            'Delete',
-            'Backspace',
-        ]) {
+        for (const key of ['Delete', 'Backspace']) {
             const preventDefault = pressShortcut(key, {code: key, target: fakeInput});
 
             expect(preventDefault).not.toHaveBeenCalled();
@@ -277,14 +291,11 @@ describe('usePageShortcuts', () => {
         mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(true);
         const deps = createDeps();
         vi.stubGlobal('Element', class ElementStub {});
-        const dialogButton = {closest: (selector: string) => selector.includes('dialog') ? dialogButton : null};
+        const dialogButton = {closest: (selector: string) => (selector.includes('dialog') ? dialogButton : null)};
         Object.setPrototypeOf(dialogButton, Element.prototype);
         await mountShortcuts(deps);
 
-        for (const key of [
-            'Delete',
-            'PageDown',
-        ]) {
+        for (const key of ['Delete', 'PageDown']) {
             const preventDefault = pressShortcut(key, {code: key, target: dialogButton});
             expect(preventDefault, key).not.toHaveBeenCalled();
         }
@@ -365,14 +376,8 @@ describe('usePageShortcuts', () => {
     });
 
     it.each([
-        [
-            'i',
-            'handleInsertImageFromFile',
-        ],
-        [
-            'v',
-            'handlePasteImageFromClipboard',
-        ],
+        ['i', 'handleInsertImageFromFile'],
+        ['v', 'handlePasteImageFromClipboard'],
     ] as const)('routes web Shift+Cmd/Ctrl+%s to the Edit menu image command', async (key, command) => {
         mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(true);
         const deps = createDeps();
@@ -397,7 +402,7 @@ describe('usePageShortcuts', () => {
         mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(true);
         const fakeInput = {
             isContentEditable: false,
-            closest: (selector: string) => selector.includes('input') ? fakeInput : null,
+            closest: (selector: string) => (selector.includes('input') ? fakeInput : null),
         };
         vi.stubGlobal('HTMLElement', class HTMLElementStub {});
         Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
@@ -441,7 +446,7 @@ describe('usePageShortcuts', () => {
         deps.pageContextMenuVisible.value = true;
         await mountShortcuts(deps);
 
-        const target = { closest: vi.fn(() => null) };
+        const target = {closest: vi.fn(() => null)};
         vi.stubGlobal('HTMLElement', class HTMLElementStub {});
         Object.setPrototypeOf(target, HTMLElement.prototype);
 

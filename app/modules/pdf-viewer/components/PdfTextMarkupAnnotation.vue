@@ -10,26 +10,66 @@
         :data-markup-subtype="entity.subtype"
         :style="markupStyle"
     >
-        <template v-for="(quad, index) in entity.quadPoints" :key="`${entity.identity.id}-${index}`">
-            <rect data-annotation-hit-target :x="quad.left" :y="quad.top" :width="quad.width" :height="quad.height" />
-            <path v-if="entity.subtype === 'Squiggly'" data-annotation-visual :d="squiggleFor(quad)" />
-            <line v-else-if="entity.subtype !== 'Highlight'" data-annotation-visual v-bind="lineFor(quad)" />
+        <template
+            v-for="(quad, index) in entity.quadPoints"
+            :key="`${entity.identity.id}-${index}`"
+        >
+            <rect
+                data-annotation-hit-target
+                :x="quad.left"
+                :y="quad.top"
+                :width="quad.width"
+                :height="quad.height"
+            />
+            <path
+                v-if="entity.subtype === 'Squiggly'"
+                data-annotation-visual
+                :d="squiggleFor(quad)"
+            />
+            <line
+                v-else-if="entity.subtype !== 'Highlight'"
+                data-annotation-visual
+                v-bind="lineFor(quad)"
+            />
         </template>
-        <Teleport :to="highlightFillTarget" defer>
+        <Teleport
+            :to="highlightFillTarget"
+            defer
+        >
             <g
                 v-if="entity.subtype === 'Highlight' && highlightPath"
                 class="pdf-annotation-editor-text-markup"
                 :class="{'is-original-appearance': originalAppearance}"
                 :style="markupStyle"
             >
-                <path data-annotation-visual :d="highlightPath" style="mix-blend-mode: multiply" />
+                <path
+                    data-annotation-visual
+                    :d="highlightPath"
+                    style="mix-blend-mode: multiply"
+                />
             </g>
         </Teleport>
         <template v-if="entity.subtype === 'Highlight' && selected">
             <defs>
-                <mask :id="highlightOutlineMaskId" maskUnits="userSpaceOnUse" x="-1" y="-1" width="3" height="3">
-                    <rect x="-1" y="-1" width="3" height="3" fill="white" />
-                    <path :d="ownHighlightPath" fill="black" />
+                <mask
+                    :id="highlightOutlineMaskId"
+                    maskUnits="userSpaceOnUse"
+                    x="-1"
+                    y="-1"
+                    width="3"
+                    height="3"
+                >
+                    <rect
+                        x="-1"
+                        y="-1"
+                        width="3"
+                        height="3"
+                        fill="white"
+                    />
+                    <path
+                        :d="ownHighlightPath"
+                        fill="black"
+                    />
                 </mask>
             </defs>
             <path
@@ -42,10 +82,10 @@
 </template>
 
 <script setup lang="ts">
-import type { ITextMarkupEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import type { IAnnotationMarkerRect } from '@app/types/annotations';
-import type { IAnnotationPageDimensions } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
-import { toPdfScaledCssLength } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
+import type {ITextMarkupEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {IAnnotationMarkerRect} from '@app/types/annotations';
+import type {IAnnotationPageDimensions} from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
+import {toPdfScaledCssLength} from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
 const {
     entity,
     selected,
@@ -66,7 +106,7 @@ const {
 // One nonzero-winding fill applies transparency once, including where text
 // line boxes overlap. Hit targets still belong to each original annotation.
 function highlightPathFor(quads: readonly IAnnotationMarkerRect[]) {
-    return quads.map(quad => `M${quad.left} ${quad.top}h${quad.width}v${quad.height}h${-quad.width}z`).join(' ');
+    return quads.map((quad) => `M${quad.left} ${quad.top}h${quad.width}v${quad.height}h${-quad.width}z`).join(' ');
 }
 const highlightPath = computed(() => highlightPathFor(highlightPaintQuads ?? entity.quadPoints));
 const ownHighlightPath = computed(() => highlightPathFor(entity.quadPoints));
@@ -75,17 +115,19 @@ function lineFor(quad: IAnnotationMarkerRect) {
     const fraction = entity.subtype === 'StrikeOut' ? 0.5 : 0.94;
     const rotation = pageRotation;
     const position = rotation === 90 || rotation === 180 ? 1 - fraction : fraction;
-    return rotation % 180 ? {
-        x1: quad.left + quad.width * position,
-        y1: quad.top,
-        x2: quad.left + quad.width * position,
-        y2: quad.top + quad.height,
-    } : {
-        x1: quad.left,
-        y1: quad.top + quad.height * position,
-        x2: quad.left + quad.width,
-        y2: quad.top + quad.height * position,
-    };
+    return rotation % 180
+        ? {
+              x1: quad.left + quad.width * position,
+              y1: quad.top,
+              x2: quad.left + quad.width * position,
+              y2: quad.top + quad.height,
+          }
+        : {
+              x1: quad.left,
+              y1: quad.top + quad.height * position,
+              x2: quad.left + quad.width,
+              y2: quad.top + quad.height * position,
+          };
 }
 function squiggleFor(quad: IAnnotationMarkerRect) {
     const line = lineFor(quad);
@@ -103,8 +145,8 @@ function squiggleFor(quad: IAnnotationMarkerRect) {
     return Array.from({length: steps + 1}, (_, index) => {
         const fraction = index / steps;
         const offset = index === 0 || index === steps ? 0 : index % 2 ? 0.8 : -0.8;
-        const x = line.x1 + (dx * fraction - dy / length * offset) / page.width;
-        const y = line.y1 + (dy * fraction + dx / length * offset) / page.height;
+        const x = line.x1 + (dx * fraction - (dy / length) * offset) / page.width;
+        const y = line.y1 + (dy * fraction + (dx / length) * offset) / page.height;
         return `${index ? 'L' : 'M'}${x} ${y}`;
     }).join(' ');
 }

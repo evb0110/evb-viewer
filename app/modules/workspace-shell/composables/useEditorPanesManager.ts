@@ -1,5 +1,5 @@
-import type { ITab } from '@app/types/tabs';
-import { clamp } from 'es-toolkit/math';
+import type {ITab} from '@app/types/tabs';
+import {clamp} from 'es-toolkit/math';
 import type {
     IEditorLayoutLeafNode,
     IEditorLayoutSplitNode,
@@ -7,28 +7,17 @@ import type {
     TEditorLayoutNode,
     TPaneDirection,
 } from '@contracts/editorPanes';
-import {
-    createPaneId,
-    parsePaneId,
-} from '@contracts/editorPanes';
-import {
-    createTabId,
-    parseTabId,
-    type TTabId,
-} from '@contracts/windowTabs';
-import {
-    removeLeafNode,
-    replaceLeafWithSplit,
-    updateLayoutSplitRatio,
-} from '@app/modules/workspace-shell/editor-panes/layoutTree';
-import { findDirectionalPaneId } from '@app/modules/workspace-shell/editor-panes/findDirectionalPaneId';
-import { LEGACY_MIN_SPLIT_RATIO } from '@app/modules/workspace-shell/layout/resolveEditorPaneSplitBounds';
+import {createPaneId, parsePaneId} from '@contracts/editorPanes';
+import {createTabId, parseTabId, type TTabId} from '@contracts/windowTabs';
+import {removeLeafNode, replaceLeafWithSplit, updateLayoutSplitRatio} from '@app/modules/workspace-shell/editor-panes/layoutTree';
+import {findDirectionalPaneId} from '@app/modules/workspace-shell/editor-panes/findDirectionalPaneId';
+import {LEGACY_MIN_SPLIT_RATIO} from '@app/modules/workspace-shell/layout/resolveEditorPaneSplitBounds';
 import {
     arraysEqual,
     isEditorPanesStateNormalized,
     normalizeEditorPanesState,
 } from '@app/modules/workspace-shell/editor-panes/normalization';
-import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
+import type {IWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
 
 interface ICreateTabOptions {
     paneId?: string | null;
@@ -40,30 +29,12 @@ interface ICreateTabOptions {
  * lives in its document controller; `isTabEmpty` asks it.
  */
 export const useEditorPanesManager = (managerOptions: {isTabEmpty: (tabId: string) => boolean}) => {
-    const panes = useState<IEditorPaneState[]>(
-        'editorPanes:panes',
-        () => [],
-    );
-    const tabs = useState<ITab[]>(
-        'editorPanes:tabs',
-        () => [],
-    );
-    const layout = useState<TEditorLayoutNode | null>(
-        'editorPanes:layout',
-        () => null,
-    );
-    const activePaneId = useState<string | null>(
-        'editorPanes:active-pane-id',
-        () => null,
-    );
-    const paneMru = useState<string[]>(
-        'editorPanes:pane-mru',
-        () => [],
-    );
-    const nextEntityId = useState<number>(
-        'editorPanes:entity-id',
-        () => 0,
-    );
+    const panes = useState<IEditorPaneState[]>('editorPanes:panes', () => []);
+    const tabs = useState<ITab[]>('editorPanes:tabs', () => []);
+    const layout = useState<TEditorLayoutNode | null>('editorPanes:layout', () => null);
+    const activePaneId = useState<string | null>('editorPanes:active-pane-id', () => null);
+    const paneMru = useState<string[]>('editorPanes:pane-mru', () => []);
+    const nextEntityId = useState<number>('editorPanes:entity-id', () => 0);
 
     function allocateEntityId(prefix: 'pane' | 'tab' | 'split') {
         nextEntityId.value += 1;
@@ -71,22 +42,13 @@ export const useEditorPanesManager = (managerOptions: {isTabEmpty: (tabId: strin
     }
 
     const paneLookup = computed<Map<string, IEditorPaneState>>(() => {
-        return new Map(panes.value.map(pane => [
-            pane.paneId,
-            pane,
-        ]));
+        return new Map(panes.value.map((pane) => [pane.paneId, pane]));
     });
     const tabLookup = computed<Map<string, ITab>>(() => {
-        return new Map(tabs.value.map(tab => [
-            tab.id,
-            tab,
-        ]));
+        return new Map(tabs.value.map((tab) => [tab.id, tab]));
     });
     const tabPaneLookup = computed<Map<string, string>>(() => {
-        return new Map(panes.value.flatMap((pane: IEditorPaneState) => pane.tabIds.map(tabId => [
-            tabId,
-            pane.paneId,
-        ] as const)));
+        return new Map(panes.value.flatMap((pane: IEditorPaneState) => pane.tabIds.map((tabId) => [tabId, pane.paneId] as const)));
     });
 
     function createPane(): IEditorPaneState {
@@ -97,13 +59,8 @@ export const useEditorPanesManager = (managerOptions: {isTabEmpty: (tabId: strin
         };
     }
 
-    function withPaneUpdate(
-        paneId: string,
-        update: (pane: IEditorPaneState) => IEditorPaneState,
-    ) {
-        panes.value = panes.value.map(pane => (
-            pane.paneId === paneId ? update(pane) : pane
-        ));
+    function withPaneUpdate(paneId: string, update: (pane: IEditorPaneState) => IEditorPaneState) {
+        panes.value = panes.value.map((pane) => (pane.paneId === paneId ? update(pane) : pane));
         return getPaneById(paneId);
     }
 
@@ -112,7 +69,7 @@ export const useEditorPanesManager = (managerOptions: {isTabEmpty: (tabId: strin
         if (activeTabIdValue !== null && activeTabId === null) {
             return null;
         }
-        return withPaneUpdate(paneId, pane => ({
+        return withPaneUpdate(paneId, (pane) => ({
             ...pane,
             activeTabId,
         }));
@@ -128,9 +85,7 @@ export const useEditorPanesManager = (managerOptions: {isTabEmpty: (tabId: strin
             return {
                 ...pane,
                 tabIds: nextTabIds,
-                activeTabId: activeTabIdUpdate
-                    ? activeTabIdUpdate(pane, nextTabIds)
-                    : pane.activeTabId,
+                activeTabId: activeTabIdUpdate ? activeTabIdUpdate(pane, nextTabIds) : pane.activeTabId,
             };
         });
     }
@@ -165,8 +120,8 @@ export const useEditorPanesManager = (managerOptions: {isTabEmpty: (tabId: strin
     }
 
     function restoreWorkspaceCheckpointGraph(checkpoint: IWorkspaceCheckpoint) {
-        tabs.value = checkpoint.tabs.map(tab => ({id: tab.tabId}));
-        panes.value = checkpoint.panes.map(pane => ({
+        tabs.value = checkpoint.tabs.map((tab) => ({id: tab.tabId}));
+        panes.value = checkpoint.panes.map((pane) => ({
             paneId: pane.paneId,
             tabIds: [...pane.tabIds],
             activeTabId: pane.activeTabId,
@@ -175,23 +130,18 @@ export const useEditorPanesManager = (managerOptions: {isTabEmpty: (tabId: strin
         activePaneId.value = checkpoint.activePaneId;
         paneMru.value = checkpoint.activePaneId ? [checkpoint.activePaneId] : [];
 
-        const numericSuffixes = [
-            ...checkpoint.tabs.map(tab => tab.tabId),
-            ...checkpoint.panes.map(pane => pane.paneId),
-        ].map((id) => {
-            const suffix = id.split('-').at(-1);
-            return suffix ? Number.parseInt(suffix, 36) : 0;
-        }).filter(Number.isFinite);
+        const numericSuffixes = [...checkpoint.tabs.map((tab) => tab.tabId), ...checkpoint.panes.map((pane) => pane.paneId)]
+            .map((id) => {
+                const suffix = id.split('-').at(-1);
+                return suffix ? Number.parseInt(suffix, 36) : 0;
+            })
+            .filter(Number.isFinite);
         nextEntityId.value = Math.max(nextEntityId.value, ...numericSuffixes, checkpoint.tabs.length + checkpoint.panes.length);
         normalizeManagerState();
     }
 
-
     function touchPaneMru(paneId: string) {
-        if (
-            paneMru.value[0] === paneId
-            && paneMru.value.indexOf(paneId, 1) === -1
-        ) {
+        if (paneMru.value[0] === paneId && paneMru.value.indexOf(paneId, 1) === -1) {
             return;
         }
         const next = paneMru.value.filter((candidate: string) => candidate !== paneId);
@@ -231,28 +181,13 @@ export const useEditorPanesManager = (managerOptions: {isTabEmpty: (tabId: strin
         });
     }
 
+    function insertTabId(tabIds: TTabId[], tabId: TTabId, targetIndex: number | null | undefined) {
+        const insertionIndex = targetIndex === null || targetIndex === undefined ? tabIds.length : clamp(targetIndex, 0, tabIds.length);
 
-    function insertTabId(
-        tabIds: TTabId[],
-        tabId: TTabId,
-        targetIndex: number | null | undefined,
-    ) {
-        const insertionIndex = targetIndex === null || targetIndex === undefined
-            ? tabIds.length
-            : clamp(targetIndex, 0, tabIds.length);
-
-        return [
-            ...tabIds.slice(0, insertionIndex),
-            tabId,
-            ...tabIds.slice(insertionIndex),
-        ];
+        return [...tabIds.slice(0, insertionIndex), tabId, ...tabIds.slice(insertionIndex)];
     }
 
-    function resolveTargetTabIdsForMove(
-        targetPane: IEditorPaneState,
-        tabId: string,
-        targetIndex: number | null | undefined,
-    ) {
+    function resolveTargetTabIdsForMove(targetPane: IEditorPaneState, tabId: string, targetIndex: number | null | undefined) {
         const resolvedTabId = parseTabId(tabId);
         if (resolvedTabId === null) {
             return targetPane.tabIds;
@@ -266,7 +201,7 @@ export const useEditorPanesManager = (managerOptions: {isTabEmpty: (tabId: strin
             return insertTabId(targetPane.tabIds, resolvedTabId, targetIndex);
         }
 
-        tabs.value = tabs.value.filter(candidate => candidate.id !== placeholderTabId);
+        tabs.value = tabs.value.filter((candidate) => candidate.id !== placeholderTabId);
         return [resolvedTabId];
     }
 
@@ -290,7 +225,7 @@ export const useEditorPanesManager = (managerOptions: {isTabEmpty: (tabId: strin
         normalizeManagerState();
         ensureLayoutInitialized();
 
-        const hasAnyTab = panes.value.some(pane => pane.tabIds.length > 0);
+        const hasAnyTab = panes.value.some((pane) => pane.tabIds.length > 0);
         if (hasAnyTab) {
             const activePane = getPaneById(activePaneId.value) ?? panes.value[0] ?? null;
             if (activePane) {
@@ -346,10 +281,7 @@ export const useEditorPanesManager = (managerOptions: {isTabEmpty: (tabId: strin
         pane ??= panes.value[0] ?? null;
         if (!pane) {
             pane = createPane();
-            panes.value = [
-                ...panes.value,
-                pane,
-            ];
+            panes.value = [...panes.value, pane];
             layout.value ??= {
                 type: 'leaf',
                 paneId: pane.paneId,
@@ -361,20 +293,12 @@ export const useEditorPanesManager = (managerOptions: {isTabEmpty: (tabId: strin
         if (tabId === null) {
             throw new TypeError('Created tab ID is invalid');
         }
-        tabs.value = [
-            ...tabs.value,
-            tab,
-        ];
+        tabs.value = [...tabs.value, tab];
 
         updatePaneTabIds(
             pane.paneId,
-            tabIds => [
-                ...tabIds,
-                tabId,
-            ],
-            currentPane => options.activate !== false || !currentPane.activeTabId
-                ? tabId
-                : currentPane.activeTabId,
+            (tabIds) => [...tabIds, tabId],
+            (currentPane) => (options.activate !== false || !currentPane.activeTabId ? tabId : currentPane.activeTabId),
         );
 
         if (options.activate !== false) {
@@ -391,13 +315,7 @@ export const useEditorPanesManager = (managerOptions: {isTabEmpty: (tabId: strin
             return;
         }
 
-        if (
-            fromIndex < 0
-            || fromIndex >= pane.tabIds.length
-            || toIndex < 0
-            || toIndex >= pane.tabIds.length
-            || fromIndex === toIndex
-        ) {
+        if (fromIndex < 0 || fromIndex >= pane.tabIds.length || toIndex < 0 || toIndex >= pane.tabIds.length || fromIndex === toIndex) {
             return;
         }
 
@@ -407,11 +325,7 @@ export const useEditorPanesManager = (managerOptions: {isTabEmpty: (tabId: strin
         }
         updatePaneTabIds(paneId, (tabIds) => {
             const withoutMoved = tabIds.filter((_, index) => index !== fromIndex);
-            return [
-                ...withoutMoved.slice(0, toIndex),
-                tabId,
-                ...withoutMoved.slice(toIndex),
-            ];
+            return [...withoutMoved.slice(0, toIndex), tabId, ...withoutMoved.slice(toIndex)];
         });
         normalizeManagerState();
     }
@@ -426,22 +340,23 @@ export const useEditorPanesManager = (managerOptions: {isTabEmpty: (tabId: strin
             return false;
         }
 
-        panes.value = panes.value.filter(candidate => candidate.paneId !== pane.paneId);
+        panes.value = panes.value.filter((candidate) => candidate.paneId !== pane.paneId);
         paneMru.value = paneMru.value.filter((candidate: string) => candidate !== pane.paneId);
 
         if (layout.value) {
             layout.value = removeLeafNode(layout.value, pane.paneId);
         }
 
-        const nextActivePane = getPaneById(activePaneId.value)
-            ?? paneMru.value
+        const nextActivePane =
+            getPaneById(activePaneId.value) ??
+            paneMru.value
                 .flatMap((id: string) => {
                     const pane = getPaneById(id);
                     return pane ? [pane] : [];
                 })
-                .at(0)
-            ?? panes.value[0]
-            ?? null;
+                .at(0) ??
+            panes.value[0] ??
+            null;
 
         activePaneId.value = nextActivePane?.paneId ?? null;
         if (nextActivePane) {
@@ -474,13 +389,13 @@ export const useEditorPanesManager = (managerOptions: {isTabEmpty: (tabId: strin
 
         const tab = getTabById(tabId);
         const nextTabIds = pane.tabIds.filter((candidate: string) => candidate !== tabId);
-        tabs.value = tabs.value.filter(candidate => candidate.id !== tabId);
+        tabs.value = tabs.value.filter((candidate) => candidate.id !== tabId);
 
         const replacement = nextTabIds[tabIndex] ?? nextTabIds[tabIndex - 1] ?? null;
         updatePaneTabIds(
             pane.paneId,
             () => nextTabIds,
-            currentPane => currentPane.activeTabId === tabId ? replacement : currentPane.activeTabId,
+            (currentPane) => (currentPane.activeTabId === tabId ? replacement : currentPane.activeTabId),
         );
 
         let removedPaneId: string | null = null;
@@ -504,11 +419,7 @@ export const useEditorPanesManager = (managerOptions: {isTabEmpty: (tabId: strin
         };
     }
 
-    function findDirectionalPane(
-        sourcePaneId: string,
-        direction: TPaneDirection,
-        wrap = true,
-    ) {
+    function findDirectionalPane(sourcePaneId: string, direction: TPaneDirection, wrap = true) {
         const resolvedSourcePaneId = parsePaneId(sourcePaneId);
         if (resolvedSourcePaneId === null) {
             return null;
@@ -534,10 +445,7 @@ export const useEditorPanesManager = (managerOptions: {isTabEmpty: (tabId: strin
         }
 
         const newPane = createPane();
-        panes.value = [
-            ...panes.value,
-            newPane,
-        ];
+        panes.value = [...panes.value, newPane];
 
         const sourceLeaf: IEditorLayoutLeafNode = {
             type: 'leaf',
@@ -578,12 +486,7 @@ export const useEditorPanesManager = (managerOptions: {isTabEmpty: (tabId: strin
         normalizeManagerState();
     }
 
-    function moveTabToPane(
-        tabId: string,
-        targetPaneId: string,
-        activate = true,
-        targetIndex?: number | null,
-    ) {
+    function moveTabToPane(tabId: string, targetPaneId: string, activate = true, targetIndex?: number | null) {
         const sourcePane = getPaneByTabId(tabId);
         const targetPane = getPaneById(targetPaneId);
         const parsedTabId = parseTabId(tabId);
@@ -600,14 +503,12 @@ export const useEditorPanesManager = (managerOptions: {isTabEmpty: (tabId: strin
         }
 
         const sourceTabIndex = sourcePane.tabIds.indexOf(parsedTabId);
-        const nextSourceTabIds = sourcePane.tabIds.filter(candidate => candidate !== parsedTabId);
+        const nextSourceTabIds = sourcePane.tabIds.filter((candidate) => candidate !== parsedTabId);
         const sourceReplacementTabId = nextSourceTabIds[sourceTabIndex] ?? nextSourceTabIds[sourceTabIndex - 1] ?? null;
         updatePaneTabIds(
             sourcePane.paneId,
             () => nextSourceTabIds,
-            currentPane => currentPane.activeTabId === parsedTabId
-                ? sourceReplacementTabId
-                : currentPane.activeTabId,
+            (currentPane) => (currentPane.activeTabId === parsedTabId ? sourceReplacementTabId : currentPane.activeTabId),
         );
         updatePaneTabIds(
             targetPane.paneId,

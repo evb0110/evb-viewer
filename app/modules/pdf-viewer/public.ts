@@ -9,17 +9,13 @@ export type {
     TAgentTextMarkupKind,
     TPdfSidebarTab,
 } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
-export type {
-    IAnnotationCreationFailureReport,
-} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
-export { useBookmarkState } from '@app/modules/pdf-viewer/runtime/composables/pdf/useBookmarkState';
-export { useOcrTextContent } from '@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent';
-export { usePageContextMenu } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageContextMenu';
-export { usePageLabelState } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageLabelState';
-export {
-    usePageOperations,
-} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations';
-export { usePdfHistory } from '@app/modules/pdf-viewer/runtime/composables/usePdfHistory';
+export type {IAnnotationCreationFailureReport} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
+export {useBookmarkState} from '@app/modules/pdf-viewer/runtime/composables/pdf/useBookmarkState';
+export {useOcrTextContent} from '@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent';
+export {usePageContextMenu} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageContextMenu';
+export {usePageLabelState} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageLabelState';
+export {usePageOperations} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations';
+export {usePdfHistory} from '@app/modules/pdf-viewer/runtime/composables/usePdfHistory';
 export {
     createPdfDocumentAnnotations,
     pdfDocumentAnnotationsKey,
@@ -31,10 +27,10 @@ export {
     type IPdfSourceJob,
     type TPdfSourceJobIntent,
 } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
-export { usePdfSearch } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearch';
-export type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
-export type { IPdfSemanticAnchor } from '@contracts/recentReadingView';
-export { createPdfPageNavigationRequest } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/createPdfPageNavigationRequest';
+export {usePdfSearch} from '@app/modules/pdf-viewer/runtime/composables/usePdfSearch';
+export type {IScrollToPageOptions} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
+export type {IPdfSemanticAnchor} from '@contracts/recentReadingView';
+export {createPdfPageNavigationRequest} from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/createPdfPageNavigationRequest';
 export {annotationIdForSummary} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 export {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 export type {AnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
@@ -46,10 +42,7 @@ export {
     AnnotationRecoveryAdmissionError,
     CANONICAL_ANNOTATION_RECOVERY_VERSION,
 } from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
-export type {
-    IAnnotationRecoveryDraft,
-    ICanonicalAnnotationRecovery,
-} from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
+export type {IAnnotationRecoveryDraft, ICanonicalAnnotationRecovery} from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 export type {
     INativePdfMutationProjection,
     IPdfViewerSaveTransactionDocumentStructure,
@@ -58,26 +51,23 @@ export type {
     IPdfViewerSaveTransactionDescriptors,
     IPdfViewerSaveTransactionResult,
 } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
-export { escapeCssAttr } from '@app/modules/pdf-viewer/engine/annotation-css-utils/escapeCssAttr';
-export { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
-export { isAuthoringAnnotationTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isAuthoringAnnotationTool';
-export { isNoteEligibleComment } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isNoteEligibleComment';
-export { markerRectFromPoint } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/markerRectFromPoint';
-export { resolveVisiblePageLabelsDuringMetadataRefresh } from '@app/modules/pdf-viewer/engine/page-labels/resolveVisiblePageLabelsDuringMetadataRefresh';
-export { capturePdfRegionAsPngBlob } from '@app/modules/pdf-viewer/engine/pdf-region-capture/capturePdfRegionAsPngBlob';
-export { resolvePdfReloadPage } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/resolvePdfReloadPage';
-export { createPdfReloadWaiter } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/createPdfReloadWaiter';
-export { findPdfPageContainer } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/findPdfPageContainer';
-export { pdfViewerDomSelectors } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomSelectors';
-export { clampPdfManualZoom } from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
-export { isPathPdfSource } from '@app/modules/pdf-viewer/engine/pdf-document-source/isPathPdfSource';
-export type { IPdfThumbnailPageGeometry } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailComponentContract';
+export {escapeCssAttr} from '@app/modules/pdf-viewer/engine/annotation-css-utils/escapeCssAttr';
+export {normalizeMarkerRect} from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
+export {isAuthoringAnnotationTool} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isAuthoringAnnotationTool';
+export {isNoteEligibleComment} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isNoteEligibleComment';
+export {markerRectFromPoint} from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/markerRectFromPoint';
+export {resolveVisiblePageLabelsDuringMetadataRefresh} from '@app/modules/pdf-viewer/engine/page-labels/resolveVisiblePageLabelsDuringMetadataRefresh';
+export {capturePdfRegionAsPngBlob} from '@app/modules/pdf-viewer/engine/pdf-region-capture/capturePdfRegionAsPngBlob';
+export {resolvePdfReloadPage} from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/resolvePdfReloadPage';
+export {createPdfReloadWaiter} from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/createPdfReloadWaiter';
+export {findPdfPageContainer} from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/findPdfPageContainer';
+export {pdfViewerDomSelectors} from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomSelectors';
+export {clampPdfManualZoom} from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
+export {isPathPdfSource} from '@app/modules/pdf-viewer/engine/pdf-document-source/isPathPdfSource';
+export type {IPdfThumbnailPageGeometry} from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailComponentContract';
 
-export { createPdfSourceDataReader } from '@app/modules/pdf-viewer/runtime/composables/pdf/createPdfSourceDataReader';
-export { NativePdfSaveRequiredError } from '@app/modules/pdf-viewer/runtime/save/nativePdfSaveRequiredError';
-export type {
-    IPdfDocument,
-    IPdfPage,
-} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+export {createPdfSourceDataReader} from '@app/modules/pdf-viewer/runtime/composables/pdf/createPdfSourceDataReader';
+export {NativePdfSaveRequiredError} from '@app/modules/pdf-viewer/runtime/save/nativePdfSaveRequiredError';
+export type {IPdfDocument, IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 
 export {committedAffectedPageIndices} from '@app/modules/pdf-viewer/runtime/save/nativeMutationProjection';

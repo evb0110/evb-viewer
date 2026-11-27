@@ -58,8 +58,8 @@ if (process.argv.includes('--version')) {
         const {
             result, error,
         } = await response.json();
-        if (error) return `error ${JSON.stringify(error)}`;
-        if (!response.ok || !result) throw new Error(`MCP request failed: HTTP ${response.status}`);
+        if (error) {return `error ${JSON.stringify(error)}`;}
+        if (!response.ok || !result) {throw new Error(`MCP request failed: HTTP ${response.status}`);}
         return result.isError ? `error ${result.content?.[0]?.text ?? ''}` : 'ok';
     };
     createInterface({input: process.stdin}).on('line', line => {

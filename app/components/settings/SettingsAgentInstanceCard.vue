@@ -8,18 +8,41 @@
                 :model-value="card.instance.enabled"
                 :label="t('assistant.instanceEnabled')"
                 size="sm"
-                @update:model-value="emit('update-instance', { enabled: $event })"
+                @update:model-value="emit('update-instance', {enabled: $event})"
             />
         </div>
         <p class="settings-field-hint">{{ t(card.statusLabelKey) }}</p>
-        <p v-if="card.statusMessage" class="instance-message">{{ card.statusMessage }}</p>
+        <p
+            v-if="card.statusMessage"
+            class="instance-message"
+            >{{ card.statusMessage }}</p
+        >
         <dl class="settings-agent-details">
-            <div><dt>{{ t('assistant.binaryPath') }}</dt><dd>{{ card.binaryPath }}</dd></div>
-            <div><dt>{{ t('assistant.version') }}</dt><dd>{{ card.version }}</dd></div>
-            <div><dt>{{ t('assistant.homePath') }}</dt><dd>{{ card.homePath }}</dd></div>
+            <div
+                ><dt>{{ t('assistant.binaryPath') }}</dt
+                ><dd>{{ card.binaryPath }}</dd></div
+            >
+            <div
+                ><dt>{{ t('assistant.version') }}</dt
+                ><dd>{{ card.version }}</dd></div
+            >
+            <div
+                ><dt>{{ t('assistant.homePath') }}</dt
+                ><dd>{{ card.homePath }}</dd></div
+            >
         </dl>
-        <p v-if="card.loginCode" class="instance-message">{{ t('assistant.deviceCode') }} {{ card.loginCode }}</p>
-        <a v-if="card.loginUrl" :href="card.loginUrl" target="_blank" rel="noopener noreferrer">{{ card.loginUrl }}</a>
+        <p
+            v-if="card.loginCode"
+            class="instance-message"
+            >{{ t('assistant.deviceCode') }} {{ card.loginCode }}</p
+        >
+        <a
+            v-if="card.loginUrl"
+            :href="card.loginUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            >{{ card.loginUrl }}</a
+        >
         <div class="settings-agent-actions settings-agent-actions--assistant">
             <UButton
                 :label="t('assistant.refresh')"
@@ -70,43 +93,49 @@
                     <UInput
                         :model-value="card.instance.displayName"
                         class="w-full"
-                        @update:model-value="emit('update-instance', { displayName: String($event) })"
+                        @update:model-value="emit('update-instance', {displayName: String($event)})"
                     />
                 </UFormField>
                 <UFormField :label="t('assistant.binaryPath')">
                     <UInput
                         :model-value="card.instance.binaryPath ?? ''"
                         class="w-full"
-                        @update:model-value="emit('update-instance', { binaryPath: String($event) })"
+                        @update:model-value="emit('update-instance', {binaryPath: String($event)})"
                     />
                 </UFormField>
                 <UFormField :label="t('assistant.homePath')">
                     <UInput
                         :model-value="card.instance.homePath ?? ''"
                         class="w-full"
-                        @update:model-value="emit('update-instance', { homePath: String($event) })"
+                        @update:model-value="emit('update-instance', {homePath: String($event)})"
                     />
                 </UFormField>
-                <UFormField v-if="card.instance.driver === 'codex'" :label="t('assistant.shadowHomePath')">
+                <UFormField
+                    v-if="card.instance.driver === 'codex'"
+                    :label="t('assistant.shadowHomePath')"
+                >
                     <UInput
                         :model-value="card.instance.shadowHomePath ?? ''"
                         class="w-full"
-                        @update:model-value="emit('update-instance', { shadowHomePath: String($event) })"
+                        @update:model-value="emit('update-instance', {shadowHomePath: String($event)})"
                     />
                 </UFormField>
-                <UFormField :label="t('assistant.launchArgs')" :hint="card.launchArgsHint">
+                <UFormField
+                    :label="t('assistant.launchArgs')"
+                    :hint="card.launchArgsHint"
+                >
                     <UInput
                         :model-value="card.instance.launchArgs ?? ''"
                         :type="card.instance.launchArgsSecret ? 'password' : 'text'"
                         autocomplete="off"
                         class="w-full"
-                        @update:model-value="emit('update-instance', { launchArgs: String($event) })"
+                        @update:model-value="emit('update-instance', {launchArgs: String($event)})"
                     />
                 </UFormField>
                 <UCheckbox
                     :model-value="card.instance.launchArgsSecret"
                     :label="t('assistant.secret')"
-                    @update:model-value="emit('update-instance', { launchArgsSecret: $event === true })"
+                    @update:model-value="emit('update-instance', {launchArgsSecret: $event === true})"
                 />
                 <fieldset class="instance-fields">
                     <legend>{{ t('assistant.environment') }}</legend>
@@ -119,20 +148,22 @@
                             :model-value="entry.name"
                             :aria-label="t('assistant.environmentName')"
                             :placeholder="t('assistant.environmentName')"
-                            @update:model-value="emit('update-environment', entry.uiId, { name: String($event) })"
+                            @update:model-value="emit('update-environment', entry.uiId, {name: String($event)})"
                         />
                         <UInput
                             :model-value="entry.value"
                             :aria-label="t('assistant.environmentValue')"
-                            :placeholder="entry.secret && entry.configured ? t('assistant.secretConfigured') : t('assistant.environmentValue')"
+                            :placeholder="
+                                entry.secret && entry.configured ? t('assistant.secretConfigured') : t('assistant.environmentValue')
+                            "
                             :type="entry.secret ? 'password' : 'text'"
                             autocomplete="off"
-                            @update:model-value="emit('update-environment', entry.uiId, { value: String($event) })"
+                            @update:model-value="emit('update-environment', entry.uiId, {value: String($event)})"
                         />
                         <UCheckbox
                             :model-value="entry.secret"
                             :label="t('assistant.secret')"
-                            @update:model-value="emit('update-environment', entry.uiId, { secret: $event === true })"
+                            @update:model-value="emit('update-environment', entry.uiId, {secret: $event === true})"
                         />
                         <UButton
                             :aria-label="t('assistant.removeEnvironment')"
@@ -157,9 +188,9 @@
 </template>
 
 <script setup lang="ts">
-import type { IAssistantInstanceConfig } from '@contracts/assistant';
-import type { getSettingsAssistantStatusModel } from '@app/modules/workspace-shell/public/settingsAssistant';
-import { useTypedI18n } from '@app/composables/useTypedI18n';
+import type {IAssistantInstanceConfig} from '@contracts/assistant';
+import type {getSettingsAssistantStatusModel} from '@app/modules/workspace-shell/public/settingsAssistant';
+import {useTypedI18n} from '@app/composables/useTypedI18n';
 
 export interface IEditableAssistantEnvironmentEntry {
     uiId: string;
@@ -204,7 +235,7 @@ const emit = defineEmits<{
     'remove-environment': [uiId: string];
 }>();
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 </script>
 
 <style scoped>

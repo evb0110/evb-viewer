@@ -69,11 +69,7 @@ export function clampNativeLimit(value: unknown, maximum: number, label: string)
 export function serializeNativeScanCleanupOptions(
     options: IEffectiveNativeScanCleanupOptionsV3,
 ): INativeScanCleanupManifestV3['pages'][number]['options'] {
-    const {
-        despeckleLevel,
-        manualZones,
-        ...baselineOptions
-    } = options;
+    const {despeckleLevel, manualZones, ...baselineOptions} = options;
     const derivedDespeckleLevel = options.despeckle ? 'normal' : 'off';
     const hasManualZones = manualZones.picture.length > 0 || manualZones.fill.length > 0;
     return {
@@ -102,53 +98,32 @@ export function resolveScanCleanupManifestPageOptions({
     // analyzed as for automatic mode, so switching the output mode never
     // leaves a run with plans measured under another.
     const pagePlan = analysisPurpose === 'page-plan';
-    const {
-        outputModeOverride: _outputModeOverride,
-        ...automaticPageOverride
-    } = pageOverride;
+    const {outputModeOverride: _outputModeOverride, ...automaticPageOverride} = pageOverride;
     const resolvedOutputMode = pagePlan ? undefined : page.resolvedOutputMode;
     const resolvedOptions = {
         ...resolveEffectiveScanCleanupOptions({
-            options: pagePlan ? {
-                ...options,
-                outputMode: 'auto',
-            } : options,
+            options: pagePlan
+                ? {
+                      ...options,
+                      outputMode: 'auto',
+                  }
+                : options,
             pageOverride: pagePlan ? automaticPageOverride : pageOverride,
             dpi: page.dpi,
             ...(page.sourceDpi === undefined ? {} : {sourceDpi: page.sourceDpi}),
-            ...(page.sourceHasBilevelLayer === undefined
-                ? {}
-                : {sourceHasBilevelLayer: page.sourceHasBilevelLayer}),
-            ...(page.sourceBackgroundDpi === undefined
-                ? {}
-                : {sourceBackgroundDpi: page.sourceBackgroundDpi}),
+            ...(page.sourceHasBilevelLayer === undefined ? {} : {sourceHasBilevelLayer: page.sourceHasBilevelLayer}),
+            ...(page.sourceBackgroundDpi === undefined ? {} : {sourceBackgroundDpi: page.sourceBackgroundDpi}),
             ...(page.facingPairGeometry === undefined ? {} : {facingPairGeometry: page.facingPairGeometry}),
-            ...(page.requestedRenderDpi === undefined
-                ? {}
-                : {requestedRenderDpi: page.requestedRenderDpi}),
+            ...(page.requestedRenderDpi === undefined ? {} : {requestedRenderDpi: page.requestedRenderDpi}),
             ...(page.renderCrop === undefined ? {} : {renderCrop: page.renderCrop}),
             ...(resolvedOutputMode === undefined ? {} : {resolvedOutputMode}),
-            ...(page.preferSoftAlphaForeground === undefined
-                ? {}
-                : {preferSoftAlphaForeground: page.preferSoftAlphaForeground}),
-            ...(page.resolvedTextToneDiagnostics === undefined
-                ? {}
-                : {resolvedTextToneDiagnostics: page.resolvedTextToneDiagnostics}),
-            ...(page.observedLayout === undefined
-                ? {}
-                : {observedLayout: page.observedLayout}),
-            ...(page.automaticSplit === undefined
-                ? {}
-                : {automaticSplit: page.automaticSplit}),
-            ...(page.automaticContentBoxes === undefined
-                ? {}
-                : {automaticContentBoxes: page.automaticContentBoxes}),
-            ...(page.automaticSkewDegrees === undefined
-                ? {}
-                : {automaticSkewDegrees: page.automaticSkewDegrees}),
-            ...(page.placementAnchors === undefined
-                ? {}
-                : {placementAnchors: page.placementAnchors}),
+            ...(page.preferSoftAlphaForeground === undefined ? {} : {preferSoftAlphaForeground: page.preferSoftAlphaForeground}),
+            ...(page.resolvedTextToneDiagnostics === undefined ? {} : {resolvedTextToneDiagnostics: page.resolvedTextToneDiagnostics}),
+            ...(page.observedLayout === undefined ? {} : {observedLayout: page.observedLayout}),
+            ...(page.automaticSplit === undefined ? {} : {automaticSplit: page.automaticSplit}),
+            ...(page.automaticContentBoxes === undefined ? {} : {automaticContentBoxes: page.automaticContentBoxes}),
+            ...(page.automaticSkewDegrees === undefined ? {} : {automaticSkewDegrees: page.automaticSkewDegrees}),
+            ...(page.placementAnchors === undefined ? {} : {placementAnchors: page.placementAnchors}),
             qualityPath,
             ...(experimental === undefined ? {} : {experimental}),
         }),
@@ -159,10 +134,12 @@ export function resolveScanCleanupManifestPageOptions({
         // exclusion only decides whether the page reaches the output, so
         // an excluded page is still analyzed: its evidence stays current
         // when it is included again.
-        ...(analysisPurpose === 'page-plan' ? {
-            manualContentBoxes: {},
-            excluded: false,
-        } : {}),
+        ...(analysisPurpose === 'page-plan'
+            ? {
+                  manualContentBoxes: {},
+                  excluded: false,
+              }
+            : {}),
     };
     const maxPixels = resolveScanCleanupPipelineMaxPixels(
         resolvedOptions.outputMode === 'auto' ? undefined : resolvedOptions.outputMode,
@@ -171,30 +148,18 @@ export function resolveScanCleanupManifestPageOptions({
     return serializeNativeScanCleanupOptions({
         ...resolvedOptions,
         maxPixels: clampNativeLimit(resolvedOptions.maxPixels, maxPixels, 'maxPixels'),
-        maxDimensionPx: clampNativeLimit(
-            resolvedOptions.maxDimensionPx,
-            SCAN_CLEANUP_MAX_DIMENSION_PX,
-            'maxDimensionPx',
-        ),
+        maxDimensionPx: clampNativeLimit(resolvedOptions.maxDimensionPx, SCAN_CLEANUP_MAX_DIMENSION_PX, 'maxDimensionPx'),
     });
 }
 
 /** A page's document prior as the native manifest carries it. */
-export function serializeScanCleanupManifestDocumentPrior(
-    prior: IScanCleanupDocumentPrior,
-): NonNullable<TManifestPage['documentPrior']> {
+export function serializeScanCleanupManifestDocumentPrior(prior: IScanCleanupDocumentPrior): NonNullable<TManifestPage['documentPrior']> {
     return {
         dominantLayout: prior.dominantLayout,
-        ...(prior.cutterRatioMedian === undefined
-            ? {}
-            : {cutterRatioMedian: prior.cutterRatioMedian}),
+        ...(prior.cutterRatioMedian === undefined ? {} : {cutterRatioMedian: prior.cutterRatioMedian}),
         clusterDims: prior.clusterDims,
         agreementStrength: prior.agreementStrength,
-        ...(prior.strokeWidthMedianPx === undefined
-            ? {}
-            : {strokeWidthMedianPx: prior.strokeWidthMedianPx}),
-        ...(prior.xHeightMedianPx === undefined
-            ? {}
-            : {xHeightMedianPx: prior.xHeightMedianPx}),
+        ...(prior.strokeWidthMedianPx === undefined ? {} : {strokeWidthMedianPx: prior.strokeWidthMedianPx}),
+        ...(prior.xHeightMedianPx === undefined ? {} : {xHeightMedianPx: prior.xHeightMedianPx}),
     };
 }

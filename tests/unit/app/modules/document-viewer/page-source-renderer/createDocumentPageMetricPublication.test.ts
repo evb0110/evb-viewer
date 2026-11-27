@@ -1,11 +1,6 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { createDocumentPageMetricPublication } from '@app/modules/document-viewer/page-source-renderer/createDocumentPageMetricPublication';
-import { createProvisionalDocumentPageMetrics } from '@app/modules/document-viewer/page-source-renderer/loadPrioritizedDocumentPageMetrics';
+import {describe, expect, it, vi} from 'vitest';
+import {createDocumentPageMetricPublication} from '@app/modules/document-viewer/page-source-renderer/createDocumentPageMetricPublication';
+import {createProvisionalDocumentPageMetrics} from '@app/modules/document-viewer/page-source-renderer/loadPrioritizedDocumentPageMetrics';
 
 const metric = (widthPoints: number) => ({
     widthPoints,
@@ -25,15 +20,14 @@ describe('createDocumentPageMetricPublication', () => {
         };
         const committed: unknown[] = [];
         const onPublished = vi.fn();
-        const publication = createDocumentPageMetricPublication({
-            readMetrics: () => [
-                metric(100),
-                metric(100),
-                metric(100),
-            ],
-            commitMetrics: metrics => committed.push(metrics),
-            onPublished,
-        }, environment);
+        const publication = createDocumentPageMetricPublication(
+            {
+                readMetrics: () => [metric(100), metric(100), metric(100)],
+                commitMetrics: (metrics) => committed.push(metrics),
+                onPublished,
+            },
+            environment,
+        );
 
         publication.enqueue(1, metric(101));
         publication.enqueue(3, metric(303));
@@ -45,11 +39,7 @@ describe('createDocumentPageMetricPublication', () => {
         }
         frame.callback(0);
 
-        expect(committed).toEqual([[
-            metric(101),
-            metric(100),
-            metric(303),
-        ]]);
+        expect(committed).toEqual([[metric(101), metric(100), metric(303)]]);
         expect(onPublished).toHaveBeenCalledOnce();
     });
 
@@ -64,11 +54,14 @@ describe('createDocumentPageMetricPublication', () => {
         };
         const metrics = createProvisionalDocumentPageMetrics(1_000_000, metric(100));
         const committed: unknown[] = [];
-        const publication = createDocumentPageMetricPublication({
-            readMetrics: () => metrics,
-            commitMetrics: nextMetrics => committed.push(nextMetrics),
-            onPublished: vi.fn(),
-        }, environment);
+        const publication = createDocumentPageMetricPublication(
+            {
+                readMetrics: () => metrics,
+                commitMetrics: (nextMetrics) => committed.push(nextMetrics),
+                onPublished: vi.fn(),
+            },
+            environment,
+        );
 
         publication.enqueue(1_000_000, metric(999));
         if (!frame.callback) {
@@ -78,6 +71,6 @@ describe('createDocumentPageMetricPublication', () => {
 
         expect(committed).toEqual([metrics]);
         expect(metrics[999_999]).toEqual(metric(999));
-        expect(Object.keys(metrics).filter(key => /^\d+$/.test(key))).toEqual([]);
+        expect(Object.keys(metrics).filter((key) => /^\d+$/.test(key))).toEqual([]);
     });
 });

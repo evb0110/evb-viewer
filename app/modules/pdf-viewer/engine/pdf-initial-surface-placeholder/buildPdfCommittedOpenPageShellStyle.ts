@@ -11,7 +11,7 @@ function readPositivePixels(value: string | undefined) {
  * Fit dimensions are viewport-derived and uncapped; the exact page ratio comes
  * from those metrics, so the opening record never fabricates paper geometry.
  */
-export function buildPdfCommittedOpenPageShellStyle(input: {pageStyle: Record<string, string> | null;}) {
+export function buildPdfCommittedOpenPageShellStyle(input: {pageStyle: Record<string, string> | null}) {
     const rawWidth = readPositivePixels(input.pageStyle?.width);
     const rawHeight = readPositivePixels(input.pageStyle?.height);
     if (rawWidth === null || rawHeight === null) {

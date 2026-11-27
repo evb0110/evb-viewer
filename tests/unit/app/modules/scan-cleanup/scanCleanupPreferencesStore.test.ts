@@ -1,37 +1,15 @@
 // @vitest-environment happy-dom
 
-import {
-    mkdir, mkdtemp, readFile, rename, rm,
-} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, rename, rm} from 'node:fs/promises';
 import {join} from 'node:path';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    computed,
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    ref,
-} from 'vue';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {computed, createApp, defineComponent, h, nextTick, ref} from 'vue';
 import type * as preferencesStoreModule from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {createScanCleanupSettingsStore} from '@electron/features/scan-cleanup/createScanCleanupSettingsStore';
-import {
-    createScanCleanupPageOverride,
-    getScanCleanupPageOverrideDefaults,
-} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {createScanCleanupPageOverride, getScanCleanupPageOverrideDefaults} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {resolveScanCleanupOutputPlacement} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
-import {
-    createDefaultScanCleanupSettingsFile,
-    type IScanCleanupSettingsChange,
-} from '@contracts/scan-cleanup/scanCleanupSettings';
+import {createDefaultScanCleanupSettingsFile, type IScanCleanupSettingsChange} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {useWorkspaceCommandLedger} from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
 import {workspaceCommandSinkKey} from '@app/types/workspaceCommand';
 import {useScanCleanupSelection} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
@@ -58,11 +36,13 @@ import {
     whenScanCleanupPreferencesReady,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
 
-const capability = vi.hoisted(() => ({value: {
-    getSettings: vi.fn(),
-    updateSettings: vi.fn(),
-    onSettingsChanged: vi.fn(),
-}}));
+const capability = vi.hoisted(() => ({
+    value: {
+        getSettings: vi.fn(),
+        updateSettings: vi.fn(),
+        onSettingsChanged: vi.fn(),
+    },
+}));
 const temporaryDirectories: string[] = [];
 // Store operations still running when a test ends would write into a
 // directory that teardown is deleting; teardown waits for them first.
@@ -72,7 +52,7 @@ function trackStoreOperation<T>(operation: Promise<T>) {
     // Callers get the tracked promise, so a rejection nobody observes still
     // surfaces as unhandled instead of being consumed here.
     const tracked: Promise<T> = operation.then(
-        value => {
+        (value) => {
             pendingStoreOperations.delete(tracked);
             return value;
         },
@@ -87,7 +67,9 @@ function trackStoreOperation<T>(operation: Promise<T>) {
 const settingsSubscribers = new Set<(settings: IScanCleanupSettingsChange) => void>();
 
 function broadcastSettings(settings: IScanCleanupSettingsChange) {
-    for (const subscriber of settingsSubscribers) subscriber(settings);
+    for (const subscriber of settingsSubscribers) {
+        subscriber(settings);
+    }
 }
 
 async function createDurableSettingsStore(onSettingsChanged = broadcastSettings, replace = rename) {
@@ -125,19 +107,23 @@ describe('scan cleanup renderer preference store', () => {
         localStorage.clear();
         vi.clearAllMocks();
         capability.value.getSettings.mockResolvedValue(createDefaultScanCleanupSettingsFile());
-        capability.value.updateSettings.mockImplementation(async request => {
+        capability.value.updateSettings.mockImplementation(async (request) => {
             const result = createDefaultScanCleanupSettingsFile();
             Object.assign(result.settings, request.settingsPatch);
-            if (request.settingsPatch !== undefined) broadcastSettings({
-                settings: result.settings,
-                requestId: request.requestId,
-            });
+            if (request.settingsPatch !== undefined) {
+                broadcastSettings({
+                    settings: result.settings,
+                    requestId: request.requestId,
+                });
+            }
             return result;
         });
         settingsSubscribers.clear();
         capability.value.onSettingsChanged.mockImplementation((subscriber: (settings: IScanCleanupSettingsChange) => void) => {
             settingsSubscribers.add(subscriber);
-            return () => { settingsSubscribers.delete(subscriber); };
+            return () => {
+                settingsSubscribers.delete(subscriber);
+            };
         });
     });
 
@@ -147,13 +133,18 @@ describe('scan cleanup renderer preference store', () => {
         platform.desktop = true;
         resetScanCleanupPreferencesStore();
         // A settling operation can start another (a read that leads to a write).
-        while (pendingStoreOperations.size > 0) await Promise.allSettled([...pendingStoreOperations]);
-        await Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, {
-            recursive: true,
-            force: true,
-        })));
+        while (pendingStoreOperations.size > 0) {
+            await Promise.allSettled([...pendingStoreOperations]);
+        }
+        await Promise.all(
+            temporaryDirectories.splice(0).map((directory) =>
+                rm(directory, {
+                    recursive: true,
+                    force: true,
+                }),
+            ),
+        );
     });
-
 
     it('keeps a browser document edit whose debounced write hit a full storage, and writes it once there is room', async () => {
         platform.desktop = false;
@@ -174,19 +165,21 @@ describe('scan cleanup renderer preference store', () => {
     });
 
     it('keeps another window reading-order commit when an older local save reply arrives late', async () => {
-        const {
-            store, filePath,
-        } = await createDurableSettingsStore();
+        const {store, filePath} = await createDurableSettingsStore();
         connectMainProcessSettings(store);
         const shown = getScanCleanupPreferencesStore();
         await whenScanCleanupPreferencesReady();
         let release!: (value: Awaited<ReturnType<typeof store.update>>) => void;
         let committed!: (value: Awaited<ReturnType<typeof store.update>>) => void;
-        const started = new Promise<Awaited<ReturnType<typeof store.update>>>(done => { committed = done; });
-        capability.value.updateSettings.mockImplementationOnce(async request => {
+        const started = new Promise<Awaited<ReturnType<typeof store.update>>>((done) => {
+            committed = done;
+        });
+        capability.value.updateSettings.mockImplementationOnce(async (request) => {
             const value = await store.update(request);
             committed(value);
-            return new Promise(done => { release = done; });
+            return new Promise((done) => {
+                release = done;
+            });
         });
         shown.binarization = 'sauvola';
         const saving = flushScanCleanupPreferencesStore();
@@ -212,25 +205,27 @@ describe('scan cleanup renderer preference store', () => {
         const {store} = await createDurableSettingsStore();
         connectMainProcessSettings(store);
         const hash = 'd'.repeat(64);
-        await store.update({document: {
-            sourceSha256: hash,
-            patch: {outputMode: 'grayscale'},
-        }});
+        await store.update({
+            document: {
+                sourceSha256: hash,
+                patch: {outputMode: 'grayscale'},
+            },
+        });
         getScanCleanupPreferencesStore();
         await whenScanCleanupPreferencesReady();
         expect((await loadScanCleanupDocumentSettings(hash, '/documents/shared.pdf')).outputMode).toBe('grayscale');
 
-        await store.update({document: {
-            sourceSha256: hash,
-            patch: {outputMode: 'color'},
-        }});
+        await store.update({
+            document: {
+                sourceSha256: hash,
+                patch: {outputMode: 'color'},
+            },
+        });
         expect((await loadScanCleanupDocumentSettings(hash, '/documents/shared.pdf')).outputMode).toBe('color');
     });
 
     it('persists later global and document edits when settings events are dropped', async () => {
-        const {
-            filePath, store,
-        } = await createDurableSettingsStore(() => undefined);
+        const {filePath, store} = await createDurableSettingsStore(() => undefined);
         connectMainProcessSettings(store);
         const preferences = getScanCleanupPreferencesStore();
         await whenScanCleanupPreferencesReady();
@@ -254,9 +249,7 @@ describe('scan cleanup renderer preference store', () => {
     it('rebases independently hydrated renderer stores through a second edit', async () => {
         vi.resetModules();
         const firstStoreModule = await import('@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore');
-        const {
-            filePath, store,
-        } = await createDurableSettingsStore();
+        const {filePath, store} = await createDurableSettingsStore();
         connectMainProcessSettings(store);
 
         const firstPreferences = firstStoreModule.getScanCleanupPreferencesStore();
@@ -315,14 +308,18 @@ describe('scan cleanup renderer preference store', () => {
             const host = document.createElement('div');
             document.body.append(host);
             let session!: ReturnType<typeof secondSettingsModule.useScanCleanupDocumentSettings>;
-            const app = createApp(defineComponent({setup() {
-                session = secondSettingsModule.useScanCleanupDocumentSettings({
-                    documentLifecycleKey: computed(() => name),
-                    sourceSha256: computed(() => sourceSha256),
-                    legacyDocumentKey: computed(() => `/documents/${name}.pdf`),
-                });
-                return () => h('div');
-            }}));
+            const app = createApp(
+                defineComponent({
+                    setup() {
+                        session = secondSettingsModule.useScanCleanupDocumentSettings({
+                            documentLifecycleKey: computed(() => name),
+                            sourceSha256: computed(() => sourceSha256),
+                            legacyDocumentKey: computed(() => `/documents/${name}.pdf`),
+                        });
+                        return () => h('div');
+                    },
+                }),
+            );
             app.mount(host);
             await vi.waitFor(() => expect(session.documentSettingsReady.value).toBe(true));
             return {
@@ -386,16 +383,18 @@ describe('scan cleanup renderer preference store', () => {
     });
 
     it('keeps a revert made while an earlier global write is in flight', async () => {
-        const {
-            filePath, store,
-        } = await createDurableSettingsStore();
+        const {filePath, store} = await createDurableSettingsStore();
         connectMainProcessSettings(store);
         const writeSettings = capability.value.updateSettings.getMockImplementation()!;
         let releaseWrite!: () => void;
         let writeStarted!: () => void;
-        const started = new Promise<void>(resolve => { writeStarted = resolve; });
-        const gate = new Promise<void>(resolve => { releaseWrite = resolve; });
-        capability.value.updateSettings.mockImplementationOnce(async request => {
+        const started = new Promise<void>((resolve) => {
+            writeStarted = resolve;
+        });
+        const gate = new Promise<void>((resolve) => {
+            releaseWrite = resolve;
+        });
+        capability.value.updateSettings.mockImplementationOnce(async (request) => {
             writeStarted();
             await gate;
             return writeSettings(request);
@@ -423,15 +422,15 @@ describe('scan cleanup renderer preference store', () => {
     it('keeps a newer broadcast when an older hydration reply arrives', async () => {
         vi.resetModules();
         const first = await import('@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore');
-        const {
-            store, filePath,
-        } = await createDurableSettingsStore();
+        const {store, filePath} = await createDurableSettingsStore();
         connectMainProcessSettings(store);
         const firstPreferences = first.getScanCleanupPreferencesStore();
         await first.whenScanCleanupPreferencesReady();
         const older = await store.get();
         let releaseRead!: () => void;
-        const gate = new Promise<void>(resolve => { releaseRead = resolve; });
+        const gate = new Promise<void>((resolve) => {
+            releaseRead = resolve;
+        });
         capability.value.getSettings.mockImplementationOnce(async () => {
             await gate;
             return older;
@@ -460,9 +459,7 @@ describe('scan cleanup renderer preference store', () => {
     it('keeps a later window commit when an older writer reply arrives', async () => {
         vi.resetModules();
         const first = await import('@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore');
-        const {
-            store, filePath,
-        } = await createDurableSettingsStore();
+        const {store, filePath} = await createDurableSettingsStore();
         connectMainProcessSettings(store);
         const firstPreferences = first.getScanCleanupPreferencesStore();
         await first.whenScanCleanupPreferencesReady();
@@ -473,9 +470,13 @@ describe('scan cleanup renderer preference store', () => {
         const writeSettings = capability.value.updateSettings.getMockImplementation()!;
         let releaseReply!: () => void;
         let commitStarted!: () => void;
-        const committed = new Promise<void>(resolve => { commitStarted = resolve; });
-        const gate = new Promise<void>(resolve => { releaseReply = resolve; });
-        capability.value.updateSettings.mockImplementationOnce(async request => {
+        const committed = new Promise<void>((resolve) => {
+            commitStarted = resolve;
+        });
+        const gate = new Promise<void>((resolve) => {
+            releaseReply = resolve;
+        });
+        capability.value.updateSettings.mockImplementationOnce(async (request) => {
             const result = await writeSettings(request);
             commitStarted();
             await gate;
@@ -514,11 +515,7 @@ describe('scan cleanup renderer preference store', () => {
         await Promise.resolve();
 
         expect(capability.value.updateSettings).not.toHaveBeenCalled();
-        expect(warning).toHaveBeenCalledWith(
-            'scan-cleanup',
-            expect.stringContaining('persist'),
-            expect.any(Function),
-        );
+        expect(warning).toHaveBeenCalledWith('scan-cleanup', expect.stringContaining('persist'), expect.any(Function));
         warning.mockRestore();
     });
 
@@ -540,12 +537,14 @@ describe('scan cleanup renderer preference store', () => {
                 bottomMm: 12,
             },
             outputMode: 'color',
-            overrides: {'1': {
-                rotationDegrees: 90,
-                layoutOverride: 'spread',
-                excluded: false,
-                manualSplit: null,
-            }},
+            overrides: {
+                '1': {
+                    rotationDegrees: 90,
+                    layoutOverride: 'spread',
+                    excluded: false,
+                    manualSplit: null,
+                },
+            },
             lastUsedAtMs: 1,
         };
         capability.value.getSettings.mockResolvedValue(stored);
@@ -553,14 +552,18 @@ describe('scan cleanup renderer preference store', () => {
         let settings: ReturnType<typeof useScanCleanupDocumentSettings> | null = null;
         const host = document.createElement('div');
         document.body.append(host);
-        const app = createApp(defineComponent({setup() {
-            settings = useScanCleanupDocumentSettings({
-                documentLifecycleKey: computed(() => `${documentKey}\0revision-1`),
-                legacyDocumentKey: computed(() => documentKey),
-                sourceSha256: computed(() => sourceSha256),
-            });
-            return () => h('div');
-        }}));
+        const app = createApp(
+            defineComponent({
+                setup() {
+                    settings = useScanCleanupDocumentSettings({
+                        documentLifecycleKey: computed(() => `${documentKey}\0revision-1`),
+                        legacyDocumentKey: computed(() => documentKey),
+                        sourceSha256: computed(() => sourceSha256),
+                    });
+                    return () => h('div');
+                },
+            }),
+        );
         app.mount(host);
 
         await vi.advanceTimersByTimeAsync(0);
@@ -576,8 +579,8 @@ describe('scan cleanup renderer preference store', () => {
             bottomMm: 5,
         });
         const updates = capability.value.updateSettings.mock.calls.map(([request]) => request);
-        expect(updates.filter(request => request.settings?.marginsMm !== undefined)).toEqual([]);
-        expect(updates.filter(request => request.document !== undefined)).toEqual([]);
+        expect(updates.filter((request) => request.settings?.marginsMm !== undefined)).toEqual([]);
+        expect(updates.filter((request) => request.document !== undefined)).toEqual([]);
         app.unmount();
         host.remove();
     });
@@ -585,7 +588,11 @@ describe('scan cleanup renderer preference store', () => {
     it.each([
         {scenario: 'loading a document writes nothing after hydration and debounce', edit: false, switchDocument: false},
         {scenario: 'one document edit writes once with the saved field', edit: true, switchDocument: false},
-        {scenario: 'switching documents before debounce saves the pending edit under its original document', edit: true, switchDocument: true},
+        {
+            scenario: 'switching documents before debounce saves the pending edit under its original document',
+            edit: true,
+            switchDocument: true,
+        },
     ])('$scenario', async ({edit, switchDocument}) => {
         const {filePath, store} = await createDurableSettingsStore();
         const hashA = 'a'.repeat(64);
@@ -600,14 +607,18 @@ describe('scan cleanup renderer preference store', () => {
         const source = ref(hashA);
         let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
         const host = document.createElement('div');
-        const app = createApp(defineComponent({setup() {
-            settings = useScanCleanupDocumentSettings({
-                documentLifecycleKey: computed(() => source.value),
-                sourceSha256: computed(() => source.value),
-                legacyDocumentKey: computed(() => `/documents/${source.value}.pdf`),
-            });
-            return () => h('output', settings.values.outputMode);
-        }}));
+        const app = createApp(
+            defineComponent({
+                setup() {
+                    settings = useScanCleanupDocumentSettings({
+                        documentLifecycleKey: computed(() => source.value),
+                        sourceSha256: computed(() => source.value),
+                        legacyDocumentKey: computed(() => `/documents/${source.value}.pdf`),
+                    });
+                    return () => h('output', settings.values.outputMode);
+                },
+            }),
+        );
         app.mount(host);
         try {
             expect(settings.documentSettingsReady.value).toBe(false);
@@ -633,15 +644,25 @@ describe('scan cleanup renderer preference store', () => {
             await vi.waitFor(() => expect(settings.documentSettingsReady.value).toBe(true));
             await nextTick();
 
-            const documents = capability.value.updateSettings.mock.calls.flatMap(([request]) => request.document ? [request.document] : []);
-            expect(documents).toEqual(edit ? [expect.objectContaining({
-                sourceSha256: hashA,
-                patch: expect.objectContaining({outputMode: 'color'}),
-            })] : []);
+            const documents = capability.value.updateSettings.mock.calls.flatMap(([request]) =>
+                request.document ? [request.document] : [],
+            );
+            expect(documents).toEqual(
+                edit
+                    ? [
+                          expect.objectContaining({
+                              sourceSha256: hashA,
+                              patch: expect.objectContaining({outputMode: 'color'}),
+                          }),
+                      ]
+                    : [],
+            );
             const saved = JSON.parse(await readFile(filePath, 'utf8')) as typeof original;
-            expect(saved.documentOverrides[hashA]).toEqual(edit
-                ? {...original.documentOverrides[hashA], outputMode: 'color', lastUsedAtMs: expect.any(Number)}
-                : original.documentOverrides[hashA]);
+            expect(saved.documentOverrides[hashA]).toEqual(
+                edit
+                    ? {...original.documentOverrides[hashA], outputMode: 'color', lastUsedAtMs: expect.any(Number)}
+                    : original.documentOverrides[hashA],
+            );
             expect(saved.documentOverrides[hashB]).toEqual(original.documentOverrides[hashB]);
             expect(settings.documentSettingsReady.value).toBe(true);
             expect(host.textContent).toBe(switchDocument ? 'grayscale' : edit ? 'color' : 'bw');
@@ -654,46 +675,53 @@ describe('scan cleanup renderer preference store', () => {
     });
 
     it('retains binding edits made while document hydration is pending', async () => {
-        const {
-            filePath, store,
-        } = await createDurableSettingsStore();
+        const {filePath, store} = await createDurableSettingsStore();
         const sourceSha256 = 'e'.repeat(64);
-        const stored = await store.update({document: {
-            sourceSha256,
-            patch: {
-                outputMode: 'grayscale',
-                marginsMm: {
-                    leftMm: 11,
-                    topMm: 12,
-                    rightMm: 13,
-                    bottomMm: 14,
+        const stored = await store.update({
+            document: {
+                sourceSha256,
+                patch: {
+                    outputMode: 'grayscale',
+                    marginsMm: {
+                        leftMm: 11,
+                        topMm: 12,
+                        rightMm: 13,
+                        bottomMm: 14,
+                    },
+                    overrides: {
+                        '1': createScanCleanupPageOverride({layoutOverride: 'spread'}),
+                        '2': createScanCleanupPageOverride({rotationDegrees: 180}),
+                        '3': createScanCleanupPageOverride({rotationDegrees: 270}),
+                    },
+                    pageOverrideDefaults: createScanCleanupPageOverride({manualSkewDegrees: 1}),
                 },
-                overrides: {
-                    '1': createScanCleanupPageOverride({layoutOverride: 'spread'}),
-                    '2': createScanCleanupPageOverride({rotationDegrees: 180}),
-                    '3': createScanCleanupPageOverride({rotationDegrees: 270}),
-                },
-                pageOverrideDefaults: createScanCleanupPageOverride({manualSkewDegrees: 1}),
             },
-        }});
+        });
         capability.value.getSettings.mockImplementation(store.get);
         capability.value.updateSettings.mockImplementation(store.update);
         let resolveSettings!: (value: ReturnType<typeof createDefaultScanCleanupSettingsFile>) => void;
-        capability.value.getSettings.mockImplementationOnce(() => new Promise(resolve => {
-            resolveSettings = resolve;
-        }));
+        capability.value.getSettings.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    resolveSettings = resolve;
+                }),
+        );
         getScanCleanupPreferencesStore();
         let settings: ReturnType<typeof useScanCleanupDocumentSettings> | null = null;
         const host = document.createElement('div');
         document.body.append(host);
-        const app = createApp(defineComponent({setup() {
-            settings = useScanCleanupDocumentSettings({
-                documentLifecycleKey: computed(() => 'hydration-race'),
-                sourceSha256: computed(() => sourceSha256),
-                legacyDocumentKey: computed(() => '/documents/hydration-race.pdf'),
-            });
-            return () => h('div');
-        }}));
+        const app = createApp(
+            defineComponent({
+                setup() {
+                    settings = useScanCleanupDocumentSettings({
+                        documentLifecycleKey: computed(() => 'hydration-race'),
+                        sourceSha256: computed(() => sourceSha256),
+                        legacyDocumentKey: computed(() => '/documents/hydration-race.pdf'),
+                    });
+                    return () => h('div');
+                },
+            }),
+        );
         app.mount(host);
         settings!.editDocumentSettings([], () => {
             settings!.values.outputMode = 'color';
@@ -767,27 +795,36 @@ describe('scan cleanup renderer preference store', () => {
 
     it('shows saved global preferences in a session that opened before hydration finished', async () => {
         const {store} = await createDurableSettingsStore();
-        await store.update({settingsPatch: {
-            readingOrder: 'rtl',
-            thickness: 1,
-        }});
+        await store.update({
+            settingsPatch: {
+                readingOrder: 'rtl',
+                thickness: 1,
+            },
+        });
         capability.value.getSettings.mockImplementation(store.get);
         capability.value.updateSettings.mockImplementation(store.update);
         let resolveSettings!: (value: ReturnType<typeof createDefaultScanCleanupSettingsFile>) => void;
-        capability.value.getSettings.mockImplementationOnce(() => new Promise(resolve => {
-            resolveSettings = resolve;
-        }));
+        capability.value.getSettings.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    resolveSettings = resolve;
+                }),
+        );
         let settings: ReturnType<typeof useScanCleanupDocumentSettings> | null = null;
         const host = document.createElement('div');
         document.body.append(host);
-        const app = createApp(defineComponent({setup() {
-            settings = useScanCleanupDocumentSettings({
-                documentLifecycleKey: computed(() => 'cold-hydration'),
-                sourceSha256: computed(() => 'c'.repeat(64)),
-                legacyDocumentKey: computed(() => '/documents/cold-hydration.pdf'),
-            });
-            return () => h('div');
-        }}));
+        const app = createApp(
+            defineComponent({
+                setup() {
+                    settings = useScanCleanupDocumentSettings({
+                        documentLifecycleKey: computed(() => 'cold-hydration'),
+                        sourceSha256: computed(() => 'c'.repeat(64)),
+                        legacyDocumentKey: computed(() => '/documents/cold-hydration.pdf'),
+                    });
+                    return () => h('div');
+                },
+            }),
+        );
         app.mount(host);
         resolveSettings(await store.get());
         await whenScanCleanupPreferencesReady();
@@ -800,26 +837,31 @@ describe('scan cleanup renderer preference store', () => {
     });
 
     it('persists a global control edited while document settings are still loading', async () => {
-        const {
-            filePath, store,
-        } = await createDurableSettingsStore();
+        const {filePath, store} = await createDurableSettingsStore();
         capability.value.getSettings.mockImplementation(store.get);
         capability.value.updateSettings.mockImplementation(store.update);
         let resolveSettings!: (value: ReturnType<typeof createDefaultScanCleanupSettingsFile>) => void;
-        capability.value.getSettings.mockImplementationOnce(() => new Promise(resolve => {
-            resolveSettings = resolve;
-        }));
+        capability.value.getSettings.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    resolveSettings = resolve;
+                }),
+        );
         let settings: ReturnType<typeof useScanCleanupDocumentSettings> | null = null;
         const host = document.createElement('div');
         document.body.append(host);
-        const app = createApp(defineComponent({setup() {
-            settings = useScanCleanupDocumentSettings({
-                documentLifecycleKey: computed(() => 'pending-global-edit'),
-                sourceSha256: computed(() => 'd'.repeat(64)),
-                legacyDocumentKey: computed(() => '/documents/pending-global-edit.pdf'),
-            });
-            return () => h('div');
-        }}));
+        const app = createApp(
+            defineComponent({
+                setup() {
+                    settings = useScanCleanupDocumentSettings({
+                        documentLifecycleKey: computed(() => 'pending-global-edit'),
+                        sourceSha256: computed(() => 'd'.repeat(64)),
+                        legacyDocumentKey: computed(() => '/documents/pending-global-edit.pdf'),
+                    });
+                    return () => h('div');
+                },
+            }),
+        );
         app.mount(host);
         settings!.values.thickness = 2;
         await nextTick();
@@ -837,13 +879,13 @@ describe('scan cleanup renderer preference store', () => {
     it('promotes edits made before source hashing to the same document record', async () => {
         const legacyDocumentKey = '/documents/source-promotion.pdf';
         const sourceSha256 = 'd'.repeat(64);
-        const {
-            filePath, store,
-        } = await createDurableSettingsStore();
-        await store.update({document: {
-            sourceSha256,
-            patch: {outputMode: 'grayscale'},
-        }});
+        const {filePath, store} = await createDurableSettingsStore();
+        await store.update({
+            document: {
+                sourceSha256,
+                patch: {outputMode: 'grayscale'},
+            },
+        });
         capability.value.getSettings.mockImplementation(store.get);
         capability.value.updateSettings.mockImplementation(store.update);
         getScanCleanupPreferencesStore();
@@ -853,15 +895,19 @@ describe('scan cleanup renderer preference store', () => {
         let settings: ReturnType<typeof useScanCleanupDocumentSettings> | null = null;
         const host = document.createElement('div');
         document.body.append(host);
-        const app = createApp(defineComponent({setup() {
-            settings = useScanCleanupDocumentSettings({
-                documentLifecycleKey: computed(() => `${source.value ?? legacyDocumentKey}\0revision-1`),
-                documentRevision: computed(() => 'revision-1'),
-                sourceSha256: computed(() => source.value),
-                legacyDocumentKey: computed(() => legacyDocumentKey),
-            });
-            return () => h('div');
-        }}));
+        const app = createApp(
+            defineComponent({
+                setup() {
+                    settings = useScanCleanupDocumentSettings({
+                        documentLifecycleKey: computed(() => `${source.value ?? legacyDocumentKey}\0revision-1`),
+                        documentRevision: computed(() => 'revision-1'),
+                        sourceSha256: computed(() => source.value),
+                        legacyDocumentKey: computed(() => legacyDocumentKey),
+                    });
+                    return () => h('div');
+                },
+            }),
+        );
         app.mount(host);
         await vi.waitFor(() => expect(settings!.documentSettingsReady.value).toBe(true));
 
@@ -909,9 +955,7 @@ describe('scan cleanup renderer preference store', () => {
     });
 
     it('retains unresolved queued patches through the debounce until source promotion', async () => {
-        const {
-            filePath, store,
-        } = await createDurableSettingsStore();
+        const {filePath, store} = await createDurableSettingsStore();
         const legacyDocumentKey = '/documents/queued-before-hash.pdf';
         const sourceSha256 = 'c'.repeat(64);
         capability.value.getSettings.mockImplementation(store.get);
@@ -947,15 +991,19 @@ describe('scan cleanup renderer preference store', () => {
         let settings: ReturnType<typeof useScanCleanupDocumentSettings> | null = null;
         const host = document.createElement('div');
         document.body.append(host);
-        const app = createApp(defineComponent({setup() {
-            settings = useScanCleanupDocumentSettings({
-                documentLifecycleKey: computed(() => `${source.value ?? legacyDocumentKey}\0${revision.value}`),
-                documentRevision: computed(() => revision.value),
-                sourceSha256: computed(() => source.value),
-                legacyDocumentKey: computed(() => legacyDocumentKey),
-            });
-            return () => h('div');
-        }}));
+        const app = createApp(
+            defineComponent({
+                setup() {
+                    settings = useScanCleanupDocumentSettings({
+                        documentLifecycleKey: computed(() => `${source.value ?? legacyDocumentKey}\0${revision.value}`),
+                        documentRevision: computed(() => revision.value),
+                        sourceSha256: computed(() => source.value),
+                        legacyDocumentKey: computed(() => legacyDocumentKey),
+                    });
+                    return () => h('div');
+                },
+            }),
+        );
         app.mount(host);
         await vi.waitFor(() => expect(settings!.documentSettingsReady.value).toBe(true));
 
@@ -973,42 +1021,46 @@ describe('scan cleanup renderer preference store', () => {
         host.remove();
     });
 
-    it.each([
-        'switch',
-        'dispose',
-        'discard',
-    ] as const)('rejects stale document hydration after %s', async action => {
-        const {
-            filePath, store,
-        } = await createDurableSettingsStore();
+    it.each(['switch', 'dispose', 'discard'] as const)('rejects stale document hydration after %s', async (action) => {
+        const {filePath, store} = await createDurableSettingsStore();
         capability.value.getSettings.mockImplementation(store.get);
         capability.value.updateSettings.mockImplementation(store.update);
         getScanCleanupPreferencesStore();
         await whenScanCleanupPreferencesReady();
         const firstHash = 'a'.repeat(64);
         const secondHash = 'b'.repeat(64);
-        await store.update({document: {
-            sourceSha256: firstHash,
-            patch: {outputMode: 'grayscale'},
-        }});
-        const stored = await store.update({document: {
-            sourceSha256: secondHash,
-            patch: {outputMode: 'bw'},
-        }});
+        await store.update({
+            document: {
+                sourceSha256: firstHash,
+                patch: {outputMode: 'grayscale'},
+            },
+        });
+        const stored = await store.update({
+            document: {
+                sourceSha256: secondHash,
+                patch: {outputMode: 'bw'},
+            },
+        });
         let resolveRead!: (value: typeof stored) => void;
-        const delayedRead = new Promise<typeof stored>(resolve => { resolveRead = resolve; });
+        const delayedRead = new Promise<typeof stored>((resolve) => {
+            resolveRead = resolve;
+        });
         capability.value.getSettings.mockImplementationOnce(() => delayedRead);
         const source = ref(firstHash);
         let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
         const host = document.createElement('div');
-        const app = createApp(defineComponent({setup() {
-            settings = useScanCleanupDocumentSettings({
-                documentLifecycleKey: computed(() => source.value),
-                sourceSha256: computed(() => source.value),
-                legacyDocumentKey: computed(() => source.value),
-            });
-            return () => h('div');
-        }}));
+        const app = createApp(
+            defineComponent({
+                setup() {
+                    settings = useScanCleanupDocumentSettings({
+                        documentLifecycleKey: computed(() => source.value),
+                        sourceSha256: computed(() => source.value),
+                        legacyDocumentKey: computed(() => source.value),
+                    });
+                    return () => h('div');
+                },
+            }),
+        );
         app.mount(host);
         await nextTick();
         settings.values.outputMode = 'color';
@@ -1030,109 +1082,129 @@ describe('scan cleanup renderer preference store', () => {
         expect(settings.values.outputMode).toBe(action === 'switch' ? 'bw' : 'color');
         expect((await createScanCleanupSettingsStore({filePath}).get()).documentOverrides[firstHash]?.outputMode).toBe('grayscale');
         expect(capability.value.updateSettings).toHaveBeenCalledTimes(action === 'discard' ? 1 : 0);
-        if (action !== 'dispose') app.unmount();
-    });
-
-    it.each([
-        'reset',
-        'another view',
-        'an unchanged selected page edited in another view',
-    ] as const)('undo preserves page overrides after %s', async action => {
-        const {store} = await createDurableSettingsStore();
-        connectMainProcessSettings(store);
-        const sourceSha256 = 'a'.repeat(64);
-        const unchangedPage = action === 'an unchanged selected page edited in another view';
-        if (unchangedPage) {
-            await store.update({document: {
-                sourceSha256,
-                patch: {overrideEdits: {'1': createScanCleanupPageOverride({rotationDegrees: 90})}},
-            }});
-        }
-        const ledger = useWorkspaceCommandLedger();
-        const active = ref(false);
-        let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
-        let selection!: ReturnType<typeof useScanCleanupSelection>;
-        const host = document.createElement('div');
-        const app = createApp(defineComponent({setup() {
-            settings = useScanCleanupDocumentSettings({
-                documentLifecycleKey: computed(() => sourceSha256),
-                sourceSha256: computed(() => sourceSha256),
-                active: () => active.value,
-            });
-            selection = useScanCleanupSelection({
-                initialPage: 1,
-                previewTotalPages: () => 3,
-                marginsLinked: ref(true),
-                settings: settings.values,
-                editDocumentSettings: settings.editDocumentSettings,
-            });
-            return () => h('output', JSON.stringify(settings.values.pageOverrides));
-        }}));
-        app.provide(workspaceCommandSinkKey, {
-            register: ledger.registerCommand,
-            reset: ledger.resetSource,
-            forget: ledger.forgetSourceEntries,
-        });
-        app.mount(host);
-        try {
-            await vi.waitFor(() => expect(settings.documentSettingsReady.value).toBe(true));
-            if (unchangedPage) expect(settings.values.pageOverrides['1']?.rotationDegrees).toBe(90);
-            if (action === 'reset') selection.updatePageOverride(2, createScanCleanupPageOverride({rotationDegrees: 90}));
-            // Page 1 is already turned: the bulk turn changes only page 2.
-            if (unchangedPage) {
-                selection.selectPage(2, 'toggle', [
-                    1,
-                    2,
-                    3,
-                ]);
-                selection.updateScopeOverrides(current => ({
-                    ...current,
-                    rotationDegrees: 90,
-                }));
-            }
-            else selection.updatePageOverride(1, createScanCleanupPageOverride({rotationDegrees: 180}));
-            await nextTick();
-            await flushScanCleanupDocumentPreferencesStore();
-            if (action === 'reset') {
-                settings.resetPageOverrides();
-            } else {
-                const otherPage = unchangedPage ? '1' : '3';
-                await store.update({document: {
-                    sourceSha256,
-                    patch: {overrideEdits: {[otherPage]: createScanCleanupPageOverride(unchangedPage
-                        ? {
-                            rotationDegrees: 90,
-                            excluded: true,
-                        }
-                        : {rotationDegrees: 270})}},
-                }});
-                active.value = true;
-                await vi.waitFor(() => expect(settings.values.pageOverrides[otherPage]?.[unchangedPage ? 'excluded' : 'rotationDegrees']).toBe(unchangedPage ? true : 270));
-            }
-
-            await ledger.undoTimeline();
-            await nextTick();
-
-            const displayed = JSON.parse(host.textContent ?? '{}');
-            if (action === 'reset') {
-                expect(displayed).toEqual({});
-                expect(ledger.canUndoTimeline.value).toBe(false);
-            } else if (unchangedPage) {
-                expect(displayed['1']).toMatchObject({
-                    rotationDegrees: 90,
-                    excluded: true,
-                });
-                expect(displayed['2']).toBeUndefined();
-            } else {
-                expect(displayed['1']).toBeUndefined();
-                expect(displayed['3']?.rotationDegrees).toBe(270);
-            }
-        } finally {
+        if (action !== 'dispose') {
             app.unmount();
-            await flushScanCleanupDocumentPreferencesStore();
-            await store.get();
         }
     });
+
+    it.each(['reset', 'another view', 'an unchanged selected page edited in another view'] as const)(
+        'undo preserves page overrides after %s',
+        async (action) => {
+            const {store} = await createDurableSettingsStore();
+            connectMainProcessSettings(store);
+            const sourceSha256 = 'a'.repeat(64);
+            const unchangedPage = action === 'an unchanged selected page edited in another view';
+            if (unchangedPage) {
+                await store.update({
+                    document: {
+                        sourceSha256,
+                        patch: {overrideEdits: {'1': createScanCleanupPageOverride({rotationDegrees: 90})}},
+                    },
+                });
+            }
+            const ledger = useWorkspaceCommandLedger();
+            const active = ref(false);
+            let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
+            let selection!: ReturnType<typeof useScanCleanupSelection>;
+            const host = document.createElement('div');
+            const app = createApp(
+                defineComponent({
+                    setup() {
+                        settings = useScanCleanupDocumentSettings({
+                            documentLifecycleKey: computed(() => sourceSha256),
+                            sourceSha256: computed(() => sourceSha256),
+                            active: () => active.value,
+                        });
+                        selection = useScanCleanupSelection({
+                            initialPage: 1,
+                            previewTotalPages: () => 3,
+                            marginsLinked: ref(true),
+                            settings: settings.values,
+                            editDocumentSettings: settings.editDocumentSettings,
+                        });
+                        return () => h('output', JSON.stringify(settings.values.pageOverrides));
+                    },
+                }),
+            );
+            app.provide(workspaceCommandSinkKey, {
+                register: ledger.registerCommand,
+                reset: ledger.resetSource,
+                forget: ledger.forgetSourceEntries,
+            });
+            app.mount(host);
+            try {
+                await vi.waitFor(() => expect(settings.documentSettingsReady.value).toBe(true));
+                if (unchangedPage) {
+                    expect(settings.values.pageOverrides['1']?.rotationDegrees).toBe(90);
+                }
+                if (action === 'reset') {
+                    selection.updatePageOverride(2, createScanCleanupPageOverride({rotationDegrees: 90}));
+                }
+                // Page 1 is already turned: the bulk turn changes only page 2.
+                if (unchangedPage) {
+                    selection.selectPage(2, 'toggle', [1, 2, 3]);
+                    selection.updateScopeOverrides((current) => ({
+                        ...current,
+                        rotationDegrees: 90,
+                    }));
+                } else {
+                    selection.updatePageOverride(1, createScanCleanupPageOverride({rotationDegrees: 180}));
+                }
+                await nextTick();
+                await flushScanCleanupDocumentPreferencesStore();
+                if (action === 'reset') {
+                    settings.resetPageOverrides();
+                } else {
+                    const otherPage = unchangedPage ? '1' : '3';
+                    await store.update({
+                        document: {
+                            sourceSha256,
+                            patch: {
+                                overrideEdits: {
+                                    [otherPage]: createScanCleanupPageOverride(
+                                        unchangedPage
+                                            ? {
+                                                  rotationDegrees: 90,
+                                                  excluded: true,
+                                              }
+                                            : {rotationDegrees: 270},
+                                    ),
+                                },
+                            },
+                        },
+                    });
+                    active.value = true;
+                    await vi.waitFor(() =>
+                        expect(settings.values.pageOverrides[otherPage]?.[unchangedPage ? 'excluded' : 'rotationDegrees']).toBe(
+                            unchangedPage ? true : 270,
+                        ),
+                    );
+                }
+
+                await ledger.undoTimeline();
+                await nextTick();
+
+                const displayed = JSON.parse(host.textContent ?? '{}');
+                if (action === 'reset') {
+                    expect(displayed).toEqual({});
+                    expect(ledger.canUndoTimeline.value).toBe(false);
+                } else if (unchangedPage) {
+                    expect(displayed['1']).toMatchObject({
+                        rotationDegrees: 90,
+                        excluded: true,
+                    });
+                    expect(displayed['2']).toBeUndefined();
+                } else {
+                    expect(displayed['1']).toBeUndefined();
+                    expect(displayed['3']?.rotationDegrees).toBe(270);
+                }
+            } finally {
+                app.unmount();
+                await flushScanCleanupDocumentPreferencesStore();
+                await store.get();
+            }
+        },
+    );
 
     it('undoes Apply this page to All and an All-scope edit as one step each', async () => {
         const {store} = await createDurableSettingsStore();
@@ -1142,29 +1214,36 @@ describe('scan cleanup renderer preference store', () => {
         let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
         let selection!: ReturnType<typeof useScanCleanupSelection>;
         const host = document.createElement('div');
-        const app = createApp(defineComponent({setup() {
-            settings = useScanCleanupDocumentSettings({
-                documentLifecycleKey: computed(() => sourceSha256),
-                sourceSha256: computed(() => sourceSha256),
-            });
-            selection = useScanCleanupSelection({
-                initialPage: 1,
-                previewTotalPages: () => 3,
-                marginsLinked: ref(true),
-                settings: settings.values,
-                editDocumentSettings: settings.editDocumentSettings,
-            });
-            return () => h('output', JSON.stringify({
-                defaults: settings.values.pageOverrideDefaults?.rotationDegrees ?? 0,
-                pages: Object.fromEntries(Object.entries(settings.values.pageOverrides).map(([
-                    page,
-                    override,
-                ]) => [
-                    page,
-                    override.rotationDegrees,
-                ])),
-            }));
-        }}));
+        const app = createApp(
+            defineComponent({
+                setup() {
+                    settings = useScanCleanupDocumentSettings({
+                        documentLifecycleKey: computed(() => sourceSha256),
+                        sourceSha256: computed(() => sourceSha256),
+                    });
+                    selection = useScanCleanupSelection({
+                        initialPage: 1,
+                        previewTotalPages: () => 3,
+                        marginsLinked: ref(true),
+                        settings: settings.values,
+                        editDocumentSettings: settings.editDocumentSettings,
+                    });
+                    return () =>
+                        h(
+                            'output',
+                            JSON.stringify({
+                                defaults: settings.values.pageOverrideDefaults?.rotationDegrees ?? 0,
+                                pages: Object.fromEntries(
+                                    Object.entries(settings.values.pageOverrides).map(([page, override]) => [
+                                        page,
+                                        override.rotationDegrees,
+                                    ]),
+                                ),
+                            }),
+                        );
+                },
+            }),
+        );
         app.provide(workspaceCommandSinkKey, {
             register: ledger.registerCommand,
             reset: ledger.resetSource,
@@ -1201,7 +1280,7 @@ describe('scan cleanup renderer preference store', () => {
 
             // An All-scope rotation: the defaults and the pages that have their own entry.
             selection.updatePageOverride(3, createScanCleanupPageOverride({rotationDegrees: 90}));
-            selection.updateScopeOverrides(current => ({
+            selection.updateScopeOverrides((current) => ({
                 ...current,
                 rotationDegrees: 270,
             }));
@@ -1230,30 +1309,38 @@ describe('scan cleanup renderer preference store', () => {
         let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
         let selection!: ReturnType<typeof useScanCleanupSelection>;
         const host = document.createElement('div');
-        const app = createApp(defineComponent({setup() {
-            settings = useScanCleanupDocumentSettings({
-                documentLifecycleKey: computed(() => sourceSha256),
-                sourceSha256: computed(() => sourceSha256),
-            });
-            selection = useScanCleanupSelection({
-                initialPage: 1,
-                previewTotalPages: () => 3,
-                marginsLinked: ref(true),
-                settings: settings.values,
-                editDocumentSettings: settings.editDocumentSettings,
-            });
-            return () => h('output', JSON.stringify({
-                alignment: settings.values.pageAlignment,
-                defaults: settings.values.pageOverrideDefaults,
-                margins: settings.values.marginsMm,
-                pages: settings.values.pageOverrides,
-                effectivePlacement: resolveScanCleanupOutputPlacement(
-                    settings.values.pageAlignment,
-                    selection.currentPageOverride.value,
-                    'full',
-                ),
-            }));
-        }}));
+        const app = createApp(
+            defineComponent({
+                setup() {
+                    settings = useScanCleanupDocumentSettings({
+                        documentLifecycleKey: computed(() => sourceSha256),
+                        sourceSha256: computed(() => sourceSha256),
+                    });
+                    selection = useScanCleanupSelection({
+                        initialPage: 1,
+                        previewTotalPages: () => 3,
+                        marginsLinked: ref(true),
+                        settings: settings.values,
+                        editDocumentSettings: settings.editDocumentSettings,
+                    });
+                    return () =>
+                        h(
+                            'output',
+                            JSON.stringify({
+                                alignment: settings.values.pageAlignment,
+                                defaults: settings.values.pageOverrideDefaults,
+                                margins: settings.values.marginsMm,
+                                pages: settings.values.pageOverrides,
+                                effectivePlacement: resolveScanCleanupOutputPlacement(
+                                    settings.values.pageAlignment,
+                                    selection.currentPageOverride.value,
+                                    'full',
+                                ),
+                            }),
+                        );
+                },
+            }),
+        );
         app.provide(workspaceCommandSinkKey, {
             register: ledger.registerCommand,
             reset: ledger.resetSource,
@@ -1318,28 +1405,36 @@ describe('scan cleanup renderer preference store', () => {
         let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
         let selection!: ReturnType<typeof useScanCleanupSelection>;
         const host = document.createElement('div');
-        const app = createApp(defineComponent({setup() {
-            settings = useScanCleanupDocumentSettings({
-                documentLifecycleKey: computed(() => sourceSha256),
-                sourceSha256: computed(() => sourceSha256),
-            });
-            selection = useScanCleanupSelection({
-                initialPage: 1,
-                previewTotalPages: () => 3,
-                marginsLinked: settings.marginsLinked,
-                settings: settings.values,
-                editDocumentSettings: settings.editDocumentSettings,
-                updateDocumentMargin: settings.updateMargin,
-                setDocumentMarginsLinked: settings.setMarginsLinked,
-            });
-            return () => h('output', JSON.stringify({
-                layoutMode: settings.values.layoutMode,
-                margins: settings.values.marginsMm,
-                marginsLinked: settings.marginsLinked.value,
-                defaults: settings.values.pageOverrideDefaults,
-                pages: settings.values.pageOverrides,
-            }));
-        }}));
+        const app = createApp(
+            defineComponent({
+                setup() {
+                    settings = useScanCleanupDocumentSettings({
+                        documentLifecycleKey: computed(() => sourceSha256),
+                        sourceSha256: computed(() => sourceSha256),
+                    });
+                    selection = useScanCleanupSelection({
+                        initialPage: 1,
+                        previewTotalPages: () => 3,
+                        marginsLinked: settings.marginsLinked,
+                        settings: settings.values,
+                        editDocumentSettings: settings.editDocumentSettings,
+                        updateDocumentMargin: settings.updateMargin,
+                        setDocumentMarginsLinked: settings.setMarginsLinked,
+                    });
+                    return () =>
+                        h(
+                            'output',
+                            JSON.stringify({
+                                layoutMode: settings.values.layoutMode,
+                                margins: settings.values.marginsMm,
+                                marginsLinked: settings.marginsLinked.value,
+                                defaults: settings.values.pageOverrideDefaults,
+                                pages: settings.values.pageOverrides,
+                            }),
+                        );
+                },
+            }),
+        );
         app.provide(workspaceCommandSinkKey, {
             register: ledger.registerCommand,
             reset: ledger.resetSource,
@@ -1457,14 +1552,18 @@ describe('scan cleanup renderer preference store', () => {
         const active = ref(false);
         let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
         const host = document.createElement('div');
-        const app = createApp(defineComponent({setup() {
-            settings = useScanCleanupDocumentSettings({
-                documentLifecycleKey: computed(() => sourceSha256),
-                sourceSha256: computed(() => sourceSha256),
-                active: () => active.value,
-            });
-            return () => h('output', JSON.stringify(settings.values.pageOverrides));
-        }}));
+        const app = createApp(
+            defineComponent({
+                setup() {
+                    settings = useScanCleanupDocumentSettings({
+                        documentLifecycleKey: computed(() => sourceSha256),
+                        sourceSha256: computed(() => sourceSha256),
+                        active: () => active.value,
+                    });
+                    return () => h('output', JSON.stringify(settings.values.pageOverrides));
+                },
+            }),
+        );
         app.mount(host);
         try {
             await vi.waitFor(() => expect(settings.documentSettingsReady.value).toBe(true));
@@ -1472,18 +1571,22 @@ describe('scan cleanup renderer preference store', () => {
             await flushScanCleanupDocumentPreferencesStore();
             settings.values.pageOverrides['3'] = createScanCleanupPageOverride({rotationDegrees: 180});
             await nextTick();
-            await store.update({document: {
-                sourceSha256,
-                patch: {
-                    overrideEdits: {'2': createScanCleanupPageOverride({rotationDegrees: 90})},
-                    outputMode: 'bw',
+            await store.update({
+                document: {
+                    sourceSha256,
+                    patch: {
+                        overrideEdits: {'2': createScanCleanupPageOverride({rotationDegrees: 90})},
+                        outputMode: 'bw',
+                    },
                 },
-            }});
+            });
             active.value = true;
-            await vi.waitFor(() => expect(JSON.parse(host.textContent ?? '{}')).toMatchObject({
-                '2': {rotationDegrees: 90},
-                '3': {rotationDegrees: 180},
-            }));
+            await vi.waitFor(() =>
+                expect(JSON.parse(host.textContent ?? '{}')).toMatchObject({
+                    '2': {rotationDegrees: 90},
+                    '3': {rotationDegrees: 180},
+                }),
+            );
             expect(settings.values.outputMode).toBe('bw');
         } finally {
             app.unmount();
@@ -1498,18 +1601,26 @@ describe('scan cleanup renderer preference store', () => {
         const active = ref(false);
         let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
         const host = document.createElement('div');
-        const app = createApp(defineComponent({setup() {
-            settings = useScanCleanupDocumentSettings({
-                documentLifecycleKey: computed(() => sourceSha256),
-                sourceSha256: computed(() => sourceSha256),
-                active: () => active.value,
-            });
-            return () => h('output', JSON.stringify({
-                outputMode: settings.values.outputMode,
-                marginsMm: settings.values.marginsMm,
-                defaultRotation: settings.values.pageOverrideDefaults?.rotationDegrees,
-            }));
-        }}));
+        const app = createApp(
+            defineComponent({
+                setup() {
+                    settings = useScanCleanupDocumentSettings({
+                        documentLifecycleKey: computed(() => sourceSha256),
+                        sourceSha256: computed(() => sourceSha256),
+                        active: () => active.value,
+                    });
+                    return () =>
+                        h(
+                            'output',
+                            JSON.stringify({
+                                outputMode: settings.values.outputMode,
+                                marginsMm: settings.values.marginsMm,
+                                defaultRotation: settings.values.pageOverrideDefaults?.rotationDegrees,
+                            }),
+                        );
+                },
+            }),
+        );
         app.mount(host);
         try {
             await vi.waitFor(() => expect(settings.documentSettingsReady.value).toBe(true));
@@ -1522,22 +1633,26 @@ describe('scan cleanup renderer preference store', () => {
                 rightMm: 13,
                 bottomMm: 14,
             };
-            await store.update({document: {
-                sourceSha256,
-                patch: {
-                    outputMode: 'bw',
-                    marginsMm: savedMargins,
-                    pageOverrideDefaults: createScanCleanupPageOverride({rotationDegrees: 90}),
+            await store.update({
+                document: {
+                    sourceSha256,
+                    patch: {
+                        outputMode: 'bw',
+                        marginsMm: savedMargins,
+                        pageOverrideDefaults: createScanCleanupPageOverride({rotationDegrees: 90}),
+                    },
                 },
-            }});
+            });
 
             active.value = true;
 
-            await vi.waitFor(() => expect(JSON.parse(host.textContent ?? '{}')).toEqual({
-                outputMode: 'grayscale',
-                marginsMm: savedMargins,
-                defaultRotation: 90,
-            }));
+            await vi.waitFor(() =>
+                expect(JSON.parse(host.textContent ?? '{}')).toEqual({
+                    outputMode: 'grayscale',
+                    marginsMm: savedMargins,
+                    defaultRotation: 90,
+                }),
+            );
             await flushScanCleanupDocumentPreferencesStore();
             expect((await store.get()).documentOverrides[sourceSha256]).toMatchObject({
                 outputMode: 'grayscale',
@@ -1553,23 +1668,25 @@ describe('scan cleanup renderer preference store', () => {
 
     it('keeps cleanup settings unavailable when document hydration fails', async () => {
         const failure = new Error('document settings unavailable');
-        capability.value.getSettings
-            .mockResolvedValueOnce(createDefaultScanCleanupSettingsFile())
-            .mockRejectedValueOnce(failure);
+        capability.value.getSettings.mockResolvedValueOnce(createDefaultScanCleanupSettingsFile()).mockRejectedValueOnce(failure);
         getScanCleanupPreferencesStore();
         await whenScanCleanupPreferencesReady();
 
         let settings: ReturnType<typeof useScanCleanupDocumentSettings> | null = null;
         const host = document.createElement('div');
         document.body.append(host);
-        const app = createApp(defineComponent({setup() {
-            settings = useScanCleanupDocumentSettings({
-                documentLifecycleKey: computed(() => 'failed-hydration'),
-                sourceSha256: computed(() => 'f'.repeat(64)),
-                legacyDocumentKey: computed(() => '/documents/failed-hydration.pdf'),
-            });
-            return () => h('div');
-        }}));
+        const app = createApp(
+            defineComponent({
+                setup() {
+                    settings = useScanCleanupDocumentSettings({
+                        documentLifecycleKey: computed(() => 'failed-hydration'),
+                        sourceSha256: computed(() => 'f'.repeat(64)),
+                        legacyDocumentKey: computed(() => '/documents/failed-hydration.pdf'),
+                    });
+                    return () => h('div');
+                },
+            }),
+        );
         app.mount(host);
 
         await vi.waitFor(() => expect(settings!.loadingDocument.value).toBe(false));
@@ -1580,107 +1697,122 @@ describe('scan cleanup renderer preference store', () => {
         host.remove();
     });
 
-    it.each([
-        'initial',
-        'document',
-    ] as const)('retries failed %s hydration without persisting defaults and retains edits during the recovered write', async stage => {
-        const {
-            filePath, store,
-        } = await createDurableSettingsStore();
-        const sourceSha256 = 'f'.repeat(64);
-        if (stage === 'document') {
-            capability.value.getSettings.mockImplementation(store.get);
-            getScanCleanupPreferencesStore();
-            await whenScanCleanupPreferencesReady();
-        }
-        await store.update({document: {
-            sourceSha256,
-            patch: {
-                marginsMm: {
-                    leftMm: 21,
-                    topMm: 22,
-                    rightMm: 23,
-                    bottomMm: 24,
+    it.each(['initial', 'document'] as const)(
+        'retries failed %s hydration without persisting defaults and retains edits during the recovered write',
+        async (stage) => {
+            const {filePath, store} = await createDurableSettingsStore();
+            const sourceSha256 = 'f'.repeat(64);
+            if (stage === 'document') {
+                capability.value.getSettings.mockImplementation(store.get);
+                getScanCleanupPreferencesStore();
+                await whenScanCleanupPreferencesReady();
+            }
+            await store.update({
+                document: {
+                    sourceSha256,
+                    patch: {
+                        marginsMm: {
+                            leftMm: 21,
+                            topMm: 22,
+                            rightMm: 23,
+                            bottomMm: 24,
+                        },
+                        outputMode: 'grayscale',
+                        overrides: {'2': createScanCleanupPageOverride({rotationDegrees: 180})},
+                    },
                 },
-                outputMode: 'grayscale',
-                overrides: {'2': createScanCleanupPageOverride({rotationDegrees: 180})},
-            },
-        }});
-        const originalBytes = await readFile(filePath, 'utf8');
-        let rejectRead!: (error: Error) => void;
-        capability.value.getSettings.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectRead = reject; }));
-        let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
-        const host = document.createElement('div');
-        const app = createApp(defineComponent({setup() {
-            settings = useScanCleanupDocumentSettings({
-                documentLifecycleKey: computed(() => 'retry-hydration'),
-                sourceSha256: computed(() => sourceSha256),
             });
-            return () => h('div');
-        }}));
-        app.mount(host);
-        await vi.waitFor(() => expect(capability.value.getSettings).toHaveBeenCalledTimes(stage === 'initial' ? 1 : 2));
-        settings.setMarginsLinked(true);
-        settings.updateMargin('topMm', 17);
-        settings.editDocumentSettings([], () => {
-            settings.values.outputMode = 'color';
-        });
-        settings.resetPageOverrides();
-        rejectRead(new Error('read failed'));
-        await vi.waitFor(() => expect(settings.documentSettingsLoadFailure.value).not.toBeNull());
-        await flushScanCleanupDocumentPreferencesStore();
-        expect(settings.documentSettingsReady.value).toBe(false);
-        expect(settings.values.marginsMm.topMm).toBe(17);
-        expect(capability.value.updateSettings).not.toHaveBeenCalled();
-        expect(await readFile(filePath, 'utf8')).toBe(originalBytes);
+            const originalBytes = await readFile(filePath, 'utf8');
+            let rejectRead!: (error: Error) => void;
+            capability.value.getSettings.mockImplementationOnce(
+                () =>
+                    new Promise((_resolve, reject) => {
+                        rejectRead = reject;
+                    }),
+            );
+            let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
+            const host = document.createElement('div');
+            const app = createApp(
+                defineComponent({
+                    setup() {
+                        settings = useScanCleanupDocumentSettings({
+                            documentLifecycleKey: computed(() => 'retry-hydration'),
+                            sourceSha256: computed(() => sourceSha256),
+                        });
+                        return () => h('div');
+                    },
+                }),
+            );
+            app.mount(host);
+            await vi.waitFor(() => expect(capability.value.getSettings).toHaveBeenCalledTimes(stage === 'initial' ? 1 : 2));
+            settings.setMarginsLinked(true);
+            settings.updateMargin('topMm', 17);
+            settings.editDocumentSettings([], () => {
+                settings.values.outputMode = 'color';
+            });
+            settings.resetPageOverrides();
+            rejectRead(new Error('read failed'));
+            await vi.waitFor(() => expect(settings.documentSettingsLoadFailure.value).not.toBeNull());
+            await flushScanCleanupDocumentPreferencesStore();
+            expect(settings.documentSettingsReady.value).toBe(false);
+            expect(settings.values.marginsMm.topMm).toBe(17);
+            expect(capability.value.updateSettings).not.toHaveBeenCalled();
+            expect(await readFile(filePath, 'utf8')).toBe(originalBytes);
 
-        capability.value.getSettings.mockImplementation(store.get);
-        let releaseWrite!: () => void;
-        const writeGate = new Promise<void>(resolve => { releaseWrite = resolve; });
-        capability.value.updateSettings.mockImplementationOnce(async request => {
-            await writeGate;
-            return store.update(request);
-        }).mockImplementation(store.update);
-        settings.documentSettingsLoadFailure.value?.actions?.[0]?.onClick();
-        await vi.waitFor(() => expect(settings.documentSettingsReady.value).toBe(true));
-        expect(settings.documentSettingsLoadFailure.value).toBeNull();
-        const firstFlush = flushScanCleanupDocumentPreferencesStore();
-        await vi.waitFor(() => expect(capability.value.updateSettings).toHaveBeenCalledOnce());
-        settings.editDocumentSettings([], () => {
-            settings.values.outputMode = 'bw';
-        });
-        settings.editDocumentSettings(['3'], () => {
-            settings.values.pageOverrides['3'] = createScanCleanupPageOverride({manualSkewDegrees: 2});
-        });
-        settings.editDocumentSettings(['3'], () => {
-            delete settings.values.pageOverrides['3'];
-        });
-        releaseWrite();
-        await firstFlush;
-        await flushScanCleanupDocumentPreferencesStore();
-        const reloaded = await createScanCleanupSettingsStore({filePath}).get();
-        expect(reloaded.documentOverrides[sourceSha256]).toMatchObject({
-            outputMode: 'bw',
-            marginsMm: {
-                leftMm: 17,
-                topMm: 17,
-                rightMm: 17,
-                bottomMm: 17,
-            },
-        });
-        expect(reloaded.documentOverrides[sourceSha256]?.overrides ?? {}).toEqual({});
-        expect(settings.values.outputMode).toBe('bw');
-        app.unmount();
-    });
+            capability.value.getSettings.mockImplementation(store.get);
+            let releaseWrite!: () => void;
+            const writeGate = new Promise<void>((resolve) => {
+                releaseWrite = resolve;
+            });
+            capability.value.updateSettings
+                .mockImplementationOnce(async (request) => {
+                    await writeGate;
+                    return store.update(request);
+                })
+                .mockImplementation(store.update);
+            settings.documentSettingsLoadFailure.value?.actions?.[0]?.onClick();
+            await vi.waitFor(() => expect(settings.documentSettingsReady.value).toBe(true));
+            expect(settings.documentSettingsLoadFailure.value).toBeNull();
+            const firstFlush = flushScanCleanupDocumentPreferencesStore();
+            await vi.waitFor(() => expect(capability.value.updateSettings).toHaveBeenCalledOnce());
+            settings.editDocumentSettings([], () => {
+                settings.values.outputMode = 'bw';
+            });
+            settings.editDocumentSettings(['3'], () => {
+                settings.values.pageOverrides['3'] = createScanCleanupPageOverride({manualSkewDegrees: 2});
+            });
+            settings.editDocumentSettings(['3'], () => {
+                delete settings.values.pageOverrides['3'];
+            });
+            releaseWrite();
+            await firstFlush;
+            await flushScanCleanupDocumentPreferencesStore();
+            const reloaded = await createScanCleanupSettingsStore({filePath}).get();
+            expect(reloaded.documentOverrides[sourceSha256]).toMatchObject({
+                outputMode: 'bw',
+                marginsMm: {
+                    leftMm: 17,
+                    topMm: 17,
+                    rightMm: 17,
+                    bottomMm: 17,
+                },
+            });
+            expect(reloaded.documentOverrides[sourceSha256]?.overrides ?? {}).toEqual({});
+            expect(settings.values.outputMode).toBe('bw');
+            app.unmount();
+        },
+    );
 
     it('clears the legacy storage the file-backed store adopted at hydration', async () => {
         const {store} = await createDurableSettingsStore();
         capability.value.getSettings.mockImplementation(store.get);
         capability.value.updateSettings.mockImplementation(store.update);
-        const legacyOverrides = JSON.stringify({'/documents/legacy.pdf': {
-            updatedAt: Date.now(),
-            outputMode: 'color',
-        }});
+        const legacyOverrides = JSON.stringify({
+            '/documents/legacy.pdf': {
+                updatedAt: Date.now(),
+                outputMode: 'color',
+            },
+        });
         localStorage.setItem('evb.scanCleanup.settings.v1', JSON.stringify({readingOrder: 'rtl'}));
         localStorage.setItem('evb.scanCleanup.documentOverrides.v1', legacyOverrides);
         getScanCleanupPreferencesStore({
@@ -1690,10 +1822,12 @@ describe('scan cleanup renderer preference store', () => {
 
         await whenScanCleanupPreferencesReady();
 
-        expect(capability.value.getSettings.mock.calls[0]?.[0]).toMatchObject({legacyStorage: {
-            settingsRaw: JSON.stringify({readingOrder: 'rtl'}),
-            documentOverridesRaw: legacyOverrides,
-        }});
+        expect(capability.value.getSettings.mock.calls[0]?.[0]).toMatchObject({
+            legacyStorage: {
+                settingsRaw: JSON.stringify({readingOrder: 'rtl'}),
+                documentOverridesRaw: legacyOverrides,
+            },
+        });
         expect(localStorage.getItem('evb.scanCleanup.settings.v1')).toBeNull();
         expect(localStorage.getItem('evb.scanCleanup.documentOverrides.v1')).toBeNull();
         expect((await store.get()).documentOverrides['d'.repeat(64)]?.outputMode).toBe('color');
@@ -1713,17 +1847,22 @@ describe('scan cleanup renderer preference store', () => {
         capability.value.updateSettings.mockImplementation(store.update);
         const legacyDocumentKey = '/documents/legacy-before-hash.pdf';
         const sourceSha256 = 'a'.repeat(64);
-        localStorage.setItem('evb.scanCleanup.documentOverrides.v1', JSON.stringify({[legacyDocumentKey]: {
-            updatedAt: Date.now(),
-            outputMode: 'color',
-            marginsMm: {
-                leftMm: 12,
-                topMm: 12,
-                rightMm: 12,
-                bottomMm: 12,
-            },
-            overrides: {'1': createScanCleanupPageOverride({layoutOverride: 'spread'})},
-        }}));
+        localStorage.setItem(
+            'evb.scanCleanup.documentOverrides.v1',
+            JSON.stringify({
+                [legacyDocumentKey]: {
+                    updatedAt: Date.now(),
+                    outputMode: 'color',
+                    marginsMm: {
+                        leftMm: 12,
+                        topMm: 12,
+                        rightMm: 12,
+                        bottomMm: 12,
+                    },
+                    overrides: {'1': createScanCleanupPageOverride({layoutOverride: 'spread'})},
+                },
+            }),
+        );
         getScanCleanupPreferencesStore({
             sourceSha256: null,
             legacyDocumentKey,
@@ -1748,15 +1887,19 @@ describe('scan cleanup renderer preference store', () => {
         const {store} = await createDurableSettingsStore();
         const sourceSha256 = 'b'.repeat(64);
         const legacyDocumentKey = '/documents/hash-pending.pdf';
-        await store.update({document: {
-            sourceSha256,
-            patch: {marginsMm: {
-                leftMm: 12,
-                topMm: 12,
-                rightMm: 12,
-                bottomMm: 12,
-            }},
-        }});
+        await store.update({
+            document: {
+                sourceSha256,
+                patch: {
+                    marginsMm: {
+                        leftMm: 12,
+                        topMm: 12,
+                        rightMm: 12,
+                        bottomMm: 12,
+                    },
+                },
+            },
+        });
         capability.value.getSettings.mockImplementation(store.get);
         capability.value.updateSettings.mockImplementation(store.update);
         const warn = vi.spyOn(BrowserLogger, 'warn');
@@ -1764,15 +1907,19 @@ describe('scan cleanup renderer preference store', () => {
         const source = ref<string | null>(null);
         let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
         const host = document.createElement('div');
-        const app = createApp(defineComponent({setup() {
-            settings = useScanCleanupDocumentSettings({
-                documentLifecycleKey: computed(() => `${source.value ?? legacyDocumentKey}\u0000revision-1`),
-                documentRevision: computed(() => 'revision-1'),
-                sourceSha256: computed(() => source.value),
-                legacyDocumentKey: computed(() => legacyDocumentKey),
-            });
-            return () => h('div');
-        }}));
+        const app = createApp(
+            defineComponent({
+                setup() {
+                    settings = useScanCleanupDocumentSettings({
+                        documentLifecycleKey: computed(() => `${source.value ?? legacyDocumentKey}\u0000revision-1`),
+                        documentRevision: computed(() => 'revision-1'),
+                        sourceSha256: computed(() => source.value),
+                        legacyDocumentKey: computed(() => legacyDocumentKey),
+                    });
+                    return () => h('div');
+                },
+            }),
+        );
         app.provide(scanCleanupSourceIdentityKey, {
             state: identityState,
             retry: () => undefined,
@@ -1783,7 +1930,11 @@ describe('scan cleanup renderer preference store', () => {
             await nextTick();
 
             expect(settings.documentSettingsReady.value).toBe(false);
-            expect(warn).not.toHaveBeenCalledWith('scan-cleanup', expect.stringContaining('authoritative source SHA-256'), expect.anything());
+            expect(warn).not.toHaveBeenCalledWith(
+                'scan-cleanup',
+                expect.stringContaining('authoritative source SHA-256'),
+                expect.anything(),
+            );
 
             source.value = sourceSha256;
             identityState.value = 'ready';
@@ -1816,15 +1967,19 @@ describe('scan cleanup renderer preference store', () => {
         const identityState = ref<TScanCleanupSourceIdentityState>('ready');
         let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
         const host = document.createElement('div');
-        const app = createApp(defineComponent({setup() {
-            settings = useScanCleanupDocumentSettings({
-                documentLifecycleKey: computed(() => `${source.value ?? '/documents/book.pdf'}\u0000${revision.value}`),
-                documentRevision: computed(() => revision.value),
-                sourceSha256: computed(() => source.value),
-                legacyDocumentKey: computed(() => '/documents/book.pdf'),
-            });
-            return () => h('div');
-        }}));
+        const app = createApp(
+            defineComponent({
+                setup() {
+                    settings = useScanCleanupDocumentSettings({
+                        documentLifecycleKey: computed(() => `${source.value ?? '/documents/book.pdf'}\u0000${revision.value}`),
+                        documentRevision: computed(() => revision.value),
+                        sourceSha256: computed(() => source.value),
+                        legacyDocumentKey: computed(() => '/documents/book.pdf'),
+                    });
+                    return () => h('div');
+                },
+            }),
+        );
         app.provide(scanCleanupSourceIdentityKey, {
             state: identityState,
             retry: () => undefined,
@@ -1855,21 +2010,28 @@ describe('scan cleanup renderer preference store', () => {
 
     // Opening a second document while the first hydration is in flight must not
     // make the first read decide what the second document's entry migrated to.
-    it('keeps another document\'s legacy entry when a hydration in flight did not adopt it', async () => {
+    it("keeps another document's legacy entry when a hydration in flight did not adopt it", async () => {
         const {store} = await createDurableSettingsStore();
         const otherSha256 = 'b'.repeat(64);
-        await store.update({document: {
-            sourceSha256: otherSha256,
-            patch: {outputMode: 'grayscale'},
-        }});
-        localStorage.setItem('evb.scanCleanup.documentOverrides.v1', JSON.stringify({'/documents/other.pdf': {
-            updatedAt: Date.now() + 1_000,
-            outputMode: 'color',
-        }}));
+        await store.update({
+            document: {
+                sourceSha256: otherSha256,
+                patch: {outputMode: 'grayscale'},
+            },
+        });
+        localStorage.setItem(
+            'evb.scanCleanup.documentOverrides.v1',
+            JSON.stringify({
+                '/documents/other.pdf': {
+                    updatedAt: Date.now() + 1_000,
+                    outputMode: 'color',
+                },
+            }),
+        );
         let releaseRead!: () => void;
-        capability.value.getSettings.mockImplementation(async request => {
+        capability.value.getSettings.mockImplementation(async (request) => {
             const result = await store.get(request);
-            await new Promise<void>(resolve => {
+            await new Promise<void>((resolve) => {
                 releaseRead = resolve;
             });
             return result;
@@ -1896,15 +2058,19 @@ describe('scan cleanup renderer preference store', () => {
         });
         let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
         const host = document.createElement('div');
-        const app = createApp(defineComponent({setup() {
-            settings = useScanCleanupDocumentSettings({
-                documentLifecycleKey: computed(() => '/documents/unreadable.pdf\u0000revision-1'),
-                documentRevision: computed(() => 'revision-1'),
-                sourceSha256: computed(() => null),
-                legacyDocumentKey: computed(() => '/documents/unreadable.pdf'),
-            });
-            return () => h('div');
-        }}));
+        const app = createApp(
+            defineComponent({
+                setup() {
+                    settings = useScanCleanupDocumentSettings({
+                        documentLifecycleKey: computed(() => '/documents/unreadable.pdf\u0000revision-1'),
+                        documentRevision: computed(() => 'revision-1'),
+                        sourceSha256: computed(() => null),
+                        legacyDocumentKey: computed(() => '/documents/unreadable.pdf'),
+                    });
+                    return () => h('div');
+                },
+            }),
+        );
         app.provide(scanCleanupSourceIdentityKey, {
             state: identityState,
             retry,
@@ -1969,10 +2135,10 @@ describe('scan cleanup renderer preference store', () => {
         const durable = createDefaultScanCleanupSettingsFile();
         capability.value.getSettings.mockImplementation(async () => structuredClone(durable));
         let releaseFirst!: () => void;
-        const firstWrite = new Promise<void>(resolve => {
+        const firstWrite = new Promise<void>((resolve) => {
             releaseFirst = resolve;
         });
-        capability.value.updateSettings.mockImplementation(async request => {
+        capability.value.updateSettings.mockImplementation(async (request) => {
             if ('settingsPatch' in request) {
                 if (capability.value.updateSettings.mock.calls.length === 1) {
                     await firstWrite;
@@ -2009,10 +2175,13 @@ describe('scan cleanup renderer preference store', () => {
     it('waits for global settings hydration before the close flush', async () => {
         const durable = createDefaultScanCleanupSettingsFile();
         let resolveHydration!: (value: ReturnType<typeof createDefaultScanCleanupSettingsFile>) => void;
-        capability.value.getSettings.mockImplementationOnce(() => new Promise(resolve => {
-            resolveHydration = resolve;
-        }));
-        capability.value.updateSettings.mockImplementation(async request => {
+        capability.value.getSettings.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    resolveHydration = resolve;
+                }),
+        );
+        capability.value.updateSettings.mockImplementation(async (request) => {
             if ('settingsPatch' in request) {
                 Object.assign(durable.settings, request.settingsPatch);
                 broadcastSettings({
@@ -2046,10 +2215,10 @@ describe('scan cleanup renderer preference store', () => {
         const sourceSha256 = 'a'.repeat(64);
         const legacyDocumentKey = '/documents/close-flush.pdf';
         let releaseFirst!: () => void;
-        const firstWrite = new Promise<void>(resolve => {
+        const firstWrite = new Promise<void>((resolve) => {
             releaseFirst = resolve;
         });
-        capability.value.updateSettings.mockImplementation(async request => {
+        capability.value.updateSettings.mockImplementation(async (request) => {
             if ('document' in request) {
                 if (capability.value.updateSettings.mock.calls.length === 1) {
                     await firstWrite;
@@ -2064,23 +2233,17 @@ describe('scan cleanup renderer preference store', () => {
         getScanCleanupPreferencesStore();
         await whenScanCleanupPreferencesReady();
 
-        const firstWritePromise = saveScanCleanupDocumentPreferencesInStore(
-            sourceSha256,
-            legacyDocumentKey,
-            {outputMode: 'color'},
-        );
+        const firstWritePromise = saveScanCleanupDocumentPreferencesInStore(sourceSha256, legacyDocumentKey, {outputMode: 'color'});
         await vi.waitFor(() => expect(capability.value.updateSettings).toHaveBeenCalledTimes(1));
         const closeFlush = flushScanCleanupDocumentPreferencesStore();
-        const finalWritePromise = saveScanCleanupDocumentPreferencesInStore(
-            sourceSha256,
-            legacyDocumentKey,
-            {marginsMm: {
+        const finalWritePromise = saveScanCleanupDocumentPreferencesInStore(sourceSha256, legacyDocumentKey, {
+            marginsMm: {
                 topMm: 12,
                 rightMm: 12,
                 bottomMm: 12,
                 leftMm: 12,
-            }},
-        );
+            },
+        });
         releaseFirst();
 
         await closeFlush;
@@ -2093,10 +2256,7 @@ describe('scan cleanup renderer preference store', () => {
             bottomMm: 12,
             leftMm: 12,
         });
-        await Promise.all([
-            firstWritePromise,
-            finalWritePromise,
-        ]);
+        await Promise.all([firstWritePromise, finalWritePromise]);
     });
 
     it('keeps a failed global write pending and retries it without another edit', async () => {
@@ -2139,19 +2299,18 @@ describe('scan cleanup renderer preference store', () => {
         const sourceA = 'a'.repeat(64);
         const sourceB = 'b'.repeat(64);
         const durable = createDefaultScanCleanupSettingsFile();
-        capability.value.updateSettings
-            .mockRejectedValueOnce(new Error('temporary A failure'))
-            .mockImplementation(async request => {
-                const document = request.document;
-                const entry = durable.documentOverrides[document.sourceSha256] ?? {lastUsedAtMs: 0};
-                Object.assign(entry, document.patch);
-                durable.documentOverrides[document.sourceSha256] = entry;
-                return structuredClone(durable);
-            });
+        capability.value.updateSettings.mockRejectedValueOnce(new Error('temporary A failure')).mockImplementation(async (request) => {
+            const document = request.document;
+            const entry = durable.documentOverrides[document.sourceSha256] ?? {lastUsedAtMs: 0};
+            Object.assign(entry, document.patch);
+            durable.documentOverrides[document.sourceSha256] = entry;
+            return structuredClone(durable);
+        });
         getScanCleanupPreferencesStore();
         await whenScanCleanupPreferencesReady();
-        await expect(saveScanCleanupDocumentPreferencesInStore(sourceA, '/a.pdf', {outputMode: 'color'}))
-            .rejects.toThrow('temporary A failure');
+        await expect(saveScanCleanupDocumentPreferencesInStore(sourceA, '/a.pdf', {outputMode: 'color'})).rejects.toThrow(
+            'temporary A failure',
+        );
         await saveScanCleanupDocumentPreferencesInStore(sourceB, '/b.pdf', {outputMode: 'grayscale'});
         await vi.advanceTimersByTimeAsync(1_000);
         await vi.waitFor(() => expect(capability.value.updateSettings).toHaveBeenCalledTimes(3));
@@ -2168,17 +2327,20 @@ describe('scan cleanup renderer preference store', () => {
         let releaseB!: (value: ReturnType<typeof createDefaultScanCleanupSettingsFile>) => void;
         capability.value.updateSettings
             .mockRejectedValueOnce(new Error('temporary A failure'))
-            .mockImplementationOnce(request => new Promise(resolve => {
-                releaseB = () => {
-                    if (request.document) {
-                        const entry = durable.documentOverrides[request.document.sourceSha256] ?? {lastUsedAtMs: 0};
-                        Object.assign(entry, request.document.patch);
-                        durable.documentOverrides[request.document.sourceSha256] = entry;
-                    }
-                    resolve(structuredClone(durable));
-                };
-            }))
-            .mockImplementation(async request => {
+            .mockImplementationOnce(
+                (request) =>
+                    new Promise((resolve) => {
+                        releaseB = () => {
+                            if (request.document) {
+                                const entry = durable.documentOverrides[request.document.sourceSha256] ?? {lastUsedAtMs: 0};
+                                Object.assign(entry, request.document.patch);
+                                durable.documentOverrides[request.document.sourceSha256] = entry;
+                            }
+                            resolve(structuredClone(durable));
+                        };
+                    }),
+            )
+            .mockImplementation(async (request) => {
                 if (request.document) {
                     const entry = durable.documentOverrides[request.document.sourceSha256] ?? {lastUsedAtMs: 0};
                     Object.assign(entry, request.document.patch);
@@ -2188,19 +2350,28 @@ describe('scan cleanup renderer preference store', () => {
             });
         getScanCleanupPreferencesStore();
         await whenScanCleanupPreferencesReady();
-        await expect(saveScanCleanupDocumentPreferencesInStore(sourceA, '/a.pdf', {outputMode: 'color'}))
-            .rejects.toThrow('temporary A failure');
+        await expect(saveScanCleanupDocumentPreferencesInStore(sourceA, '/a.pdf', {outputMode: 'color'})).rejects.toThrow(
+            'temporary A failure',
+        );
         const bWrite = saveScanCleanupDocumentPreferencesInStore(sourceB, '/b.pdf', {outputMode: 'grayscale'});
         await vi.waitFor(() => expect(capability.value.updateSettings).toHaveBeenCalledTimes(2));
 
         await vi.advanceTimersByTimeAsync(1_000);
-        expect(capability.value.updateSettings.mock.calls.filter(([request]) => request.document?.sourceSha256 === sourceB)).toHaveLength(1);
+        expect(capability.value.updateSettings.mock.calls.filter(([request]) => request.document?.sourceSha256 === sourceB)).toHaveLength(
+            1,
+        );
 
         releaseB(structuredClone(durable));
         await bWrite;
         await vi.runAllTimersAsync();
-        await vi.waitFor(() => expect(capability.value.updateSettings.mock.calls.filter(([request]) => request.document?.sourceSha256 === sourceA)).toHaveLength(2));
-        expect(capability.value.updateSettings.mock.calls.filter(([request]) => request.document?.sourceSha256 === sourceB)).toHaveLength(1);
+        await vi.waitFor(() =>
+            expect(
+                capability.value.updateSettings.mock.calls.filter(([request]) => request.document?.sourceSha256 === sourceA),
+            ).toHaveLength(2),
+        );
+        expect(capability.value.updateSettings.mock.calls.filter(([request]) => request.document?.sourceSha256 === sourceB)).toHaveLength(
+            1,
+        );
     });
 
     it('does not reset a failed document retry budget when another document saves', async () => {
@@ -2211,21 +2382,19 @@ describe('scan cleanup renderer preference store', () => {
         const secondHash = 'b'.repeat(64);
         let fail = true;
         let attempts = 0;
-        capability.value.updateSettings.mockImplementation(async request => {
+        capability.value.updateSettings.mockImplementation(async (request) => {
             if (request.document?.sourceSha256 === firstHash) {
                 attempts += 1;
-                if (fail) throw new Error('storage unavailable');
+                if (fail) {
+                    throw new Error('storage unavailable');
+                }
             }
             return createDefaultScanCleanupSettingsFile();
         });
-        await expect(saveScanCleanupDocumentPreferencesInStore(firstHash, 'A', {outputMode: 'color'})).rejects.toThrow('storage unavailable');
-        for (const delay of [
-            1000,
-            2000,
-            4000,
-            8000,
-            16000,
-        ]) {
+        await expect(saveScanCleanupDocumentPreferencesInStore(firstHash, 'A', {outputMode: 'color'})).rejects.toThrow(
+            'storage unavailable',
+        );
+        for (const delay of [1000, 2000, 4000, 8000, 16000]) {
             await saveScanCleanupDocumentPreferencesInStore(secondHash, 'B', {outputMode: 'bw'});
             await vi.advanceTimersByTimeAsync(delay);
         }
@@ -2241,9 +2410,7 @@ describe('scan cleanup renderer preference store', () => {
         const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
         const remote = createDefaultScanCleanupSettingsFile();
         remote.settings.readingOrder = 'ltr';
-        capability.value.getSettings
-            .mockRejectedValueOnce(new Error('temporary read failure'))
-            .mockResolvedValueOnce(remote);
+        capability.value.getSettings.mockRejectedValueOnce(new Error('temporary read failure')).mockResolvedValueOnce(remote);
         getScanCleanupPreferencesStore();
         await expect(whenScanCleanupPreferencesReady()).rejects.toThrow('temporary read failure');
 
@@ -2251,10 +2418,12 @@ describe('scan cleanup renderer preference store', () => {
         preferences.readingOrder = 'rtl';
         await retryScanCleanupPreferences();
 
-        await vi.waitFor(() => expect(capability.value.updateSettings).toHaveBeenCalledWith({
-            settingsPatch: {readingOrder: 'rtl'},
-            requestId: expect.any(String),
-        }));
+        await vi.waitFor(() =>
+            expect(capability.value.updateSettings).toHaveBeenCalledWith({
+                settingsPatch: {readingOrder: 'rtl'},
+                requestId: expect.any(String),
+            }),
+        );
         consoleError.mockRestore();
     });
 
@@ -2264,26 +2433,32 @@ describe('scan cleanup renderer preference store', () => {
         let settings: ReturnType<typeof useScanCleanupDocumentSettings> | null = null;
         const host = document.createElement('div');
         document.body.append(host);
-        const app = createApp(defineComponent({setup() {
-            settings = useScanCleanupDocumentSettings({
-                documentLifecycleKey: computed(() => `${documentKey}\0revision-1`),
-                legacyDocumentKey: computed(() => documentKey),
-                sourceSha256: computed(() => sourceSha256),
-            });
-            return () => h('div');
-        }}));
+        const app = createApp(
+            defineComponent({
+                setup() {
+                    settings = useScanCleanupDocumentSettings({
+                        documentLifecycleKey: computed(() => `${documentKey}\0revision-1`),
+                        legacyDocumentKey: computed(() => documentKey),
+                        sourceSha256: computed(() => sourceSha256),
+                    });
+                    return () => h('div');
+                },
+            }),
+        );
         app.mount(host);
         await whenScanCleanupPreferencesReady();
         await nextTick();
         vi.clearAllMocks();
         capability.value.updateSettings.mockResolvedValue(createDefaultScanCleanupSettingsFile());
 
-        settings!.values.pageOverrides = {'1': {
-            rotationDegrees: 90,
-            layoutOverride: 'spread',
-            excluded: false,
-            manualSplit: null,
-        }};
+        settings!.values.pageOverrides = {
+            '1': {
+                rotationDegrees: 90,
+                layoutOverride: 'spread',
+                excluded: false,
+                manualSplit: null,
+            },
+        };
         await nextTick();
         await discardScanCleanupDocumentState(documentKey, sourceSha256);
         app.unmount();
@@ -2292,12 +2467,16 @@ describe('scan cleanup renderer preference store', () => {
         await vi.waitFor(() => expect(capability.value.updateSettings).toHaveBeenCalled());
         const documentUpdates = capability.value.updateSettings.mock.calls
             .map(([request]) => request)
-            .filter(request => 'document' in request);
-        expect(documentUpdates).toEqual([{document: {
-            sourceSha256,
-            legacyDocumentKey: documentKey,
-            patch: {resetOverrides: true},
-        }}]);
+            .filter((request) => 'document' in request);
+        expect(documentUpdates).toEqual([
+            {
+                document: {
+                    sourceSha256,
+                    legacyDocumentKey: documentKey,
+                    patch: {resetOverrides: true},
+                },
+            },
+        ]);
     });
 
     it('does not resurrect a page edit when the overrides are reset before it is saved', async () => {
@@ -2306,14 +2485,18 @@ describe('scan cleanup renderer preference store', () => {
         let settings: ReturnType<typeof useScanCleanupDocumentSettings> | null = null;
         const host = document.createElement('div');
         document.body.append(host);
-        const app = createApp(defineComponent({setup() {
-            settings = useScanCleanupDocumentSettings({
-                documentLifecycleKey: computed(() => `${documentKey}\0revision-1`),
-                legacyDocumentKey: computed(() => documentKey),
-                sourceSha256: computed(() => sourceSha256),
-            });
-            return () => h('div');
-        }}));
+        const app = createApp(
+            defineComponent({
+                setup() {
+                    settings = useScanCleanupDocumentSettings({
+                        documentLifecycleKey: computed(() => `${documentKey}\0revision-1`),
+                        legacyDocumentKey: computed(() => documentKey),
+                        sourceSha256: computed(() => sourceSha256),
+                    });
+                    return () => h('div');
+                },
+            }),
+        );
         app.mount(host);
         await whenScanCleanupPreferencesReady();
         await nextTick();
@@ -2321,12 +2504,14 @@ describe('scan cleanup renderer preference store', () => {
         vi.clearAllMocks();
         capability.value.updateSettings.mockResolvedValue(createDefaultScanCleanupSettingsFile());
 
-        settings!.values.pageOverrides = {'1': {
-            rotationDegrees: 90,
-            layoutOverride: 'spread',
-            excluded: false,
-            manualSplit: null,
-        }};
+        settings!.values.pageOverrides = {
+            '1': {
+                rotationDegrees: 90,
+                layoutOverride: 'spread',
+                excluded: false,
+                manualSplit: null,
+            },
+        };
         await nextTick();
         settings!.resetPageOverrides();
         app.unmount();
@@ -2335,7 +2520,7 @@ describe('scan cleanup renderer preference store', () => {
         await vi.waitFor(() => expect(capability.value.updateSettings).toHaveBeenCalled());
         const documentPatches = capability.value.updateSettings.mock.calls
             .map(([request]) => request)
-            .flatMap(request => ('document' in request && request.document ? [request.document.patch] : []));
+            .flatMap((request) => ('document' in request && request.document ? [request.document.patch] : []));
         expect(documentPatches).toHaveLength(1);
         expect(documentPatches[0]).toMatchObject({
             overrides: {},
@@ -2345,12 +2530,8 @@ describe('scan cleanup renderer preference store', () => {
     });
 });
 
-
 // The owner commits real JSON; only the two independent IPC delivery paths are held.
-describe.each([
-    'event-before-reply',
-    'reply-before-event',
-] as const)('ordered owner delivery: %s', order => {
+describe.each(['event-before-reply', 'reply-before-event'] as const)('ordered owner delivery: %s', (order) => {
     const renderers: Array<typeof preferencesStoreModule> = [];
     let held: Array<Parameters<typeof broadcastSettings>[0]>;
 
@@ -2359,7 +2540,9 @@ describe.each([
         const module = await import('@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore');
         renderers.push(module);
         const preferences = module.getScanCleanupPreferencesStore();
-        if (wait) await module.whenScanCleanupPreferencesReady();
+        if (wait) {
+            await module.whenScanCleanupPreferencesReady();
+        }
         return {
             module,
             preferences,
@@ -2368,7 +2551,9 @@ describe.each([
 
     function gate() {
         let release!: () => void;
-        const promise = new Promise<void>(resolve => { release = resolve; });
+        const promise = new Promise<void>((resolve) => {
+            release = resolve;
+        });
         return {
             promise,
             release,
@@ -2376,47 +2561,69 @@ describe.each([
     }
 
     async function owner(replace = rename) {
-        const main = await createDurableSettingsStore(event => {
-            if (order === 'reply-before-event') held.push(event);
-            else broadcastSettings(event);
+        const main = await createDurableSettingsStore((event) => {
+            if (order === 'reply-before-event') {
+                held.push(event);
+            } else {
+                broadcastSettings(event);
+            }
         }, replace);
         connectMainProcessSettings(main.store);
         return main;
     }
 
     async function settle(flush: Promise<unknown>) {
-        if (order === 'event-before-reply') return flush;
+        if (order === 'event-before-reply') {
+            return flush;
+        }
         let settled = false;
-        void flush.finally(() => { settled = true; }).catch(() => undefined);
+        void flush
+            .finally(() => {
+                settled = true;
+            })
+            .catch(() => undefined);
         while (!settled || held.length > 0) {
             await vi.waitFor(() => expect(settled || held.length > 0).toBe(true));
-            for (const event of held.splice(0)) broadcastSettings(event);
+            for (const event of held.splice(0)) {
+                broadcastSettings(event);
+            }
             await nextTick();
         }
         return flush;
     }
 
     async function beforeEvent(flush: Promise<unknown>) {
-        if (order === 'event-before-reply') await flush;
-        else await vi.waitFor(() => expect(held.length).toBeGreaterThan(0));
+        if (order === 'event-before-reply') {
+            await flush;
+        } else {
+            await vi.waitFor(() => expect(held.length).toBeGreaterThan(0));
+        }
     }
 
     beforeEach(() => {
         held = [];
         settingsSubscribers.clear();
-        capability.value.onSettingsChanged.mockImplementation(subscriber => {
+        capability.value.onSettingsChanged.mockImplementation((subscriber) => {
             settingsSubscribers.add(subscriber);
-            return () => { settingsSubscribers.delete(subscriber); };
+            return () => {
+                settingsSubscribers.delete(subscriber);
+            };
         });
     });
 
     afterEach(async () => {
-        for (const module of renderers.splice(0)) module.resetScanCleanupPreferencesStore();
+        for (const module of renderers.splice(0)) {
+            module.resetScanCleanupPreferencesStore();
+        }
         settingsSubscribers.clear();
-        await Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, {
-            recursive: true,
-            force: true,
-        })));
+        await Promise.all(
+            temporaryDirectories.splice(0).map((directory) =>
+                rm(directory, {
+                    recursive: true,
+                    force: true,
+                }),
+            ),
+        );
         vi.restoreAllMocks();
         vi.clearAllMocks();
         localStorage.clear();
@@ -2435,12 +2642,11 @@ describe.each([
             beforeEvent: before,
             afterEvent: a.preferences.readingOrder,
             durable: (await main.store.get()).settings.readingOrder,
-        })
-            .toEqual({
-                beforeEvent: 'rtl',
-                afterEvent: 'rtl',
-                durable: 'rtl',
-            });
+        }).toEqual({
+            beforeEvent: 'rtl',
+            afterEvent: 'rtl',
+            durable: 'rtl',
+        });
     });
 
     it('keeps an in-flight revert through the owner event', async () => {
@@ -2448,7 +2654,7 @@ describe.each([
         const baseUpdate = capability.value.updateSettings.getMockImplementation()!;
         const started = gate();
         const release = gate();
-        capability.value.updateSettings.mockImplementationOnce(async request => {
+        capability.value.updateSettings.mockImplementationOnce(async (request) => {
             started.release();
             await release.promise;
             return baseUpdate(request);
@@ -2469,12 +2675,11 @@ describe.each([
             beforeEvent: before,
             rendered: a.preferences.readingOrder,
             durable: (await main.store.get()).settings.readingOrder,
-        })
-            .toEqual({
-                beforeEvent: 'ltr',
-                rendered: 'ltr',
-                durable: 'ltr',
-            });
+        }).toEqual({
+            beforeEvent: 'ltr',
+            rendered: 'ltr',
+            durable: 'ltr',
+        });
     });
 
     it('hydrates a new renderer after another renderer commits', async () => {
@@ -2486,16 +2691,11 @@ describe.each([
         await beforeEvent(flush);
         const b = await renderer();
         await settle(flush);
-        expect([
-            a.preferences.readingOrder,
-            b.preferences.readingOrder,
-            (await main.store.get()).settings.readingOrder,
-        ])
-            .toEqual([
-                'rtl',
-                'rtl',
-                'rtl',
-            ]);
+        expect([a.preferences.readingOrder, b.preferences.readingOrder, (await main.store.get()).settings.readingOrder]).toEqual([
+            'rtl',
+            'rtl',
+            'rtl',
+        ]);
     });
 
     it('hydrates a replacement renderer behind an outstanding durable write', async () => {
@@ -2522,13 +2722,7 @@ describe.each([
         await flush;
         await b.module.whenScanCleanupPreferencesReady();
         await settle(Promise.resolve());
-        expect([
-            b.preferences.readingOrder,
-            (await main.store.get()).settings.readingOrder,
-        ]).toEqual([
-            'rtl',
-            'rtl',
-        ]);
+        expect([b.preferences.readingOrder, (await main.store.get()).settings.readingOrder]).toEqual(['rtl', 'rtl']);
     });
 
     it('merges simultaneous sparse edits from two windows', async () => {
@@ -2538,21 +2732,12 @@ describe.each([
         a.preferences.readingOrder = 'rtl';
         b.preferences.thickness = 3;
         await nextTick();
-        const flush = Promise.all([
-            a.module.flushScanCleanupPreferencesStore(),
-            b.module.flushScanCleanupPreferencesStore(),
-        ]);
+        const flush = Promise.all([a.module.flushScanCleanupPreferencesStore(), b.module.flushScanCleanupPreferencesStore()]);
         await beforeEvent(flush);
-        const before = [
-            a.preferences.readingOrder,
-            b.preferences.thickness,
-        ];
+        const before = [a.preferences.readingOrder, b.preferences.thickness];
         await settle(flush);
         const disk = JSON.parse(await readFile(main.filePath, 'utf8')).settings;
-        expect(before).toEqual([
-            'rtl',
-            3,
-        ]);
+        expect(before).toEqual(['rtl', 3]);
         expect([
             a.preferences.readingOrder,
             a.preferences.thickness,
@@ -2560,15 +2745,7 @@ describe.each([
             b.preferences.thickness,
             disk.readingOrder,
             disk.thickness,
-        ])
-            .toEqual([
-                'rtl',
-                3,
-                'rtl',
-                3,
-                'rtl',
-                3,
-            ]);
+        ]).toEqual(['rtl', 3, 'rtl', 3, 'rtl', 3]);
     });
 
     it('keeps a revert when another window publishes matching values first', async () => {
@@ -2578,7 +2755,7 @@ describe.each([
         const baseUpdate = capability.value.updateSettings.getMockImplementation()!;
         const started = gate();
         const release = gate();
-        capability.value.updateSettings.mockImplementationOnce(async request => {
+        capability.value.updateSettings.mockImplementationOnce(async (request) => {
             started.release();
             await release.promise;
             return baseUpdate(request);
@@ -2597,16 +2774,11 @@ describe.each([
         release.release();
         await settle(flush);
         await a.module.flushScanCleanupPreferencesStore();
-        expect([
-            a.preferences.readingOrder,
-            b.preferences.readingOrder,
-            (await main.store.get()).settings.readingOrder,
-        ])
-            .toEqual([
-                'ltr',
-                'ltr',
-                'ltr',
-            ]);
+        expect([a.preferences.readingOrder, b.preferences.readingOrder, (await main.store.get()).settings.readingOrder]).toEqual([
+            'ltr',
+            'ltr',
+            'ltr',
+        ]);
     });
 
     it('keeps a later window commit when an older writer reply arrives', async () => {
@@ -2616,7 +2788,7 @@ describe.each([
         const baseUpdate = capability.value.updateSettings.getMockImplementation()!;
         const committed = gate();
         const release = gate();
-        capability.value.updateSettings.mockImplementationOnce(async request => {
+        capability.value.updateSettings.mockImplementationOnce(async (request) => {
             const result = await baseUpdate(request);
             committed.release();
             await release.promise;
@@ -2626,33 +2798,29 @@ describe.each([
         await nextTick();
         const flush = a.module.flushScanCleanupPreferencesStore();
         await committed.promise;
-        if (held.length > 0) broadcastSettings(held.shift()!);
+        if (held.length > 0) {
+            broadcastSettings(held.shift()!);
+        }
         await nextTick();
         b.preferences.readingOrder = 'ltr';
         await nextTick();
         const newerFlush = b.module.flushScanCleanupPreferencesStore();
         await beforeEvent(newerFlush);
         release.release();
-        await settle(Promise.all([
-            flush,
-            newerFlush,
-        ]));
-        expect([
-            a.preferences.readingOrder,
-            b.preferences.readingOrder,
-            (await main.store.get()).settings.readingOrder,
-        ])
-            .toEqual([
-                'ltr',
-                'ltr',
-                'ltr',
-            ]);
+        await settle(Promise.all([flush, newerFlush]));
+        expect([a.preferences.readingOrder, b.preferences.readingOrder, (await main.store.get()).settings.readingOrder]).toEqual([
+            'ltr',
+            'ltr',
+            'ltr',
+        ]);
     });
 
     it('retains a failed write and accepts an explicit retry', async () => {
         let fail = false;
         const main = await owner(async (source, target) => {
-            if (fail) throw new Error('simulated disk replacement failure');
+            if (fail) {
+                throw new Error('simulated disk replacement failure');
+            }
             await rename(source, target);
         });
         const a = await renderer();
@@ -2668,14 +2836,6 @@ describe.each([
         await beforeEvent(flush);
         const before = a.preferences.readingOrder;
         await settle(flush);
-        expect([
-            before,
-            a.preferences.readingOrder,
-            (await main.store.get()).settings.readingOrder,
-        ]).toEqual([
-            'rtl',
-            'rtl',
-            'rtl',
-        ]);
+        expect([before, a.preferences.readingOrder, (await main.store.get()).settings.readingOrder]).toEqual(['rtl', 'rtl', 'rtl']);
     });
 });

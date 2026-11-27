@@ -1,34 +1,17 @@
-import type { TPageIndex } from '@contracts/pageNumbers';
+import type {TPageIndex} from '@contracts/pageNumbers';
 
-import type {
-    AnnotationEntity,
-    AnnotationId,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import type { IAnnotationSaveFrontier } from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
+import type {AnnotationEntity, AnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {IAnnotationSaveFrontier} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import type {TAnnotationMutationOperation} from '@app/modules/pdf-viewer/engine/annotations/persistence/backendAnnotationMutation';
-import type {
-    IPdfBookmarkEntry,
-    IPdfPageLabelRange,
-} from '@app/types/pdfContracts';
+import type {IPdfBookmarkEntry, IPdfPageLabelRange} from '@app/types/pdfContracts';
 import type {IAnnotationCommentSummary} from '@app/types/annotations';
 export type {TAnnotationMutationOperation} from '@app/modules/pdf-viewer/engine/annotations/persistence/backendAnnotationMutation';
 
 export type TSerializationBackend = 'native-append';
-export type TSaveMutationPhase =
-    | 'page-tree'
-    | 'metadata'
-    | 'ocr'
-    | 'annotations'
-    | 'postconditions';
+export type TSaveMutationPhase = 'page-tree' | 'metadata' | 'ocr' | 'annotations' | 'postconditions';
 
 /** Route-independent semantic order. Backends may change mechanism, never ordering. */
-const SAVE_MUTATION_ORDER: readonly TSaveMutationPhase[] = Object.freeze([
-    'page-tree',
-    'metadata',
-    'ocr',
-    'annotations',
-    'postconditions',
-]);
+const SAVE_MUTATION_ORDER: readonly TSaveMutationPhase[] = Object.freeze(['page-tree', 'metadata', 'ocr', 'annotations', 'postconditions']);
 
 export interface ISerializationPageOperation {
     readonly operation: 'rotate' | 'delete' | 'insert' | 'reorder' | 'crop' | 'remove-crop';
@@ -119,12 +102,7 @@ function normalizeObjectRef(value: string | null | undefined) {
     const compact = canonical ? null : COMPACT_OBJECT_REF.exec(value.trim());
     const objectNumber = Number(canonical?.[1] ?? compact?.[1]);
     const generationNumber = Number(canonical?.[2] ?? compact?.[2] ?? 0);
-    if (
-        !Number.isSafeInteger(objectNumber)
-        || !Number.isSafeInteger(generationNumber)
-        || objectNumber < 1
-        || generationNumber < 0
-    ) {
+    if (!Number.isSafeInteger(objectNumber) || !Number.isSafeInteger(generationNumber) || objectNumber < 1 || generationNumber < 0) {
         return null;
     }
     return `${objectNumber} ${generationNumber} R`;
@@ -145,43 +123,10 @@ function collectChangedObjectRefs(entities: readonly AnnotationEntity[]) {
 }
 
 const FIELDS: Record<AnnotationEntity['kind'], readonly string[]> = {
-    'text-box': [
-        'text',
-        'rect',
-        'rotation',
-        'fontSize',
-        'color',
-        'author',
-        'createdAt',
-        'modifiedAt',
-    ],
-    note: [
-        'contents',
-        'position',
-        'color',
-        'open',
-        'author',
-        'createdAt',
-        'modifiedAt',
-    ],
-    'text-markup': [
-        'subtype',
-        'contents',
-        'quadPoints',
-        'color',
-        'opacity',
-        'author',
-        'createdAt',
-        'modifiedAt',
-    ],
-    'placed-image': [
-        'rect',
-        'rotation',
-        'image',
-        'author',
-        'createdAt',
-        'modifiedAt',
-    ],
+    'text-box': ['text', 'rect', 'rotation', 'fontSize', 'color', 'author', 'createdAt', 'modifiedAt'],
+    note: ['contents', 'position', 'color', 'open', 'author', 'createdAt', 'modifiedAt'],
+    'text-markup': ['subtype', 'contents', 'quadPoints', 'color', 'opacity', 'author', 'createdAt', 'modifiedAt'],
+    'placed-image': ['rect', 'rotation', 'image', 'author', 'createdAt', 'modifiedAt'],
     shape: [
         'tool',
         'pdfSubtype',
@@ -201,10 +146,7 @@ const FIELDS: Record<AnnotationEntity['kind'], readonly string[]> = {
 };
 
 function allowedFields(entity: AnnotationEntity) {
-    return Object.fromEntries(FIELDS[entity.kind].map(field => [
-        field,
-        Reflect.get(entity, field),
-    ]));
+    return Object.fromEntries(FIELDS[entity.kind].map((field) => [field, Reflect.get(entity, field)]));
 }
 
 /**
@@ -224,13 +166,14 @@ export function buildSerializationPlan(
 ): ISerializationPlan {
     // History retains deleted drafts for undo, but the PDF never contained
     // them. Delete only entities with evidence of an existing PDF object.
-    const serializableDirty = dirty.filter(entity => (
-        !entity.deleted || entity.persistedRevision >= 0 || Boolean(entity.identity.pdfRef)
-        || (entity.kind === 'shape' && entity.materialized === true)
-    ));
-    const knownPdfRefs = entities
-        .map(entity => entity.identity.pdfRef)
-        .filter((value): value is string => Boolean(value));
+    const serializableDirty = dirty.filter(
+        (entity) =>
+            !entity.deleted ||
+            entity.persistedRevision >= 0 ||
+            Boolean(entity.identity.pdfRef) ||
+            (entity.kind === 'shape' && entity.materialized === true),
+    );
+    const knownPdfRefs = entities.map((entity) => entity.identity.pdfRef).filter((value): value is string => Boolean(value));
     // Each entity's earlier step ids, in order: its bind step depends on them.
     const stepIdsByAnnotation = new Map<string, string[]>();
     const steps: IAnnotationMutationStep[] = [];
@@ -300,22 +243,20 @@ export function buildSerializationPlan(
         });
     });
     assertValidAnnotationSerializationPlan(steps);
-    const mutationOrder = new Map(SERIALIZATION_MUTATION_ORDER.map((operation, index) => [
-        operation,
-        index,
-    ]));
-    steps.sort((left, right) => (
-        (mutationOrder.get(left.operation) ?? Number.MAX_SAFE_INTEGER)
-        - (mutationOrder.get(right.operation) ?? Number.MAX_SAFE_INTEGER)
-    ));
-    const expected = serializableDirty.map(entity => Object.freeze(structuredClone(entity)));
-    const canonicalEntities = entities.map(entity => Object.freeze(structuredClone(entity)));
+    const mutationOrder = new Map(SERIALIZATION_MUTATION_ORDER.map((operation, index) => [operation, index]));
+    steps.sort(
+        (left, right) =>
+            (mutationOrder.get(left.operation) ?? Number.MAX_SAFE_INTEGER) -
+            (mutationOrder.get(right.operation) ?? Number.MAX_SAFE_INTEGER),
+    );
+    const expected = serializableDirty.map((entity) => Object.freeze(structuredClone(entity)));
+    const canonicalEntities = entities.map((entity) => Object.freeze(structuredClone(entity)));
     const changedObjectRefs = collectChangedObjectRefs(expected);
-    const pageOperations = inputs.pageOperations?.map(operation => Object.freeze(cloneSerializable(operation))) ?? [];
-    const ocrOperations = inputs.ocrOperations?.map(operation => Object.freeze(cloneSerializable(operation))) ?? [];
+    const pageOperations = inputs.pageOperations?.map((operation) => Object.freeze(cloneSerializable(operation))) ?? [];
+    const ocrOperations = inputs.ocrOperations?.map((operation) => Object.freeze(cloneSerializable(operation))) ?? [];
     const allowedBackends = inputs.routeConstraints?.allowedBackends
         ? [...inputs.routeConstraints.allowedBackends]
-        : ['native-append'] satisfies TSerializationBackend[];
+        : (['native-append'] satisfies TSerializationBackend[]);
     const metadata = Object.freeze({
         pageLabels: inputs.metadata?.pageLabels ? Object.freeze(cloneSerializable(inputs.metadata.pageLabels)) : null,
         bookmarks: inputs.metadata?.bookmarks ? Object.freeze(cloneSerializable(inputs.metadata.bookmarks)) : null,
@@ -349,30 +290,31 @@ export function buildSerializationPlan(
 }
 
 /** Deterministic route policy over one immutable plan. */
-export function selectSerializationBackend(
-    plan: ISerializationPlan,
-    available: readonly TSerializationBackend[],
-): TSerializationBackend {
+export function selectSerializationBackend(plan: ISerializationPlan, available: readonly TSerializationBackend[]): TSerializationBackend {
     const supported = new Set(available);
-    const allowed = plan.routeConstraints.allowedBackends.filter(backend => supported.has(backend));
-    const selected = plan.routeConstraints.forceRewrite
-        ? allowed.find(backend => backend === 'native-append')
-        : allowed[0];
-    if (!selected) throw new Error('No serialization backend satisfies the immutable plan constraints');
+    const allowed = plan.routeConstraints.allowedBackends.filter((backend) => supported.has(backend));
+    const selected = plan.routeConstraints.forceRewrite ? allowed.find((backend) => backend === 'native-append') : allowed[0];
+    if (!selected) {
+        throw new Error('No serialization backend satisfies the immutable plan constraints');
+    }
     return selected;
 }
 
 function assertValidAnnotationSerializationPlan(steps: readonly IAnnotationMutationStep[]) {
     // The first step for each id, as a search through the steps would find.
     const stepsById = new Map<string, IAnnotationMutationStep>();
-    steps.forEach(step => stepsById.has(step.id) || stepsById.set(step.id, step));
+    steps.forEach((step) => stepsById.has(step.id) || stepsById.set(step.id, step));
     steps.forEach((step) => {
         step.dependsOn.forEach((dependency) => {
-            if (!stepsById.has(dependency)) throw new Error(`Missing annotation-plan dependency ${dependency}`);
+            if (!stepsById.has(dependency)) {
+                throw new Error(`Missing annotation-plan dependency ${dependency}`);
+            }
         });
         if (step.operation === 'write-free-text-contents') {
-            const hasPrepare = step.dependsOn.some(id => stepsById.get(id)?.operation === 'prepare-free-text-appearance');
-            if (!hasPrepare) throw new Error('FreeText contents require a prepared blank appearance and point rect');
+            const hasPrepare = step.dependsOn.some((id) => stepsById.get(id)?.operation === 'prepare-free-text-appearance');
+            if (!hasPrepare) {
+                throw new Error('FreeText contents require a prepared blank appearance and point rect');
+            }
         }
     });
 }

@@ -1,5 +1,3 @@
-
-
 const MANAGED_SHAPE_STABLE_KEY_PREFIX = 'evb-shape:';
 
 export function generateManagedShapeStableKey() {

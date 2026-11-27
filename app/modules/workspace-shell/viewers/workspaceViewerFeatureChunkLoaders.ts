@@ -1,8 +1,6 @@
-import { loadDocumentPageSourceRenderer } from '@app/modules/document-viewer/public';
+import {loadDocumentPageSourceRenderer} from '@app/modules/document-viewer/public';
 
-export type TWorkspaceViewerFeatureChunkTarget =
-    | 'pdfjs'
-    | 'page-source';
+export type TWorkspaceViewerFeatureChunkTarget = 'pdfjs' | 'page-source';
 
 export type TWorkspaceViewerChunkLoader = () => Promise<unknown>;
 

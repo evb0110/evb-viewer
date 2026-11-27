@@ -1,5 +1,5 @@
-import { getImagePlacementResizeCursor } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/getImagePlacementResizeCursor';
-import type { TImagePlacementResizeHandle } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/pdfImagePlacementSizingTypes';
+import {getImagePlacementResizeCursor} from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/getImagePlacementResizeCursor';
+import type {TImagePlacementResizeHandle} from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/pdfImagePlacementSizingTypes';
 
 const IMAGE_PLACEMENT_CURSOR_SIZE_PX = 32;
 
@@ -34,12 +34,9 @@ function buildImagePlacementResizeCursorSvg(angleDegrees: number) {
     return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${IMAGE_PLACEMENT_CURSOR_HOTSPOT_PX} ${IMAGE_PLACEMENT_CURSOR_HOTSPOT_PX}`;
 }
 
-export function getImagePlacementResizeCursorStyle(
-    handle: TImagePlacementResizeHandle,
-    rotationDegrees: number,
-) {
+export function getImagePlacementResizeCursorStyle(handle: TImagePlacementResizeHandle, rotationDegrees: number) {
     const handleAngle = IMAGE_PLACEMENT_HANDLE_ANGLES[handle];
-    const normalizedAngle = ((handleAngle + rotationDegrees) % 360 + 360) % 360;
+    const normalizedAngle = (((handleAngle + rotationDegrees) % 360) + 360) % 360;
     const fallbackCursor = getImagePlacementResizeCursor(handle, rotationDegrees);
 
     return `${buildImagePlacementResizeCursorSvg(normalizedAngle)}, ${fallbackCursor}`;

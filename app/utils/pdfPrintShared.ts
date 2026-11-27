@@ -1,13 +1,7 @@
-import {
-    compact,
-    uniq,
-} from 'es-toolkit/array';
-import type { TPageSelection } from '@contracts/pageNumbers';
-import {
-    createExplicitPageSelection,
-    createRangePageSelection,
-} from '@contracts/pageNumbers';
-export type { TPrintOrientation } from '@contracts/shared';
+import {compact, uniq} from 'es-toolkit/array';
+import type {TPageSelection} from '@contracts/pageNumbers';
+import {createExplicitPageSelection, createRangePageSelection} from '@contracts/pageNumbers';
+export type {TPrintOrientation} from '@contracts/shared';
 
 const PRINT_PAGE_RANGE_MATERIALIZATION_LIMIT = 100_000;
 
@@ -23,7 +17,9 @@ export interface IBrowserPrintPageContainer {
     className: string;
 }
 
-export interface IBrowserPrintStyleElement {textContent: string;}
+export interface IBrowserPrintStyleElement {
+    textContent: string;
+}
 
 export interface IBrowserPrintElementStyle {
     height: string;
@@ -31,10 +27,7 @@ export interface IBrowserPrintElementStyle {
 }
 
 export interface IBrowserPrintCanvas {
-    getContext: (
-        contextId: '2d',
-        options?: CanvasRenderingContext2DSettings,
-    ) => CanvasRenderingContext2D | null;
+    getContext: (contextId: '2d', options?: CanvasRenderingContext2DSettings) => CanvasRenderingContext2D | null;
     height: number;
     style: IBrowserPrintElementStyle;
     toBlob: (callback: (blob: Blob | null) => void, type?: string) => void;
@@ -51,11 +44,9 @@ export interface IBrowserPrintImage {
 export interface IBrowserPrintDocument {
     defaultView?: {URL: Pick<typeof URL, 'createObjectURL'>} | null;
     querySelector(selector: string): IBrowserPrintRoot | null;
-    createElement(tag: 'section' | 'canvas' | 'img' | 'style'):
-        | IBrowserPrintPageContainer
-        | IBrowserPrintCanvas
-        | IBrowserPrintImage
-        | IBrowserPrintStyleElement;
+    createElement(
+        tag: 'section' | 'canvas' | 'img' | 'style',
+    ): IBrowserPrintPageContainer | IBrowserPrintCanvas | IBrowserPrintImage | IBrowserPrintStyleElement;
 }
 
 export function buildBrowserPrintFrameMarkup(title = 'Printable PDF') {
@@ -143,19 +134,14 @@ export function parsePrintPageRangeInput(input: string, totalPages: number): num
         return null;
     }
 
-    const normalizedInput = input
-        .trim()
-        .replace(/[–—]/g, '-')
-        .replace(/\.\./g, '-');
+    const normalizedInput = input.trim().replace(/[–—]/g, '-').replace(/\.\./g, '-');
 
     if (!normalizedInput) {
         return null;
     }
 
     const pages = new Set<number>();
-    const parts = compact(normalizedInput
-        .split(',')
-        .map(part => part.trim()));
+    const parts = compact(normalizedInput.split(',').map((part) => part.trim()));
 
     if (parts.length === 0) {
         return null;
@@ -197,40 +183,28 @@ export function parsePrintPageRangeInput(input: string, totalPages: number): num
     return uniq([...pages]).sort((left, right) => left - right);
 }
 
-export function parsePrintPageRangeSelectionInput(
-    input: string,
-    totalPages: number,
-): TPageSelection | null {
+export function parsePrintPageRangeSelectionInput(input: string, totalPages: number): TPageSelection | null {
     const normalizedTotalPages = normalizeTotalPages(totalPages);
-    const normalizedInput = input
-        .trim()
-        .replace(/[–—]/g, '-')
-        .replace(/\.\./g, '-')
-        .replace(/\s+/g, '');
+    const normalizedInput = input.trim().replace(/[–—]/g, '-').replace(/\.\./g, '-').replace(/\s+/g, '');
     const contiguousRange = /^(\d+)(?:-(\d+))?$/.exec(normalizedInput);
     if (normalizedTotalPages > 0 && contiguousRange) {
         const first = Number.parseInt(contiguousRange[1] ?? '', 10);
         const second = Number.parseInt(contiguousRange[2] ?? contiguousRange[1] ?? '', 10);
         if (
-            Number.isSafeInteger(first)
-            && Number.isSafeInteger(second)
-            && first >= 1
-            && second >= 1
-            && first <= normalizedTotalPages
-            && second <= normalizedTotalPages
+            Number.isSafeInteger(first) &&
+            Number.isSafeInteger(second) &&
+            first >= 1 &&
+            second >= 1 &&
+            first <= normalizedTotalPages &&
+            second <= normalizedTotalPages
         ) {
-            return createRangePageSelection(
-                normalizedTotalPages,
-                Math.min(first, second),
-                Math.max(first, second),
-            );
+            return createRangePageSelection(normalizedTotalPages, Math.min(first, second), Math.max(first, second));
         }
     }
 
     const pages = parsePrintPageRangeInput(input, normalizedTotalPages);
     return pages ? createExplicitPageSelection(normalizedTotalPages, pages) : null;
 }
-
 
 const HTML_TEXT_ENTITIES: Record<string, string> = {
     '&': '&amp;',
@@ -239,7 +213,7 @@ const HTML_TEXT_ENTITIES: Record<string, string> = {
 };
 
 function escapeHtmlText(value: string) {
-    return value.replace(/[&<>]/g, character => HTML_TEXT_ENTITIES[character] ?? character);
+    return value.replace(/[&<>]/g, (character) => HTML_TEXT_ENTITIES[character] ?? character);
 }
 
-export { normalizePrintPageNumbers } from '@pdf-core';
+export {normalizePrintPageNumbers} from '@pdf-core';

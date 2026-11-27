@@ -1,5 +1,5 @@
-import { execFileSync } from 'node:child_process';
-import { join } from 'node:path';
+import {execFileSync} from 'node:child_process';
+import {join} from 'node:path';
 import {
     collectDescendantPidsUnix,
     findPidsByCommandSubstring,
@@ -7,11 +7,8 @@ import {
     isProcessAlive,
     killProcessTree,
 } from '@scripts/electron-run/electronRunProcessTree';
-import { projectRoot } from '@scripts/electron-run/projectRoot';
-import {
-    electronUserDataPath,
-    sessionDir,
-} from '@scripts/electron-run/electronRunSessionPaths';
+import {projectRoot} from '@scripts/electron-run/projectRoot';
+import {electronUserDataPath, sessionDir} from '@scripts/electron-run/electronRunSessionPaths';
 
 type TSessionProcessKind = 'controller' | 'electron' | 'nuxt';
 
@@ -37,49 +34,42 @@ function readProcessOutput(command: string, args: string[]) {
     try {
         return execFileSync(command, args, {
             encoding: 'utf8',
-            stdio: [
-                'ignore',
-                'pipe',
-                'ignore',
-            ],
+            stdio: ['ignore', 'pipe', 'ignore'],
         }).trim();
     } catch {
         return '';
     }
 }
 
-function readWindowsProcessIdentity(
-    pid: number,
-    expectedPort?: number | null,
-): IProcessIdentitySnapshot | null {
+function readWindowsProcessIdentity(pid: number, expectedPort?: number | null): IProcessIdentitySnapshot | null {
     try {
-        const output = execFileSync('powershell.exe', [
-            '-NoProfile',
-            '-NonInteractive',
-            '-Command',
-            '$all = @(Get-CimInstance Win32_Process); '
-            + `$p = $all | Where-Object { $_.ProcessId -eq ${pid} } | Select-Object -First 1; `
-            + 'if ($p) { '
-            + `$frontier = @(${pid}); $descendants = @(); `
-            + 'while ($frontier.Count -gt 0) { '
-            + '$children = @($all | Where-Object { $frontier -contains $_.ParentProcessId }); '
-            + 'if ($children.Count -eq 0) { break }; '
-            + '$childIds = @($children | ForEach-Object { [int]$_.ProcessId }); '
-            + '$descendants += $childIds; $frontier = $childIds }; '
-            + (expectedPort
-                ? `$portPids = @(); try { $portPids = @(Get-NetTCPConnection -State Listen -LocalPort ${expectedPort} `
-                    + '| ForEach-Object { [int]$_.OwningProcess }) } catch {}; '
-                : '$portPids = @(); ')
-            + '@{ command = $p.CommandLine; descendants = @($descendants); portPids = @($portPids) } '
-            + '| ConvertTo-Json -Compress }',
-        ], {
-            encoding: 'utf8',
-            stdio: [
-                'ignore',
-                'pipe',
-                'ignore',
+        const output = execFileSync(
+            'powershell.exe',
+            [
+                '-NoProfile',
+                '-NonInteractive',
+                '-Command',
+                '$all = @(Get-CimInstance Win32_Process); ' +
+                    `$p = $all | Where-Object { $_.ProcessId -eq ${pid} } | Select-Object -First 1; ` +
+                    'if ($p) { ' +
+                    `$frontier = @(${pid}); $descendants = @(); ` +
+                    'while ($frontier.Count -gt 0) { ' +
+                    '$children = @($all | Where-Object { $frontier -contains $_.ParentProcessId }); ' +
+                    'if ($children.Count -eq 0) { break }; ' +
+                    '$childIds = @($children | ForEach-Object { [int]$_.ProcessId }); ' +
+                    '$descendants += $childIds; $frontier = $childIds }; ' +
+                    (expectedPort
+                        ? `$portPids = @(); try { $portPids = @(Get-NetTCPConnection -State Listen -LocalPort ${expectedPort} ` +
+                          '| ForEach-Object { [int]$_.OwningProcess }) } catch {}; '
+                        : '$portPids = @(); ') +
+                    '@{ command = $p.CommandLine; descendants = @($descendants); portPids = @($portPids) } ' +
+                    '| ConvertTo-Json -Compress }',
             ],
-        }).trim();
+            {
+                encoding: 'utf8',
+                stdio: ['ignore', 'pipe', 'ignore'],
+            },
+        ).trim();
         if (!output) {
             return null;
         }
@@ -98,14 +88,10 @@ function readWindowsProcessIdentity(
             cwd: null,
             environment: '',
             descendantPids: Array.isArray(parsed.descendants)
-                ? parsed.descendants.filter((value): value is number => (
-                    typeof value === 'number' && Number.isInteger(value) && value > 0
-                ))
+                ? parsed.descendants.filter((value): value is number => typeof value === 'number' && Number.isInteger(value) && value > 0)
                 : [],
             pidsOnExpectedPort: Array.isArray(parsed.portPids)
-                ? parsed.portPids.filter((value): value is number => (
-                    typeof value === 'number' && Number.isInteger(value) && value > 0
-                ))
+                ? parsed.portPids.filter((value): value is number => typeof value === 'number' && Number.isInteger(value) && value > 0)
                 : [],
         };
     } catch {
@@ -114,34 +100,19 @@ function readWindowsProcessIdentity(
 }
 
 function readProcessCwd(pid: number) {
-    const output = readProcessOutput('lsof', [
-        '-a',
-        '-p',
-        String(pid),
-        '-d',
-        'cwd',
-        '-Fn',
-    ]);
-    const cwdLine = output.split('\n').find(line => line.startsWith('n'));
+    const output = readProcessOutput('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn']);
+    const cwdLine = output.split('\n').find((line) => line.startsWith('n'));
     return cwdLine ? cwdLine.slice(1) : null;
 }
 
-export function inspectProcessIdentity(
-    pid: number,
-    expectedPort?: number | null,
-): IProcessIdentitySnapshot | null {
+export function inspectProcessIdentity(pid: number, expectedPort?: number | null): IProcessIdentitySnapshot | null {
     if (!isProcessAlive(pid)) {
         return null;
     }
     if (process.platform === 'win32') {
         return readWindowsProcessIdentity(pid, expectedPort);
     }
-    const command = readProcessOutput('ps', [
-        '-p',
-        String(pid),
-        '-o',
-        'command=',
-    ]);
+    const command = readProcessOutput('ps', ['-p', String(pid), '-o', 'command=']);
     if (!command) {
         return null;
     }
@@ -150,13 +121,7 @@ export function inspectProcessIdentity(
         platform: process.platform,
         command,
         cwd: readProcessCwd(pid),
-        environment: readProcessOutput('ps', [
-            'eww',
-            '-p',
-            String(pid),
-            '-o',
-            'command=',
-        ]),
+        environment: readProcessOutput('ps', ['eww', '-p', String(pid), '-o', 'command=']),
         descendantPids: collectDescendantPidsUnix(pid),
         pidsOnExpectedPort: expectedPort ? getPidsOnPort(expectedPort) : [],
     };
@@ -167,10 +132,7 @@ function hasExactArgument(command: string, argument: string) {
     return new RegExp(`(?:^|\\s)(?:${escaped}|'${escaped}'|"${escaped}")(?:\\s|$)`).test(command);
 }
 
-const CONTROLLER_ARGUMENT_MARKERS = [
-    'electronRun.ts',
-    'electron:run',
-] as const;
+const CONTROLLER_ARGUMENT_MARKERS = ['electronRun.ts', 'electron:run'] as const;
 const SESSION_ARGUMENT_PATTERN = /(?:^|\s)["']?(?:--session=|(?:--session|-s)["']?\s+["']?)([^\s"']+)["']?(?=\s|$)/gu;
 
 /**
@@ -180,11 +142,13 @@ const SESSION_ARGUMENT_PATTERN = /(?:^|\s)["']?(?:--session=|(?:--session|-s)["'
  * (pnpm's `--silent`) is never read as a session.
  */
 function readControllerSessionNames(command: string) {
-    const entryEnd = Math.max(...CONTROLLER_ARGUMENT_MARKERS.map((marker) => {
-        const index = command.lastIndexOf(marker);
-        return index < 0 ? 0 : index + marker.length;
-    }));
-    return [...command.slice(entryEnd).matchAll(SESSION_ARGUMENT_PATTERN)].map(match => match[1]);
+    const entryEnd = Math.max(
+        ...CONTROLLER_ARGUMENT_MARKERS.map((marker) => {
+            const index = command.lastIndexOf(marker);
+            return index < 0 ? 0 : index + marker.length;
+        }),
+    );
+    return [...command.slice(entryEnd).matchAll(SESSION_ARGUMENT_PATTERN)].map((match) => match[1]);
 }
 
 function hasEnvironmentValue(environment: string, name: string, value: string | number) {
@@ -192,77 +156,67 @@ function hasEnvironmentValue(environment: string, name: string, value: string | 
     return environment.split(/\s+/).includes(token);
 }
 
-export function matchesSessionProcessIdentity(
-    snapshot: IProcessIdentitySnapshot,
-    expectation: ISessionProcessIdentityExpectation,
-) {
+export function matchesSessionProcessIdentity(snapshot: IProcessIdentitySnapshot, expectation: ISessionProcessIdentityExpectation) {
     if (expectation.kind === 'controller') {
         const controllerEntry = join(projectRoot, 'scripts', 'electronRun.ts');
-        const ephemeralControllerEntry = join(
-            projectRoot,
-            'scripts',
-            'electron-run',
-            'ephemeralSessionEntry.ts',
-        );
-        const hasControllerEntry = hasExactArgument(snapshot.command, controllerEntry)
-            || (snapshot.cwd === projectRoot && hasExactArgument(snapshot.command, join('scripts', 'electronRun.ts')));
+        const ephemeralControllerEntry = join(projectRoot, 'scripts', 'electron-run', 'ephemeralSessionEntry.ts');
+        const hasControllerEntry =
+            hasExactArgument(snapshot.command, controllerEntry) ||
+            (snapshot.cwd === projectRoot && hasExactArgument(snapshot.command, join('scripts', 'electronRun.ts')));
         const hasAbsoluteEphemeralControllerEntry = hasExactArgument(snapshot.command, ephemeralControllerEntry);
-        const hasEphemeralControllerEntry = hasAbsoluteEphemeralControllerEntry
-            || (snapshot.cwd === projectRoot
-                && hasExactArgument(snapshot.command, join('scripts', 'electron-run', 'ephemeralSessionEntry.ts')));
-        const hasProjectIdentity = snapshot.cwd === projectRoot
-            || hasExactArgument(snapshot.command, projectRoot)
-            || hasAbsoluteEphemeralControllerEntry
-            || (snapshot.platform === 'win32' && (hasControllerEntry || hasEphemeralControllerEntry));
+        const hasEphemeralControllerEntry =
+            hasAbsoluteEphemeralControllerEntry ||
+            (snapshot.cwd === projectRoot &&
+                hasExactArgument(snapshot.command, join('scripts', 'electron-run', 'ephemeralSessionEntry.ts')));
+        const hasProjectIdentity =
+            snapshot.cwd === projectRoot ||
+            hasExactArgument(snapshot.command, projectRoot) ||
+            hasAbsoluteEphemeralControllerEntry ||
+            (snapshot.platform === 'win32' && (hasControllerEntry || hasEphemeralControllerEntry));
         const sessionNames = readControllerSessionNames(snapshot.command);
-        const hasExpectedSession = expectation.sessionName === 'default'
-            ? sessionNames.length === 0 || sessionNames.at(-1) === 'default'
-            : sessionNames.at(-1) === expectation.sessionName;
-        const isLegacyController = (snapshot.command.includes('electron:run') || hasControllerEntry)
-            && hasExpectedSession
-            && hasExactArgument(snapshot.command, 'start');
-        const isEphemeralController = hasEphemeralControllerEntry
-            && hasExactArgument(snapshot.command, expectation.sessionName);
+        const hasExpectedSession =
+            expectation.sessionName === 'default'
+                ? sessionNames.length === 0 || sessionNames.at(-1) === 'default'
+                : sessionNames.at(-1) === expectation.sessionName;
+        const isLegacyController =
+            (snapshot.command.includes('electron:run') || hasControllerEntry) &&
+            hasExpectedSession &&
+            hasExactArgument(snapshot.command, 'start');
+        const isEphemeralController = hasEphemeralControllerEntry && hasExactArgument(snapshot.command, expectation.sessionName);
         return hasProjectIdentity && (isLegacyController || isEphemeralController);
     }
 
     if (expectation.kind === 'electron') {
         const cdpPort = expectation.cdpPort;
         const userDataDir = expectation.electronUserDataDir ?? electronUserDataPath(expectation.sessionName);
-        const automationAppEntry = join(
-            sessionDir(expectation.sessionName),
-            'automation-electron-app-entry',
-            'automation-app',
-        );
-        return hasExactArgument(snapshot.command, automationAppEntry)
-            && hasExactArgument(snapshot.command, `--user-data-dir=${userDataDir}`)
-            && (cdpPort
+        const automationAppEntry = join(sessionDir(expectation.sessionName), 'automation-electron-app-entry', 'automation-app');
+        return (
+            hasExactArgument(snapshot.command, automationAppEntry) &&
+            hasExactArgument(snapshot.command, `--user-data-dir=${userDataDir}`) &&
+            (cdpPort
                 ? hasExactArgument(snapshot.command, `--remote-debugging-port=${cdpPort}`)
-                : /(?:^|\s)["']?--remote-debugging-port=\d+["']?(?:\s|$)/.test(snapshot.command));
+                : /(?:^|\s)["']?--remote-debugging-port=\d+["']?(?:\s|$)/.test(snapshot.command))
+        );
     }
 
     const nuxtPort = expectation.nuxtPort;
     if (!nuxtPort) {
         return false;
     }
-    const ownedPids = new Set([
-        snapshot.pid,
-        ...snapshot.descendantPids,
-    ]);
-    const hasExactProjectAndPortArguments = hasExactArgument(snapshot.command, projectRoot)
-        && (hasExactArgument(snapshot.command, `--port=${nuxtPort}`)
-            || hasExactArgument(snapshot.command, `--port ${nuxtPort}`));
-    const ownsExpectedPort = snapshot.pidsOnExpectedPort.some(pid => ownedPids.has(pid))
-        || (snapshot.pidsOnExpectedPort.length === 0 && hasExactProjectAndPortArguments);
+    const ownedPids = new Set([snapshot.pid, ...snapshot.descendantPids]);
+    const hasExactProjectAndPortArguments =
+        hasExactArgument(snapshot.command, projectRoot) &&
+        (hasExactArgument(snapshot.command, `--port=${nuxtPort}`) || hasExactArgument(snapshot.command, `--port ${nuxtPort}`));
+    const ownsExpectedPort =
+        snapshot.pidsOnExpectedPort.some((pid) => ownedPids.has(pid)) ||
+        (snapshot.pidsOnExpectedPort.length === 0 && hasExactProjectAndPortArguments);
     const hasWindowsPortIdentity = snapshot.platform === 'win32' && ownsExpectedPort;
-    return (snapshot.cwd === projectRoot
-        || hasExactArgument(snapshot.command, projectRoot)
-        || hasWindowsPortIdentity)
-        && /\brun\s+dev:nuxt\b/.test(snapshot.command)
-        && (hasEnvironmentValue(snapshot.environment, 'PORT', nuxtPort)
-            || hasExactProjectAndPortArguments
-            || hasWindowsPortIdentity)
-        && ownsExpectedPort;
+    return (
+        (snapshot.cwd === projectRoot || hasExactArgument(snapshot.command, projectRoot) || hasWindowsPortIdentity) &&
+        /\brun\s+dev:nuxt\b/.test(snapshot.command) &&
+        (hasEnvironmentValue(snapshot.environment, 'PORT', nuxtPort) || hasExactProjectAndPortArguments || hasWindowsPortIdentity) &&
+        ownsExpectedPort
+    );
 }
 
 export function findSessionOwnedElectronPids(expectation: ISessionProcessIdentityExpectation) {
@@ -271,21 +225,16 @@ export function findSessionOwnedElectronPids(expectation: ISessionProcessIdentit
     }
     const userDataDir = expectation.electronUserDataDir ?? electronUserDataPath(expectation.sessionName);
     const candidates = new Set([
-        ...(expectation.cdpPort
-            ? findPidsByCommandSubstring(`--remote-debugging-port=${expectation.cdpPort}`)
-            : []),
+        ...(expectation.cdpPort ? findPidsByCommandSubstring(`--remote-debugging-port=${expectation.cdpPort}`) : []),
         ...findPidsByCommandSubstring(`--user-data-dir=${userDataDir}`),
     ]);
-    return [...candidates].filter(pid => {
+    return [...candidates].filter((pid) => {
         const snapshot = inspectProcessIdentity(pid);
         return snapshot ? matchesSessionProcessIdentity(snapshot, expectation) : false;
     });
 }
 
-export function isVerifiedSessionProcess(
-    pid: number,
-    expectation: ISessionProcessIdentityExpectation,
-) {
+export function isVerifiedSessionProcess(pid: number, expectation: ISessionProcessIdentityExpectation) {
     const expectedPort = expectation.kind === 'nuxt' ? expectation.nuxtPort : null;
     const snapshot = inspectProcessIdentity(pid, expectedPort);
     return snapshot ? matchesSessionProcessIdentity(snapshot, expectation) : false;
@@ -308,15 +257,11 @@ export async function killVerifiedSessionProcess(options: {
             return true;
         }
         console.warn(
-            `[Session '${options.expectation.sessionName}'] Refused to terminate PID ${options.pid}: `
-            + `${options.expectation.kind} process identity did not match session ownership.`,
+            `[Session '${options.expectation.sessionName}'] Refused to terminate PID ${options.pid}: ` +
+                `${options.expectation.kind} process identity did not match session ownership.`,
         );
         return false;
     }
-    await killProcessTree(
-        options.pid,
-        options.graceMs,
-        options.force === undefined ? {} : {force: options.force},
-    );
+    await killProcessTree(options.pid, options.graceMs, options.force === undefined ? {} : {force: options.force});
     return !isProcessAlive(options.pid);
 }

@@ -39,16 +39,16 @@
 </template>
 
 <script setup lang="ts">
-import type { ComponentPublicInstance } from 'vue';
+import type {ComponentPublicInstance} from 'vue';
 import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
-import { useEventListener } from '@vueuse/core';
+import {useEventListener} from '@vueuse/core';
 import {
     resolveDocumentPinchZoomDeltaPx,
     resolveDocumentWheelInteraction,
     type IDocumentWheelInteraction,
 } from '@app/modules/document-viewer/input/documentWheelInteraction';
-import type { IDocumentOpeningPageShell } from '@app/modules/document-viewer/runtime/documentOpeningPageFrame';
-import type { TDocumentOpeningPageVisual } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+import type {IDocumentOpeningPageShell} from '@app/modules/document-viewer/runtime/documentOpeningPageFrame';
+import type {TDocumentOpeningPageVisual} from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 
 const {
     openingPageShell,
@@ -179,19 +179,16 @@ function startTouchPinch(event: TouchEvent) {
     }
     endTouchPinch();
     pinch = start;
-    const targets = new Set(Array.from(event.touches, touch => touch.target));
-    const stops = [...targets].flatMap(target => [
+    const targets = new Set(Array.from(event.touches, (touch) => touch.target));
+    const stops = [...targets].flatMap((target) => [
         useEventListener(target, 'touchmove', moveTouchPinch, {passive: false}),
-        useEventListener(target, [
-            'touchend',
-            'touchcancel',
-        ], (touchEvent: TouchEvent) => {
+        useEventListener(target, ['touchend', 'touchcancel'], (touchEvent: TouchEvent) => {
             if (touchEvent.touches.length < 2) {
                 endTouchPinch();
             }
         }),
     ]);
-    stopFollowingPinch = () => stops.forEach(stop => stop());
+    stopFollowingPinch = () => stops.forEach((stop) => stop());
 }
 
 useEventListener(viewportElement, 'touchstart', startTouchPinch, {passive: true});

@@ -1,4 +1,4 @@
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
 
 export function isNoteEligible(
     subtype: string | null | undefined,
@@ -12,23 +12,23 @@ export function isNoteEligible(
 
     const normalized = (subtype ?? '').trim().toLowerCase();
     if (
-        normalized === 'text'
-        || normalized === 'note-linked'
-        || normalized === 'freetext'
-        || normalized === 'typewriter'
-        || normalized === 'note-inline'
-        || normalized.includes('popup')
-        || normalized.includes('note')
+        normalized === 'text' ||
+        normalized === 'note-linked' ||
+        normalized === 'freetext' ||
+        normalized === 'typewriter' ||
+        normalized === 'note-inline' ||
+        normalized.includes('popup') ||
+        normalized.includes('note')
     ) {
         return true;
     }
 
     if (
-        normalized === 'highlight'
-        || normalized === 'underline'
-        || normalized === 'strikeout'
-        || normalized === 'strikethrough'
-        || normalized === 'squiggly'
+        normalized === 'highlight' ||
+        normalized === 'underline' ||
+        normalized === 'strikeout' ||
+        normalized === 'strikethrough' ||
+        normalized === 'squiggly'
     ) {
         return true;
     }

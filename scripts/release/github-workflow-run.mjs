@@ -1,8 +1,4 @@
-import {
-    errorMessage,
-    run,
-    sleep,
-} from './shared.mjs';
+import {errorMessage, run, sleep} from './shared.mjs';
 
 const DEFAULT_START_TIMEOUT_MS = 5 * 60 * 1000;
 const POLL_INTERVAL_MS = 5 * 1000;
@@ -26,10 +22,7 @@ const TRANSIENT_GITHUB_CLI_ERROR_PATTERNS = [
 
 /** @param {unknown} value @returns {value is IWorkflowRun} */
 function isWorkflowRun(value) {
-    return typeof value === 'object'
-        && value !== null
-        && 'url' in value
-        && typeof value.url === 'string';
+    return typeof value === 'object' && value !== null && 'url' in value && typeof value.url === 'string';
 }
 
 /** @param {NodeJS.ProcessEnv} [env] */
@@ -41,9 +34,7 @@ export function readWorkflowStartTimeoutMs(env = process.env) {
 
     const parsed = Number.parseInt(raw, 10);
     if (!Number.isFinite(parsed) || parsed <= 0) {
-        throw new Error(
-            `EVB_GITHUB_WORKFLOW_START_TIMEOUT_MS must be a positive integer, received "${raw}"`,
-        );
+        throw new Error(`EVB_GITHUB_WORKFLOW_START_TIMEOUT_MS must be a positive integer, received "${raw}"`);
     }
 
     return parsed;
@@ -53,7 +44,7 @@ export function readWorkflowStartTimeoutMs(env = process.env) {
 export function isTransientGitHubCliError(error) {
     const message = errorMessage(error);
 
-    return TRANSIENT_GITHUB_CLI_ERROR_PATTERNS.some(pattern => pattern.test(message));
+    return TRANSIENT_GITHUB_CLI_ERROR_PATTERNS.some((pattern) => pattern.test(message));
 }
 
 /** @param {unknown} error */
@@ -62,9 +53,7 @@ export function briefErrorMessage(error) {
 }
 
 /** @param {string} workflow @param {{limit?: number, runCommand?: TCommandRunner}} [options] @returns {IWorkflowRun[]} */
-export function listWorkflowRuns(workflow, {
-    limit = 20, runCommand = run,
-} = {}) {
+export function listWorkflowRuns(workflow, {limit = 20, runCommand = run} = {}) {
     const payload = runCommand('gh', [
         'run',
         'list',
@@ -110,38 +99,25 @@ function matchesDisplayTitle(runInfo, displayTitles) {
 }
 
 /** @param {IFindWorkflowRunOptions} options @returns {IWorkflowRun | null} */
-export function findWorkflowRun({
-    createdAfter = '',
-    displayTitles = [],
-    runCommand = run,
-    targetSha = '',
-    workflow,
-}) {
-    return listWorkflowRuns(workflow, {runCommand}).find(runInfo => {
-        if (!runInfo || typeof runInfo !== 'object') {
-            return false;
-        }
+export function findWorkflowRun({createdAfter = '', displayTitles = [], runCommand = run, targetSha = '', workflow}) {
+    return (
+        listWorkflowRuns(workflow, {runCommand}).find((runInfo) => {
+            if (!runInfo || typeof runInfo !== 'object') {
+                return false;
+            }
 
-        const matchesTarget = !targetSha
-            || !runInfo.headSha
-            || runInfo.headSha === targetSha;
+            const matchesTarget = !targetSha || !runInfo.headSha || runInfo.headSha === targetSha;
 
-        return matchesDisplayTitle(runInfo, displayTitles)
-            && matchesTarget
-            && isAtOrAfterCreatedAfter(runInfo, createdAfter);
-    }) ?? null;
+            return matchesDisplayTitle(runInfo, displayTitles) && matchesTarget && isAtOrAfterCreatedAfter(runInfo, createdAfter);
+        }) ?? null
+    );
 }
 
 /** @param {{error: unknown, label: string, stderr: IWritable, transientPollFailures: number}} options */
-function writeTransientPollingFailure({
-    error,
-    label,
-    stderr,
-    transientPollFailures,
-}) {
+function writeTransientPollingFailure({error, label, stderr, transientPollFailures}) {
     stderr.write(
-        `Transient GitHub polling failure while locating ${label} `
-        + `(attempt ${transientPollFailures}); retrying: ${briefErrorMessage(error)}\n`,
+        `Transient GitHub polling failure while locating ${label} ` +
+            `(attempt ${transientPollFailures}); retrying: ${briefErrorMessage(error)}\n`,
     );
 }
 
@@ -193,8 +169,7 @@ export async function waitForWorkflowRunStart({
     }
 
     throw new Error(
-        `Timed out while locating ${workflowLabel}. `
-        + 'Set EVB_GITHUB_WORKFLOW_START_TIMEOUT_MS to a larger value if needed.',
+        `Timed out while locating ${workflowLabel}. ` + 'Set EVB_GITHUB_WORKFLOW_START_TIMEOUT_MS to a larger value if needed.',
     );
 }
 

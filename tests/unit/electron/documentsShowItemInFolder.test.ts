@@ -1,22 +1,10 @@
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    mkdtempSync,
-    realpathSync,
-    rmSync,
-    writeFileSync,
-} from 'fs';
-import { join } from 'path';
-import { tmpdir } from 'os';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {mkdtempSync, realpathSync, rmSync, writeFileSync} from 'fs';
+import {join} from 'path';
+import {tmpdir} from 'os';
 
 const mocks = vi.hoisted(() => ({
-    fromWebContents: vi.fn<() => { setTitle: (title: string) => void; } | null>(() => null),
+    fromWebContents: vi.fn<() => {setTitle: (title: string) => void} | null>(() => null),
     refreshMenu: vi.fn(),
     showItemInFolder: vi.fn(),
     resolveAllowedReadPath: vi.fn(async () => null),
@@ -36,7 +24,7 @@ vi.mock('electron', () => ({
         showOpenDialog: vi.fn(),
         showSaveDialog: vi.fn(),
     },
-    shell: { showItemInFolder: mocks.showItemInFolder },
+    shell: {showItemInFolder: mocks.showItemInFolder},
 }));
 
 vi.mock('@electron/menu', () => ({
@@ -49,12 +37,14 @@ vi.mock('@electron/utils/pathValidator', async (importOriginal) => ({
     resolveAllowedReadPath: mocks.resolveAllowedReadPath,
 }));
 
-vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => ({
-    debug: vi.fn(),
-    error: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-}) }));
+vi.mock('@electron/utils/createLogger', () => ({
+    createLogger: () => ({
+        debug: vi.fn(),
+        error: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+    }),
+}));
 
 describe('documents show item in folder', () => {
     let tempRoot = '';
@@ -76,8 +66,8 @@ describe('documents show item in folder', () => {
         const filePath = join(tempRoot, 'opened.pdf');
         writeFileSync(filePath, new Uint8Array([1]));
 
-        const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
-        const { handleShowItemInFolder } = await import('@electron/features/documents/main/documentWindowHandlers');
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const {handleShowItemInFolder} = await import('@electron/features/documents/main/documentWindowHandlers');
 
         allowOpenPath(filePath);
 
@@ -90,8 +80,8 @@ describe('documents show item in folder', () => {
         const filePath = join(tempRoot, 'recent.pdf');
         writeFileSync(filePath, new Uint8Array([1]));
 
-        const { allowRevealPath } = await import('@electron/file-access/openPathCapabilities');
-        const { handleShowItemInFolder } = await import('@electron/features/documents/main/documentWindowHandlers');
+        const {allowRevealPath} = await import('@electron/file-access/openPathCapabilities');
+        const {handleShowItemInFolder} = await import('@electron/features/documents/main/documentWindowHandlers');
 
         allowRevealPath(filePath);
 
@@ -104,7 +94,7 @@ describe('documents show item in folder', () => {
         const filePath = join(tempRoot, 'untrusted.pdf');
         writeFileSync(filePath, new Uint8Array([1]));
 
-        const { handleShowItemInFolder } = await import('@electron/features/documents/main/documentWindowHandlers');
+        const {handleShowItemInFolder} = await import('@electron/features/documents/main/documentWindowHandlers');
 
         await expect(handleShowItemInFolder({}, filePath)).resolves.toBe(false);
 
@@ -113,12 +103,9 @@ describe('documents show item in folder', () => {
 
     it('trims and clamps window titles before setting the native title', async () => {
         const setTitle = vi.fn();
-        const { handleSetWindowTitle } = await import('@electron/features/documents/main/documentWindowHandlers');
+        const {handleSetWindowTitle} = await import('@electron/features/documents/main/documentWindowHandlers');
 
-        handleSetWindowTitle(
-            {window: {setTitle} as never},
-            `  ${'Document'.repeat(100)}  `,
-        );
+        handleSetWindowTitle({window: {setTitle} as never}, `  ${'Document'.repeat(100)}  `);
 
         expect(setTitle).toHaveBeenCalledWith('Document'.repeat(100).slice(0, 512));
         expect(mocks.refreshMenu).toHaveBeenCalled();

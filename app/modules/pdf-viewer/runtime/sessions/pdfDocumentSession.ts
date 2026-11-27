@@ -1,36 +1,31 @@
-import { getErrorMessage } from '@contracts/getErrorMessage';
+import {getErrorMessage} from '@contracts/getErrorMessage';
 import type {
     IPdfDocument,
     IPdfPage,
     TPdfDocumentPageLeaseRetention,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import { clamp } from 'es-toolkit/math';
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
-import type { TaggedUnion } from 'type-fest';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type { TDocumentRef } from '@contracts/documentRef';
+import {clamp} from 'es-toolkit/math';
+import type {ComputedRef, Ref} from 'vue';
+import type {TaggedUnion} from 'type-fest';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {TDocumentRef} from '@contracts/documentRef';
 import {
     getPageIdentityDeltaNextPageCount,
     mapPageNumberThroughPageIdentityDelta,
     type IPageIdentityDelta,
 } from '@contracts/electronApiPageOps';
 import {
-    recordPdfDocumentLoadedRevision, releasePdfDocumentOriginalAnnotations,
+    recordPdfDocumentLoadedRevision,
+    releasePdfDocumentOriginalAnnotations,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import type { TPageNumber } from '@contracts/pageNumbers';
-import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
-import type {
-    IPdfPageMetric,
-    TPdfSource,
-} from '@app/types/pdfUi';
-import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { getPerformanceProfile } from '@app/utils/performanceProfile';
-import { runGuardedTask } from '@app/utils/asyncGuard';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import type {IPdfPageMetric, TPdfSource} from '@app/types/pdfUi';
+import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getPerformanceProfile} from '@app/utils/performanceProfile';
+import {runGuardedTask} from '@app/utils/asyncGuard';
 import {
     createDocumentTransitionChannel,
     type IDocumentTransition,
@@ -39,16 +34,12 @@ import {
     forEachKnownPageMetric,
     PDF_PAGE_METRICS_DENSE_LIMIT,
 } from '@app/modules/document-viewer/public';
-import { isPathPdfSource } from '@app/modules/pdf-viewer/engine/pdf-document-source/isPathPdfSource';
-import { buildTrustedPdfGeometrySeed } from '@app/modules/pdf-viewer/runtime/lifecycle/buildTrustedPdfGeometrySeed';
-import { commitPdfLoadedOpeningPageGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfLoadedOpeningPageGeometry';
-import { pdfSourcesMatch } from '@app/modules/pdf-viewer/runtime/pdfSourcesMatch';
-import {
-    createPdfSourceJob,
-    settlePdfSourceJob,
-    type IPdfSourceJob,
-} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
-import { pdfjsDocumentTeardownCoordinator } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfjsDocumentTeardownCoordinator';
+import {isPathPdfSource} from '@app/modules/pdf-viewer/engine/pdf-document-source/isPathPdfSource';
+import {buildTrustedPdfGeometrySeed} from '@app/modules/pdf-viewer/runtime/lifecycle/buildTrustedPdfGeometrySeed';
+import {commitPdfLoadedOpeningPageGeometry} from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfLoadedOpeningPageGeometry';
+import {pdfSourcesMatch} from '@app/modules/pdf-viewer/runtime/pdfSourcesMatch';
+import {createPdfSourceJob, settlePdfSourceJob, type IPdfSourceJob} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
+import {pdfjsDocumentTeardownCoordinator} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfjsDocumentTeardownCoordinator';
 import {
     createPdfjsDocumentSourceLoader,
     createPdfDocumentPageCache,
@@ -65,23 +56,26 @@ import {
 // independent of background whole-document metadata reads.
 const PDF_BLOB_NATIVE_GEOMETRY_MIN_PAGES = 1_000;
 
-type TPdfDocumentLoadState = TaggedUnion<'status', {
-    idle: { version: number };
-    loading: {
-        version: number;
-        document: IPdfDocument | null;
-        source: TPdfSource | null;
-    };
-    ready: {
-        version: number;
-        document: IPdfDocument;
-        source: TPdfSource;
-    };
-    failed: {
-        version: number;
-        error: unknown;
-    };
-}>;
+type TPdfDocumentLoadState = TaggedUnion<
+    'status',
+    {
+        idle: {version: number};
+        loading: {
+            version: number;
+            document: IPdfDocument | null;
+            source: TPdfSource | null;
+        };
+        ready: {
+            version: number;
+            document: IPdfDocument;
+            source: TPdfSource;
+        };
+        failed: {
+            version: number;
+            error: unknown;
+        };
+    }
+>;
 
 /** Currentness coordinates every downstream session of one view captures and revalidates. */
 export interface IPdfDocumentFence {
@@ -102,11 +96,7 @@ export interface IPdfDocumentLoadPlan {
     readonly rotationDelta?: 90 | 180 | 270;
 }
 
-export type TPdfDocumentPhase =
-    | 'loading'
-    | 'ready'
-    | 'settled'
-    | 'invalidated';
+export type TPdfDocumentPhase = 'loading' | 'ready' | 'settled' | 'invalidated';
 
 export interface IPdfDocumentTransition extends IDocumentTransition<IPdfDocumentFence> {
     readonly phase: TPdfDocumentPhase;
@@ -127,9 +117,7 @@ export interface IPdfDocumentTransition extends IDocumentTransition<IPdfDocument
  * render/task cancellation promise rather than detach it: document cleanup
  * and PDF.js destruction start only after every subscriber has settled.
  */
-type TPdfDocumentTransitionSubscriber = (
-    transition: IPdfDocumentTransition,
-) => void | Promise<void>;
+type TPdfDocumentTransitionSubscriber = (transition: IPdfDocumentTransition) => void | Promise<void>;
 
 export interface ICreatePdfDocumentSessionOptions {
     src?: Readonly<Ref<TPdfSource | null>> | undefined;
@@ -195,10 +183,12 @@ interface IPdfDocumentViewPresenter {
 }
 
 function isRewriteOfSameDocument(previous: TPdfSource | null, next: TPdfSource) {
-    return isPathPdfSource(previous)
-        && isPathPdfSource(next)
-        && previous.path === next.path
-        && (previous.revision ?? null) === (next.revision ?? null);
+    return (
+        isPathPdfSource(previous) &&
+        isPathPdfSource(next) &&
+        previous.path === next.path &&
+        (previous.revision ?? null) === (next.revision ?? null)
+    );
 }
 
 /** Also the plan of a view that presents a document for the first time: it has nothing to preserve. */
@@ -213,9 +203,7 @@ const IDLE_PLAN: IPdfDocumentLoadPlan = {
 
 /** A reload for a view whose surface cannot keep its picture through a staged page mutation. */
 function withoutPreservedPresentation(plan: IPdfDocumentLoadPlan): IPdfDocumentLoadPlan {
-    const {
-        rotationDelta: _rotationDelta, ...regularPlan
-    } = plan;
+    const {rotationDelta: _rotationDelta, ...regularPlan} = plan;
     return {
         ...regularPlan,
         isSelectiveReload: false,
@@ -252,16 +240,11 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     });
     const pdfDocument = computed(() => {
         const state = loadState.value;
-        return state.status === 'loading' || state.status === 'ready'
-            ? state.document
-            : null;
+        return state.status === 'loading' || state.status === 'ready' ? state.document : null;
     });
     const acceptedSource = computed<TPdfSource | null>(() => {
         const state = loadState.value;
-        return (state.status === 'loading' || state.status === 'ready')
-            && state.document
-            ? state.source
-            : null;
+        return (state.status === 'loading' || state.status === 'ready') && state.document ? state.source : null;
     });
     const numPages = ref(0);
     const isLoading = computed(() => loadState.value.status === 'loading');
@@ -270,9 +253,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     const pageMetrics = shallowRef<IPdfPageMetric[]>([]);
     const geometrySource = shallowRef<TPdfSource | null>(null);
     const pageMetricsVersion = ref(0);
-    const loadError = computed(() => loadState.value.status === 'failed'
-        ? loadState.value.error
-        : null);
+    const loadError = computed(() => (loadState.value.status === 'failed' ? loadState.value.error : null));
 
     // Every page's geometry is installed before first layout (the native
     // table for path-backed files, one dense PDF.js read otherwise) and is
@@ -306,7 +287,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
 
     // The views that present this document. Residency and every load follow them.
     const views = shallowRef(new Set<IPdfDocumentViewPresenter>());
-    const isAnyViewActive = () => [...views.value].some(view => view.isActive());
+    const isAnyViewActive = () => [...views.value].some((view) => view.isActive());
     let disposed = false;
     let lifecycleBarrier: Promise<void> = Promise.resolve();
 
@@ -325,12 +306,9 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             if (version !== getRenderVersion() || pendingRangeReadFailure?.version === version) {
                 return;
             }
-            const receipt = BrowserLogger.error(
-                'pdf-document',
-                'Failed to read PDF range chunk',
-                error,
-                {code: 'RENDERER_PDF_RANGE_READ_FAILED'},
-            );
+            const receipt = BrowserLogger.error('pdf-document', 'Failed to read PDF range chunk', error, {
+                code: 'RENDERER_PDF_RANGE_READ_FAILED',
+            });
             if (!pdfDocument.value) {
                 pendingRangeReadFailure = {
                     version,
@@ -346,26 +324,25 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     }
 
     function enqueueLifecycleOperation(operation: () => void | Promise<void>) {
-        const queued = lifecycleBarrier.catch(() => {}).then(async () => {
-            if (!disposed) {
-                await operation();
-            }
-        });
+        const queued = lifecycleBarrier
+            .catch(() => {})
+            .then(async () => {
+                if (!disposed) {
+                    await operation();
+                }
+            });
         lifecycleBarrier = queued;
         return queued;
     }
 
-    const runSessionTask = (task: () => Promise<unknown>, message: string) => runGuardedTask(task, {
-        category: 'user-visible-operation',
-        scope: 'pdf-viewer',
-        message,
-    });
+    const runSessionTask = (task: () => Promise<unknown>, message: string) =>
+        runGuardedTask(task, {
+            category: 'user-visible-operation',
+            scope: 'pdf-viewer',
+            message,
+        });
 
-    function destroyPdfDocument(
-        document: IPdfDocument,
-        message: string,
-        lifecycleKey = activeLifecycleKey,
-    ) {
+    function destroyPdfDocument(document: IPdfDocument, message: string, lifecycleKey = activeLifecycleKey) {
         pdfjsDocumentTeardownCoordinator.track(lifecycleKey, {
             message,
             run: async () => {
@@ -382,15 +359,15 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         });
     }
 
-    function isValidPageMetric(
-        metric: IPdfPageMetric | null | undefined,
-    ): metric is IPdfPageMetric {
-        return typeof metric?.width === 'number'
-            && Number.isFinite(metric.width)
-            && metric.width > 0
-            && typeof metric?.height === 'number'
-            && Number.isFinite(metric.height)
-            && metric.height > 0;
+    function isValidPageMetric(metric: IPdfPageMetric | null | undefined): metric is IPdfPageMetric {
+        return (
+            typeof metric?.width === 'number' &&
+            Number.isFinite(metric.width) &&
+            metric.width > 0 &&
+            typeof metric?.height === 'number' &&
+            Number.isFinite(metric.height) &&
+            metric.height > 0
+        );
     }
 
     function incrementRenderVersion() {
@@ -443,11 +420,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         basePageHeight.value = height > 0 ? height : null;
     }
 
-    async function loadPageMetric(
-        document: IPdfDocument,
-        pageNumber: TPageNumber,
-        version: number,
-    ): Promise<IPdfPageMetric | null> {
+    async function loadPageMetric(document: IPdfDocument, pageNumber: TPageNumber, version: number): Promise<IPdfPageMetric | null> {
         if (pageNumber < 1 || pageNumber > document.numPages) {
             return null;
         }
@@ -539,19 +512,21 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         const concurrency = Math.min(4, missingPageCount);
         let nextPageNumber = rangeStart;
 
-        await Promise.all(Array.from({ length: concurrency }, async () => {
-            while (nextPageNumber <= rangeEnd) {
-                const pageNumber = nextPageNumber;
-                nextPageNumber += 1;
-                if (version !== getRenderVersion()) {
-                    return;
+        await Promise.all(
+            Array.from({length: concurrency}, async () => {
+                while (nextPageNumber <= rangeEnd) {
+                    const pageNumber = nextPageNumber;
+                    nextPageNumber += 1;
+                    if (version !== getRenderVersion()) {
+                        return;
+                    }
+                    if (isValidPageMetric(pageMetrics.value[pageNumber - 1])) {
+                        continue;
+                    }
+                    await loadPageMetric(document, requirePageNumber(pageNumber, totalPages), version);
                 }
-                if (isValidPageMetric(pageMetrics.value[pageNumber - 1])) {
-                    continue;
-                }
-                await loadPageMetric(document, requirePageNumber(pageNumber, totalPages), version);
-            }
-        }));
+            }),
+        );
 
         return version === getRenderVersion() && document === pdfDocument.value;
     }
@@ -584,11 +559,11 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         const page = await pageCache.getPage(requirePageNumber(1, document.numPages)).catch(() => null);
         const measured = page && document === pdfDocument.value ? readPdfjsPageMetric(page) : null;
         if (
-            installed && measured && (
-                Math.abs(measured.width - installed.width) > 0.01
-                || Math.abs(measured.height - installed.height) > 0.01
-                || measured.rotation !== installed.rotation
-            )
+            installed &&
+            measured &&
+            (Math.abs(measured.width - installed.width) > 0.01 ||
+                Math.abs(measured.height - installed.height) > 0.01 ||
+                measured.rotation !== installed.rotation)
         ) {
             BrowserLogger.warn('pdf-document', 'Native page geometry disagrees with PDF.js; keeping the installed table', {
                 installed,
@@ -600,12 +575,11 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     function leaseOwnedPage(
         document: IPdfDocument,
         pageNumber: TPageNumber,
-        retention: TPdfDocumentPageLeaseRetention = 'render-cache', signal?: AbortSignal,
+        retention: TPdfDocumentPageLeaseRetention = 'render-cache',
+        signal?: AbortSignal,
     ) {
         if (pdfDocument.value !== document) {
-            throw createStalePdfDocumentError(
-                'Rendering cancelled: PDF page lease owner became stale',
-            );
+            throw createStalePdfDocumentError('Rendering cancelled: PDF page lease owner became stale');
         }
         return retention === 'transient-background'
             ? pageCache.leaseTransientBackgroundPage(pageNumber, signal)
@@ -638,39 +612,51 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
 
         let nextPage = 1;
         const workerCount = Math.min(32, document.numPages);
-        await Promise.all(Array.from({length: workerCount}, async () => {
-            while (nextPage <= document.numPages && isCurrent()) {
-                const pageNumber = nextPage++;
-                let lease: Awaited<ReturnType<typeof pageCache.leaseTransientBackgroundPage>> | null = null;
-                try {
-                    let page;
-                    if (pageNumber <= warmCacheEnd) {
-                        page = await pageCache.getPage(requirePageNumber(pageNumber, document.numPages));
-                    } else {
-                        lease = await pageCache.leaseTransientBackgroundPage(requirePageNumber(pageNumber, document.numPages));
-                        page = lease.page;
+        await Promise.all(
+            Array.from({length: workerCount}, async () => {
+                while (nextPage <= document.numPages && isCurrent()) {
+                    const pageNumber = nextPage++;
+                    let lease: Awaited<ReturnType<typeof pageCache.leaseTransientBackgroundPage>> | null = null;
+                    try {
+                        let page;
+                        if (pageNumber <= warmCacheEnd) {
+                            page = await pageCache.getPage(requirePageNumber(pageNumber, document.numPages));
+                        } else {
+                            lease = await pageCache.leaseTransientBackgroundPage(requirePageNumber(pageNumber, document.numPages));
+                            page = lease.page;
+                        }
+                        if (!isCurrent()) {
+                            return;
+                        }
+                        const metric = readPdfjsPageMetric(page);
+                        if (!isValidPageMetric(metric)) {
+                            throw new Error('PDF page has invalid geometry');
+                        }
+                        metrics[pageNumber - 1] = metric;
+                    } catch (error) {
+                        if (!isCurrent()) {
+                            return;
+                        }
+                        if (pageNumber === 1) {
+                            throw error;
+                        }
+                        // An unreadable later page must not prevent the readable
+                        // part of a malformed document from opening. Keep a hole
+                        // so the normal page request still reports its failure.
+                        failedPageCount += 1;
+                        firstFailure ??= error;
+                    } finally {
+                        lease?.release();
                     }
-                    if (!isCurrent()) return;
-                    const metric = readPdfjsPageMetric(page);
-                    if (!isValidPageMetric(metric)) throw new Error('PDF page has invalid geometry');
-                    metrics[pageNumber - 1] = metric;
-                } catch (error) {
-                    if (!isCurrent()) return;
-                    if (pageNumber === 1) throw error;
-                    // An unreadable later page must not prevent the readable
-                    // part of a malformed document from opening. Keep a hole
-                    // so the normal page request still reports its failure.
-                    failedPageCount += 1;
-                    firstFailure ??= error;
-                } finally {
-                    lease?.release();
                 }
-            }
-        }));
+            }),
+        );
         if (isCurrent() && failedPageCount > 0) {
             BrowserLogger.warn('pdf-document', `Unable to measure ${failedPageCount} PDF pages`, firstFailure);
         }
-        if (!isCurrent()) return;
+        if (!isCurrent()) {
+            return;
+        }
         pageMetrics.value = metrics;
         replaceTrustedBaseMetrics();
         bumpPageMetricsVersion();
@@ -678,12 +664,14 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
 
     function startLoad(preservePageStructure: boolean) {
         const shouldPreservePageStructure = preservePageStructure || trustedGeometrySeedPending;
-        const savedState = shouldPreservePageStructure ? {
-            numPages: numPages.value,
-            basePageWidth: basePageWidth.value,
-            basePageHeight: basePageHeight.value,
-            pageMetrics: cloneSparsePageMetrics(pageMetrics.value),
-        } : null;
+        const savedState = shouldPreservePageStructure
+            ? {
+                  numPages: numPages.value,
+                  basePageWidth: basePageWidth.value,
+                  basePageHeight: basePageHeight.value,
+                  pageMetrics: cloneSparsePageMetrics(pageMetrics.value),
+              }
+            : null;
         trustedGeometrySeedPending = false;
 
         // Cancel any in-progress load - latest wins
@@ -723,9 +711,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         if (version !== getRenderVersion()) {
             return null;
         }
-        const rangeReadFailure = pendingRangeReadFailure?.version === version
-            ? pendingRangeReadFailure
-            : null;
+        const rangeReadFailure = pendingRangeReadFailure?.version === version ? pendingRangeReadFailure : null;
         pendingRangeReadFailure = null;
         if (rangeReadFailure) {
             BrowserLogger.error('pdf-document', 'Failed to load PDF', error, rangeReadFailure.receipt);
@@ -766,25 +752,28 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
 
     function abortSourceLoader(reason: string) {
         sourceLoader.abortTransport(`Failed to abort PDF range transport ${reason}`);
-        sourceLoader.destroyLoadingTask(
-            `PDF loading task destroy rejected ${reason}`,
-            `Failed to destroy PDF loading task ${reason}`,
-        );
+        sourceLoader.destroyLoadingTask(`PDF loading task destroy rejected ${reason}`, `Failed to destroy PDF loading task ${reason}`);
     }
 
     function cleanupFailedLoadAttempt(version: number) {
-        if (version !== getRenderVersion()) return;
+        if (version !== getRenderVersion()) {
+            return;
+        }
         abortSourceLoader('after load failure');
         sourceLoader.revokeObjectUrl();
         clearAcceptedDocumentState();
     }
 
     function invalidateDocumentAfterRangeReadFailure(error: unknown, version: number) {
-        if (version !== getRenderVersion()) return;
+        if (version !== getRenderVersion()) {
+            return;
+        }
         const hadDocument = pdfDocument.value !== null;
         const failedVersion = hadDocument ? incrementRenderVersion() : version;
         abortSourceLoader('after range read failure');
-        if (!hadDocument) return;
+        if (!hadDocument) {
+            return;
+        }
         sourceLoader.revokeObjectUrl();
         clearAcceptedDocumentState();
         loadState.value = {
@@ -804,38 +793,49 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         },
     ) {
         const signal = loadOptions?.signal;
-        if (signal?.aborted) return null;
+        if (signal?.aborted) {
+            return null;
+        }
         const version = startLoad(loadOptions?.preservePageStructure === true);
-        const lifecycleKey = normalizePdfDocumentLifecycleKey(
-            loadOptions?.lifecycleKey,
-            fallbackLifecycleKey,
-        );
+        const lifecycleKey = normalizePdfDocumentLifecycleKey(loadOptions?.lifecycleKey, fallbackLifecycleKey);
         const loadToken = documentLoadToken;
         const path = isPathPdfSource(src) ? src.path : options.workingCopyPath?.value;
         const revision = (isPathPdfSource(src) ? src.revision : undefined) ?? options.documentRevisionToken?.value;
         const sourceRef = options.reloadSrc?.value === src ? options.reloadSrc : options.src?.value === src ? options.src : null;
-        const isCurrent = () => version === getRenderVersion() && loadToken === documentLoadToken
-            && !signal?.aborted
-            && (!sourceRef || pdfSourcesMatch(sourceRef.value, src));
-        const isNativeGeometryCurrent = () => isCurrent()
-            && (isPathPdfSource(src) || path === options.workingCopyPath?.value && revision === options.documentRevisionToken?.value);
+        const isCurrent = () =>
+            version === getRenderVersion() &&
+            loadToken === documentLoadToken &&
+            !signal?.aborted &&
+            (!sourceRef || pdfSourcesMatch(sourceRef.value, src));
+        const isNativeGeometryCurrent = () =>
+            isCurrent() &&
+            (isPathPdfSource(src) || (path === options.workingCopyPath?.value && revision === options.documentRevisionToken?.value));
         const readGeometry = async () => {
-            if (!path || !revision) return null;
+            if (!path || !revision) {
+                return null;
+            }
             try {
                 const read = getDocumentFilesCapability().getPdfNativePageSizes;
-                if (!read) return null;
+                if (!read) {
+                    return null;
+                }
                 const geometry = await read(path, {
                     mode: 'exact',
                     expectedDocumentRevisionToken: revision,
                 });
-                const seed = isNativeGeometryCurrent() && geometry.kind === 'exact'
-                    && geometry.documentRef === path
-                    && geometry.documentRevisionToken === revision
-                    ? buildTrustedPdfGeometrySeed({
-                        ...geometry,
-                        pageNumber: requirePageNumber(1),
-                    }) : null;
-                if (seed && !loadOptions?.preservePageStructure) publishPageGeometry(seed, src);
+                const seed =
+                    isNativeGeometryCurrent() &&
+                    geometry.kind === 'exact' &&
+                    geometry.documentRef === path &&
+                    geometry.documentRevisionToken === revision
+                        ? buildTrustedPdfGeometrySeed({
+                              ...geometry,
+                              pageNumber: requirePageNumber(1),
+                          })
+                        : null;
+                if (seed && !loadOptions?.preservePageStructure) {
+                    publishPageGeometry(seed, src);
+                }
                 return seed;
             } catch (error) {
                 if (version === getRenderVersion()) {
@@ -849,25 +849,31 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         try {
             // Bind this opening's reader before asynchronous loading; only the
             // accepted proxy resolves its count. No geometry query owns admission.
-            const admission = Promise.allSettled(path && !activePlan.isReload && options.admitOpeningSource
-                ? [options.admitOpeningSource(path, () => pageCount.promise)] : []);
+            const admission = Promise.allSettled(
+                path && !activePlan.isReload && options.admitOpeningSource
+                    ? [options.admitOpeningSource(path, () => pageCount.promise)]
+                    : [],
+            );
             await pdfjsDocumentTeardownCoordinator.waitForIdle(lifecycleKey, signal);
-            if (!isCurrent()) return null;
+            if (!isCurrent()) {
+                return null;
+            }
             sourceLoader.setLifecycleKey(lifecycleKey);
-            const nativeGeometryRead = loadOptions?.preservePageMetrics !== true && isPathPdfSource(src)
-                ? readGeometry()
-                : null;
+            const nativeGeometryRead = loadOptions?.preservePageMetrics !== true && isPathPdfSource(src) ? readGeometry() : null;
             const document = await sourceLoader.open(src, version);
             if (!document) {
                 return null;
             }
-            const nativeGeometry = await (nativeGeometryRead ?? (loadOptions?.preservePageMetrics !== true
-                && document.numPages > PDF_BLOB_NATIVE_GEOMETRY_MIN_PAGES
-                && document.numPages <= PDF_PAGE_METRICS_DENSE_LIMIT
-                ? readGeometry()
-                : null));
+            const nativeGeometry = await (nativeGeometryRead ??
+                (loadOptions?.preservePageMetrics !== true &&
+                document.numPages > PDF_BLOB_NATIVE_GEOMETRY_MIN_PAGES &&
+                document.numPages <= PDF_PAGE_METRICS_DENSE_LIMIT
+                    ? readGeometry()
+                    : null));
             const retire = (message: string) => {
-                if (version === getRenderVersion()) sourceLoader.clearLoadingTaskHandle();
+                if (version === getRenderVersion()) {
+                    sourceLoader.clearLoadingTaskHandle();
+                }
                 destroyPdfDocument(document, message, lifecycleKey);
             };
             if (!isCurrent()) {
@@ -875,9 +881,9 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 return null;
             }
             if (
-                !Number.isSafeInteger(document.numPages)
-                || document.numPages < 1
-                || nativeGeometry && isNativeGeometryCurrent() && nativeGeometry.numPages !== document.numPages
+                !Number.isSafeInteger(document.numPages) ||
+                document.numPages < 1 ||
+                (nativeGeometry && isNativeGeometryCurrent() && nativeGeometry.numPages !== document.numPages)
             ) {
                 retire('Failed to destroy PDF document after page-count rejection');
                 throw new RangeError('PDF.js returned an invalid or inconsistent page count');
@@ -885,7 +891,9 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             try {
                 pageCount.resolve(document.numPages);
                 const [result] = await admission;
-                if (result?.status === 'rejected') throw result.reason;
+                if (result?.status === 'rejected') {
+                    throw result.reason;
+                }
             } catch (error) {
                 retire('Failed to destroy PDF document after source admission rejection');
                 throw error;
@@ -902,21 +910,16 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 document,
                 source: src,
             };
-            const leasePage = (
-                pageNumber: TPageNumber,
-                retention: TPdfDocumentPageLeaseRetention = 'render-cache',
-                signal?: AbortSignal,
-            ) => leaseOwnedPage(document, pageNumber, retention, signal);
-            registerPdfDocumentPageLeaseOwner(document, (pageNumber, retention) => (
-                leaseOwnedPage(document, requirePageNumber(pageNumber, document.numPages), retention)
-            ));
+            const leasePage = (pageNumber: TPageNumber, retention: TPdfDocumentPageLeaseRetention = 'render-cache', signal?: AbortSignal) =>
+                leaseOwnedPage(document, pageNumber, retention, signal);
+            registerPdfDocumentPageLeaseOwner(document, (pageNumber, retention) =>
+                leaseOwnedPage(document, requirePageNumber(pageNumber, document.numPages), retention),
+            );
             activeRasterScheduler = ensurePdfPageRasterScheduler(document, {
                 documentFence: {
                     loadToken: documentLoadToken,
                     documentVersion: version,
-                    documentRevision: options.documentRevisionToken?.value == null
-                        ? null
-                        : String(options.documentRevisionToken.value),
+                    documentRevision: options.documentRevisionToken?.value == null ? null : String(options.documentRevisionToken.value),
                 },
                 leasePage,
                 maxConcurrency: Math.min(2, getPerformanceProfile().concurrentPdfRenders),
@@ -924,13 +927,17 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             numPages.value = document.numPages;
             if (loadOptions?.preservePageMetrics !== true) {
                 if (nativeGeometry && isNativeGeometryCurrent()) {
-                    if (loadOptions?.preservePageStructure) publishPageGeometry(nativeGeometry, src);
+                    if (loadOptions?.preservePageStructure) {
+                        publishPageGeometry(nativeGeometry, src);
+                    }
                     await verifyNativePageGeometry(document);
                 } else {
                     await readPdfjsPageGeometry(document, version);
                 }
             }
-            if (isCurrent()) geometrySource.value = src;
+            if (isCurrent()) {
+                geometrySource.value = src;
+            }
             if (!isValidPageMetric(pageMetrics.value[0])) {
                 await loadPageMetric(document, requirePageNumber(1, document.numPages), version);
                 if (version === getRenderVersion() && document === pdfDocument.value && !isValidPageMetric(pageMetrics.value[0])) {
@@ -938,7 +945,9 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 }
             }
             if (!isCurrent() || document !== pdfDocument.value) {
-                if (signal?.aborted) cleanupFailedLoadAttempt(version);
+                if (signal?.aborted) {
+                    cleanupFailedLoadAttempt(version);
+                }
                 return null;
             }
 
@@ -954,9 +963,13 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 document,
             };
         } catch (error) {
-            if (loadToken !== documentLoadToken) return null;
+            if (loadToken !== documentLoadToken) {
+                return null;
+            }
             cleanupFailedLoadAttempt(version);
-            if (signal?.aborted) return null;
+            if (signal?.aborted) {
+                return null;
+            }
             return handleLoadError(error, version);
         } finally {
             pageCount.resolve(null);
@@ -985,11 +998,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             sourceLoader.clearLoadingTaskHandle();
             destroyPdfDocument(document, 'Failed to destroy PDF document');
         } else {
-            sourceLoader.destroyLoadingTask(
-                'PDF loading task destroy rejected',
-                'Failed to destroy PDF loading task',
-                'warn',
-            );
+            sourceLoader.destroyLoadingTask('PDF loading task destroy rejected', 'Failed to destroy PDF loading task', 'warn');
         }
 
         sourceLoader.revokeObjectUrl();
@@ -1015,9 +1024,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             pagesToInvalidate,
             preserveVisibleContent,
             preservePageStructure: isSelectiveReload || preserveVisibleContent,
-            preservePageMetrics: isSelectiveReload
-                && stagedMutationMatchesRevision
-                && stagedMutation?.preservePageMetrics === true,
+            preservePageMetrics: isSelectiveReload && stagedMutationMatchesRevision && stagedMutation?.preservePageMetrics === true,
             ...(isSelectiveReload && stagedMutationMatchesRevision && stagedMutation?.rotationDelta !== undefined
                 ? {rotationDelta: stagedMutation.rotationDelta}
                 : {}),
@@ -1027,13 +1034,13 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     async function invalidate(reason: string, isSameDocumentRewrite = false) {
         documentLoadToken += 1;
         presentingLoad = null;
-        await forEachView(view => view.invalidate(reason, isSameDocumentRewrite));
+        await forEachView((view) => view.invalidate(reason, isSameDocumentRewrite));
     }
 
     function cancelStagedRevisionSwap() {
         const staged = pendingPageMutationRevisionSwap;
         if (staged) {
-            views.value.forEach(view => view.cancelStagedRevisionSwap(staged.revision));
+            views.value.forEach((view) => view.cancelStagedRevisionSwap(staged.revision));
         }
         pendingPageMutationRevisionSwap = null;
     }
@@ -1044,14 +1051,29 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     async function didAnyViewBegin(presenting: IPdfDocumentPresentingLoad): Promise<boolean> {
         const joined = [...presenting.views.values()];
         let stop = () => {};
-        const began = joined.length === 0 || await new Promise<boolean | null>((resolve, reject) => {
-            stop = watch(views, () => resolve(null), {flush: 'sync'});
-            void Promise.all(joined.map(token => token.then(begun => begun !== null && resolve(true), (error: unknown) => {
-                if ([...presenting.views.values()].includes(token)) reject(error);
-            }))).then(() => resolve(false));
-        }).finally(() => stop());
+        const began =
+            joined.length === 0 ||
+            (await new Promise<boolean | null>((resolve, reject) => {
+                stop = watch(views, () => resolve(null), {flush: 'sync'});
+                void Promise.all(
+                    joined.map((token) =>
+                        token.then(
+                            (begun) => begun !== null && resolve(true),
+                            (error: unknown) => {
+                                if ([...presenting.views.values()].includes(token)) {
+                                    reject(error);
+                                }
+                            },
+                        ),
+                    ),
+                ).then(() => resolve(false));
+            }).finally(() => stop()));
         const current = [...presenting.views.values()];
-        return began || ((began === null || current.length !== joined.length || current.some((token, index) => token !== joined[index])) && didAnyViewBegin(presenting));
+        return (
+            began ||
+            ((began === null || current.length !== joined.length || current.some((token, index) => token !== joined[index])) &&
+                didAnyViewBegin(presenting))
+        );
     }
 
     async function load(presenting: IPdfDocumentPresentingLoad, isReload: boolean) {
@@ -1065,10 +1087,14 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             presenting.stagedRevisionSwap = pendingPageMutationRevisionSwap;
             pendingPageMutationRevisionSwap = null;
             views.value.forEach((view) => {
-                if (!presenting.views.has(view)) presenting.views.set(view, view.beginLoad(presenting));
+                if (!presenting.views.has(view)) {
+                    presenting.views.set(view, view.beginLoad(presenting));
+                }
             });
             const began = await didAnyViewBegin(presenting);
-            if (presenting.token !== documentLoadToken) return;
+            if (presenting.token !== documentLoadToken) {
+                return;
+            }
             if (!began) {
                 // Every view's surface lost its generation: this source is stale.
                 // Keep its PDF.js proxy out rather than open a document nobody shows.
@@ -1079,7 +1105,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             let loaded: Awaited<ReturnType<typeof loadPdf>> = null;
             let thrownLoadError: unknown = null;
             try {
-                loaded = await loadPdf((isReload ? job.reloadSource : null) ?? job.source as TPdfSource, {
+                loaded = await loadPdf((isReload ? job.reloadSource : null) ?? (job.source as TPdfSource), {
                     lifecycleKey: options.documentLifecycleKey?.value,
                     preservePageStructure: activePlan.preservePageStructure,
                     preservePageMetrics: activePlan.preservePageMetrics,
@@ -1089,36 +1115,47 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 thrownLoadError = error;
             }
 
-            if (presenting.token !== documentLoadToken) return;
-            const error = signal.aborted ? null : thrownLoadError ?? loadError.value;
+            if (presenting.token !== documentLoadToken) {
+                return;
+            }
+            const error = signal.aborted ? null : (thrownLoadError ?? loadError.value);
             // A view that joins while the others present is part of the same job.
             const settled = new Set<IPdfDocumentViewPresenter>();
-            for (let joined = [...presenting.views]; joined.length > 0; joined = [...presenting.views].filter(([view]) => !settled.has(view))) {
-                await Promise.all(joined.map(async ([
-                    view,
-                    token,
-                ]) => {
-                    settled.add(view);
-                    const viewToken = await token;
-                    await (loaded && !signal.aborted ? view.completeLoad(viewToken, signal) : view.abortLoad(viewToken, error));
-                }));
+            for (
+                let joined = [...presenting.views];
+                joined.length > 0;
+                joined = [...presenting.views].filter(([view]) => !settled.has(view))
+            ) {
+                await Promise.all(
+                    joined.map(async ([view, token]) => {
+                        settled.add(view);
+                        const viewToken = await token;
+                        await (loaded && !signal.aborted ? view.completeLoad(viewToken, signal) : view.abortLoad(viewToken, error));
+                    }),
+                );
             }
             if (loaded && isReleased(signal)) {
                 cleanupFailedLoadAttempt(loaded.version);
-                views.value.forEach(view => view.clearPresentedDocument(loaded!.document));
+                views.value.forEach((view) => view.clearPresentedDocument(loaded!.document));
                 loaded = null;
             }
             settlePdfSourceJob(job, loaded ? {status: 'presented'} : error ? {status: 'failed', error} : {status: 'superseded'});
         } finally {
-            if (inFlightLoad === presenting) inFlightLoad = null;
-            if (presentingLoad === presenting) presentingLoad = null;
+            if (inFlightLoad === presenting) {
+                inFlightLoad = null;
+            }
+            if (presentingLoad === presenting) {
+                presentingLoad = null;
+            }
         }
     }
 
     /** Starts the admitted job's load behind the lifecycle work before it; a later job or a release skips it. */
     function runJob(job: IPdfSourceJob, isReload: boolean, invalidation: Promise<void> = Promise.resolve()) {
         const {signal} = job.abort;
-        if (signal.aborted) return job;
+        if (signal.aborted) {
+            return job;
+        }
         const presenting: IPdfDocumentPresentingLoad = {
             job,
             token: ++documentLoadToken,
@@ -1128,37 +1165,54 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             views: new Map(),
         };
         presentingLoad = presenting;
-        signal.addEventListener('abort', () => {
-            if (presentingLoad === presenting && !presenting.started) presentingLoad = null;
-        }, {once: true});
-        runSessionTask(() => enqueueLifecycleOperation(async () => {
-            await invalidation;
-            if (presentingLoad === presenting) {
-                await load(presenting, isReload);
-            } else if (!presentingLoad && currentJob === job && signal.aborted && pdfDocument.value) {
-                views.value.forEach(view => view.present());
-            }
-        }).catch((error: unknown) => {
-            // A failed presentation takes no more views.
-            if (presentingLoad === presenting) presentingLoad = null;
-            settlePdfSourceJob(job, {status: 'failed', error});
-            throw error;
-        }), 'Failed to load PDF source');
+        signal.addEventListener(
+            'abort',
+            () => {
+                if (presentingLoad === presenting && !presenting.started) {
+                    presentingLoad = null;
+                }
+            },
+            {once: true},
+        );
+        runSessionTask(
+            () =>
+                enqueueLifecycleOperation(async () => {
+                    await invalidation;
+                    if (presentingLoad === presenting) {
+                        await load(presenting, isReload);
+                    } else if (!presentingLoad && currentJob === job && signal.aborted && pdfDocument.value) {
+                        views.value.forEach((view) => view.present());
+                    }
+                }).catch((error: unknown) => {
+                    // A failed presentation takes no more views.
+                    if (presentingLoad === presenting) {
+                        presentingLoad = null;
+                    }
+                    settlePdfSourceJob(job, {status: 'failed', error});
+                    throw error;
+                }),
+            'Failed to load PDF source',
+        );
         return job;
     }
 
     function replaceCurrentJob(job: IPdfSourceJob) {
-        if (currentJob !== job && currentJob) settlePdfSourceJob(currentJob, {status: job.source ? 'superseded' : 'released'});
-        return currentJob = job;
+        if (currentJob !== job && currentJob) {
+            settlePdfSourceJob(currentJob, {status: job.source ? 'superseded' : 'released'});
+        }
+        return (currentJob = job);
     }
 
     /** Loads the published source no job presents: its waiting job, or a new open once that ended. */
     function loadPublishedSource() {
-        if (presentingLoad || !options.src?.value) return presentingLoad?.job ?? null;
+        if (presentingLoad || !options.src?.value) {
+            return presentingLoad?.job ?? null;
+        }
         sourceLoader.cancelPendingOpen();
-        return runJob(currentJob?.source && !currentJob.abort.signal.aborted
-            ? currentJob
-            : replaceCurrentJob(createPdfSourceJob('open', options)), false);
+        return runJob(
+            currentJob?.source && !currentJob.abort.signal.aborted ? currentJob : replaceCurrentJob(createPdfSourceJob('open', options)),
+            false,
+        );
     }
 
     /**
@@ -1171,13 +1225,19 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         cancelStagedRevisionSwap();
         pendingPreserveVisibleContent = false;
         const invalidation = invalidate(reason);
-        runSessionTask(() => invalidation.finally(() => {
-            if (isOutgoing()) {
-                cleanup();
-                views.value.forEach(view => view.clearPresentedDocument());
-            }
-            if (!job.source) settlePdfSourceJob(job, {status: 'released'});
-        }), 'Failed to invalidate PDF document session');
+        runSessionTask(
+            () =>
+                invalidation.finally(() => {
+                    if (isOutgoing()) {
+                        cleanup();
+                        views.value.forEach((view) => view.clearPresentedDocument());
+                    }
+                    if (!job.source) {
+                        settlePdfSourceJob(job, {status: 'released'});
+                    }
+                }),
+            'Failed to invalidate PDF document session',
+        );
         return invalidation;
     }
 
@@ -1210,14 +1270,23 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         // A new document retires the outgoing proxy as soon as the views let
         // go of it, so a load still reading that proxy ends instead of holding this job.
         const outgoing = pdfDocument.value;
-        return runJob(job, isReload, isReload
-            ? invalidate('source-replaced', pendingPageMutationRevisionSwap !== null || isRewriteOfSameDocument(previousSource, job.source))
-            : invalidateAndCleanup('source-replaced', job, () => outgoing !== null && pdfDocument.value === outgoing));
+        return runJob(
+            job,
+            isReload,
+            isReload
+                ? invalidate(
+                      'source-replaced',
+                      pendingPageMutationRevisionSwap !== null || isRewriteOfSameDocument(previousSource, job.source),
+                  )
+                : invalidateAndCleanup('source-replaced', job, () => outgoing !== null && pdfDocument.value === outgoing),
+        );
     }
 
     /** No view presents the document any more: release it, as closing its last viewer does. */
     function releaseDocument() {
-        if (currentJob) settlePdfSourceJob(currentJob, {status: 'released'});
+        if (currentJob) {
+            settlePdfSourceJob(currentJob, {status: 'released'});
+        }
         documentLoadToken += 1;
         presentingLoad = null;
         pendingPageMutationRevisionSwap = null;
@@ -1227,16 +1296,13 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
 
     // Runs after every view that stopped being active has cancelled its work:
     // PDF.js must not clean up while a render is running.
-    function cleanupInactiveDocumentCaches(
-        document: IPdfDocument | null,
-        transitionGeneration: number,
-    ) {
+    function cleanupInactiveDocumentCaches(document: IPdfDocument | null, transitionGeneration: number) {
         if (
-            document === null
-            || document !== pdfDocument.value
-            || transitionGeneration !== residencyTransitionGeneration
-            || isAnyViewActive()
-            || options.isAnySaving?.value === true
+            document === null ||
+            document !== pdfDocument.value ||
+            transitionGeneration !== residencyTransitionGeneration ||
+            isAnyViewActive() ||
+            options.isAnySaving?.value === true
         ) {
             return;
         }
@@ -1249,30 +1315,36 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     // Residency follows the views: a view that stops being active cancels its
     // own work, and the document reclaims its caches once none is active. A
     // view that becomes active again loads a document it lost.
-    watch(() => [...views.value].map(view => [
-        view,
-        view.isActive(),
-    ] as const), (entries, previousEntries) => {
-        const previous = new Map(previousEntries);
-        const deactivated = entries.filter(([
-            view,
-            active,
-        ]) => !active && previous.get(view) === true).map(([view]) => view);
-        const activated = entries.some(([
-            view,
-            active,
-        ]) => active && previous.get(view) === false);
-        if (deactivated.length === 0 && !activated) return;
-        const transitionGeneration = ++residencyTransitionGeneration;
-        if (deactivated.length > 0) {
-            const document = pdfDocument.value;
-            runSessionTask(() => enqueueLifecycleOperation(async () => {
-                await Promise.all(deactivated.filter(view => views.value.has(view) && !view.isActive()).map(view => view.invalidate('deactivated')));
-                cleanupInactiveDocumentCaches(document, transitionGeneration);
-            }), 'Failed to deactivate PDF document session');
-        }
-        if (activated && !pdfDocument.value && !isLoading.value) loadPublishedSource();
-    });
+    watch(
+        () => [...views.value].map((view) => [view, view.isActive()] as const),
+        (entries, previousEntries) => {
+            const previous = new Map(previousEntries);
+            const deactivated = entries.filter(([view, active]) => !active && previous.get(view) === true).map(([view]) => view);
+            const activated = entries.some(([view, active]) => active && previous.get(view) === false);
+            if (deactivated.length === 0 && !activated) {
+                return;
+            }
+            const transitionGeneration = ++residencyTransitionGeneration;
+            if (deactivated.length > 0) {
+                const document = pdfDocument.value;
+                runSessionTask(
+                    () =>
+                        enqueueLifecycleOperation(async () => {
+                            await Promise.all(
+                                deactivated
+                                    .filter((view) => views.value.has(view) && !view.isActive())
+                                    .map((view) => view.invalidate('deactivated')),
+                            );
+                            cleanupInactiveDocumentCaches(document, transitionGeneration);
+                        }),
+                    'Failed to deactivate PDF document session',
+                );
+            }
+            if (activated && !pdfDocument.value && !isLoading.value) {
+                loadPublishedSource();
+            }
+        },
+    );
 
     async function dispose() {
         if (disposed) {
@@ -1290,9 +1362,13 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     }, true);
 
     function normalizePageMutationPreviewPages(pages: readonly number[]) {
-        return [...new Set(pages
-            .filter(page => Number.isSafeInteger(page) && page >= 1 && page <= numPages.value)
-            .map(page => requirePageNumber(page, numPages.value)))];
+        return [
+            ...new Set(
+                pages
+                    .filter((page) => Number.isSafeInteger(page) && page >= 1 && page <= numPages.value)
+                    .map((page) => requirePageNumber(page, numPages.value)),
+            ),
+        ];
     }
 
     function matchesPageMutationGeometryPreview(pages: readonly number[], rotationDelta: 90 | 180 | 270) {
@@ -1301,26 +1377,21 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             return false;
         }
         const previewPages = new Set(preview.pages);
-        return pages.every(page => previewPages.has(page));
+        return pages.every((page) => previewPages.has(page));
     }
 
     function rotatePageMetric(metric: IPdfPageMetric, rotationDelta: 90 | 180 | 270): IPdfPageMetric | null {
         const currentRotation = metric.rotation ?? 0;
-        if (![
-            0,
-            90,
-            180,
-            270,
-        ].includes(currentRotation)) {
+        if (![0, 90, 180, 270].includes(currentRotation)) {
             return null;
         }
         return {
             ...metric,
             ...(rotationDelta === 90 || rotationDelta === 270
                 ? {
-                    width: metric.height,
-                    height: metric.width,
-                }
+                      width: metric.height,
+                      height: metric.width,
+                  }
                 : {}),
             rotation: (currentRotation + rotationDelta) % 360,
         };
@@ -1328,19 +1399,16 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
 
     // Every view keeps its own reading point through a change of the shared geometry.
     function presentPageRotationGeometry(pages: readonly number[], rotationDelta: 90 | 180 | 270 | null) {
-        views.value.forEach(view => view.presentPageRotationGeometry(pages, rotationDelta));
+        views.value.forEach((view) => view.presentPageRotationGeometry(pages, rotationDelta));
     }
 
-    function beginPageMutationRotationPreview(
-        pages: readonly number[],
-        rotationDelta: 90 | 180 | 270,
-    ) {
+    function beginPageMutationRotationPreview(pages: readonly number[], rotationDelta: 90 | 180 | 270) {
         if (
-            !pdfDocument.value
-            || isLoading.value
-            || numPages.value < 1
-            || pendingPageMutationRevisionSwap
-            || pendingPageMutationGeometryPreview
+            !pdfDocument.value ||
+            isLoading.value ||
+            numPages.value < 1 ||
+            pendingPageMutationRevisionSwap ||
+            pendingPageMutationGeometryPreview
         ) {
             return false;
         }
@@ -1445,9 +1513,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 return false;
             }
             if (hasOptimisticPreview) {
-                preservePageMetrics = normalizedPages.every(page => (
-                    isValidPageMetric(pageMetrics.value[page - 1])
-                ));
+                preservePageMetrics = normalizedPages.every((page) => isValidPageMetric(pageMetrics.value[page - 1]));
                 pendingPageMutationGeometryPreview = null;
             } else {
                 preservePageMetrics = true;
@@ -1492,11 +1558,8 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         pageMetricsVersion,
         hasExactPageGeometry,
         getPage: (pageNumber: TPageNumber): Promise<IPdfPage> => pageCache.getPage(pageNumber),
-        leasePage: (pageNumber: TPageNumber, retention: TPdfDocumentPageLeaseRetention = 'render-cache') => (
-            retention === 'transient-background'
-                ? pageCache.leaseTransientBackgroundPage(pageNumber)
-                : pageCache.leasePage(pageNumber)
-        ),
+        leasePage: (pageNumber: TPageNumber, retention: TPdfDocumentPageLeaseRetention = 'render-cache') =>
+            retention === 'transient-background' ? pageCache.leaseTransientBackgroundPage(pageNumber) : pageCache.leasePage(pageNumber),
         ensurePageMetricsInRange,
         beginPageMutationRotationPreview,
         cancelPageMutationRotationPreview,
@@ -1512,8 +1575,9 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         const surface = viewOptions.chassisAuthority?.openSurface;
         let viewToken = 0;
         let activeOpenSurfaceGeneration = surface?.snapshot.value.generation ?? 0;
-        let activeDocumentRevision = surface?.snapshot.value.identity?.documentRevision
-            ?? (options.documentRevisionToken?.value == null ? null : String(options.documentRevisionToken.value));
+        let activeDocumentRevision =
+            surface?.snapshot.value.identity?.documentRevision ??
+            (options.documentRevisionToken?.value == null ? null : String(options.documentRevisionToken.value));
         let viewPlan: IPdfDocumentLoadPlan = IDLE_PLAN;
         let presentedDocument: IPdfDocument | null = null;
         // The view is loading from the moment it begins presenting a load
@@ -1536,32 +1600,24 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
 
         function isFenceCurrent(fence: IPdfDocumentFence) {
             const surfaceSnapshot = surface?.snapshot.value;
-            return fence.loadToken === viewToken
-                && fence.documentVersion === getRenderVersion()
-                && fence.documentRevision === activeDocumentRevision
-                && fence.openSurfaceGeneration === activeOpenSurfaceGeneration
-                && (surfaceSnapshot === undefined
-                    || (
-                        fence.openSurfaceGeneration === surfaceSnapshot.generation
-                        && fence.documentRevision === (surfaceSnapshot.identity?.documentRevision ?? null)
-                    ));
+            return (
+                fence.loadToken === viewToken &&
+                fence.documentVersion === getRenderVersion() &&
+                fence.documentRevision === activeDocumentRevision &&
+                fence.openSurfaceGeneration === activeOpenSurfaceGeneration &&
+                (surfaceSnapshot === undefined ||
+                    (fence.openSurfaceGeneration === surfaceSnapshot.generation &&
+                        fence.documentRevision === (surfaceSnapshot.identity?.documentRevision ?? null)))
+            );
         }
 
         function isCurrent(fence: IPdfDocumentFence) {
             return isFenceCurrent(fence) && pdfDocument.value !== null;
         }
 
-        const transitions = createDocumentTransitionChannel<
-            IPdfDocumentFence,
-            IPdfDocumentTransition
-        >(isFenceCurrent);
+        const transitions = createDocumentTransitionChannel<IPdfDocumentFence, IPdfDocumentTransition>(isFenceCurrent);
 
-        function publish(
-            phase: TPdfDocumentPhase,
-            reason: string,
-            fence = captureFence(),
-            isSameDocumentRewrite = false,
-        ) {
+        function publish(phase: TPdfDocumentPhase, reason: string, fence = captureFence(), isSameDocumentRewrite = false) {
             return transitions.publish({
                 phase,
                 fence,
@@ -1577,7 +1633,9 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         }
 
         function publishLoadedDocument() {
-            if (pdfDocument.value) recordPdfDocumentLoadedRevision(pdfDocument.value, activeDocumentRevision);
+            if (pdfDocument.value) {
+                recordPdfDocumentLoadedRevision(pdfDocument.value, activeDocumentRevision);
+            }
             presentDocument(pdfDocument.value);
             viewOptions.emitTotalPages?.(numPages.value);
             commitLoadedOpeningGeometry();
@@ -1586,15 +1644,31 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         // The opening surface takes the loaded geometry of the page the open
         // presents, once the page count published has clamped that page; a
         // sparse source measures that page later, in the viewport's ready transition.
-        if (viewOptions.originalDocumentId) watch(() => [viewOptions.chassisAuthority?.openSurface.viewportSession.value.requestedPage, numPages.value, pageMetricsVersion.value,
-            geometrySource.value, surface?.snapshot.value.generation, surface?.snapshot.value.phase, surface?.snapshot.value.identity?.documentId,
-        ], commitLoadedOpeningGeometry, {flush: 'post'});
+        if (viewOptions.originalDocumentId) {
+            watch(
+                () => [
+                    viewOptions.chassisAuthority?.openSurface.viewportSession.value.requestedPage,
+                    numPages.value,
+                    pageMetricsVersion.value,
+                    geometrySource.value,
+                    surface?.snapshot.value.generation,
+                    surface?.snapshot.value.phase,
+                    surface?.snapshot.value.identity?.documentId,
+                ],
+                commitLoadedOpeningGeometry,
+                {flush: 'post'},
+            );
+        }
         function commitLoadedOpeningGeometry() {
             const authority = viewOptions.chassisAuthority;
             const identity = surface?.snapshot.value.identity;
-            if (!authority || !identity || !viewOptions.originalDocumentId?.value) return;
+            if (!authority || !identity || !viewOptions.originalDocumentId?.value) {
+                return;
+            }
             const pageNumber = authority.openSurface.viewportSession.value.requestedPage;
-            if (pageNumber > numPages.value || !pageMetrics.value[pageNumber - 1]) return;
+            if (pageNumber > numPages.value || !pageMetrics.value[pageNumber - 1]) {
+                return;
+            }
             commitPdfLoadedOpeningPageGeometry(authority, {
                 expectedGeneration: activeOpenSurfaceGeneration,
                 documentId: identity.documentId,
@@ -1618,9 +1692,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             stagedRevisionSwapPage = null;
             if (!surface) {
                 activeOpenSurfaceGeneration = 0;
-                activeDocumentRevision = options.documentRevisionToken?.value == null
-                    ? null
-                    : String(options.documentRevisionToken.value);
+                activeDocumentRevision = options.documentRevisionToken?.value == null ? null : String(options.documentRevisionToken.value);
                 return true;
             }
             // Join the generation that the host has already opened for this load.
@@ -1633,17 +1705,21 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             // install a competing surface.
             const expectedGeneration = surface.snapshot.value.generation;
             const documentRevision = String(options.documentRevisionToken?.value ?? `load:${String(load.token)}`);
-            const documentId = surface.snapshot.value.identity?.documentId
-                ?? viewOptions.openSurfaceDocumentId?.()
-                ?? `pdf-open-${String(load.token)}`;
+            const documentId =
+                surface.snapshot.value.identity?.documentId ?? viewOptions.openSurfaceDocumentId?.() ?? `pdf-open-${String(load.token)}`;
             const stagedRevisionSwap = viewPlan === load.plan ? load.stagedRevisionSwap : null;
             if (stagedRevisionSwap) {
-                const didPreserveCommittedSurface = stagedPage !== null
-                    && documentRevision === stagedRevisionSwap.revision
-                    && surface.prepareRevisionSwap({
-                        documentId,
-                        documentRevision: stagedRevisionSwap.revision,
-                    }, stagedPage, stagedRevisionSwap.invalidatedPages);
+                const didPreserveCommittedSurface =
+                    stagedPage !== null &&
+                    documentRevision === stagedRevisionSwap.revision &&
+                    surface.prepareRevisionSwap(
+                        {
+                            documentId,
+                            documentRevision: stagedRevisionSwap.revision,
+                        },
+                        stagedPage,
+                        stagedRevisionSwap.invalidatedPages,
+                    );
                 if (!didPreserveCommittedSurface) {
                     // The lifecycle changed between staging and loading (for
                     // example, a close won the race), or this view never
@@ -1656,13 +1732,16 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             // id. Paths inside the feature pack may already point at a managed
             // working copy and must only refine the revision, never replace the
             // opening generation.
-            activeOpenSurfaceGeneration = surface.acquireSource({
-                documentId,
-                documentRevision,
-            }, expectedGeneration) ?? 0;
-            activeDocumentRevision = activeOpenSurfaceGeneration === 0
-                ? null
-                : surface.snapshot.value.identity?.documentRevision ?? documentRevision;
+            activeOpenSurfaceGeneration =
+                surface.acquireSource(
+                    {
+                        documentId,
+                        documentRevision,
+                    },
+                    expectedGeneration,
+                ) ?? 0;
+            activeDocumentRevision =
+                activeOpenSurfaceGeneration === 0 ? null : (surface.snapshot.value.identity?.documentRevision ?? documentRevision);
             // A source that lost its expected surface generation is stale for
             // this view; it keeps the PDF proxy out of its viewport rather than
             // constructing a competing open transaction.
@@ -1693,19 +1772,27 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         }
 
         function cancelActiveRevisionSwap() {
-            if (activeDocumentRevision) surface?.cancelRevisionSwap(activeOpenSurfaceGeneration, activeDocumentRevision);
+            if (activeDocumentRevision) {
+                surface?.cancelRevisionSwap(activeOpenSurfaceGeneration, activeDocumentRevision);
+            }
         }
 
         async function abortLoad(token: number | null, error: unknown) {
-            if (token === null || token !== viewToken) return;
+            if (token === null || token !== viewToken) {
+                return;
+            }
             presenting.value = false;
-            if (error) viewOptions.emitLoadError?.(error);
+            if (error) {
+                viewOptions.emitLoadError?.(error);
+            }
             cancelActiveRevisionSwap();
             await publish('invalidated', 'load-aborted');
         }
 
         async function completeLoad(token: number | null, signal?: AbortSignal) {
-            if (token === null || token !== viewToken || signal?.aborted) return;
+            if (token === null || token !== viewToken || signal?.aborted) {
+                return;
+            }
             presenting.value = false;
             const reason = viewPlan.isReload ? 'reload' : 'open';
             const deferPublish = viewPlan.isSelectiveReload && viewPlan.preserveVisibleContent;
@@ -1715,7 +1802,9 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             const readyFence = captureFence();
             await publish('ready', reason, readyFence);
             if (token !== viewToken || readyFence.documentVersion !== getRenderVersion() || signal?.aborted) {
-                if (signal?.aborted) cancelActiveRevisionSwap();
+                if (signal?.aborted) {
+                    cancelActiveRevisionSwap();
+                }
                 return;
             }
             if (deferPublish) {
@@ -1744,14 +1833,18 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
          * document on its own, or loads the source nothing has opened yet.
          */
         function present() {
-            if (viewDisposed || presentingLoad?.views.has(view)) return;
+            if (viewDisposed || presentingLoad?.views.has(view)) {
+                return;
+            }
             if (presentingLoad) {
                 if (presentingLoad.started && !presentingLoad.job.abort.signal.aborted) {
                     presentingLoad.views.set(view, beginLoad(presentingLoad, IDLE_PLAN));
                 }
                 return;
             }
-            if (isReleased(inFlightLoad?.job.abort.signal)) return;
+            if (isReleased(inFlightLoad?.job.abort.signal)) {
+                return;
+            }
             const document = pdfDocument.value;
             if (isLoading.value) {
                 return;
@@ -1760,11 +1853,13 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 loadPublishedSource();
             } else if (presentedDocument !== document && !presenting.value) {
                 runSessionTask(async () => {
-                    await completeLoad(await beginLoad({
-                        token: documentLoadToken,
-                        plan: IDLE_PLAN,
-                        stagedRevisionSwap: null,
-                    }));
+                    await completeLoad(
+                        await beginLoad({
+                            token: documentLoadToken,
+                            plan: IDLE_PLAN,
+                            stagedRevisionSwap: null,
+                        }),
+                    );
                 }, 'Failed to present PDF document in a new view');
             }
         }
@@ -1795,9 +1890,10 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 // Behind any deactivation of the remaining views still cancelling its work.
                 const document = pdfDocument.value;
                 const transitionGeneration = residencyTransitionGeneration;
-                runSessionTask(() => enqueueLifecycleOperation(
-                    () => cleanupInactiveDocumentCaches(document, transitionGeneration),
-                ), 'Failed to reclaim PDF document caches');
+                runSessionTask(
+                    () => enqueueLifecycleOperation(() => cleanupInactiveDocumentCaches(document, transitionGeneration)),
+                    'Failed to reclaim PDF document caches',
+                );
             }
         }
 
@@ -1809,9 +1905,10 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 // geometry measured for it, which the outgoing file would undo.
                 const geometry = surface?.snapshot.value.openingPageGeometry;
                 if (
-                    geometry && geometry.documentId === viewOptions.originalDocumentId?.value
-                    && geometry.pageNumber === viewOptions.currentPage?.value
-                    && !(load.plan.isReload && pageMetrics.value[geometry.pageNumber - 1])
+                    geometry &&
+                    geometry.documentId === viewOptions.originalDocumentId?.value &&
+                    geometry.pageNumber === viewOptions.currentPage?.value &&
+                    !(load.plan.isReload && pageMetrics.value[geometry.pageNumber - 1])
                 ) {
                     seedTrustedPageGeometry({
                         pageNumber: requirePageNumber(geometry.pageNumber, geometry.pageCount),
@@ -1829,9 +1926,13 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 stagedRevisionSwapPage = null;
             },
             clearPresentedDocument(document) {
-                if (document && presentedDocument !== document) return;
+                if (document && presentedDocument !== document) {
+                    return;
+                }
                 presentDocument(null);
-                if (document) viewOptions.emitTotalPages?.(0);
+                if (document) {
+                    viewOptions.emitTotalPages?.(0);
+                }
             },
             present,
             presentPageRotationGeometry: (pages, rotationDelta) => viewOptions.onPageRotationGeometry?.(pages, rotationDelta),
@@ -1874,8 +1975,8 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
              * another view still shows it.
              */
             evictPage(pageNumber: TPageNumber) {
-                const shownElsewhere = activeRasterScheduler?.snapshot().residentPages
-                    .some(resident => resident.pageNumber === pageNumber) ?? false;
+                const shownElsewhere =
+                    activeRasterScheduler?.snapshot().residentPages.some((resident) => resident.pageNumber === pageNumber) ?? false;
                 if (!shownElsewhere) {
                     pageCache.evictPage(pageNumber);
                 }
@@ -1898,11 +1999,11 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 pageIdentityDelta?: IPageIdentityDelta,
             ) {
                 if (
-                    !surface
-                    || surface.snapshot.value.phase !== 'ready'
-                    || !Number.isSafeInteger(pageNumber)
-                    || pageNumber < 1
-                    || !stagePageMutationRevisionSwap(revision, pages, rotationDelta, pageIdentityDelta)
+                    !surface ||
+                    surface.snapshot.value.phase !== 'ready' ||
+                    !Number.isSafeInteger(pageNumber) ||
+                    pageNumber < 1 ||
+                    !stagePageMutationRevisionSwap(revision, pages, rotationDelta, pageIdentityDelta)
                 ) {
                     return false;
                 }
@@ -1923,8 +2024,10 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 const page = mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(anchor.page));
                 return {
                     ...anchor,
-                    page: page ?? stagedRevisionSwapPage
-                        ?? Math.max(1, Math.min(anchor.page, getPageIdentityDeltaNextPageCount(delta) ?? anchor.page)),
+                    page:
+                        page ??
+                        stagedRevisionSwapPage ??
+                        Math.max(1, Math.min(anchor.page, getPageIdentityDeltaNextPageCount(delta) ?? anchor.page)),
                 };
             },
             get activeLoadPlan() {

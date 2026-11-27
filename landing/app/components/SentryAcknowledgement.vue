@@ -15,7 +15,7 @@
         height="44"
         loading="lazy"
         decoding="async"
-      >
+      />
     </a>
 
     <p class="sentry-acknowledgement-copy">
@@ -25,10 +25,10 @@
 </template>
 
 <script setup lang="ts">
-import { useTypedI18n } from '../composables/useTypedI18n';
+import {useTypedI18n} from '../composables/useTypedI18n';
 
 const SENTRY_WORDMARK_PATH = '/sentry-wordmark.svg';
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 </script>
 
 <style scoped>

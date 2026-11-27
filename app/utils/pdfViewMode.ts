@@ -1,5 +1,5 @@
-import type { TPdfViewMode } from '@contracts/shared';
-import { clamp } from 'es-toolkit/math';
+import type {TPdfViewMode} from '@contracts/shared';
+import {clamp} from 'es-toolkit/math';
 
 export type TSpreadStepDirection = -1 | 1;
 
@@ -18,21 +18,14 @@ function getLastSpreadStartPage(viewMode: TPdfViewMode, totalPages: number) {
     return totalPages % 2 === 0 ? totalPages : totalPages - 1;
 }
 
-export function getViewColumnCount(
-    viewMode: TPdfViewMode,
-    totalPages: number,
-): 1 | 2 {
+export function getViewColumnCount(viewMode: TPdfViewMode, totalPages: number): 1 | 2 {
     if (viewMode === 'single' || totalPages <= 1) {
         return 1;
     }
     return 2;
 }
 
-export function isStandaloneSpreadPage(
-    page: number,
-    viewMode: TPdfViewMode,
-    totalPages: number,
-) {
+export function isStandaloneSpreadPage(page: number, viewMode: TPdfViewMode, totalPages: number) {
     if (page < 1 || page > totalPages) {
         return false;
     }
@@ -52,11 +45,7 @@ export function isStandaloneSpreadPage(
     return totalPages > 1 && totalPages % 2 === 0 && page === totalPages;
 }
 
-export function getSpreadStartForPage(
-    page: number,
-    viewMode: TPdfViewMode,
-    totalPages: number,
-) {
+export function getSpreadStartForPage(page: number, viewMode: TPdfViewMode, totalPages: number) {
     const clampedPage = clamp(page, 1, Math.max(1, totalPages));
     if (viewMode === 'single' || totalPages <= 1) {
         return clampedPage;
@@ -75,13 +64,7 @@ export function getSpreadStartForPage(
     return clampedPage % 2 === 0 ? clampedPage : clampedPage - 1;
 }
 
-export function stepBySpread(
-    page: number,
-    viewMode: TPdfViewMode,
-    totalPages: number,
-    direction: TSpreadStepDirection,
-    steps = 1,
-) {
+export function stepBySpread(page: number, viewMode: TPdfViewMode, totalPages: number, direction: TSpreadStepDirection, steps = 1) {
     const stepCount = Math.max(1, steps);
     let spreadStart = getSpreadStartForPage(page, viewMode, totalPages);
     const minStart = 1;

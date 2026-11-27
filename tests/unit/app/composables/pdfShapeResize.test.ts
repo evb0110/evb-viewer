@@ -1,10 +1,6 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { getPointMinMaxBounds } from '@app/modules/pdf-viewer/engine/pdf-shape-resize/getPointMinMaxBounds';
-import { toShapeRect } from '@app/modules/pdf-viewer/engine/pdf-shape-resize/toShapeRect';
+import {describe, expect, it} from 'vitest';
+import {getPointMinMaxBounds} from '@app/modules/pdf-viewer/engine/pdf-shape-resize/getPointMinMaxBounds';
+import {toShapeRect} from '@app/modules/pdf-viewer/engine/pdf-shape-resize/toShapeRect';
 
 describe('pdfShapeResize', () => {
     it('computes min/max bounds from polygon points', () => {
@@ -36,10 +32,12 @@ describe('pdfShapeResize', () => {
     });
 
     it('enforces minSize 0.01 for degenerate single-point shapes via toShapeRect', () => {
-        const bounds = getPointMinMaxBounds([{
-            x: 0.4,
-            y: 0.6,
-        }]);
+        const bounds = getPointMinMaxBounds([
+            {
+                x: 0.4,
+                y: 0.6,
+            },
+        ]);
         expect(bounds).not.toBeNull();
         const rect = toShapeRect(bounds!, 0.01);
 
@@ -70,12 +68,15 @@ describe('pdfShapeResize', () => {
     });
 
     it('preserves bounds wider than minSize when calling toShapeRect', () => {
-        const rect = toShapeRect({
-            minX: 0.1,
-            minY: 0.2,
-            maxX: 0.6,
-            maxY: 0.5,
-        }, 0.01);
+        const rect = toShapeRect(
+            {
+                minX: 0.1,
+                minY: 0.2,
+                maxX: 0.6,
+                maxY: 0.5,
+            },
+            0.01,
+        );
 
         expect(rect).toEqual({
             minX: 0.1,

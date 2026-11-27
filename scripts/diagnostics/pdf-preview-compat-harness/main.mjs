@@ -1,39 +1,29 @@
-import {
-    app,
-    BrowserWindow,
-} from 'electron';
+import {app, BrowserWindow} from 'electron';
 import {createServer} from 'node:http';
-import {
-    mkdir,
-    readFile,
-    writeFile,
-} from 'node:fs/promises';
-import {
-    basename,
-    extname,
-    resolve,
-} from 'node:path';
+import {mkdir, readFile, writeFile} from 'node:fs/promises';
+import {basename, extname, resolve} from 'node:path';
 
-const args = Object.fromEntries(process.argv.slice(2).map((argument) => {
-    const [
-        key,
-        ...value
-    ] = argument.replace(/^--/u, '').split('=');
-    return [
-        key,
-        value.join('='),
-    ];
-}));
+const args = Object.fromEntries(
+    process.argv.slice(2).map((argument) => {
+        const [key, ...value] = argument.replace(/^--/u, '').split('=');
+        return [key, value.join('=')];
+    }),
+);
 
-if (!args.pdf) throw new Error('--pdf is required');
+if (!args.pdf) {
+    throw new Error('--pdf is required');
+}
 const pdfPath = resolve(args.pdf);
 const outputDirectory = resolve(args.out ?? '.devkit/pdf-preview-compat');
 const pdfjsRoot = resolve(args.pdfjs ?? 'node_modules/pdfjs-dist-codex-preview');
-const requestedPages = (args.pages ?? '').split(',')
-    .map(value => Number(value))
-    .filter(value => Number.isSafeInteger(value) && value > 0);
+const requestedPages = (args.pages ?? '')
+    .split(',')
+    .map((value) => Number(value))
+    .filter((value) => Number.isSafeInteger(value) && value > 0);
 const scale = Number(args.scale ?? '1.3333333333333333');
-if (!Number.isFinite(scale) || scale <= 0) throw new Error('--scale must be positive');
+if (!Number.isFinite(scale) || scale <= 0) {
+    throw new Error('--scale must be positive');
+}
 
 const html = String.raw`<!doctype html>
 <html>
@@ -123,7 +113,9 @@ const server = createServer(async (request, response) => {
         if (url.pathname.startsWith('/pdfjs/')) {
             const relativePath = url.pathname.slice('/pdfjs/'.length);
             const requestedPath = resolve(pdfjsRoot, relativePath);
-            if (!requestedPath.startsWith(`${pdfjsRoot}/`)) throw new Error('Invalid asset path');
+            if (!requestedPath.startsWith(`${pdfjsRoot}/`)) {
+                throw new Error('Invalid asset path');
+            }
             response.writeHead(200, {'Content-Type': contentType(requestedPath)});
             response.end(await readFile(requestedPath));
             return;
@@ -138,9 +130,11 @@ const server = createServer(async (request, response) => {
 
 await app.whenReady();
 await mkdir(outputDirectory, {recursive: true});
-await new Promise(resolveListen => server.listen(0, '127.0.0.1', resolveListen));
+await new Promise((resolveListen) => server.listen(0, '127.0.0.1', resolveListen));
 const address = server.address();
-if (typeof address !== 'object' || address === null) throw new Error('Server did not bind');
+if (typeof address !== 'object' || address === null) {
+    throw new Error('Server did not bind');
+}
 
 const consoleMessages = [];
 const window = new BrowserWindow({
@@ -154,9 +148,7 @@ const window = new BrowserWindow({
     },
 });
 window.webContents.on('console-message', (_event, details, legacyMessage) => {
-    const message = typeof details === 'object'
-        ? details.message
-        : String(legacyMessage ?? details);
+    const message = typeof details === 'object' ? details.message : String(legacyMessage ?? details);
     const level = typeof details === 'object' ? details.level : details;
     consoleMessages.push({
         level,
@@ -185,19 +177,15 @@ await window.webContents.executeJavaScript(
     })`,
 );
 const pageCount = await window.webContents.executeJavaScript('window.pdfHarness.pageCount');
-const pages = requestedPages.length > 0
-    ? requestedPages.filter(page => page <= pageCount)
-    : Array.from({length: pageCount}, (_, index) => index + 1);
+const pages =
+    requestedPages.length > 0
+        ? requestedPages.filter((page) => page <= pageCount)
+        : Array.from({length: pageCount}, (_, index) => index + 1);
 const results = [];
 for (const pageNumber of pages) {
-    const result = await window.webContents.executeJavaScript(
-        `window.pdfHarness.render(${String(pageNumber)}, ${JSON.stringify(scale)})`,
-    );
+    const result = await window.webContents.executeJavaScript(`window.pdfHarness.render(${String(pageNumber)}, ${JSON.stringify(scale)})`);
     const png = Buffer.from(result.dataUrl.replace(/^data:image\/png;base64,/u, ''), 'base64');
-    const outputPath = resolve(
-        outputDirectory,
-        `page-${String(pageNumber).padStart(String(pageCount).length, '0')}.png`,
-    );
+    const outputPath = resolve(outputDirectory, `page-${String(pageNumber).padStart(String(pageCount).length, '0')}.png`);
     await writeFile(outputPath, png);
     results.push({
         ...result,
@@ -206,7 +194,7 @@ for (const pageNumber of pages) {
         pageNumber,
     });
 }
-await new Promise(resolveDelay => setTimeout(resolveDelay, 50));
+await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
 const report = {
     consoleMessages,
     input: pdfPath,
@@ -217,17 +205,16 @@ const report = {
     results,
     scale,
 };
-await writeFile(
-    resolve(outputDirectory, 'render-report.json'),
-    `${JSON.stringify(report, null, 2)}\n`,
+await writeFile(resolve(outputDirectory, 'render-report.json'), `${JSON.stringify(report, null, 2)}\n`);
+console.log(
+    JSON.stringify({
+        input: basename(pdfPath),
+        outputDirectory,
+        pageCount,
+        renderedPages: results.length,
+        renderer: report.renderer,
+    }),
 );
-console.log(JSON.stringify({
-    input: basename(pdfPath),
-    outputDirectory,
-    pageCount,
-    renderedPages: results.length,
-    renderer: report.renderer,
-}));
 window.destroy();
-await new Promise(resolveClose => server.close(resolveClose));
+await new Promise((resolveClose) => server.close(resolveClose));
 app.exit(0);

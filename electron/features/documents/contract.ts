@@ -1,7 +1,4 @@
-import {
-    DOCUMENT_FILES_PLATFORM_FEATURE,
-    DOCUMENT_PDF_PLATFORM_FEATURE,
-} from '@contracts/documentsPlatformFeature';
+import {DOCUMENT_FILES_PLATFORM_FEATURE, DOCUMENT_PDF_PLATFORM_FEATURE} from '@contracts/documentsPlatformFeature';
 
 /** Channels outside the platform-feature specs: file-open grants and the streamed PDF save. */
 export const DOCUMENTS_CHANNELS = {

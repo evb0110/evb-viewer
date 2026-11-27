@@ -27,7 +27,7 @@ export {
     validateSearchQuery,
 } from '@pdf-core/pdfSearchAlgorithms';
 
-export { PDF_SEARCH_PROGRESS_RESULT_BATCH_LIMIT } from '@pdf-core/pdfSearchProgressResultBatchLimit';
+export {PDF_SEARCH_PROGRESS_RESULT_BATCH_LIMIT} from '@pdf-core/pdfSearchProgressResultBatchLimit';
 
 export {
     normalizeOptionalSearchPageCount,
@@ -40,4 +40,4 @@ export {
     SEARCH_REQUEST_ID_MAX_LENGTH,
 } from '@contracts/search';
 
-export { matchPdfSearchPageWindow } from '@pdf-core/matchPdfSearchPageWindow';
+export {matchPdfSearchPageWindow} from '@pdf-core/matchPdfSearchPageWindow';

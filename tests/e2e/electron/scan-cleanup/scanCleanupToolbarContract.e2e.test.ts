@@ -1,40 +1,18 @@
 import {createHash} from 'node:crypto';
-import {
-    existsSync,
-    readFileSync,
-    statSync,
-} from 'node:fs';
-import {
-    mkdtemp, rm,
-} from 'node:fs/promises';
+import {existsSync, readFileSync, statSync} from 'node:fs';
+import {mkdtemp, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import type {Page} from 'puppeteer-core';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {startElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {activateWorkspaceTab} from '@tests/e2e/electron/helpers/workspaceTabs';
-import {
-    clickAsUser,
-    clickFoundAsUser,
-} from '@tests/e2e/electron/helpers/userInput';
-import {
-    createLargeScannedFixturePdf,
-    readPdfPageSnapshots,
-} from '@tests/e2e/electron/helpers/fixtures';
-import {
-    isPdfCanvasInkCoverageSane,
-    renderPdfCanvasFidelityMetrics,
-} from '@tests/helpers/renderPdfCanvasFidelityMetrics';
+import {clickAsUser, clickFoundAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {createLargeScannedFixturePdf, readPdfPageSnapshots} from '@tests/e2e/electron/helpers/fixtures';
+import {isPdfCanvasInkCoverageSane, renderPdfCanvasFidelityMetrics} from '@tests/helpers/renderPdfCanvasFidelityMetrics';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
-import {
-    installCommittedSurfaceSampler,
-    stopCommittedSurfaceSampler,
-} from '@tests/e2e/electron/helpers/viewerCommittedSurfaceContract';
+import {installCommittedSurfaceSampler, stopCommittedSurfaceSampler} from '@tests/e2e/electron/helpers/viewerCommittedSurfaceContract';
 import {
     clickVisibleToolbarButton,
     dismissScanCleanupFirstRunGuidance,
@@ -55,100 +33,113 @@ import {
     SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR,
 } from '@contracts/scan-cleanup/toolbarSelectors';
 
-
 // The detection meter's painted parts, measured as #967 and #976 failed:
 // each glyph box is clipped by every ancestor that clips, and the hit test
 // asks what a pointer at a control's centre would reach.
 function readDetectionLayout(page: Page) {
-    return page.evaluate((
-        toolbarCountSelector: string,
-        cancelDetectionSelector: string,
-    ) => {
-        const cancel = document.querySelector(cancelDetectionSelector)!.getBoundingClientRect();
-        const paint = (element: Element | null) => {
-            if (!element) return null;
-            const range = document.createRange();
-            range.selectNodeContents(element);
-            const glyphs = [...range.getClientRects()].filter(rect => rect.width > 0);
-            const ink = glyphs.length > 0 ? glyphs : [element.getBoundingClientRect()];
-            const left = Math.min(...ink.map(rect => rect.left));
-            const right = Math.max(...ink.map(rect => rect.right));
-            const top = Math.min(...ink.map(rect => rect.top));
-            const bottom = Math.max(...ink.map(rect => rect.bottom));
-            let shown = {
-                left,
-                right,
-                top,
-                bottom,
-            };
-            for (let parent = element.parentElement; parent; parent = parent.parentElement) {
-                const style = getComputedStyle(parent);
-                if (style.overflowX === 'visible' && style.overflowY === 'visible') continue;
-                const box = parent.getBoundingClientRect();
-                shown = {
-                    left: Math.max(shown.left, box.left),
-                    right: Math.min(shown.right, box.right),
-                    top: Math.max(shown.top, box.top),
-                    bottom: Math.min(shown.bottom, box.bottom),
-                };
-            }
-            return {
-                text: element.textContent?.trim() ?? '',
-                whole: getComputedStyle(element).visibility === 'visible'
-                    && right > left
-                    && shown.left <= left + 0.5 && shown.right >= right - 0.5
-                    && shown.top <= top + 0.5 && shown.bottom >= bottom - 0.5,
-                shownWidth: Math.max(0, shown.right - shown.left),
-                shownArea: Math.max(0, shown.right - shown.left) * Math.max(0, shown.bottom - shown.top),
-                clearOfCancel: right <= cancel.left || left >= cancel.right,
-                rect: {
+    return page.evaluate(
+        (toolbarCountSelector: string, cancelDetectionSelector: string) => {
+            const cancel = document.querySelector(cancelDetectionSelector)!.getBoundingClientRect();
+            const paint = (element: Element | null) => {
+                if (!element) {
+                    return null;
+                }
+                const range = document.createRange();
+                range.selectNodeContents(element);
+                const glyphs = [...range.getClientRects()].filter((rect) => rect.width > 0);
+                const ink = glyphs.length > 0 ? glyphs : [element.getBoundingClientRect()];
+                const left = Math.min(...ink.map((rect) => rect.left));
+                const right = Math.max(...ink.map((rect) => rect.right));
+                const top = Math.min(...ink.map((rect) => rect.top));
+                const bottom = Math.max(...ink.map((rect) => rect.bottom));
+                let shown = {
                     left,
                     right,
                     top,
                     bottom,
+                };
+                for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+                    const style = getComputedStyle(parent);
+                    if (style.overflowX === 'visible' && style.overflowY === 'visible') {
+                        continue;
+                    }
+                    const box = parent.getBoundingClientRect();
+                    shown = {
+                        left: Math.max(shown.left, box.left),
+                        right: Math.min(shown.right, box.right),
+                        top: Math.max(shown.top, box.top),
+                        bottom: Math.min(shown.bottom, box.bottom),
+                    };
+                }
+                return {
+                    text: element.textContent?.trim() ?? '',
+                    whole:
+                        getComputedStyle(element).visibility === 'visible' &&
+                        right > left &&
+                        shown.left <= left + 0.5 &&
+                        shown.right >= right - 0.5 &&
+                        shown.top <= top + 0.5 &&
+                        shown.bottom >= bottom - 0.5,
+                    shownWidth: Math.max(0, shown.right - shown.left),
+                    shownArea: Math.max(0, shown.right - shown.left) * Math.max(0, shown.bottom - shown.top),
+                    clearOfCancel: right <= cancel.left || left >= cancel.right,
+                    rect: {
+                        left,
+                        right,
+                        top,
+                        bottom,
+                    },
+                };
+            };
+            return {
+                phase: paint(document.querySelector('.scan-cleanup-activity-phase')),
+                detail: paint(document.querySelector('.scan-cleanup-activity-detail')),
+                count: paint(document.querySelector(`${toolbarCountSelector} .scan-cleanup-stable-width-value`)),
+                caret: paint(document.querySelector('.scan-cleanup-activity-caret')),
+                // Done of the active workspace's toolbar, and what its centre hits.
+                done: (() => {
+                    const candidates = [
+                        ...document.querySelectorAll<HTMLElement>('#editor-global-toolbar-host .scan-cleanup-toolbar-done'),
+                    ];
+                    const done = candidates[0];
+                    const shown = paint(done ?? null);
+                    if (!done || !shown) {
+                        return null;
+                    }
+                    const hit = document.elementFromPoint(
+                        (shown.rect.left + shown.rect.right) / 2,
+                        (shown.rect.top + shown.rect.bottom) / 2,
+                    );
+                    return {
+                        ...shown,
+                        candidates: candidates.length,
+                        centreHitsDone: Boolean(hit && done.contains(hit)),
+                    };
+                })(),
+                toolbar: document.querySelector('#editor-global-toolbar-host .scan-cleanup-toolbar')?.getBoundingClientRect().toJSON() as
+                    DOMRect | undefined,
+                row: {
+                    height: document.querySelector('.editor-global-toolbar-shell')!.getBoundingClientRect().height,
+                    tabStripTop: document.querySelector('.editor-pane.is-active .tab-bar')!.getBoundingClientRect().top,
+                },
+                host: document.querySelector('#editor-global-toolbar-host')?.getBoundingClientRect().toJSON() as DOMRect | undefined,
+                viewerTop: document.querySelector('.workspace-main-shell')?.getBoundingClientRect().top,
+                pending:
+                    document.querySelector('.scan-cleanup-surface')?.getAttribute('data-detection-status') === 'pending' &&
+                    document.querySelector(cancelDetectionSelector) !== null,
+                width: window.innerWidth,
+                clock: paint(document.querySelector('.scan-cleanup-activity-time .scan-cleanup-stable-width-value')),
+                cancel: {
+                    left: cancel.left,
+                    right: cancel.right,
+                    top: cancel.top,
+                    bottom: cancel.bottom,
                 },
             };
-        };
-        return {
-            phase: paint(document.querySelector('.scan-cleanup-activity-phase')),
-            detail: paint(document.querySelector('.scan-cleanup-activity-detail')),
-            count: paint(document.querySelector(`${toolbarCountSelector} .scan-cleanup-stable-width-value`)),
-            caret: paint(document.querySelector('.scan-cleanup-activity-caret')),
-            // Done of the active workspace's toolbar, and what its centre hits.
-            done: (() => {
-                const candidates = [...document.querySelectorAll<HTMLElement>('#editor-global-toolbar-host .scan-cleanup-toolbar-done')];
-                const done = candidates[0];
-                const shown = paint(done ?? null);
-                if (!done || !shown) return null;
-                const hit = document.elementFromPoint(
-                    (shown.rect.left + shown.rect.right) / 2,
-                    (shown.rect.top + shown.rect.bottom) / 2,
-                );
-                return {
-                    ...shown,
-                    candidates: candidates.length,
-                    centreHitsDone: Boolean(hit && done.contains(hit)),
-                };
-            })(),
-            toolbar: document.querySelector('#editor-global-toolbar-host .scan-cleanup-toolbar')?.getBoundingClientRect().toJSON() as DOMRect | undefined,
-            row: {
-                height: document.querySelector('.editor-global-toolbar-shell')!.getBoundingClientRect().height,
-                tabStripTop: document.querySelector('.editor-pane.is-active .tab-bar')!.getBoundingClientRect().top,
-            },
-            host: document.querySelector('#editor-global-toolbar-host')?.getBoundingClientRect().toJSON() as DOMRect | undefined,
-            viewerTop: document.querySelector('.workspace-main-shell')?.getBoundingClientRect().top,
-            pending: document.querySelector('.scan-cleanup-surface')?.getAttribute('data-detection-status') === 'pending'
-                && document.querySelector(cancelDetectionSelector) !== null,
-            width: window.innerWidth,
-            clock: paint(document.querySelector('.scan-cleanup-activity-time .scan-cleanup-stable-width-value')),
-            cancel: {
-                left: cancel.left,
-                right: cancel.right,
-                top: cancel.top,
-                bottom: cancel.bottom,
-            },
-        };
-    }, SCAN_CLEANUP_TOOLBAR_COUNT_SELECTOR, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
+        },
+        SCAN_CLEANUP_TOOLBAR_COUNT_SELECTOR,
+        SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR,
+    );
 }
 
 // The window's toolbar row and the tab strip under it, which a tab switch
@@ -160,10 +151,7 @@ function readToolbarRow() {
     };
 }
 
-function expectDetectionLayout(
-    layout: Awaited<ReturnType<typeof readDetectionLayout>>,
-    readerRow: ReturnType<typeof readToolbarRow>,
-) {
+function expectDetectionLayout(layout: Awaited<ReturnType<typeof readDetectionLayout>>, readerRow: ReturnType<typeof readToolbarRow>) {
     // Measured while analysis runs; a finished detection changes the layout.
     expect(layout.pending, JSON.stringify(layout)).toBe(true);
     // One row, as tall as the reader's, so switching tabs leaves the tab
@@ -202,23 +190,20 @@ function expectDetectionLayout(
                 left: number;
                 right: number;
                 top: number;
-                bottom: number
+                bottom: number;
             },
             b: {
                 left: number;
                 right: number;
                 top: number;
-                bottom: number
+                bottom: number;
             },
         ) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-        for (const [
-            name,
-            other,
-        ] of Object.entries({
-                cancel: layout.cancel,
-                count: layout.count!.rect,
-                caret: layout.caret!.rect,
-            })) {
+        for (const [name, other] of Object.entries({
+            cancel: layout.cancel,
+            count: layout.count!.rect,
+            caret: layout.caret!.rect,
+        })) {
             expect(overlaps(clock!.rect, other), `clock clear of ${name}: ${JSON.stringify(layout)}`).toBe(false);
         }
     }
@@ -248,11 +233,7 @@ describe('scan cleanup toolbar contract', () => {
         const readerRow = await session.page.evaluate(readToolbarRow);
 
         // Enough pages that detection is reliably observable in flight.
-        const sourcePath = await createLargeScannedFixturePdf(
-            'scan-cleanup-toolbar-contract.pdf',
-            6,
-            0,
-        );
+        const sourcePath = await createLargeScannedFixturePdf('scan-cleanup-toolbar-contract.pdf', 6, 0);
         await openPdfInApp(session.page, sourcePath, 90_000);
         await waitForPdfLoaded(session.page, 90_000);
         await waitForViewerInteractive(session.page, 90_000);
@@ -268,29 +249,31 @@ describe('scan cleanup toolbar contract', () => {
         // detection is cancellable, and the primary action stays enabled so
         // cleanup can be queued behind detection. The wait itself is the
         // assertion; it throws after 90s if the contract never holds.
-        await waitForFunctionInPage(session.page, (
-            expectedTotal: number,
-            primaryActionSelector: string,
-            toolbarCountSelector: string,
-            cancelDetectionSelector: string,
-        ) => {
-            const action = document.querySelector<HTMLButtonElement>(
-                primaryActionSelector,
-            );
-            const status = document.querySelector<HTMLElement>(toolbarCountSelector);
-            const text = status?.getAttribute('aria-label') ?? status?.textContent ?? '';
-            const match = /(\d+)\D+(\d+)/u.exec(text);
-            // The meter names the analysis step (contract I4) instead of a bare
-            // counter that sits at zero while page images are read.
-            const detail = document.querySelector('.scan-cleanup-activity-detail')?.textContent?.trim() ?? '';
-            return action?.disabled === false
-                && document.querySelector(cancelDetectionSelector) !== null
-                && detail.length > 0
-                && match !== null
-                && Number(match[2]) === expectedTotal
-                && Number(match[1]) < expectedTotal;
-        }, {timeout: 90_000}, 6, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR,
-        SCAN_CLEANUP_TOOLBAR_COUNT_SELECTOR, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
+        await waitForFunctionInPage(
+            session.page,
+            (expectedTotal: number, primaryActionSelector: string, toolbarCountSelector: string, cancelDetectionSelector: string) => {
+                const action = document.querySelector<HTMLButtonElement>(primaryActionSelector);
+                const status = document.querySelector<HTMLElement>(toolbarCountSelector);
+                const text = status?.getAttribute('aria-label') ?? status?.textContent ?? '';
+                const match = /(\d+)\D+(\d+)/u.exec(text);
+                // The meter names the analysis step (contract I4) instead of a bare
+                // counter that sits at zero while page images are read.
+                const detail = document.querySelector('.scan-cleanup-activity-detail')?.textContent?.trim() ?? '';
+                return (
+                    action?.disabled === false &&
+                    document.querySelector(cancelDetectionSelector) !== null &&
+                    detail.length > 0 &&
+                    match !== null &&
+                    Number(match[2]) === expectedTotal &&
+                    Number(match[1]) < expectedTotal
+                );
+            },
+            {timeout: 90_000},
+            6,
+            SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR,
+            SCAN_CLEANUP_TOOLBAR_COUNT_SELECTOR,
+            SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR,
+        );
 
         // At the default window size the meter got an action button's width:
         // the count painted through the cancel button and the clock was cut
@@ -300,20 +283,11 @@ describe('scan cleanup toolbar contract', () => {
         // shown whole and clear of the button, count and caret, or not at all.
         // At the default window and at narrow windows (#976), as a person
         // resizes it, while analysis runs.
-        const naturalSize = await session.page.evaluate(() => [
-            window.innerWidth,
-            window.innerHeight,
-        ]);
+        const naturalSize = await session.page.evaluate(() => [window.innerWidth, window.innerHeight]);
         expectDetectionLayout(await readDetectionLayout(session.page), readerRow);
         try {
-            for (const width of [
-                690,
-                600,
-            ]) {
-                await session.command('windowResize', [
-                    width,
-                    naturalSize[1],
-                ]);
+            for (const width of [690, 600]) {
+                await session.command('windowResize', [width, naturalSize[1]]);
                 expectDetectionLayout(await readDetectionLayout(session.page), readerRow);
             }
         } catch (error) {
@@ -322,21 +296,29 @@ describe('scan cleanup toolbar contract', () => {
         }
         await session.command('windowResize', naturalSize);
 
-        const settingsPosition = () => session.page.evaluate(() => ({
-            surface: document.querySelector('.scan-cleanup-surface')!.getBoundingClientRect().top,
-            panel: document.querySelector('.scan-cleanup-settings-scroll')!.getBoundingClientRect().top,
-            layout: document.querySelector('[aria-label="Page layout"]')!.getBoundingClientRect().top,
-        }));
+        const settingsPosition = () =>
+            session.page.evaluate(() => ({
+                surface: document.querySelector('.scan-cleanup-surface')!.getBoundingClientRect().top,
+                panel: document.querySelector('.scan-cleanup-settings-scroll')!.getBoundingClientRect().top,
+                layout: document.querySelector('[aria-label="Page layout"]')!.getBoundingClientRect().top,
+            }));
         const analyzingPosition = await settingsPosition();
         // The cancel button beside the meter takes a person's click and stops
         // detection; Re-detect then starts it again for the queue checks below.
         await clickAsUser(session.page, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
-        await waitForFunctionInPage(session.page, (cancelDetectionSelector: string) => {
-            const redetect = document.querySelector<HTMLButtonElement>('.scan-thumbnail-redetect');
-            return document.querySelector(cancelDetectionSelector) === null
-                && document.querySelector('.scan-cleanup-toolbar-error') === null
-                && redetect?.disabled === false;
-        }, {timeout: 15_000}, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
+        await waitForFunctionInPage(
+            session.page,
+            (cancelDetectionSelector: string) => {
+                const redetect = document.querySelector<HTMLButtonElement>('.scan-thumbnail-redetect');
+                return (
+                    document.querySelector(cancelDetectionSelector) === null &&
+                    document.querySelector('.scan-cleanup-toolbar-error') === null &&
+                    redetect?.disabled === false
+                );
+            },
+            {timeout: 15_000},
+            SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR,
+        );
         expect(await settingsPosition()).toEqual(analyzingPosition);
         await clickAsUser(session.page, '.scan-thumbnail-redetect');
         await session.page.waitForSelector(SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR, {timeout: 10_000});
@@ -346,15 +328,17 @@ describe('scan cleanup toolbar contract', () => {
         // appear and report the queued analysis phase as readable text,
         // and the primary action must remain enabled (it becomes cancel).
         await clickAsUser(session.page, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
-        await waitForFunctionInPage(session.page, (runMeterSelector: string, primaryActionSelector: string) => {
-            const meter = document.querySelector<HTMLElement>(runMeterSelector);
-            const action = document.querySelector<HTMLButtonElement>(
-                primaryActionSelector,
-            );
-            return meter !== null
-                && (meter.textContent ?? '').trim().length > 0
-                && action?.disabled === false;
-        }, {timeout: 10_000}, SCAN_CLEANUP_RUN_METER_SELECTOR, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
+        await waitForFunctionInPage(
+            session.page,
+            (runMeterSelector: string, primaryActionSelector: string) => {
+                const meter = document.querySelector<HTMLElement>(runMeterSelector);
+                const action = document.querySelector<HTMLButtonElement>(primaryActionSelector);
+                return meter !== null && (meter.textContent ?? '').trim().length > 0 && action?.disabled === false;
+            },
+            {timeout: 10_000},
+            SCAN_CLEANUP_RUN_METER_SELECTOR,
+            SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR,
+        );
         // A run queued behind detection continues the analysis account in the
         // same meter instead of replacing it with a new layout.
         const queuedStatus = await session.page.evaluate((runMeterSelector: string) => {
@@ -369,15 +353,21 @@ describe('scan cleanup toolbar contract', () => {
 
         // Cancel the queued run: the meter clears while detection continues.
         await clickAsUser(session.page, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
-        await waitForFunctionInPage(session.page, (runMeterSelector: string, cancelDetectionSelector: string) => (
-            document.querySelector(runMeterSelector) === null
-                && document.querySelector(cancelDetectionSelector) !== null
-        ), {timeout: 10_000}, SCAN_CLEANUP_RUN_METER_SELECTOR, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
+        await waitForFunctionInPage(
+            session.page,
+            (runMeterSelector: string, cancelDetectionSelector: string) =>
+                document.querySelector(runMeterSelector) === null && document.querySelector(cancelDetectionSelector) !== null,
+            {timeout: 10_000},
+            SCAN_CLEANUP_RUN_METER_SELECTOR,
+            SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR,
+        );
         // The source-page rail paints page images; it stayed blank placeholders
         // while the workspace never marked its thumbnail list active.
-        await waitForFunctionInPage(session.page, () => document.querySelectorAll(
-            '.scan-thumbnail-list img, .scan-thumbnail-list canvas',
-        ).length > 0, {timeout: 30_000});
+        await waitForFunctionInPage(
+            session.page,
+            () => document.querySelectorAll('.scan-thumbnail-list img, .scan-thumbnail-list canvas').length > 0,
+            {timeout: 30_000},
+        );
 
         // Let detection settle, then run the same six-page document to
         // completion. The blocking contract must cover the generated PDF,
@@ -387,62 +377,90 @@ describe('scan cleanup toolbar contract', () => {
         // 30 + 180 + 15), and with opening and detection to 670s. The 360s
         // test timeout is the separate bound on the whole journey, so phases
         // that each stay within their own limit can still fail it together.
-        await waitForFunctionInPage(session.page, (
-            primaryActionSelector: string,
-            cancelDetectionSelector: string,
-            runMeterSelector: string,
-        ) => {
-            const action = document.querySelector<HTMLButtonElement>(primaryActionSelector);
-            return document.querySelector(cancelDetectionSelector) === null
-                && document.querySelector(runMeterSelector) === null
-                && action?.disabled === false
-                && (action.textContent ?? '').includes('Clean up');
-        }, {timeout: 30_000}, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR,
-        SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR, SCAN_CLEANUP_RUN_METER_SELECTOR);
+        await waitForFunctionInPage(
+            session.page,
+            (primaryActionSelector: string, cancelDetectionSelector: string, runMeterSelector: string) => {
+                const action = document.querySelector<HTMLButtonElement>(primaryActionSelector);
+                return (
+                    document.querySelector(cancelDetectionSelector) === null &&
+                    document.querySelector(runMeterSelector) === null &&
+                    action?.disabled === false &&
+                    (action.textContent ?? '').includes('Clean up')
+                );
+            },
+            {timeout: 30_000},
+            SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR,
+            SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR,
+            SCAN_CLEANUP_RUN_METER_SELECTOR,
+        );
         await clickAsUser(session.page, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
         // Detection has settled, so this is an executing cleanup, not queued
         // analysis. Observe the other document's toolbar beside that live run.
-        await waitForFunctionInPage(session.page, (selector: string) => (
-            document.querySelector('.scan-cleanup-workspace[aria-busy="true"]') !== null
-                && document.querySelector(selector)?.getAttribute('data-phase') === 'clean'
-                && document.querySelector(selector)?.getAttribute('data-step') === 'clean'
-        ), {timeout: 30_000}, SCAN_CLEANUP_RUN_METER_SELECTOR);
+        await waitForFunctionInPage(
+            session.page,
+            (selector: string) =>
+                document.querySelector('.scan-cleanup-workspace[aria-busy="true"]') !== null &&
+                document.querySelector(selector)?.getAttribute('data-phase') === 'clean' &&
+                document.querySelector(selector)?.getAttribute('data-step') === 'clean',
+            {timeout: 30_000},
+            SCAN_CLEANUP_RUN_METER_SELECTOR,
+        );
         await activateWorkspaceTab(session, 0);
         await waitForPdfLoaded(session.page);
         await clickAsUser(session.page, 'button[aria-label="More tools"]');
-        const command = await (await session.page.waitForFunction(() => {
-            const icon = [...document.querySelectorAll<HTMLElement>('.overflow-menu-scan-cleanup-icon')]
-                .find(element => element.checkVisibility());
-            const item = icon?.closest<HTMLElement>('[role^="menuitem"]');
-            if (!icon || !item) return null;
-            return {
-                label: (item.textContent ?? '').trim(),
-                runningDot: icon.querySelector('.overflow-menu-running-dot') !== null,
-                running: document.querySelector('.workspace-host[data-workspace-active="false"] .scan-cleanup-workspace[aria-busy="true"]') !== null,
-                runCompleted: [...document.querySelectorAll<HTMLElement>('[data-slot="title"]')]
-                    .some(title => (title.textContent ?? '').trim() === 'Scan cleanup complete'),
-            };
-        }, {timeout: 30_000})).jsonValue();
+        const command = await (
+            await session.page.waitForFunction(
+                () => {
+                    const icon = [...document.querySelectorAll<HTMLElement>('.overflow-menu-scan-cleanup-icon')].find((element) =>
+                        element.checkVisibility(),
+                    );
+                    const item = icon?.closest<HTMLElement>('[role^="menuitem"]');
+                    if (!icon || !item) {
+                        return null;
+                    }
+                    return {
+                        label: (item.textContent ?? '').trim(),
+                        runningDot: icon.querySelector('.overflow-menu-running-dot') !== null,
+                        running:
+                            document.querySelector(
+                                '.workspace-host[data-workspace-active="false"] .scan-cleanup-workspace[aria-busy="true"]',
+                            ) !== null,
+                        runCompleted: [...document.querySelectorAll<HTMLElement>('[data-slot="title"]')].some(
+                            (title) => (title.textContent ?? '').trim() === 'Scan cleanup complete',
+                        ),
+                    };
+                },
+                {timeout: 30_000},
+            )
+        ).jsonValue();
         expect(command).toEqual({label: 'Scan cleanup', runningDot: false, running: true, runCompleted: false});
         await session.page.keyboard.press('Escape');
         await activateWorkspaceTab(session, 1);
         await session.page.waitForSelector(SCAN_CLEANUP_RUN_METER_SELECTOR, {timeout: 30_000});
-        await waitForFunctionInPage(session.page, (source: string) => {
-            const active = (window as IWorkspaceExposeProbeWindow)
-                .__evbTestApi
-                ?.readActiveWorkspaceStateValues?.(['originalPath']);
-            return typeof active?.originalPath === 'string'
-                && active.originalPath !== source
-                && active.originalPath.endsWith('— cleaned.pdf');
-        }, {timeout: 180_000}, sourcePath);
-        await waitForFunctionInPage(session.page, () => Array.from(
-            document.querySelectorAll<HTMLElement>('[data-slot="title"]'),
-        ).some(title => (title.textContent ?? '').trim() === 'Scan cleanup complete'), {timeout: 15_000});
+        await waitForFunctionInPage(
+            session.page,
+            (source: string) => {
+                const active = (window as IWorkspaceExposeProbeWindow).__evbTestApi?.readActiveWorkspaceStateValues?.(['originalPath']);
+                return (
+                    typeof active?.originalPath === 'string' &&
+                    active.originalPath !== source &&
+                    active.originalPath.endsWith('— cleaned.pdf')
+                );
+            },
+            {timeout: 180_000},
+            sourcePath,
+        );
+        await waitForFunctionInPage(
+            session.page,
+            () =>
+                Array.from(document.querySelectorAll<HTMLElement>('[data-slot="title"]')).some(
+                    (title) => (title.textContent ?? '').trim() === 'Scan cleanup complete',
+                ),
+            {timeout: 15_000},
+        );
 
         const outputState = await readWorkspaceStateValues(session.page, ['originalPath']);
-        const outputPath = typeof outputState.originalPath === 'string'
-            ? outputState.originalPath
-            : null;
+        const outputPath = typeof outputState.originalPath === 'string' ? outputState.originalPath : null;
         expect(outputPath).toBeTruthy();
         expect(outputPath).not.toBe(sourcePath);
         expect(outputPath).toMatch(/— cleaned\.pdf$/u);
@@ -456,19 +474,10 @@ describe('scan cleanup toolbar contract', () => {
             })),
         );
         const outputRasterMetrics = await Promise.all(
-            Array.from({length: 6}, (_, index) => renderPdfCanvasFidelityMetrics(
-                outputPath!,
-                index + 1,
-            )),
+            Array.from({length: 6}, (_, index) => renderPdfCanvasFidelityMetrics(outputPath!, index + 1)),
         );
-        for (const [
-            index,
-            metrics,
-        ] of outputRasterMetrics.entries()) {
-            expect(
-                isPdfCanvasInkCoverageSane(metrics),
-                `page ${String(index + 1)} raster ink coverage`,
-            ).toBe(true);
+        for (const [index, metrics] of outputRasterMetrics.entries()) {
+            expect(isPdfCanvasInkCoverageSane(metrics), `page ${String(index + 1)} raster ink coverage`).toBe(true);
         }
     }, 360_000);
 });
@@ -492,23 +501,40 @@ describe('scan cleanup completion Save As', () => {
                 timeout: 10_000,
                 visible: true,
             });
-            await waitForFunctionInPage(page, (primaryActionSelector: string) => {
-                const action = document.querySelector<HTMLButtonElement>(primaryActionSelector);
-                return action?.disabled === false && (action.textContent ?? '').includes('Clean up');
-            }, {timeout: 120_000}, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
+            await waitForFunctionInPage(
+                page,
+                (primaryActionSelector: string) => {
+                    const action = document.querySelector<HTMLButtonElement>(primaryActionSelector);
+                    return action?.disabled === false && (action.textContent ?? '').includes('Clean up');
+                },
+                {timeout: 120_000},
+                SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR,
+            );
             await clickAsUser(page, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
-            await waitForFunctionInPage(page, () => Array.from(
-                document.querySelectorAll<HTMLElement>('[data-slot="title"]'),
-            ).some(title => (title.textContent ?? '').trim() === 'Scan cleanup complete'), {timeout: 180_000});
+            await waitForFunctionInPage(
+                page,
+                () =>
+                    Array.from(document.querySelectorAll<HTMLElement>('[data-slot="title"]')).some(
+                        (title) => (title.textContent ?? '').trim() === 'Scan cleanup complete',
+                    ),
+                {timeout: 180_000},
+            );
             return session;
         } catch (error) {
             await session.stop({preserveArtifacts: true});
             throw error;
         }
     };
-    const clickToastSaveAs = (page: Page) => clickFoundAsUser(page, () => Array.from(
-        document.querySelectorAll<HTMLButtonElement>('button'),
-    ).filter(button => button.textContent?.trim() === 'Save as…' && button.checkVisibility()).at(-1), null, {description: 'toast Save As'});
+    const clickToastSaveAs = (page: Page) =>
+        clickFoundAsUser(
+            page,
+            () =>
+                Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
+                    .filter((button) => button.textContent?.trim() === 'Save as…' && button.checkVisibility())
+                    .at(-1),
+            null,
+            {description: 'toast Save As'},
+        );
 
     it('refuses a reopened file at the completed output path', async () => {
         const scratch = await mkdtemp(join(tmpdir(), 'scan-cleanup-reopened-save-as-'));
@@ -517,26 +543,41 @@ describe('scan cleanup completion Save As', () => {
         const session = await startCleanupSession(savedPath, sourcePath);
         try {
             const outputPath = (await readWorkspaceStateValues(session.page, ['originalPath'])).originalPath;
-            if (typeof outputPath !== 'string') throw new Error('The cleaned output path is missing');
+            if (typeof outputPath !== 'string') {
+                throw new Error('The cleaned output path is missing');
+            }
             await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
-            await clickFoundAsUser(session.page, () => Array.from(
-                document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
-            ).find(button => button.textContent?.trim() === 'Discard changes'), null,
-            {description: 'discard the completed output'});
-            await expect.poll(async () => (await readWorkspaceStateValues(session.page, ['originalPath'])).originalPath,
-                {timeout: 10_000}).not.toBe(outputPath);
+            await clickFoundAsUser(
+                session.page,
+                () =>
+                    Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find(
+                        (button) => button.textContent?.trim() === 'Discard changes',
+                    ),
+                null,
+                {description: 'discard the completed output'},
+            );
+            await expect
+                .poll(async () => (await readWorkspaceStateValues(session.page, ['originalPath'])).originalPath, {timeout: 10_000})
+                .not.toBe(outputPath);
             await openPdfInApp(session.page, outputPath, 30_000);
             await waitForPdfLoaded(session.page, 30_000);
             await clickToastSaveAs(session.page);
-            await expect.poll(async () => ({
-                warned: await session.page.evaluate(() => document.body.innerText.includes(
-                    'Save As is no longer available from this notification. Use Save As in the cleaned PDF tab, or reopen the PDF.',
-                )),
-                saved: existsSync(savedPath),
-            }), {timeout: 10_000}).toEqual({
-                warned: true,
-                saved: false,
-            });
+            await expect
+                .poll(
+                    async () => ({
+                        warned: await session.page.evaluate(() =>
+                            document.body.innerText.includes(
+                                'Save As is no longer available from this notification. Use Save As in the cleaned PDF tab, or reopen the PDF.',
+                            ),
+                        ),
+                        saved: existsSync(savedPath),
+                    }),
+                    {timeout: 10_000},
+                )
+                .toEqual({
+                    warned: true,
+                    saved: false,
+                });
         } finally {
             await session.stop();
             await rm(scratch, {
@@ -555,32 +596,46 @@ describe('scan cleanup completion Save As', () => {
             // The toolbar saves the output under a new path while the completion
             // notice is still available. Its captured instance is now gone.
             await clickAsUser(session.page, '#editor-global-toolbar-host .save-split-trigger');
-            await clickFoundAsUser(session.page, () => Array.from(
-                document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-            ).find(item => item.textContent?.includes('Save As') && item.checkVisibility()), null,
-            {description: 'toolbar Save As'});
+            await clickFoundAsUser(
+                session.page,
+                () =>
+                    Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+                        (item) => item.textContent?.includes('Save As') && item.checkVisibility(),
+                    ),
+                null,
+                {description: 'toolbar Save As'},
+            );
             await expect.poll(() => existsSync(savedPath), {timeout: 60_000}).toBe(true);
-            await expect.poll(async () => (await readWorkspaceStateValues(session.page, ['originalPath'])).originalPath,
-                {timeout: 30_000}).toBe(savedPath);
+            await expect
+                .poll(async () => (await readWorkspaceStateValues(session.page, ['originalPath'])).originalPath, {timeout: 30_000})
+                .toBe(savedPath);
             const firstSaveMtime = statSync(savedPath).mtimeMs;
             await waitForPdfLoaded(session.page, 30_000);
             await waitForViewerInteractive(session.page, 30_000);
             await clickToastSaveAs(session.page);
-            await expect.poll(async () => ({
-                activePath: (await readWorkspaceStateValues(session.page, ['originalPath'])).originalPath,
-                rendered: await session.page.$eval('.workspace-host[data-workspace-active="true"]', host => (
-                    host.querySelectorAll('.page_container--rendered').length > 0
-                )),
-                unchanged: statSync(savedPath).mtimeMs === firstSaveMtime,
-                warning: await session.page.evaluate(() => document.body.innerText.includes(
-                    'Save As is no longer available from this notification. Use Save As in the cleaned PDF tab, or reopen the PDF.',
-                )),
-            }), {timeout: 10_000}).toEqual({
-                activePath: savedPath,
-                rendered: true,
-                unchanged: true,
-                warning: true,
-            });
+            await expect
+                .poll(
+                    async () => ({
+                        activePath: (await readWorkspaceStateValues(session.page, ['originalPath'])).originalPath,
+                        rendered: await session.page.$eval(
+                            '.workspace-host[data-workspace-active="true"]',
+                            (host) => host.querySelectorAll('.page_container--rendered').length > 0,
+                        ),
+                        unchanged: statSync(savedPath).mtimeMs === firstSaveMtime,
+                        warning: await session.page.evaluate(() =>
+                            document.body.innerText.includes(
+                                'Save As is no longer available from this notification. Use Save As in the cleaned PDF tab, or reopen the PDF.',
+                            ),
+                        ),
+                    }),
+                    {timeout: 10_000},
+                )
+                .toEqual({
+                    activePath: savedPath,
+                    rendered: true,
+                    unchanged: true,
+                    warning: true,
+                });
         } finally {
             await session.stop();
             await rm(scratch, {
@@ -608,10 +663,13 @@ describe('scan cleanup completion Save As', () => {
                 }
                 // Observe uninterrupted Save As from the painted output. The
                 // other variant retains the toast action from a different tab.
-                if (leaveDuringSave) await activateWorkspaceTab(session, 0);
-                else await waitForPdfLoaded(session.page, 30_000);
+                if (leaveDuringSave) {
+                    await activateWorkspaceTab(session, 0);
+                } else {
+                    await waitForPdfLoaded(session.page, 30_000);
+                }
                 const settlementErrors: string[] = [];
-                session.page.on('console', message => {
+                session.page.on('console', (message) => {
                     if (/recovery settlement failed|Recovery protection is unavailable/u.test(message.text())) {
                         settlementErrors.push(message.text());
                     }
@@ -621,14 +679,22 @@ describe('scan cleanup completion Save As', () => {
                 await installCommittedSurfaceSampler(session.page, {sampleCanvasPixels: true});
                 await clickToastSaveAs(session.page);
                 if (leaveDuringSave) {
-                    await waitForFunctionInPage(session.page, () => document.querySelector('.tab.is-active')
-                        ?.textContent?.includes('saved-from-toast.pdf') === true, {timeout: 30_000});
+                    await waitForFunctionInPage(
+                        session.page,
+                        () => document.querySelector('.tab.is-active')?.textContent?.includes('saved-from-toast.pdf') === true,
+                        {timeout: 30_000},
+                    );
                     await activateWorkspaceTab(session, 0);
                     // Under the aggressive policy the inactive view unmounts. Wait
                     // until its document host also leaves after the save settles,
                     // so returning cannot hide a late settlement error by remounting.
-                    await waitForFunctionInPage(session.page, () => document.querySelectorAll('.workspace-host').length === 1
-                        && document.querySelectorAll('.document-session-host').length === 1, {timeout: 30_000});
+                    await waitForFunctionInPage(
+                        session.page,
+                        () =>
+                            document.querySelectorAll('.workspace-host').length === 1 &&
+                            document.querySelectorAll('.document-session-host').length === 1,
+                        {timeout: 30_000},
+                    );
                     await activateWorkspaceTab(session, 1);
                 }
                 await expect.poll(() => existsSync(savedPath), {timeout: 60_000}).toBe(true);
@@ -637,11 +703,15 @@ describe('scan cleanup completion Save As', () => {
                 await waitForViewerInteractive(session.page, 30_000);
                 await waitForWorkspaceToolbarIdle(session.page);
                 const trace = await stopCommittedSurfaceSampler(session.page);
-                const blankFrames = trace.frames.filter(frame => frame.kind === 'blank').map(frame => frame.elapsedMs);
-                const recoveryWarning = await session.page.evaluate(() => /PDF saved, but recovery could not be updated|Latest edits are not protected/u.test(document.body.innerText));
-                const painted = trace.frames.at(-1)?.canvasAuthorityReady === true
-                    && trace.frames.at(-1)?.canvasNonblank === true;
-                console.log('Cleanup output Save As transition:', JSON.stringify({leaveDuringSave, settlementErrors, blankFrames, recoveryWarning, painted}));
+                const blankFrames = trace.frames.filter((frame) => frame.kind === 'blank').map((frame) => frame.elapsedMs);
+                const recoveryWarning = await session.page.evaluate(() =>
+                    /PDF saved, but recovery could not be updated|Latest edits are not protected/u.test(document.body.innerText),
+                );
+                const painted = trace.frames.at(-1)?.canvasAuthorityReady === true && trace.frames.at(-1)?.canvasNonblank === true;
+                console.log(
+                    'Cleanup output Save As transition:',
+                    JSON.stringify({leaveDuringSave, settlementErrors, blankFrames, recoveryWarning, painted}),
+                );
                 expect.soft(settlementErrors, 'Saving a cleaned output must also settle its recovery state').toEqual([]);
                 expect.soft(recoveryWarning, 'Save As must not leave a recovery warning').toBe(false);
                 expect.soft(painted, 'The saved output must paint when selected again').toBe(true);

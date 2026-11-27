@@ -1,12 +1,6 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { createCombinedPdfFromPaths } from '@app/platform/browser-api/createCombinedPdfFromPaths';
-import { PdfCombineCapabilityError } from '@electron/image/pdfCombineErrors';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {createCombinedPdfFromPaths} from '@app/platform/browser-api/createCombinedPdfFromPaths';
+import {PdfCombineCapabilityError} from '@electron/image/pdfCombineErrors';
 
 const browserDocumentStoreMock = vi.hoisted(() => ({
     stat: vi.fn(async () => ({size: 1_024})),
@@ -38,9 +32,7 @@ describe('browser combine DjVu abort window', () => {
     });
 
     it('refuses absolute native paths before consulting the browser document store', async () => {
-        await expect(createCombinedPdfFromPaths(['/tmp/native.pdf'])).rejects.toBeInstanceOf(
-            PdfCombineCapabilityError,
-        );
+        await expect(createCombinedPdfFromPaths(['/tmp/native.pdf'])).rejects.toBeInstanceOf(PdfCombineCapabilityError);
         await expect(createCombinedPdfFromPaths(['/tmp/native.pdf'])).rejects.toMatchObject({
             name: 'PdfCombineCapabilityError',
             code: 'native-unavailable',
@@ -61,10 +53,9 @@ describe('browser combine DjVu abort window', () => {
             return 'browser://documents/converted.pdf';
         });
 
-        await expect(createCombinedPdfFromPaths(
-            ['browser://documents/library/scan.djvu'],
-            {signal: controller.signal},
-        )).rejects.toMatchObject({name: 'AbortError'});
+        await expect(
+            createCombinedPdfFromPaths(['browser://documents/library/scan.djvu'], {signal: controller.signal}),
+        ).rejects.toMatchObject({name: 'AbortError'});
 
         expect(browserDjvuCapabilityMock.runConversion).not.toHaveBeenCalled();
         expect(browserDocumentStoreMock.remove).toHaveBeenCalledWith('browser://documents/converted.pdf');

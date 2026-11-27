@@ -1,4 +1,4 @@
-import { isFiniteNumber } from '@contracts/runtimeGuards';
+import {isFiniteNumber} from '@contracts/runtimeGuards';
 
 /**
  * Largest normalized anchor-rect side that still classifies a FreeText
@@ -25,8 +25,7 @@ export const POINT_NOTE_MARKER_MAX_NORMALIZED_SIZE = 0.02;
 // fallow-ignore-next-line unused-export
 export const POINT_NOTE_MARKER_SIZE_ROUNDING_TOLERANCE = Number.EPSILON * 16;
 
-const POINT_NOTE_MARKER_SIZE_LIMIT
-    = POINT_NOTE_MARKER_MAX_NORMALIZED_SIZE + POINT_NOTE_MARKER_SIZE_ROUNDING_TOLERANCE;
+const POINT_NOTE_MARKER_SIZE_LIMIT = POINT_NOTE_MARKER_MAX_NORMALIZED_SIZE + POINT_NOTE_MARKER_SIZE_ROUNDING_TOLERANCE;
 
 /**
  * The single point-note size test. Boundary behaviour is inclusive at the top:
@@ -41,17 +40,24 @@ const POINT_NOTE_MARKER_SIZE_LIMIT
  * would let malformed geometry survive a save cycle unchanged instead of
  * being rewritten to a usable anchor.
  */
-export function isPointNoteMarkerSizedRect(rect: {
-    width: number;
-    height: number;
-} | null | undefined): boolean {
+export function isPointNoteMarkerSizedRect(
+    rect:
+        | {
+              width: number;
+              height: number;
+          }
+        | null
+        | undefined,
+): boolean {
     if (!rect) {
         return false;
     }
-    return isFiniteNumber(rect.width)
-        && isFiniteNumber(rect.height)
-        && rect.width > 0
-        && rect.height > 0
-        && rect.width <= POINT_NOTE_MARKER_SIZE_LIMIT
-        && rect.height <= POINT_NOTE_MARKER_SIZE_LIMIT;
+    return (
+        isFiniteNumber(rect.width) &&
+        isFiniteNumber(rect.height) &&
+        rect.width > 0 &&
+        rect.height > 0 &&
+        rect.width <= POINT_NOTE_MARKER_SIZE_LIMIT &&
+        rect.height <= POINT_NOTE_MARKER_SIZE_LIMIT
+    );
 }

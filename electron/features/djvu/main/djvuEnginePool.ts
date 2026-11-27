@@ -1,15 +1,12 @@
-import { existsSync } from 'node:fs';
-import {
-    dirname,
-    join,
-} from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { Worker } from 'node:worker_threads';
+import {existsSync} from 'node:fs';
+import {dirname, join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {Worker} from 'node:worker_threads';
 import * as electron from 'electron';
-import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
-import { resolveUnpackedWorkerPath } from '@electron/utils/workerTask';
-import { getHostResourceProfileSnapshot } from '@electron/resources/hostResourceProfile';
-import { abortErrorFromSignal } from '@electron/utils/abort';
+import {WORKER_BUNDLES_BY_ID} from '@electron-worker-bundles/electronWorkerBundles.js';
+import {resolveUnpackedWorkerPath} from '@electron/utils/workerTask';
+import {getHostResourceProfileSnapshot} from '@electron/resources/hostResourceProfile';
+import {abortErrorFromSignal} from '@electron/utils/abort';
 import type {
     IDjvuEngineWorkerData,
     TDjvuEngineResultMap,
@@ -41,7 +38,7 @@ interface IDjvuPoolWorker {
 
 /** The DjVuLibre WASM engine bundled beside the renderer (unpacked from ASAR in packaged builds). */
 export function resolveDjvuEngineDir() {
-    if ((electron as { app?: { isPackaged?: boolean } }).app?.isPackaged === true) {
+    if ((electron as {app?: {isPackaged?: boolean}}).app?.isPackaged === true) {
         return join(process.resourcesPath, 'app.asar.unpacked', 'nuxt-output', 'public', 'wasm');
     }
     const candidates = [
@@ -49,12 +46,12 @@ export function resolveDjvuEngineDir() {
         join(process.cwd(), 'public', 'wasm'),
         join(__dirname, '..', '..', '..', '..', 'public', 'wasm'),
     ];
-    return candidates.find(dir => existsSync(join(dir, 'evb-djvulibre.wasm'))) ?? candidates[0]!;
+    return candidates.find((dir) => existsSync(join(dir, 'evb-djvulibre.wasm'))) ?? candidates[0]!;
 }
 
 function resolveDjvuEngineWorkerPath() {
     const primary = resolveUnpackedWorkerPath(__dirname, WORKER_BUNDLES_BY_ID['djvu-engine'].fileName);
-    if (existsSync(primary) || (electron as { app?: { isPackaged?: boolean } }).app?.isPackaged === true) {
+    if (existsSync(primary) || (electron as {app?: {isPackaged?: boolean}}).app?.isPackaged === true) {
         return primary;
     }
     const fallback = join(process.cwd(), 'dist-electron', WORKER_BUNDLES_BY_ID['djvu-engine'].fileName);
@@ -90,14 +87,19 @@ class DjvuEnginePool {
     }
 
     private endWorker(entry: IDjvuPoolWorker) {
-        if (entry.ending) return;
+        if (entry.ending) {
+            return;
+        }
         entry.ending = true;
         entry.busy = true;
         clearTimeout(entry.idleTimer);
-        void entry.worker.terminate().catch(() => undefined).finally(() => {
-            this.workers.delete(entry);
-            this.wakeWaiter();
-        });
+        void entry.worker
+            .terminate()
+            .catch(() => undefined)
+            .finally(() => {
+                this.workers.delete(entry);
+                this.wakeWaiter();
+            });
     }
 
     private parkWorker(entry: IDjvuPoolWorker) {
@@ -114,7 +116,7 @@ class DjvuEnginePool {
     private spawnWorker(): IDjvuPoolWorker {
         const workerPath = resolveDjvuEngineWorkerPath();
         const worker = new Worker(workerPath, {
-            workerData: { engineDir: resolveDjvuEngineDir() } satisfies IDjvuEngineWorkerData,
+            workerData: {engineDir: resolveDjvuEngineDir()} satisfies IDjvuEngineWorkerData,
             resourceLimits: WORKER_RESOURCE_LIMITS,
         });
         const entry: IDjvuPoolWorker = {
@@ -137,7 +139,7 @@ class DjvuEnginePool {
             if (this.closed) {
                 throw new Error('The DjVu engine pool was shut down');
             }
-            const idle = [...this.workers].find(entry => !entry.busy && !entry.ending);
+            const idle = [...this.workers].find((entry) => !entry.busy && !entry.ending);
             if (idle) {
                 clearTimeout(idle.idleTimer);
                 idle.busy = true;
@@ -150,29 +152,28 @@ class DjvuEnginePool {
                 const wake = () => {
                     signal?.removeEventListener('abort', wake);
                     const idx = this.waiters.indexOf(wake);
-                    if (idx >= 0) this.waiters.splice(idx, 1);
+                    if (idx >= 0) {
+                        this.waiters.splice(idx, 1);
+                    }
                     resolveWaiter();
                 };
                 this.waiters.push(wake);
-                signal?.addEventListener('abort', wake, { once: true });
+                signal?.addEventListener('abort', wake, {once: true});
             });
         }
     }
 
     public async request<TType extends TDjvuEngineWorkerRequest['type']>(
-        payload: TDjvuEngineRequestPayloadMap[TType] & { type: TType },
+        payload: TDjvuEngineRequestPayloadMap[TType] & {type: TType},
         options: {
             signal?: AbortSignal;
             timeoutMs?: number;
         } = {},
     ): Promise<TDjvuEngineResultMap[TType]> {
-        const {
-            signal,
-            timeoutMs = ENGINE_TASK_TIMEOUT_MS,
-        } = options;
+        const {signal, timeoutMs = ENGINE_TASK_TIMEOUT_MS} = options;
         const entry = await this.acquire(signal);
         const id = this.nextId++;
-        const { worker } = entry;
+        const {worker} = entry;
 
         return new Promise<TDjvuEngineResultMap[TType]>((resolvePromise, rejectPromise) => {
             let settled = false;
@@ -184,14 +185,21 @@ class DjvuEnginePool {
                 worker.off('exit', onExit);
             };
             const finish = (error: Error | null, result?: TDjvuEngineResultMap[TType]) => {
-                if (settled) return;
+                if (settled) {
+                    return;
+                }
                 settled = true;
                 cleanup();
-                if (error) rejectPromise(error);
-                else resolvePromise(result as TDjvuEngineResultMap[TType]);
+                if (error) {
+                    rejectPromise(error);
+                } else {
+                    resolvePromise(result as TDjvuEngineResultMap[TType]);
+                }
             };
             const onMessage = (reply: TDjvuEngineWorkerReply) => {
-                if (!reply || reply.id !== id) return;
+                if (!reply || reply.id !== id) {
+                    return;
+                }
                 entry.heapBytes = reply.heapBytes;
                 this.parkWorker(entry);
                 if (reply.ok) {
@@ -202,7 +210,7 @@ class DjvuEnginePool {
             };
             const onError = (error: Error) => {
                 this.endWorker(entry);
-                finish(new Error(`DjVu engine worker failed: ${error.message}`, { cause: error }));
+                finish(new Error(`DjVu engine worker failed: ${error.message}`, {cause: error}));
             };
             const onExit = (code: number) => {
                 this.endWorker(entry);
@@ -221,7 +229,7 @@ class DjvuEnginePool {
             worker.on('message', onMessage);
             worker.on('error', onError);
             worker.on('exit', onExit);
-            signal?.addEventListener('abort', onAbort, { once: true });
+            signal?.addEventListener('abort', onAbort, {once: true});
 
             if (signal?.aborted) {
                 onAbort();
@@ -253,7 +261,7 @@ function getPool() {
 }
 
 export function runDjvuEngine<TType extends TDjvuEngineWorkerRequest['type']>(
-    payload: TDjvuEngineRequestPayloadMap[TType] & { type: TType },
+    payload: TDjvuEngineRequestPayloadMap[TType] & {type: TType},
     options?: {
         signal?: AbortSignal;
         timeoutMs?: number;

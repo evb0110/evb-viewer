@@ -1,14 +1,9 @@
-import { getCliErrorMessage } from './lib/cli-error.mjs';
-import { execFileSync } from 'node:child_process';
-import {
-    existsSync,
-    readFileSync,
-    readlinkSync,
-    readdirSync,
-} from 'node:fs';
-import { realpath } from 'node:fs/promises';
+import {getCliErrorMessage} from './lib/cli-error.mjs';
+import {execFileSync} from 'node:child_process';
+import {existsSync, readFileSync, readlinkSync, readdirSync} from 'node:fs';
+import {realpath} from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import {fileURLToPath} from 'node:url';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
 const DEFAULT_BASE_REFS = ['origin/main'];
@@ -31,11 +26,12 @@ export function parseArgs(argv) {
         } else if (arg.startsWith('--target=')) {
             options.target = arg.slice('--target='.length).trim() || null;
         } else if (arg.startsWith('--into=')) {
-            const refs = arg.slice('--into='.length).split(',').map(ref => ref.trim()).filter(Boolean);
-            options.into = [...new Set([
-                ...options.into,
-                ...refs,
-            ])];
+            const refs = arg
+                .slice('--into='.length)
+                .split(',')
+                .map((ref) => ref.trim())
+                .filter(Boolean);
+            options.into = [...new Set([...options.into, ...refs])];
         } else {
             throw new Error(`Unknown argument: ${arg}`);
         }
@@ -138,11 +134,13 @@ function readCompletionEvidence(filePath) {
     }
     try {
         const evidence = JSON.parse(readFileSync(filePath, 'utf8'));
-        if (evidence?.status !== 'completed'
-            || typeof evidence.taskKey !== 'string'
-            || evidence.taskKey.length === 0
-            || typeof evidence.worktreePath !== 'string'
-            || !/^[0-9a-f]{40}$/u.test(evidence.head)) {
+        if (
+            evidence?.status !== 'completed' ||
+            typeof evidence.taskKey !== 'string' ||
+            evidence.taskKey.length === 0 ||
+            typeof evidence.worktreePath !== 'string' ||
+            !/^[0-9a-f]{40}$/u.test(evidence.head)
+        ) {
             return null;
         }
         return evidence;
@@ -174,12 +172,11 @@ function probeSessionMetadataOwnership(worktreePath) {
     }
     for (const sessionName of sessionNames) {
         const sessionPath = path.join(sessionsPath, sessionName);
-        for (const fileName of [
-            'session.json',
-            'session-starting.json',
-        ]) {
+        for (const fileName of ['session.json', 'session-starting.json']) {
             const metadataPath = path.join(sessionPath, fileName);
-            if (!existsSync(metadataPath)) continue;
+            if (!existsSync(metadataPath)) {
+                continue;
+            }
             let metadata;
             try {
                 metadata = JSON.parse(readFileSync(metadataPath, 'utf8'));
@@ -189,12 +186,7 @@ function probeSessionMetadataOwnership(worktreePath) {
                     reason: `session ownership metadata is unreadable: ${metadataPath}`,
                 };
             }
-            const pids = [
-                metadata?.pid,
-                metadata?.electronPid,
-                metadata?.nuxtPid,
-            ]
-                .filter(pid => Number.isInteger(pid) && pid > 0);
+            const pids = [metadata?.pid, metadata?.electronPid, metadata?.nuxtPid].filter((pid) => Number.isInteger(pid) && pid > 0);
             if (pids.length === 0) {
                 return {
                     status: 'ambiguous',
@@ -254,7 +246,7 @@ function probeWorktreeOwnership(worktreePath) {
     }
     let pids;
     try {
-        pids = readdirSync('/proc').filter(name => /^\d+$/u.test(name));
+        pids = readdirSync('/proc').filter((name) => /^\d+$/u.test(name));
     } catch {
         return {
             status: 'ambiguous',
@@ -263,7 +255,9 @@ function probeWorktreeOwnership(worktreePath) {
     }
     for (const pid of pids) {
         const sameUser = processBelongsToCurrentUser(pid, currentUid);
-        if (sameUser === false) continue;
+        if (sameUser === false) {
+            continue;
+        }
         if (sameUser === null) {
             return {
                 status: 'ambiguous',
@@ -274,7 +268,9 @@ function probeWorktreeOwnership(worktreePath) {
         try {
             ownerCwd = readlinkSync(`/proc/${pid}/cwd`).replace(/ \(deleted\)$/u, '');
         } catch (error) {
-            if (error?.code === 'ENOENT') continue;
+            if (error?.code === 'ENOENT') {
+                continue;
+            }
             return {
                 status: 'ambiguous',
                 reason: `live-owner probe could not inspect process ${pid}`,
@@ -298,22 +294,13 @@ function git(args, cwd = projectRoot) {
     return execFileSync('git', args, {
         cwd,
         encoding: 'utf8',
-        stdio: [
-            'ignore',
-            'pipe',
-            'pipe',
-        ],
+        stdio: ['ignore', 'pipe', 'pipe'],
     });
 }
 
 function isAncestor(head, baseRef) {
     try {
-        execFileSync('git', [
-            'merge-base',
-            '--is-ancestor',
-            head,
-            baseRef,
-        ], {
+        execFileSync('git', ['merge-base', '--is-ancestor', head, baseRef], {
             cwd: projectRoot,
             stdio: 'ignore',
         });
@@ -325,11 +312,7 @@ function isAncestor(head, baseRef) {
 
 function countDirtyEntries(worktreePath) {
     try {
-        return git([
-            'status',
-            '--porcelain',
-            '--untracked-files=normal',
-        ], worktreePath).split('\n').filter(Boolean).length;
+        return git(['status', '--porcelain', '--untracked-files=normal'], worktreePath).split('\n').filter(Boolean).length;
     } catch {
         return null;
     }
@@ -337,12 +320,7 @@ function countDirtyEntries(worktreePath) {
 
 function refExists(ref) {
     try {
-        git([
-            'rev-parse',
-            '--verify',
-            '--quiet',
-            `${ref}^{commit}`,
-        ]);
+        git(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
         return true;
     } catch {
         return false;
@@ -351,16 +329,9 @@ function refExists(ref) {
 
 function directorySizeKiB(dirPath) {
     try {
-        const output = execFileSync('du', [
-            '-sk',
-            dirPath,
-        ], {
+        const output = execFileSync('du', ['-sk', dirPath], {
             encoding: 'utf8',
-            stdio: [
-                'ignore',
-                'pipe',
-                'ignore',
-            ],
+            stdio: ['ignore', 'pipe', 'ignore'],
         });
         const sizeKiB = Number.parseInt(output.split('\t')[0], 10);
         return Number.isNaN(sizeKiB) ? null : sizeKiB;
@@ -370,39 +341,24 @@ function directorySizeKiB(dirPath) {
 }
 
 function formatReclaimed(reclaimedKiB) {
-    return reclaimedKiB === null
-        ? 'reclaimed size unknown (du unavailable)'
-        : `reclaimed about ${Math.round(reclaimedKiB / 1024)} MiB`;
+    return reclaimedKiB === null ? 'reclaimed size unknown (du unavailable)' : `reclaimed about ${Math.round(reclaimedKiB / 1024)} MiB`;
 }
 
-export async function collectWorktrees(baseRefs, {
-    targetPath = null, completion = null, ownerProbe = probeWorktreeOwnership,
-} = {}) {
+export async function collectWorktrees(baseRefs, {targetPath = null, completion = null, ownerProbe = probeWorktreeOwnership} = {}) {
     const cwd = await realpath(process.cwd()).catch(() => process.cwd());
-    const missingRefs = baseRefs.filter(ref => !refExists(ref));
+    const missingRefs = baseRefs.filter((ref) => !refExists(ref));
     if (missingRefs.length > 0) {
         throw new Error(`Unknown base ref(s): ${missingRefs.join(', ')}. Run git fetch --prune origin first.`);
     }
-    const entries = parseWorktreeList(git([
-        'worktree',
-        'list',
-        '--porcelain',
-    ]));
+    const entries = parseWorktreeList(git(['worktree', 'list', '--porcelain']));
     const worktrees = [];
-    for (const [
-        index,
-        entry,
-    ] of entries.entries()) {
+    for (const [index, entry] of entries.entries()) {
         const worktreePath = await realpath(entry.path).catch(() => entry.path);
         const isPrimary = index === 0;
         const missing = !isPrimary && !existsSync(worktreePath);
         const owner = ownerProbe(worktreePath);
-        const dirtyEntries = isPrimary || missing
-            ? 0
-            : countDirtyEntries(worktreePath);
-        const mergedInto = isPrimary || !entry.head
-            ? []
-            : baseRefs.filter(ref => isAncestor(entry.head, ref));
+        const dirtyEntries = isPrimary || missing ? 0 : countDirtyEntries(worktreePath);
+        const mergedInto = isPrimary || !entry.head ? [] : baseRefs.filter((ref) => isAncestor(entry.head, ref));
         const worktree = {
             ...entry,
             path: worktreePath,
@@ -437,9 +393,7 @@ export async function pruneWorktrees(options) {
         throw new Error('Apply requires both --target=<worktree> and --completed=<receipt.json>.');
     }
     const completion = readCompletionEvidence(options.completed);
-    const targetPath = options.target
-        ? await realpath(options.target).catch(() => path.resolve(options.target))
-        : null;
+    const targetPath = options.target ? await realpath(options.target).catch(() => path.resolve(options.target)) : null;
     if (options.apply && (!completion || completion.worktreePath !== targetPath)) {
         throw new Error('Completed-task evidence is missing, invalid, or does not name the target worktree.');
     }
@@ -447,7 +401,7 @@ export async function pruneWorktrees(options) {
         targetPath,
         completion,
     });
-    const removable = worktrees.filter(worktree => worktree.action === 'remove');
+    const removable = worktrees.filter((worktree) => worktree.action === 'remove');
     for (const worktree of worktrees) {
         console.log(formatRow(worktree));
     }
@@ -470,11 +424,12 @@ export async function pruneWorktrees(options) {
     let reclaimedKiB = 0;
     for (const worktree of removable) {
         const latestCompletion = readCompletionEvidence(options.completed);
-        const latest = (await collectWorktrees(options.into, {
-            targetPath,
-            completion: latestCompletion,
-        }))
-            .find(entry => entry.path === worktree.path);
+        const latest = (
+            await collectWorktrees(options.into, {
+                targetPath,
+                completion: latestCompletion,
+            })
+        ).find((entry) => entry.path === worktree.path);
         if (!latest || latest.head !== worktree.head || latest.action !== 'remove') {
             console.error(`kept ${worktree.path}: target changed or safety checks no longer pass`);
             continue;
@@ -485,15 +440,9 @@ export async function pruneWorktrees(options) {
         }
         const sizeKiB = directorySizeKiB(worktree.path);
         try {
-            git([
-                'worktree',
-                'remove',
-                worktree.path,
-            ]);
+            git(['worktree', 'remove', worktree.path]);
             removed.push(worktree.path);
-            reclaimedKiB = reclaimedKiB === null || sizeKiB === null
-                ? null
-                : reclaimedKiB + sizeKiB;
+            reclaimedKiB = reclaimedKiB === null || sizeKiB === null ? null : reclaimedKiB + sizeKiB;
             console.log(`removed ${worktree.path}`);
         } catch (error) {
             console.error(`failed to remove ${worktree.path}: ${getCliErrorMessage(error)}`);

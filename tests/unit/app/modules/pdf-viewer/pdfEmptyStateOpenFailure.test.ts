@@ -2,22 +2,11 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-} from 'vue';
-import type { IRecentFile } from '@contracts/shared';
-import { requireDocumentRef } from '@contracts/documentRef';
-import { requireEpochMs } from '@contracts/timestamps';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {createApp, defineComponent, h, nextTick} from 'vue';
+import type {IRecentFile} from '@contracts/shared';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireEpochMs} from '@contracts/timestamps';
 import PdfEmptyState from '@app/modules/pdf-viewer/components/PdfEmptyState.vue';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
@@ -39,26 +28,42 @@ function recentFile(path: string): IRecentFile {
     };
 }
 
-async function mountStart(props: {
-    recentFiles: IRecentFile[];
-    recentFilesError: string | null;
-}) {
+async function mountStart(props: {recentFiles: IRecentFile[]; recentFilesError: string | null}) {
     const host = document.createElement('div');
     document.body.append(host);
     const onRetryRecent = vi.fn();
-    const app = createApp(defineComponent({setup: () => () => h(PdfEmptyState, {
-        ...props,
-        recentFilesResolved: true,
-        onRetryRecent,
-    })}));
+    const app = createApp(
+        defineComponent({
+            setup: () => () =>
+                h(PdfEmptyState, {
+                    ...props,
+                    recentFilesResolved: true,
+                    onRetryRecent,
+                }),
+        }),
+    );
     app.component('UIcon', defineComponent({setup: () => () => h('span')}));
-    app.component('UButton', defineComponent({
-        props: {label: String},
-        emits: ['click'],
-        setup: (props, {emit}) => () => h('button', {onClick: () => emit('click')}, props.label),
-    }));
+    app.component(
+        'UButton',
+        defineComponent({
+            props: {label: String},
+            emits: ['click'],
+            setup:
+                (props, {emit}) =>
+                () =>
+                    h('button', {onClick: () => emit('click')}, props.label),
+        }),
+    );
     app.component('UInput', defineComponent({setup: () => () => h('input')}));
-    app.component('AppTooltip', defineComponent({setup: (_, {slots}) => () => h('span', slots.default?.())}));
+    app.component(
+        'AppTooltip',
+        defineComponent({
+            setup:
+                (_, {slots}) =>
+                () =>
+                    h('span', slots.default?.()),
+        }),
+    );
     app.component('UModal', defineComponent({setup: () => () => null}));
     app.mount(host);
     await nextTick();
@@ -71,11 +76,7 @@ async function mountStart(props: {
 
 describe('PdfEmptyState Recent list load failure', () => {
     it('says so in the list box, where its rows would be, and retries from there', async () => {
-        const {
-            host,
-            onRetryRecent,
-            unmount,
-        } = await mountStart({
+        const {host, onRetryRecent, unmount} = await mountStart({
             recentFiles: [],
             recentFilesError: 'storage unavailable',
         });
@@ -84,17 +85,13 @@ describe('PdfEmptyState Recent list load failure', () => {
         expect(box?.textContent).toContain('errors.recent.load');
         expect(host.querySelector('[role="alert"]')).toBeNull();
         expect(host.querySelector('.recent-empty:not([data-testid])')).toBeNull();
-        [...(box?.querySelectorAll('button') ?? [])].find(button => button.textContent === 'common.retry')?.click();
+        [...(box?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'common.retry')?.click();
         expect(onRetryRecent).toHaveBeenCalledOnce();
         unmount();
     });
 
     it('keeps the rows it has when a later load fails and says so in the footer', async () => {
-        const {
-            host,
-            onRetryRecent,
-            unmount,
-        } = await mountStart({
+        const {host, onRetryRecent, unmount} = await mountStart({
             recentFiles: [recentFile('/docs/kept.pdf')],
             recentFilesError: 'storage unavailable',
         });

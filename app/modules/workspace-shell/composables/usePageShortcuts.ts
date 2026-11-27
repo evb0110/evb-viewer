@@ -1,17 +1,14 @@
-import type { Ref } from 'vue';
-import { useEventListener } from '@vueuse/core';
-import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
-import type { TAnnotationTool } from '@app/types/annotations';
-import type { TFitMode } from '@app/types/pdfContracts';
-import type { TPdfSource } from '@app/types/pdfUi';
-import type { TPdfViewMode } from '@contracts/shared';
-import {
-    getSpreadStartForPage,
-    stepBySpread,
-} from '@app/utils/pdfViewMode';
-import { shouldHandleRendererMenuAccelerators } from '@app/utils/shouldHandleRendererMenuAccelerators';
-import { readShortcutKey } from '@app/utils/shortcutKey';
-import { readPageAnnotationImageFileFromPasteData } from '@app/modules/workspace-shell/annotations/readPageAnnotationImageFileFromClipboard';
+import type {Ref} from 'vue';
+import {useEventListener} from '@vueuse/core';
+import type {IScrollToPageOptions} from '@app/modules/pdf-viewer/public';
+import type {TAnnotationTool} from '@app/types/annotations';
+import type {TFitMode} from '@app/types/pdfContracts';
+import type {TPdfSource} from '@app/types/pdfUi';
+import type {TPdfViewMode} from '@contracts/shared';
+import {getSpreadStartForPage, stepBySpread} from '@app/utils/pdfViewMode';
+import {shouldHandleRendererMenuAccelerators} from '@app/utils/shouldHandleRendererMenuAccelerators';
+import {readShortcutKey} from '@app/utils/shortcutKey';
+import {readPageAnnotationImageFileFromPasteData} from '@app/modules/workspace-shell/annotations/readPageAnnotationImageFileFromClipboard';
 
 interface IPdfViewerForShortcuts {
     deleteSelectedShape: () => void;
@@ -65,9 +62,9 @@ function isEditingText(target: EventTarget | null) {
         return false;
     }
     return Boolean(
-        target.isContentEditable === true
-        || Boolean(target.closest('[contenteditable="true"], [contenteditable=""]'))
-        || Boolean(target.closest('input, textarea, select')),
+        target.isContentEditable === true ||
+        Boolean(target.closest('[contenteditable="true"], [contenteditable=""]')) ||
+        Boolean(target.closest('input, textarea, select')),
     );
 }
 
@@ -92,10 +89,7 @@ function isFitHeightKey(event: KeyboardEvent) {
 }
 
 function isPagingKey(event: KeyboardEvent) {
-    return event.key === 'PageUp'
-        || event.key === 'PageDown'
-        || event.key === 'Home'
-        || event.key === 'End';
+    return event.key === 'PageUp' || event.key === 'PageDown' || event.key === 'Home' || event.key === 'End';
 }
 
 function eventHasCommandModifier(event: KeyboardEvent) {
@@ -103,9 +97,7 @@ function eventHasCommandModifier(event: KeyboardEvent) {
 }
 
 function targetAsElement(target: EventTarget | null) {
-    return typeof HTMLElement !== 'undefined' && target instanceof HTMLElement
-        ? target
-        : null;
+    return typeof HTMLElement !== 'undefined' && target instanceof HTMLElement ? target : null;
 }
 
 export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) => {
@@ -254,22 +246,12 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
             return totalPages;
         }
         const viewMode = deps.viewMode.value;
-        const sourcePage = Math.min(
-            Math.max(Math.trunc(deps.navigationPage.value) || 1, 1),
-            totalPages,
-        );
-        const targetPage = stepBySpread(
-            sourcePage,
-            viewMode,
-            totalPages,
-            event.key === 'PageDown' ? 1 : -1,
-        );
+        const sourcePage = Math.min(Math.max(Math.trunc(deps.navigationPage.value) || 1, 1), totalPages);
+        const targetPage = stepBySpread(sourcePage, viewMode, totalPages, event.key === 'PageDown' ? 1 : -1);
         // stepBySpread returns a spread start; the boundary spread returns the
         // spread the source page already sits in, which must not navigate
         // backwards to that spread's first page.
-        return targetPage === getSpreadStartForPage(sourcePage, viewMode, totalPages)
-            ? null
-            : targetPage;
+        return targetPage === getSpreadStartForPage(sourcePage, viewMode, totalPages) ? null : targetPage;
     }
 
     function handlePagingShortcut(event: KeyboardEvent) {
@@ -314,8 +296,9 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
 
     // A dialog owns the keys pressed in it; the document behind it does not act.
     function isInDialog(target: EventTarget | null) {
-        return typeof Element !== 'undefined' && target instanceof Element
-            && target.closest('[role="dialog"], [role="alertdialog"]') !== null;
+        return (
+            typeof Element !== 'undefined' && target instanceof Element && target.closest('[role="dialog"], [role="alertdialog"]') !== null
+        );
     }
 
     function handleCapturedWebMenuAccelerator(event: KeyboardEvent) {
@@ -419,7 +402,13 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
     }
 
     function handleImagePaste(event: ClipboardEvent) {
-        if (!isActive.value || !interactiveDocument.value || event.defaultPrevented || isEditingText(event.target) || isInDialog(event.target)) {
+        if (
+            !isActive.value ||
+            !interactiveDocument.value ||
+            event.defaultPrevented ||
+            isEditingText(event.target) ||
+            isInDialog(event.target)
+        ) {
             return;
         }
         const file = readPageAnnotationImageFileFromPasteData(event.clipboardData);
@@ -446,11 +435,9 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
         }
     }
 
-    const windowTarget = typeof window !== 'undefined' && typeof window.addEventListener === 'function'
-        ? window
-        : null;
-    useEventListener(windowTarget, 'keydown', handleKeyboardShortcut, { passive: false });
+    const windowTarget = typeof window !== 'undefined' && typeof window.addEventListener === 'function' ? window : null;
+    useEventListener(windowTarget, 'keydown', handleKeyboardShortcut, {passive: false});
     useEventListener(windowTarget, 'pointerdown', handleGlobalPointerDown);
-    useEventListener(windowTarget, 'keydown', handleCapturedWebMenuAccelerator, { capture: true });
+    useEventListener(windowTarget, 'keydown', handleCapturedWebMenuAccelerator, {capture: true});
     useEventListener(windowTarget, 'paste', handleImagePaste);
 };

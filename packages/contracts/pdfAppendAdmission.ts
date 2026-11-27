@@ -13,11 +13,7 @@ export const PDF_APPEND_ADMISSION_SCHEMA = v.variant('verdict', [
         reason: v.null(),
     }),
     v.object({
-        verdict: v.picklist([
-            'repairable',
-            'limited',
-            'unverified',
-        ]),
+        verdict: v.picklist(['repairable', 'limited', 'unverified']),
         reason: v.string(),
     }),
 ]);

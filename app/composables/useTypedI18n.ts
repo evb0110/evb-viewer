@@ -1,7 +1,4 @@
-import type {
-    TLocale,
-    TTranslateFn,
-} from '@i18n-app';
+import type {TLocale, TTranslateFn} from '@i18n-app';
 import {
     DEFAULT_LOCALE,
     createTypedI18nComposer,
@@ -31,15 +28,14 @@ function resolveTranslationLeaf(
     key: string,
 ) {
     const cached = translationLeafCacheByLocale.get(locale);
-    const cache = cached
-        && cached.primaryMessages === primaryMessages
-        && cached.fallbackMessages === fallbackMessages
-        ? cached
-        : {
-            primaryMessages,
-            fallbackMessages,
-            leaves: new Map<string, TResolvedTranslationLeaf>(),
-        };
+    const cache =
+        cached && cached.primaryMessages === primaryMessages && cached.fallbackMessages === fallbackMessages
+            ? cached
+            : {
+                  primaryMessages,
+                  fallbackMessages,
+                  leaves: new Map<string, TResolvedTranslationLeaf>(),
+              };
     if (cache !== cached) {
         translationLeafCacheByLocale.set(locale, cache);
     }
@@ -49,9 +45,7 @@ function resolveTranslationLeaf(
         return cachedLeaf;
     }
 
-    const leaf = getNestedTranslationLeaf(primaryMessages, key)
-        ?? getNestedTranslationLeaf(fallbackMessages, key)
-        ?? key;
+    const leaf = getNestedTranslationLeaf(primaryMessages, key) ?? getNestedTranslationLeaf(fallbackMessages, key) ?? key;
     cache.leaves.set(key, leaf);
     return leaf;
 }
@@ -64,9 +58,7 @@ export const useTypedI18n = () => {
         const params = normalizeTranslationParams(args[0]);
         const currentLocale = locale.value;
         if (typeof composer.getLocaleMessage !== 'function') {
-            return params === undefined
-                ? composer.t(key)
-                : composer.t(key, params);
+            return params === undefined ? composer.t(key) : composer.t(key, params);
         }
         const primaryMessages = composer.getLocaleMessage(currentLocale);
         const fallbackMessages = composer.getLocaleMessage(DEFAULT_LOCALE);

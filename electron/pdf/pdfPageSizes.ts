@@ -8,11 +8,7 @@ import {
 } from '@evb/scan-cleanup/core/pdfPageSizes';
 import type {IReadPdfPageSizesOptions as ICoreReadPdfPageSizesOptions} from '@evb/scan-cleanup/core/types';
 
-export type {
-    IPdfPageSize,
-    IPdfPageSizeChunk,
-    IPdfPageSizeStore,
-};
+export type {IPdfPageSize, IPdfPageSizeChunk, IPdfPageSizeStore};
 
 export interface IReadPdfPageSizesOptions extends Omit<ICoreReadPdfPageSizesOptions, 'log' | 'runCommand'> {
     log?: ICoreReadPdfPageSizesOptions['log'];
@@ -23,10 +19,7 @@ export interface IReadPdfPageSizesOptions extends Omit<ICoreReadPdfPageSizesOpti
  * Read the complete native geometry snapshot in one bounded sidecar pass. Every
  * page must carry the direct-page UserUnit required to seed PDF.js dimensions.
  */
-export async function readPdfNativePageGeometry(
-    pdfPath: string,
-    options: IReadPdfPageSizesOptions,
-): Promise<IPdfPageSize[]> {
+export async function readPdfNativePageGeometry(pdfPath: string, options: IReadPdfPageSizesOptions): Promise<IPdfPageSize[]> {
     const pages: IPdfPageSize[] = [];
     for await (const chunk of readCorePdfPageSizeChunks(pdfPath, {
         ...options,
@@ -45,10 +38,7 @@ export async function readPdfNativePageGeometry(
 }
 
 /** Open the bounded native page-geometry reader used by long-document jobs. */
-export function createPdfPageSizeStore(
-    pdfPath: string,
-    options: IReadPdfPageSizesOptions,
-) {
+export function createPdfPageSizeStore(pdfPath: string, options: IReadPdfPageSizesOptions) {
     return createCorePdfPageSizeStore(pdfPath, {
         ...options,
         log: options.log ?? (() => undefined),

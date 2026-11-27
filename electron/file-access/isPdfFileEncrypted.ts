@@ -1,26 +1,11 @@
-import {
-    open,
-    stat,
-} from 'fs/promises';
-import {
-    containsPdfEncryptMarker,
-    PDF_ENCRYPT_SCAN_REGION_BYTES,
-} from '@pdf-core';
+import {open, stat} from 'fs/promises';
+import {containsPdfEncryptMarker, PDF_ENCRYPT_SCAN_REGION_BYTES} from '@pdf-core';
 
-async function readRegion(
-    handle: Awaited<ReturnType<typeof open>>,
-    offset: number,
-    length: number,
-) {
+async function readRegion(handle: Awaited<ReturnType<typeof open>>, offset: number, length: number) {
     const bytes = Buffer.alloc(length);
     let bytesRead = 0;
     while (bytesRead < bytes.byteLength) {
-        const result = await handle.read(
-            bytes,
-            bytesRead,
-            bytes.byteLength - bytesRead,
-            offset + bytesRead,
-        );
+        const result = await handle.read(bytes, bytesRead, bytes.byteLength - bytesRead, offset + bytesRead);
         if (result.bytesRead === 0) {
             break;
         }

@@ -1,7 +1,4 @@
-import {
-    mkdtemp,
-    writeFile,
-} from 'node:fs/promises';
+import {mkdtemp, writeFile} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {tmpdir} from 'node:os';
@@ -13,8 +10,8 @@ import type {TDesktopOcrEngineRequest} from '@electron/features/ocr/main/ocrEngi
 import {readPnmSize} from '@ocr-core/ppmRaster';
 import {getErrorMessage} from '@electron/utils/error';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
-import { runDesktopQpdfWasm } from '@electron/native-tools/qpdfWasmWorkerClient';
+import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
+import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
 
 export interface IOcrWorkerPipelineHarness {
     /** The pages this harness's engine recognized, in order. */
@@ -34,32 +31,28 @@ const PAGE_WIDTH = (pageNumber: number) => 600 + 10 * pageNumber;
  * Runs the real desktop OCR job in this process with real Poppler rasters and
  * a scripted engine in place of the worker pool.
  */
-export async function createOcrWorkerPipelineHarness(options: {
-    concurrency?: number;
-    pageCount?: number;
-    stallPage?: number;
-    tempRoot?: string;
-    /** Sees each engine request while the job's engine runs it. */
-    onEngineRequest?: (request: TDesktopOcrEngineRequest) => void;
-} = {}): Promise<IOcrWorkerPipelineHarness> {
-    const root = options.tempRoot ?? await mkdtemp(join(tmpdir(), 'evb-ocr-worker-pipeline-'));
+export async function createOcrWorkerPipelineHarness(
+    options: {
+        concurrency?: number;
+        pageCount?: number;
+        stallPage?: number;
+        tempRoot?: string;
+        /** Sees each engine request while the job's engine runs it. */
+        onEngineRequest?: (request: TDesktopOcrEngineRequest) => void;
+    } = {},
+): Promise<IOcrWorkerPipelineHarness> {
+    const root = options.tempRoot ?? (await mkdtemp(join(tmpdir(), 'evb-ocr-worker-pipeline-')));
     const sourcePdfPath = join(root, 'source.pdf');
     const document = await PDFDocument.create();
     const pages = Array.from({length: options.pageCount ?? 3}, (_, index) => index + 1);
     for (const pageNumber of pages) {
-        document.addPage([
-            PAGE_WIDTH(pageNumber),
-            800,
-        ]);
+        document.addPage([PAGE_WIDTH(pageNumber), 800]);
     }
     await writeFile(sourcePdfPath, await document.save());
 
     const engineDocument = await PDFDocument.create();
     const engineFont = await engineDocument.embedFont('Helvetica');
-    engineDocument.addPage([
-        600,
-        800,
-    ]).drawText('checkpoint', {font: engineFont});
+    engineDocument.addPage([600, 800]).drawText('checkpoint', {font: engineFont});
     const enginePdf = await engineDocument.save();
 
     const env: Record<string, string> = {
@@ -68,26 +61,22 @@ export async function createOcrWorkerPipelineHarness(options: {
         // requested fixture concurrency.
         OCR_GLOBAL_PAGE_SLOTS: String(options.concurrency ?? 1),
     };
-    for (const [
-        name,
-        value,
-    ] of Object.entries(env)) {
+    for (const [name, value] of Object.entries(env)) {
         vi.stubEnv(name, value);
     }
     const {runOcrJob} = await import('@electron/features/ocr/pipeline/runOcrJob');
-    const {
-        getHostResourceProfileSnapshot,
-        initializeHostResourceProfile,
-    } = await import('@electron/resources/hostResourceProfile');
+    const {getHostResourceProfileSnapshot, initializeHostResourceProfile} = await import('@electron/resources/hostResourceProfile');
     const {configureMainJobBroker} = await import('@electron/resources/jobBroker');
     try {
         getHostResourceProfileSnapshot();
     } catch {
         // Main configures both at startup; the job sizes its lanes from them.
-        configureMainJobBroker(initializeHostResourceProfile({
-            app: {getGPUFeatureStatus: () => ({})} as never,
-            performanceMode: 'auto',
-        }));
+        configureMainJobBroker(
+            initializeHostResourceProfile({
+                app: {getGPUFeatureStatus: () => ({})} as never,
+                performanceMode: 'auto',
+            }),
+        );
     }
     let active: {
         controller: AbortController;
@@ -107,17 +96,12 @@ export async function createOcrWorkerPipelineHarness(options: {
         root,
         sourcePdfPath,
         start: async (jobId = 'ocr-pipeline-test') => {
-            for (const [
-                name,
-                value,
-            ] of Object.entries(env)) {
+            for (const [name, value] of Object.entries(env)) {
                 vi.stubEnv(name, value);
             }
             const controller = new AbortController();
             const runEngine = async (request: TDesktopOcrEngineRequest, signal: AbortSignal) => {
-                const width = request.image instanceof Uint8Array
-                    ? readPnmSize(request.image).width
-                    : request.image.width;
+                const width = request.image instanceof Uint8Array ? readPnmSize(request.image).width : request.image.width;
                 const pageNumber = (width - 600) / 10;
                 options.onEngineRequest?.(request);
                 if (pageNumber === options.stallPage) {
@@ -133,13 +117,14 @@ export async function createOcrWorkerPipelineHarness(options: {
                     '5\t1\t1\t1\t1\t2\t150\t30\t70\t30\t95\tpage',
                     `5\t1\t1\t1\t1\t3\t230\t30\t30\t30\t95\t${pageNumber}`,
                 ].join('\n');
-                return {passes: [{
-                    stderr: '',
-                    outputs: [
-                        enginePdf.slice(),
-                        new TextEncoder().encode(`${tsv}\n`),
+                return {
+                    passes: [
+                        {
+                            stderr: '',
+                            outputs: [enginePdf.slice(), new TextEncoder().encode(`${tsv}\n`)],
+                        },
                     ],
-                }]};
+                };
             };
             const run = runOcrJob({
                 jobId,
@@ -152,7 +137,7 @@ export async function createOcrWorkerPipelineHarness(options: {
                     contentRevision: 1,
                     mintedAt: 1,
                 } as Parameters<typeof runOcrJob>[0]['documentRevision'],
-                pages: pages.map(pageNumber => ({
+                pages: pages.map((pageNumber) => ({
                     pageNumber: requirePageNumber(pageNumber),
                     languages: ['eng'],
                 })),
@@ -181,10 +166,12 @@ export async function createOcrWorkerPipelineHarness(options: {
             try {
                 return {result: await run};
             } catch (error) {
-                return {result: {
-                    success: false,
-                    errors: [getErrorMessage(error)],
-                } satisfies TOcrJobResult};
+                return {
+                    result: {
+                        success: false,
+                        errors: [getErrorMessage(error)],
+                    } satisfies TOcrJobResult,
+                };
             }
         },
     };
@@ -202,5 +189,7 @@ export async function hasOcrWorkerPipelineTools() {
         }),
         run(tools.pdftoppm, ['-v']),
         run(tools.pdftotext, ['-v']),
-    ]).then(() => true).catch(() => false);
+    ])
+        .then(() => true)
+        .catch(() => false);
 }

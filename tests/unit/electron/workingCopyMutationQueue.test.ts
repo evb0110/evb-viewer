@@ -1,12 +1,6 @@
 import type * as TViMockOriginalModule2 from '@electron/file-access/workingCopyMutationCommitSignal';
 
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     debug: vi.fn(),
@@ -17,12 +11,14 @@ const mocks = vi.hoisted(() => ({
     controllers: [] as AbortController[],
 }));
 
-vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
-    debug: (...args: unknown[]) => mocks.debug(...args),
-    info: vi.fn(),
-    warn: (...args: unknown[]) => mocks.warn(...args),
-    error: vi.fn(),
-})}));
+vi.mock('@electron/utils/createLogger', () => ({
+    createLogger: () => ({
+        debug: (...args: unknown[]) => mocks.debug(...args),
+        info: vi.fn(),
+        warn: (...args: unknown[]) => mocks.warn(...args),
+        error: vi.fn(),
+    }),
+}));
 vi.mock('@electron/file-access/normalizePathForLookup', () => ({normalizePathForLookup: (path: string) => path.trim().toLowerCase()}));
 vi.mock('@electron/native-tools/runNativeCommand', () => ({cancelNativeCommandGroup: vi.fn()}));
 vi.mock('@electron/operation-lifecycle/mainOperationLifecycle', () => ({
@@ -63,13 +59,10 @@ function deferred<T>() {
     };
 }
 
-
 function parseLog(prefix: string, calls: unknown[][]) {
-    const message = calls
-        .map(call => call[0])
-        .find(value => typeof value === 'string' && value.startsWith(prefix));
+    const message = calls.map((call) => call[0]).find((value) => typeof value === 'string' && value.startsWith(prefix));
     expect(message).toBe(prefix);
-    const call = calls.find(candidate => candidate[0] === prefix);
+    const call = calls.find((candidate) => candidate[0] === prefix);
     expect(call?.[1]).toBeTypeOf('object');
     return call?.[1] as Record<string, unknown>;
 }
@@ -83,23 +76,25 @@ describe('workingCopyMutationQueue telemetry', () => {
     });
 
     it('keeps its critical write out of working-copy close cancellation', async () => {
-        const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
+        const {enqueueWorkingCopyMutation} = await import('@electron/file-access/workingCopyMutationQueue');
 
         await enqueueWorkingCopyMutation('/tmp/Book.pdf', async () => undefined, {kind: 'ordinary-write'});
 
         // The hook exists for shutdown. Closing the document has to drain this
         // write, not abort it, so the registration never opts into the
         // working-copy close predicate.
-        expect(mocks.registrations).toEqual([expect.objectContaining({
-            kind: 'critical-write',
-            workingCopyPath: '/tmp/Book.pdf',
-            cancel: expect.any(Function),
-        })]);
+        expect(mocks.registrations).toEqual([
+            expect.objectContaining({
+                kind: 'critical-write',
+                workingCopyPath: '/tmp/Book.pdf',
+                cancel: expect.any(Function),
+            }),
+        ]);
         expect(mocks.registrations[0]).not.toHaveProperty('cancelOnWorkingCopyClose');
     });
 
     it('reports the queued and active owner and clears ownership after settlement', async () => {
-        const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
+        const {enqueueWorkingCopyMutation} = await import('@electron/file-access/workingCopyMutationQueue');
         const blocker = deferred<undefined>();
         const first = enqueueWorkingCopyMutation('/tmp/Book.pdf', () => blocker.promise, {kind: 'first-write'});
         await Promise.resolve();
@@ -123,10 +118,7 @@ describe('workingCopyMutationQueue telemetry', () => {
         expect(mocks.warn).toHaveBeenCalledTimes(1);
 
         blocker.resolve(undefined);
-        await Promise.all([
-            first,
-            second,
-        ]);
+        await Promise.all([first, second]);
 
         const third = enqueueWorkingCopyMutation('/tmp/book.pdf', async () => undefined, {kind: 'third-write'});
         const thirdEnqueue = parseLog('Working-copy mutation enqueued', mocks.debug.mock.calls.slice(-1));
@@ -166,7 +158,7 @@ describe('workingCopyMutationQueue telemetry', () => {
     });
 
     it('bounds the stack captured for mutation origins', async () => {
-        const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
+        const {enqueueWorkingCopyMutation} = await import('@electron/file-access/workingCopyMutationQueue');
         const nativeCaptureStackTrace = Error.captureStackTrace.bind(Error);
         const observedLimits: number[] = [];
         const captureStackTrace = vi.spyOn(Error, 'captureStackTrace').mockImplementation((error, constructor) => {
@@ -185,10 +177,7 @@ describe('workingCopyMutationQueue telemetry', () => {
     });
 
     it('does not extend a path drain with mutations admitted after it starts', async () => {
-        const {
-            drainWorkingCopyMutations,
-            enqueueWorkingCopyMutation,
-        } = await import('@electron/file-access/workingCopyMutationQueue');
+        const {drainWorkingCopyMutations, enqueueWorkingCopyMutation} = await import('@electron/file-access/workingCopyMutationQueue');
         const firstBlocker = deferred<undefined>();
         const secondBlocker = deferred<undefined>();
         const first = enqueueWorkingCopyMutation('/tmp/Book.pdf', () => firstBlocker.promise);
@@ -209,10 +198,7 @@ describe('workingCopyMutationQueue telemetry', () => {
     });
 
     it('does not extend a global drain with mutations admitted after it starts', async () => {
-        const {
-            drainWorkingCopyMutations,
-            enqueueWorkingCopyMutation,
-        } = await import('@electron/file-access/workingCopyMutationQueue');
+        const {drainWorkingCopyMutations, enqueueWorkingCopyMutation} = await import('@electron/file-access/workingCopyMutationQueue');
         const firstBlocker = deferred<undefined>();
         const secondBlocker = deferred<undefined>();
         const first = enqueueWorkingCopyMutation('/tmp/Book.pdf', () => firstBlocker.promise);

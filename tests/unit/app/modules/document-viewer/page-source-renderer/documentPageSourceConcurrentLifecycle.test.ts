@@ -2,56 +2,30 @@
 
 import type * as TViMockOriginalModule from '@app/modules/document-viewer/source/createDjvuPageSource';
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    computed,
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    provide,
-    ref,
-    shallowRef,
-    watch,
-    type Ref,
-} from 'vue';
-import type { TDocumentRef } from '@contracts/documentRef';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {computed, createApp, defineComponent, h, nextTick, provide, ref, shallowRef, watch, type Ref} from 'vue';
+import type {TDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import DocumentPageSourceFeaturePack from '@app/modules/document-viewer/page-source-renderer/DocumentPageSourceFeaturePack.vue';
 import * as pageSourceState from '@app/modules/document-viewer/page-source-renderer/documentPageSourceFeaturePackState';
-import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
+import {useDocumentOpenVisualSettle} from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
 import {
     createDocumentOpenSurfaceSession,
     type IDocumentOpenSurfaceSession,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
-import {
-    createDocumentViewerRuntime,
-    documentViewerRuntimeKey,
-} from '@app/modules/document-viewer/public';
-import {
-    createPageNavigationRequest,
-    type IDocumentPageSource,
-    type IDocumentRenderLease,
-} from '@app/modules/document-viewer/public';
-import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
+import {createDocumentViewerRuntime, documentViewerRuntimeKey} from '@app/modules/document-viewer/public';
+import {createPageNavigationRequest, type IDocumentPageSource, type IDocumentRenderLease} from '@app/modules/document-viewer/public';
+import type {IDocumentViewerExpose} from '@app/modules/pdf-viewer/public';
 
 const mocks = vi.hoisted(() => ({
     createDjvuPagePreviewSourceFromPath: vi.fn(),
     createDjvuPageSource: vi.fn(),
 }));
 
-vi.mock('@app/platform/browser-api/public', () => ({createDjvuPagePreviewSourceFromPath:
-    mocks.createDjvuPagePreviewSourceFromPath}));
+vi.mock('@app/platform/browser-api/public', () => ({createDjvuPagePreviewSourceFromPath: mocks.createDjvuPagePreviewSourceFromPath}));
 vi.mock('@app/modules/document-viewer/source/createDjvuPageSource', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
-    createDjvuPageSource:
-    mocks.createDjvuPageSource,
+    createDjvuPageSource: mocks.createDjvuPageSource,
 }));
 
 const mountedApps = new Set<() => void>();
@@ -106,7 +80,7 @@ function createFeaturePackHost(
         setup() {
             const authority = createDocumentViewerRuntime(ref('djvu'), surface);
             const totalPages = ref(0);
-            const featurePack = shallowRef<IDocumentViewerExpose & {isDocumentLoading?: () => boolean} | null>(null);
+            const featurePack = shallowRef<(IDocumentViewerExpose & {isDocumentLoading?: () => boolean}) | null>(null);
             // The shell reads the renderer's loading live from what it exposes.
             const isLoading = computed(() => featurePack.value?.isDocumentLoading?.() ?? false);
             const settle = useDocumentOpenVisualSettle({
@@ -123,42 +97,48 @@ function createFeaturePackHost(
             provide(documentViewerRuntimeKey, authority);
             return () => {
                 const snapshot = surface.snapshot.value;
-                return h('div', {
-                    ref: (element: unknown) => {
-                        authority.bindViewportElement(element instanceof HTMLElement ? element : null);
-                    },
-                    class: 'document-viewer-viewport',
-                    'data-document-ref': documentRef,
-                }, [
-                    h('section', {
+                return h(
+                    'div',
+                    {
                         ref: (element: unknown) => {
-                            authority.bindOpeningPageElement(element instanceof HTMLElement ? element : null);
+                            authority.bindViewportElement(element instanceof HTMLElement ? element : null);
                         },
-                        // As the chassis's opening shell: the page the open presents.
-                        'data-document-page-number': String(surface.viewportSession.value.requestedPage),
-                        'data-open-surface-frame-owner': snapshot.openingPageFrame?.ownerId ?? '',
-                        'data-open-surface-generation': String(snapshot.generation),
-                        'data-page-number': String(surface.viewportSession.value.requestedPage),
-                    }),
-                    h(DocumentPageSourceFeaturePack, {
-                        documentRevisionToken: requireDocumentRevisionToken(`revision:${documentRef}`),
-                        isActive: isActive.value,
-                        isResizing: isResizing.value,
-                        onLoadError: (error: unknown) => loadErrors.value.push(error),
-                        ref: featurePack,
-                        'onUpdate:totalPages': (pageCount: number) => {
-                            totalPages.value = pageCount;
-                        },
-                        src: documentRef,
-                    }),
-                ]);
+                        class: 'document-viewer-viewport',
+                        'data-document-ref': documentRef,
+                    },
+                    [
+                        h('section', {
+                            ref: (element: unknown) => {
+                                authority.bindOpeningPageElement(element instanceof HTMLElement ? element : null);
+                            },
+                            // As the chassis's opening shell: the page the open presents.
+                            'data-document-page-number': String(surface.viewportSession.value.requestedPage),
+                            'data-open-surface-frame-owner': snapshot.openingPageFrame?.ownerId ?? '',
+                            'data-open-surface-generation': String(snapshot.generation),
+                            'data-page-number': String(surface.viewportSession.value.requestedPage),
+                        }),
+                        h(DocumentPageSourceFeaturePack, {
+                            documentRevisionToken: requireDocumentRevisionToken(`revision:${documentRef}`),
+                            isActive: isActive.value,
+                            isResizing: isResizing.value,
+                            onLoadError: (error: unknown) => loadErrors.value.push(error),
+                            ref: featurePack,
+                            'onUpdate:totalPages': (pageCount: number) => {
+                                totalPages.value = pageCount;
+                            },
+                            src: documentRef,
+                        }),
+                    ],
+                );
             };
         },
     });
 }
 
 afterEach(() => {
-    for (const unmount of mountedApps) unmount();
+    for (const unmount of mountedApps) {
+        unmount();
+    }
     document.body.innerHTML = '';
     vi.restoreAllMocks();
 });
@@ -183,9 +163,9 @@ function layOutLoadedPages(imagesLoaded = true) {
 }
 
 async function flushOpeningFrame() {
-    await new Promise<void>(resolve => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
     vi.advanceTimersToNextFrame();
-    await new Promise<void>(resolve => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
 /** A 5-page DjVu shown at page 3 in a 900x700 box, every page painted and the reading page placed. */
@@ -196,21 +176,28 @@ async function mountPlacedDjvu(isActive = ref(true), isResizing = ref(false)) {
     const source = createPageSource(documentRef, 5);
     mocks.createDjvuPageSource.mockResolvedValue(source);
     const surface = createDocumentOpenSurfaceSession();
-    surface.begin({
-        documentId: documentRef,
-        documentRevision: 'open-intent:split',
-        provisional: true,
-    }, null, 1);
+    surface.begin(
+        {
+            documentId: documentRef,
+            documentRevision: 'open-intent:split',
+            provisional: true,
+        },
+        null,
+        1,
+    );
     surface.navigate(createPageNavigationRequest(3, 'restore'));
     const settle = createWorkspaceOpenSettleHarness();
     const root = document.createElement('div');
     document.body.append(root);
     const app = createApp(createFeaturePackHost(surface, documentRef, ref<unknown[]>([]), settle, isResizing, isActive));
     app.component('USkeleton', defineComponent({setup: () => () => h('span')}));
-    app.component('UButton', defineComponent({
-        props: ['label'],
-        setup: props => () => h('button', props.label),
-    }));
+    app.component(
+        'UButton',
+        defineComponent({
+            props: ['label'],
+            setup: (props) => () => h('button', props.label),
+        }),
+    );
     app.mount(root);
     const unmount = () => {
         app.unmount();
@@ -223,16 +210,23 @@ async function mountPlacedDjvu(isActive = ref(true), isResizing = ref(false)) {
     const pageWidth = () => root.querySelector<HTMLElement>('[data-testid="document-page-source-page"]')!.style.width;
     // The rendered page publishes its metrics, whose restore frame places the opening's point.
     const image = await vi.waitFor(() => {
-        const rendered = root.querySelector<HTMLImageElement>('[data-testid="document-page-source-image"]:not([data-page-source-candidate])');
+        const rendered = root.querySelector<HTMLImageElement>(
+            '[data-testid="document-page-source-image"]:not([data-page-source-candidate])',
+        );
         expect(rendered).not.toBeNull();
         return rendered!;
     });
     image.dispatchEvent(new Event('load'));
     // The neighbouring pages paint over later render frames; a test that counts
     // frames starts only once every page is painted and the last pass has run.
-    await vi.waitFor(() => expect([...root.querySelectorAll<HTMLElement>('[data-testid="document-page-source-page"]')]
-        .map(page => page.dataset.pageSourceVisual)).toEqual(Array(5).fill('fresh')));
-    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    await vi.waitFor(() =>
+        expect(
+            [...root.querySelectorAll<HTMLElement>('[data-testid="document-page-source-page"]')].map(
+                (page) => page.dataset.pageSourceVisual,
+            ),
+        ).toEqual(Array(5).fill('fresh')),
+    );
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
     return {
         isActive,
         isResizing,
@@ -253,18 +247,26 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         mocks.createDjvuPagePreviewSourceFromPath.mockResolvedValue({path: documentRef});
         mocks.createDjvuPageSource.mockResolvedValue(createPageSource(documentRef, 2));
         const surface = createDocumentOpenSurfaceSession();
-        surface.begin({
-            documentId: documentRef,
-            documentRevision: 'open-intent:unpresented',
-            provisional: true,
-        }, null, 1);
-        if (isActive) surface.navigate(createPageNavigationRequest(2, 'restore'));
+        surface.begin(
+            {
+                documentId: documentRef,
+                documentRevision: 'open-intent:unpresented',
+                provisional: true,
+            },
+            null,
+            1,
+        );
+        if (isActive) {
+            surface.navigate(createPageNavigationRequest(2, 'restore'));
+        }
 
         let visual: boolean | 'pending' = 'pending';
         const {createDocumentPageSourceOpenJob} = pageSourceState;
         vi.spyOn(pageSourceState, 'createDocumentPageSourceOpenJob').mockImplementation(() => {
             const job = createDocumentPageSourceOpenJob();
-            void job.visual.then(result => { visual = result; });
+            void job.visual.then((result) => {
+                visual = result;
+            });
             return job;
         });
 
@@ -274,10 +276,13 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         document.body.append(root);
         const app = createApp(createFeaturePackHost(surface, documentRef, errors, settle, ref(false), ref(isActive)));
         app.component('USkeleton', defineComponent({setup: () => () => h('span')}));
-        app.component('UButton', defineComponent({
-            props: ['label'],
-            setup: props => () => h('button', props.label),
-        }));
+        app.component(
+            'UButton',
+            defineComponent({
+                props: ['label'],
+                setup: (props) => () => h('button', props.label),
+            }),
+        );
         app.mount(root);
 
         try {
@@ -304,19 +309,17 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         }
     });
 
-    it.each([
-        'resize',
-        'resolution',
-    ])('replaces a settled raster after a density-only %s change', async (trigger) => {
+    it.each(['resize', 'resolution'])('replaces a settled raster after a density-only %s change', async (trigger) => {
         layOutLoadedPages();
         const originalDpr = window.devicePixelRatio;
-        const setDpr = (value: number) => Object.defineProperty(window, 'devicePixelRatio', {
-            configurable: true,
-            value,
-        });
+        const setDpr = (value: number) =>
+            Object.defineProperty(window, 'devicePixelRatio', {
+                configurable: true,
+                value,
+            });
         setDpr(1);
         const resolutionChange = new EventTarget();
-        vi.spyOn(window, 'matchMedia').mockImplementation(query => {
+        vi.spyOn(window, 'matchMedia').mockImplementation((query) => {
             return Object.assign(resolutionChange, {
                 matches: true,
                 media: query,
@@ -328,13 +331,17 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         const source = createPageSource(documentRef);
         const oldRelease = vi.fn();
         const replacement = Promise.withResolvers<IDocumentRenderLease>();
-        source.renderPage = vi.fn(async ({widthPx}) => widthPx === 860 ? {
-            bytes: 860 * 1_147 * 4,
-            widthPx,
-            heightPx: 1_147,
-            surface: 'data:image/png;base64,low',
-            release: oldRelease,
-        } : replacement.promise);
+        source.renderPage = vi.fn(async ({widthPx}) =>
+            widthPx === 860
+                ? {
+                      bytes: 860 * 1_147 * 4,
+                      widthPx,
+                      heightPx: 1_147,
+                      surface: 'data:image/png;base64,low',
+                      release: oldRelease,
+                  }
+                : replacement.promise,
+        );
         mocks.createDjvuPagePreviewSourceFromPath.mockImplementation(async (path: TDocumentRef) => ({path}));
         mocks.createDjvuPageSource.mockResolvedValue(source);
         const surface = createDocumentOpenSurfaceSession();
@@ -349,17 +356,19 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         document.body.append(root);
         const app = createApp(createFeaturePackHost(surface, documentRef, errors, settle, ref(false)));
         app.component('USkeleton', defineComponent({setup: () => () => h('span')}));
-        app.component('UButton', defineComponent({
-            props: ['label'],
-            setup: props => () => h('button', props.label),
-        }));
+        app.component(
+            'UButton',
+            defineComponent({
+                props: ['label'],
+                setup: (props) => () => h('button', props.label),
+            }),
+        );
         app.mount(root);
-        const image = () => root.querySelector<HTMLImageElement>('[data-testid="document-page-source-image"]:not([data-page-source-candidate])')!;
+        const image = () =>
+            root.querySelector<HTMLImageElement>('[data-testid="document-page-source-image"]:not([data-page-source-candidate])')!;
         const readPageLayout = () => {
             const page = image().closest<HTMLElement>('[data-testid="document-page-source-page"]')!;
-            const {
-                width, height, top, left,
-            } = page.style;
+            const {width, height, top, left} = page.style;
             return {
                 width,
                 height,
@@ -372,7 +381,7 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
             // The chassis retires its opening shell and mounts the final image.
             await nextTick();
             image().dispatchEvent(new Event('load'));
-            await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+            await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
             const lowImage = image();
             expect(lowImage.getAttribute('src')).toContain('base64,low');
             const layout = readPageLayout();
@@ -382,12 +391,19 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
             });
             const scrollTop = root.firstElementChild!.scrollTop;
             setDpr(2);
-            if (trigger === 'resize') window.dispatchEvent(new Event('resize'));
-            else resolutionChange.dispatchEvent(new Event('change'));
-            await vi.waitFor(() => expect(source.renderPage).toHaveBeenLastCalledWith(expect.objectContaining({
-                pageNumber: 1,
-                widthPx: 1_720,
-            })));
+            if (trigger === 'resize') {
+                window.dispatchEvent(new Event('resize'));
+            } else {
+                resolutionChange.dispatchEvent(new Event('change'));
+            }
+            await vi.waitFor(() =>
+                expect(source.renderPage).toHaveBeenLastCalledWith(
+                    expect.objectContaining({
+                        pageNumber: 1,
+                        widthPx: 1_720,
+                    }),
+                ),
+            );
             expect(oldRelease).not.toHaveBeenCalled();
             expect(lowImage.isConnected).toBe(true);
             replacement.resolve({
@@ -407,7 +423,7 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
             expect(errors.value).toEqual([]);
             const rendered = vi.mocked(source.renderPage).mock.calls.length;
             window.dispatchEvent(new Event('resize'));
-            await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+            await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
             expect(source.renderPage).toHaveBeenCalledTimes(rendered);
         } finally {
             decode.resolve(undefined);
@@ -420,37 +436,37 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
     it('publishes prepared opening page count before the page source resolves', async () => {
         const documentRef = '/documents/large.djvu' as TDocumentRef;
         const surface = createDocumentOpenSurfaceSession();
-        surface.begin({
-            documentId: documentRef,
-            documentRevision: 'open-intent:large',
-            provisional: true,
-        }, {
-            documentId: documentRef,
-            height: 800,
-            pageCount: 1_859,
-            pageNumber: 1,
-            rotation: 0,
-            width: 600,
-        });
+        surface.begin(
+            {
+                documentId: documentRef,
+                documentRevision: 'open-intent:large',
+                provisional: true,
+            },
+            {
+                documentId: documentRef,
+                height: 800,
+                pageCount: 1_859,
+                pageNumber: 1,
+                rotation: 0,
+                width: 600,
+            },
+        );
         const previewGate = Promise.withResolvers<{path: TDocumentRef}>();
         mocks.createDjvuPagePreviewSourceFromPath.mockImplementation(() => previewGate.promise);
         mocks.createDjvuPageSource.mockImplementation(async (path: TDocumentRef) => createPageSource(path));
         const settle = createWorkspaceOpenSettleHarness();
-        const Host = createFeaturePackHost(
-            surface,
-            documentRef,
-            ref<unknown[]>([]),
-            settle,
-            ref(false),
-        );
+        const Host = createFeaturePackHost(surface, documentRef, ref<unknown[]>([]), settle, ref(false));
         const root = document.createElement('div');
         document.body.append(root);
         const app = createApp(Host);
         app.component('USkeleton', defineComponent({setup: () => () => h('span')}));
-        app.component('UButton', defineComponent({
-            props: ['label'],
-            setup: props => () => h('button', props.label),
-        }));
+        app.component(
+            'UButton',
+            defineComponent({
+                props: ['label'],
+                setup: (props) => () => h('button', props.label),
+            }),
+        );
         app.mount(root);
         const unmount = () => {
             app.unmount();
@@ -471,34 +487,39 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         mocks.createDjvuPageSource.mockImplementation(async (path: TDocumentRef) => createPageSource(path, 5));
         const documentRef = '/documents/remembered.djvu' as TDocumentRef;
         const surface = createDocumentOpenSurfaceSession();
-        surface.begin({
-            documentId: documentRef,
-            documentRevision: 'open-intent:remembered',
-            provisional: true,
-        }, null, 1);
+        surface.begin(
+            {
+                documentId: documentRef,
+                documentRevision: 'open-intent:remembered',
+                provisional: true,
+            },
+            null,
+            1,
+        );
         // The admitted reading place goes out as the opening's own restore.
         surface.navigate(createPageNavigationRequest(3, 'restore'));
         const committedPages: number[] = [];
-        const stop = watch(() => surface.viewportSession.value.committedPage, (page) => {
-            if (page !== null) {
-                committedPages.push(page);
-            }
-        }, {flush: 'sync'});
+        const stop = watch(
+            () => surface.viewportSession.value.committedPage,
+            (page) => {
+                if (page !== null) {
+                    committedPages.push(page);
+                }
+            },
+            {flush: 'sync'},
+        );
         const settle = createWorkspaceOpenSettleHarness();
         const root = document.createElement('div');
         document.body.append(root);
-        const app = createApp(createFeaturePackHost(
-            surface,
-            documentRef,
-            ref<unknown[]>([]),
-            settle,
-            ref(false),
-        ));
+        const app = createApp(createFeaturePackHost(surface, documentRef, ref<unknown[]>([]), settle, ref(false)));
         app.component('USkeleton', defineComponent({setup: () => () => h('span')}));
-        app.component('UButton', defineComponent({
-            props: ['label'],
-            setup: props => () => h('button', props.label),
-        }));
+        app.component(
+            'UButton',
+            defineComponent({
+                props: ['label'],
+                setup: (props) => () => h('button', props.label),
+            }),
+        );
         app.mount(root);
         const unmount = () => {
             stop();
@@ -515,9 +536,7 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
     });
 
     it('places the DjVu reading page in a resized box before its layout receipt settles', async () => {
-        const {
-            isActive, pageWidth, surface, viewer,
-        } = await mountPlacedDjvu();
+        const {isActive, pageWidth, surface, viewer} = await mountPlacedDjvu();
         const settled: string[] = [];
         const frames = vi.spyOn(window, 'requestAnimationFrame');
 
@@ -546,13 +565,13 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
     });
 
     it('settles the DjVu layout receipt through a resize release, a navigation and a hidden view', async () => {
-        const {
-            isActive, isResizing, viewer,
-        } = await mountPlacedDjvu();
+        const {isActive, isResizing, viewer} = await mountPlacedDjvu();
         const frames = vi.spyOn(window, 'requestAnimationFrame');
         const track = () => {
             const state = {settled: false};
-            void viewer.whenLayoutPlaced!().then(() => { state.settled = true; });
+            void viewer.whenLayoutPlaced!().then(() => {
+                state.settled = true;
+            });
             return state;
         };
 
@@ -600,10 +619,13 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         document.body.append(root);
         const app = createApp(createFeaturePackHost(surface, documentRef, errors, settle, ref(false)));
         app.component('USkeleton', defineComponent({setup: () => () => h('span')}));
-        app.component('UButton', defineComponent({
-            props: ['label'],
-            setup: props => () => h('button', props.label),
-        }));
+        app.component(
+            'UButton',
+            defineComponent({
+                props: ['label'],
+                setup: (props) => () => h('button', props.label),
+            }),
+        );
         app.mount(root);
         const unmount = () => {
             app.unmount();
@@ -613,18 +635,21 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         mountedApps.add(unmount);
         await vi.waitFor(() => expect(settle.documentOpenSettled.value).toBe(true));
 
-        const generation = surface.begin({
-            documentId: documentRef,
-            documentRevision: 'open-intent:reopen',
-            provisional: true,
-        }, {
-            documentId: documentRef,
-            pageNumber: 1,
-            pageCount: 1,
-            width: 600,
-            height: 800,
-            rotation: 0,
-        });
+        const generation = surface.begin(
+            {
+                documentId: documentRef,
+                documentRevision: 'open-intent:reopen',
+                provisional: true,
+            },
+            {
+                documentId: documentRef,
+                pageNumber: 1,
+                pageCount: 1,
+                width: 600,
+                height: 800,
+                rotation: 0,
+            },
+        );
         // The retained feature pack receives a new chassis-owned opening shell.
         surface.commitOpeningPageFrame(generation, {
             generation,
@@ -644,8 +669,7 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         expect(settle.initialVisualReady.value).toBe(true);
         await nextTick();
         // happy-dom does not load the image remounted after the shell retires.
-        root.querySelector<HTMLImageElement>('[data-testid="document-page-source-image"]')!
-            .dispatchEvent(new Event('load'));
+        root.querySelector<HTMLImageElement>('[data-testid="document-page-source-image"]')!.dispatchEvent(new Event('load'));
         await vi.waitFor(() => expect(root.querySelector('[data-page-source-visual="fresh"]')).not.toBeNull());
         expect(errors.value).toEqual([]);
     });
@@ -659,18 +683,21 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         const secondDocumentRef = '/documents/second.djvu' as TDocumentRef;
         const firstSurface = createDocumentOpenSurfaceSession();
         const secondSurface = createDocumentOpenSurfaceSession();
-        const firstGeneration = firstSurface.begin({
-            documentId: firstDocumentRef,
-            documentRevision: 'open-intent:first',
-            provisional: true,
-        }, {
-            documentId: firstDocumentRef,
-            height: 800,
-            pageCount: 1,
-            pageNumber: 1,
-            rotation: 0,
-            width: 600,
-        });
+        const firstGeneration = firstSurface.begin(
+            {
+                documentId: firstDocumentRef,
+                documentRevision: 'open-intent:first',
+                provisional: true,
+            },
+            {
+                documentId: firstDocumentRef,
+                height: 800,
+                pageCount: 1,
+                pageNumber: 1,
+                rotation: 0,
+                width: 600,
+            },
+        );
         const secondGeneration = secondSurface.begin({
             documentId: secondDocumentRef,
             documentRevision: 'open-intent:second',
@@ -683,13 +710,7 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         const secondSettle = createWorkspaceOpenSettleHarness();
         const firstWorkspaceIsResizing = ref(false);
         const secondWorkspaceIsResizing = ref(false);
-        const FirstHost = createFeaturePackHost(
-            firstSurface,
-            firstDocumentRef,
-            firstLoadErrors,
-            firstSettle,
-            firstWorkspaceIsResizing,
-        );
+        const FirstHost = createFeaturePackHost(firstSurface, firstDocumentRef, firstLoadErrors, firstSettle, firstWorkspaceIsResizing);
         const SecondHost = createFeaturePackHost(
             secondSurface,
             secondDocumentRef,
@@ -700,15 +721,17 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         const showSecondWorkspace = ref(false);
         const root = document.createElement('div');
         document.body.append(root);
-        const app = createApp(defineComponent({setup: () => () => h('div', [
-            h(FirstHost),
-            showSecondWorkspace.value ? h(SecondHost) : null,
-        ])}));
+        const app = createApp(
+            defineComponent({setup: () => () => h('div', [h(FirstHost), showSecondWorkspace.value ? h(SecondHost) : null])}),
+        );
         app.component('USkeleton', defineComponent({setup: () => () => h('span')}));
-        app.component('UButton', defineComponent({
-            props: ['label'],
-            setup: props => () => h('button', props.label),
-        }));
+        app.component(
+            'UButton',
+            defineComponent({
+                props: ['label'],
+                setup: (props) => () => h('button', props.label),
+            }),
+        );
         app.mount(root);
         const unmount = () => {
             app.unmount();
@@ -743,7 +766,7 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         const openingTargetParent = openingTarget.parentElement!;
         secondImage.dispatchEvent(new Event('load'));
         openingTarget.remove();
-        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
         openingTargetParent.append(openingTarget);
         secondWorkspaceIsResizing.value = true;
         await nextTick();
@@ -756,7 +779,7 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         expect(firstSurface.snapshot.value.phase).toBe('ready');
         expect(secondSurface.snapshot.value.generation).toBe(secondGeneration);
         expect(secondSurface.snapshot.value.phase).toBe('ready');
-        expect(secondGeometryCommit.mock.results.map(result => result.value)).toEqual([true]);
+        expect(secondGeometryCommit.mock.results.map((result) => result.value)).toEqual([true]);
         expect(firstLoadErrors.value).toEqual([]);
         expect(secondLoadErrors.value).toEqual([]);
     });
@@ -826,16 +849,19 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         const showSuccessor = ref(true);
         const root = document.createElement('div');
         document.body.append(root);
-        const app = createApp(defineComponent({setup: () => () => (
-            activeTab.value === 'predecessor'
-                ? h(PredecessorHost)
-                : showSuccessor.value ? h(SuccessorHost) : null
-        )}));
+        const app = createApp(
+            defineComponent({
+                setup: () => () => (activeTab.value === 'predecessor' ? h(PredecessorHost) : showSuccessor.value ? h(SuccessorHost) : null),
+            }),
+        );
         app.component('USkeleton', defineComponent({setup: () => () => h('span')}));
-        app.component('UButton', defineComponent({
-            props: ['label'],
-            setup: props => () => h('button', props.label),
-        }));
+        app.component(
+            'UButton',
+            defineComponent({
+                props: ['label'],
+                setup: (props) => () => h('button', props.label),
+            }),
+        );
         app.mount(root);
         const unmount = () => {
             app.unmount();

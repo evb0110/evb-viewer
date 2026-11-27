@@ -2,39 +2,14 @@
 
 import {execFile} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {
-    readFile,
-    stat,
-} from 'node:fs/promises';
+import {readFile, stat} from 'node:fs/promises';
 import {promisify} from 'node:util';
-import {
-    basename,
-    dirname,
-    isAbsolute,
-    join,
-    relative,
-    resolve,
-} from 'node:path';
-import {
-    PDFArray,
-    PDFDict,
-    PDFDocument,
-    PDFName,
-    PDFRawStream,
-    PDFRef,
-    PDFString,
-    PDFHexString,
-} from 'pdf-lib';
+import {basename, dirname, isAbsolute, join, relative, resolve} from 'node:path';
+import {PDFArray, PDFDict, PDFDocument, PDFName, PDFRawStream, PDFRef, PDFString, PDFHexString} from 'pdf-lib';
 
 const execFileAsync = promisify(execFile);
 
-export const REQUIRED_CANONICAL_KINDS = Object.freeze([
-    'highlight',
-    'note',
-    'shape',
-    'stamp',
-    'text-box',
-]);
+export const REQUIRED_CANONICAL_KINDS = Object.freeze(['highlight', 'note', 'shape', 'stamp', 'text-box']);
 
 export const REQUIRED_CASES = Object.freeze([
     'nativeText',
@@ -47,21 +22,8 @@ export const REQUIRED_CASES = Object.freeze([
     'reviewState',
 ]);
 
-const MARKUP_SUBTYPES = Object.freeze([
-    'Highlight',
-    'Underline',
-    'Squiggly',
-    'StrikeOut',
-]);
-const SHAPE_SUBTYPES = Object.freeze([
-    'Square',
-    'Circle',
-    'Line',
-    'Ink',
-    'Polygon',
-    'PolyLine',
-    'Polyline',
-]);
+const MARKUP_SUBTYPES = Object.freeze(['Highlight', 'Underline', 'Squiggly', 'StrikeOut']);
+const SHAPE_SUBTYPES = Object.freeze(['Square', 'Circle', 'Line', 'Ink', 'Polygon', 'PolyLine', 'Polyline']);
 
 const MAX_FIXTURE_BYTES = 2 * 1024 * 1024;
 const STOCK_PROVENANCE_KIND = 'stock-pdfjs-save-of-synthetic-input';
@@ -163,10 +125,7 @@ function rectValues(dictionary, context) {
 }
 
 function isBlankAppearance(dictionary, context) {
-    const appearance = asDictionary(
-        dictionaryValue(dictionary, PDF_NAME_KEYS.ap, context),
-        context,
-    );
+    const appearance = asDictionary(dictionaryValue(dictionary, PDF_NAME_KEYS.ap, context), context);
     if (!appearance) {
         return false;
     }
@@ -182,12 +141,7 @@ function isLegacyFreeTextPopup(dictionary, context) {
         return false;
     }
     const size = rectSize(dictionary, context);
-    return Boolean(
-        size
-        && size.width <= 2
-        && size.height <= 2
-        && isBlankAppearance(dictionary, context),
-    );
+    return Boolean(size && size.width <= 2 && size.height <= 2 && isBlankAppearance(dictionary, context));
 }
 
 export function annotationKind(dictionary, context) {
@@ -201,26 +155,13 @@ export function annotationKind(dictionary, context) {
     if (subtype === 'Text') {
         return 'note';
     }
-    if ([
-        'Highlight',
-        'Underline',
-        'Squiggly',
-        'StrikeOut',
-    ].includes(subtype)) {
+    if (['Highlight', 'Underline', 'Squiggly', 'StrikeOut'].includes(subtype)) {
         return 'highlight';
     }
     if (subtype === 'Stamp') {
         return 'stamp';
     }
-    if ([
-        'Square',
-        'Circle',
-        'Line',
-        'Ink',
-        'Polygon',
-        'PolyLine',
-        'Polyline',
-    ].includes(subtype)) {
+    if (['Square', 'Circle', 'Line', 'Ink', 'Polygon', 'PolyLine', 'Polyline'].includes(subtype)) {
         return 'shape';
     }
     return undefined;
@@ -229,10 +170,7 @@ export function annotationKind(dictionary, context) {
 function pageAnnotationDictionaries(document) {
     const dictionaries = [];
     for (const page of document.getPages()) {
-        const annotations = asArray(
-            page.node.get(PDFName.of('Annots')),
-            document.context,
-        );
+        const annotations = asArray(page.node.get(PDFName.of('Annots')), document.context);
         if (!annotations) {
             continue;
         }
@@ -250,15 +188,8 @@ function inspectAnnotation(dictionary, context) {
     const subtype = asName(dictionaryValue(dictionary, PDF_NAME_KEYS.subtype, context), context);
     const kind = annotationKind(dictionary, context);
     const preservedKeys = [];
-    for (const [
-        key,
-        pdfName,
-    ] of Object.entries(PDF_NAME_KEYS)) {
-        if ([
-            'subtype',
-            'rect',
-            'nm',
-        ].includes(key)) {
+    for (const [key, pdfName] of Object.entries(PDF_NAME_KEYS)) {
+        if (['subtype', 'rect', 'nm'].includes(key)) {
             continue;
         }
         if (hasKey(dictionary, pdfName)) {
@@ -272,12 +203,9 @@ function inspectAnnotation(dictionary, context) {
         name: asText(dictionaryValue(dictionary, PDF_NAME_KEYS.nm, context), context) ?? null,
         preservedKeys,
         rect: rectValues(dictionary, context),
-        replyChain: hasKey(dictionary, PDF_NAME_KEYS.irt)
-            || hasKey(dictionary, PDF_NAME_KEYS.rt),
-        richText: hasKey(dictionary, PDF_NAME_KEYS.richText)
-            || hasKey(dictionary, PDF_NAME_KEYS.style),
-        reviewState: hasKey(dictionary, PDF_NAME_KEYS.state)
-            || hasKey(dictionary, PDF_NAME_KEYS.stateModel),
+        replyChain: hasKey(dictionary, PDF_NAME_KEYS.irt) || hasKey(dictionary, PDF_NAME_KEYS.rt),
+        richText: hasKey(dictionary, PDF_NAME_KEYS.richText) || hasKey(dictionary, PDF_NAME_KEYS.style),
+        reviewState: hasKey(dictionary, PDF_NAME_KEYS.state) || hasKey(dictionary, PDF_NAME_KEYS.stateModel),
         subtype,
         unknownVendorKey: hasKey(dictionary, PDF_NAME_KEYS.vendorKey),
         appearance: hasKey(dictionary, PDF_NAME_KEYS.ap),
@@ -292,41 +220,41 @@ export async function inspectPdf(filePath) {
         ignoreEncryption: false,
         updateMetadata: false,
     });
-    const annotations = pageAnnotationDictionaries(document).map(dictionary => (
-        inspectAnnotation(dictionary, document.context)
-    ));
-    const kinds = [...new Set(annotations.map(annotation => annotation.kind).filter(Boolean))].sort();
-    const subtypes = [...new Set(annotations.map(annotation => annotation.subtype).filter(Boolean))].sort();
+    const annotations = pageAnnotationDictionaries(document).map((dictionary) => inspectAnnotation(dictionary, document.context));
+    const kinds = [...new Set(annotations.map((annotation) => annotation.kind).filter(Boolean))].sort();
+    const subtypes = [...new Set(annotations.map((annotation) => annotation.subtype).filter(Boolean))].sort();
     const variantCoverage = {
-        markupSubtypes: subtypes.filter(subtype => MARKUP_SUBTYPES.includes(subtype)),
-        shapeSubtypes: subtypes.filter(subtype => SHAPE_SUBTYPES.includes(subtype)),
+        markupSubtypes: subtypes.filter((subtype) => MARKUP_SUBTYPES.includes(subtype)),
+        shapeSubtypes: subtypes.filter((subtype) => SHAPE_SUBTYPES.includes(subtype)),
     };
-    const preservedKeys = [...new Set(annotations.flatMap(annotation => annotation.preservedKeys))].sort();
-    const requiredCases = Object.fromEntries(REQUIRED_CASES.map(name => [
-        name,
-        annotations.some(annotation => {
-            switch (name) {
-                case 'nativeText':
-                    return annotation.nativeText;
-                case 'legacyFreeTextPopup':
-                    return annotation.legacyFreeTextPopup;
-                case 'replyChain':
-                    return annotation.replyChain;
-                case 'unknownVendorKey':
-                    return annotation.unknownVendorKey;
-                case 'missingName':
-                    return annotation.missingName;
-                case 'richText':
-                    return annotation.richText;
-                case 'appearance':
-                    return annotation.appearance;
-                case 'reviewState':
-                    return annotation.reviewState;
-                default:
-                    return false;
-            }
-        }),
-    ]));
+    const preservedKeys = [...new Set(annotations.flatMap((annotation) => annotation.preservedKeys))].sort();
+    const requiredCases = Object.fromEntries(
+        REQUIRED_CASES.map((name) => [
+            name,
+            annotations.some((annotation) => {
+                switch (name) {
+                    case 'nativeText':
+                        return annotation.nativeText;
+                    case 'legacyFreeTextPopup':
+                        return annotation.legacyFreeTextPopup;
+                    case 'replyChain':
+                        return annotation.replyChain;
+                    case 'unknownVendorKey':
+                        return annotation.unknownVendorKey;
+                    case 'missingName':
+                        return annotation.missingName;
+                    case 'richText':
+                        return annotation.richText;
+                    case 'appearance':
+                        return annotation.appearance;
+                    case 'reviewState':
+                        return annotation.reviewState;
+                    default:
+                        return false;
+                }
+            }),
+        ]),
+    );
     return {
         annotations,
         bytes: bytes.length,
@@ -341,10 +269,7 @@ export async function inspectPdf(filePath) {
 
 export async function checkQpdf(filePath) {
     try {
-        const result = await execFileAsync('qpdf', [
-            '--check',
-            filePath,
-        ], {maxBuffer: 1024 * 1024});
+        const result = await execFileAsync('qpdf', ['--check', filePath], {maxBuffer: 1024 * 1024});
         return {
             exitCode: 0,
             warnings: result.stderr.trim() ? result.stderr.trim().split('\n') : [],
@@ -357,43 +282,35 @@ export async function checkQpdf(filePath) {
         }
         return {
             exitCode,
-            warnings: String(caught.stderr ?? '').trim()
-                ? String(caught.stderr).trim().split('\n')
-                : [],
+            warnings: String(caught.stderr ?? '').trim() ? String(caught.stderr).trim().split('\n') : [],
             stdout: String(caught.stdout ?? '').trim(),
         };
     }
 }
 
-export async function validateManifest({
-    corpusDirectory,
-    manifest,
-    runQpdf = true,
-}) {
+export async function validateManifest({corpusDirectory, manifest, runQpdf = true}) {
     if (!manifest || !Array.isArray(manifest.entries)) {
         throw error('manifest must contain an entries array');
     }
     if (manifest.schemaVersion !== 1) {
         throw error(`unsupported schemaVersion ${manifest.schemaVersion}`);
     }
-    if (!Array.isArray(manifest.requiredKinds)
-        || [...manifest.requiredKinds].sort().join('|')
-            !== [...REQUIRED_CANONICAL_KINDS].sort().join('|')) {
+    if (
+        !Array.isArray(manifest.requiredKinds) ||
+        [...manifest.requiredKinds].sort().join('|') !== [...REQUIRED_CANONICAL_KINDS].sort().join('|')
+    ) {
         throw error('manifest requiredKinds must list the five canonical kinds');
     }
     const root = resolve(corpusDirectory);
-    const readyEntries = manifest.entries.filter(entry => entry?.status === 'ready');
-    if (manifest.entries.some(entry => entry?.status !== 'ready')) {
+    const readyEntries = manifest.entries.filter((entry) => entry?.status === 'ready');
+    if (manifest.entries.some((entry) => entry?.status !== 'ready')) {
         throw error('manifest contains an entry that is not ready; required corpus acquisition cannot be deferred');
     }
     if (readyEntries.length === 0) {
         throw error('manifest has no ready entries');
     }
     const aggregateKinds = new Set();
-    const aggregateCases = Object.fromEntries(REQUIRED_CASES.map(name => [
-        name,
-        false,
-    ]));
+    const aggregateCases = Object.fromEntries(REQUIRED_CASES.map((name) => [name, false]));
     let scenarioCount = 0;
     let stockWriterEntries = 0;
 
@@ -442,45 +359,45 @@ export async function validateManifest({
         if (JSON.stringify(entry.variantCoverage ?? {}) !== JSON.stringify(inventory.variantCoverage)) {
             throw error(`${entry.file} markup/shape variant coverage does not match its parsed annotations`);
         }
-        if (!Array.isArray(entry.preservedKeys)
-            || [...entry.preservedKeys].sort().join('|') !== inventory.preservedKeys.join('|')) {
+        if (!Array.isArray(entry.preservedKeys) || [...entry.preservedKeys].sort().join('|') !== inventory.preservedKeys.join('|')) {
             throw error(`${entry.file} preservedKeys do not match its parsed annotations`);
         }
         if (!Number.isInteger(entry.scenarioCount) || entry.scenarioCount <= 0) {
             throw error(`${entry.file} must declare a positive scenarioCount`);
         }
-        if (!entry.inventory
-            || entry.inventory.annotationCount !== inventory.annotations.length
-            || JSON.stringify(entry.inventory.requiredCases ?? {}) !== JSON.stringify(inventory.requiredCases)) {
+        if (
+            !entry.inventory ||
+            entry.inventory.annotationCount !== inventory.annotations.length ||
+            JSON.stringify(entry.inventory.requiredCases ?? {}) !== JSON.stringify(inventory.requiredCases)
+        ) {
             throw error(`${entry.file} inventory does not match its parsed annotations`);
         }
         scenarioCount += entry.scenarioCount;
         if (runQpdf) {
             const qpdf = await checkQpdf(filePath);
-            if (![
-                0,
-                3,
-            ].includes(qpdf.exitCode)) {
+            if (![0, 3].includes(qpdf.exitCode)) {
                 throw error(`${entry.file} qpdf exit code ${qpdf.exitCode} is not allowed`);
             }
             const baseline = entry.qpdfWarningBaseline;
-            if (!baseline || baseline.exitCode !== qpdf.exitCode
-                || JSON.stringify(baseline.warnings ?? []) !== JSON.stringify(qpdf.warnings)) {
+            if (
+                !baseline ||
+                baseline.exitCode !== qpdf.exitCode ||
+                JSON.stringify(baseline.warnings ?? []) !== JSON.stringify(qpdf.warnings)
+            ) {
                 throw error(`${entry.file} qpdf result differs from its recorded warning baseline`);
             }
         }
         const provenance = entry.provenance;
-        if (!provenance
-            || typeof provenance.kind !== 'string'
-            || !provenance.method
-            || !provenance.license) {
+        if (!provenance || typeof provenance.kind !== 'string' || !provenance.method || !provenance.license) {
             throw error(`${entry.file} needs explicit provenance and generation method`);
         }
         if (provenance.kind === STOCK_PROVENANCE_KIND) {
             stockWriterEntries += 1;
-            if (provenance.packageName !== 'pdfjs-dist-codex-preview'
-                || provenance.version !== '5.4.296'
-                || !String(provenance.claimLimitations ?? '').includes('not claim that stock pdf.js authored every annotation kind')) {
+            if (
+                provenance.packageName !== 'pdfjs-dist-codex-preview' ||
+                provenance.version !== '5.4.296' ||
+                !String(provenance.claimLimitations ?? '').includes('not claim that stock pdf.js authored every annotation kind')
+            ) {
                 throw error(`${entry.file} has an unsupported or overstated stock pdf.js provenance claim`);
             }
         }
@@ -491,12 +408,12 @@ export async function validateManifest({
     if (expectedKinds.join('|') !== actualKinds.join('|')) {
         throw error(`ready entries cover ${actualKinds.join(', ') || 'no canonical kinds'}, expected ${expectedKinds.join(', ')}`);
     }
-    const missingRequiredCases = REQUIRED_CASES.filter(name => aggregateCases[name] !== true);
+    const missingRequiredCases = REQUIRED_CASES.filter((name) => aggregateCases[name] !== true);
     if (missingRequiredCases.length > 0) {
         throw error(`ready entries are missing required scenario cases: ${missingRequiredCases.join(', ')}`);
     }
     const declaredCases = manifest.requiredCases;
-    if (!declaredCases || REQUIRED_CASES.some(name => declaredCases[name] !== aggregateCases[name])) {
+    if (!declaredCases || REQUIRED_CASES.some((name) => declaredCases[name] !== aggregateCases[name])) {
         throw error('manifest requiredCases do not match the parsed fixture inventory');
     }
     if (stockWriterEntries === 0) {
@@ -511,10 +428,7 @@ export async function validateManifest({
     };
 }
 
-export async function validateCorpus({
-    corpusDirectory,
-    runQpdf = true,
-}) {
+export async function validateCorpus({corpusDirectory, runQpdf = true}) {
     const manifestPath = join(corpusDirectory, 'corpus-manifest.json');
     let manifest;
     try {
@@ -530,9 +444,7 @@ export async function validateCorpus({
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-    const corpusDirectory = resolve(
-        process.argv[2] ?? join(dirname(import.meta.dirname), 'tests/fixtures/electron/interop'),
-    );
+    const corpusDirectory = resolve(process.argv[2] ?? join(dirname(import.meta.dirname), 'tests/fixtures/electron/interop'));
     try {
         const result = await validateCorpus({corpusDirectory});
         process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

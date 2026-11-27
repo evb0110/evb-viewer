@@ -1,17 +1,7 @@
-import {
-    spawn, type ChildProcess,
-} from 'node:child_process';
-import {
-    mkdtemp,
-    readFile,
-    readlink,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
+import {spawn, type ChildProcess} from 'node:child_process';
+import {mkdtemp, readFile, readlink, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {
-    basename, join,
-} from 'node:path';
+import {basename, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
 import {isProcessAlive} from '@scripts/electron-run/electronRunProcessTree';
@@ -31,7 +21,7 @@ interface IProject8ProcessIdentity {
 }
 
 interface IProject8NativeReadyMarker {
-    descendant: {identity: IProject8ProcessIdentity;};
+    descendant: {identity: IProject8ProcessIdentity};
     identity: IProject8ProcessIdentity;
     schemaVersion: 1;
     token: string;
@@ -68,10 +58,9 @@ interface IProject8ProcessProofEvidence {
     workerExited: boolean;
 }
 
-const fixtureScriptPath = fileURLToPath(new URL(
-    '../../../tests/fixtures/project8-process-proof/process-proof-fixture.mjs',
-    import.meta.url,
-));
+const fixtureScriptPath = fileURLToPath(
+    new URL('../../../tests/fixtures/project8-process-proof/process-proof-fixture.mjs', import.meta.url),
+);
 const markerTimeoutMs = 5_000;
 const processTimeoutMs = 5_000;
 const processPollMs = 25;
@@ -81,7 +70,7 @@ function isErrno(error: unknown, code: string) {
 }
 
 function waitMs(milliseconds: number) {
-    return new Promise<void>(resolve => {
+    return new Promise<void>((resolve) => {
         setTimeout(resolve, milliseconds);
     });
 }
@@ -155,11 +144,11 @@ async function readLinuxProcessIdentity(
     const stat = await readFile(`/proc/${String(pid)}/stat`, 'utf8');
     const commandEnd = stat.lastIndexOf(')');
     assertCondition(commandEnd >= 0, `cannot parse /proc stat for PID ${String(pid)}`);
-    const fields = stat.slice(commandEnd + 2).trim().split(/\s+/u);
-    const command = (await readFile(`/proc/${String(pid)}/cmdline`, 'utf8'))
-        .split('\0')
-        .filter(Boolean)
-        .join(' ');
+    const fields = stat
+        .slice(commandEnd + 2)
+        .trim()
+        .split(/\s+/u);
+    const command = (await readFile(`/proc/${String(pid)}/cmdline`, 'utf8')).split('\0').filter(Boolean).join(' ');
     return {
         command,
         executable: await readlink(`/proc/${String(pid)}/exe`),
@@ -177,30 +166,26 @@ function isTaskOwnedIdentity(
     identity: IProject8ProcessIdentity,
     expected: Pick<IProject8ProcessIdentity, 'fixtureRoot' | 'role' | 'token'>,
 ) {
-    const commandLine = [
-        fixtureScriptPath,
-        expected.role,
-        expected.fixtureRoot,
-        expected.token,
-    ].join(' ');
-    return identity.fixtureRoot === expected.fixtureRoot
-        && identity.role === expected.role
-        && identity.token === expected.token
-        && identity.command.includes(commandLine);
+    const commandLine = [fixtureScriptPath, expected.role, expected.fixtureRoot, expected.token].join(' ');
+    return (
+        identity.fixtureRoot === expected.fixtureRoot &&
+        identity.role === expected.role &&
+        identity.token === expected.token &&
+        identity.command.includes(commandLine)
+    );
 }
 
-function matchesProject8ProcessIdentity(
-    actual: IProject8ProcessIdentity,
-    expected: IProject8ProcessIdentity,
-) {
-    return actual.pid === expected.pid
-        && actual.role === expected.role
-        && actual.token === expected.token
-        && actual.fixtureRoot === expected.fixtureRoot
-        && actual.startTime === expected.startTime
-        && actual.pgid === expected.pgid
-        && actual.command === expected.command
-        && actual.executable === expected.executable;
+function matchesProject8ProcessIdentity(actual: IProject8ProcessIdentity, expected: IProject8ProcessIdentity) {
+    return (
+        actual.pid === expected.pid &&
+        actual.role === expected.role &&
+        actual.token === expected.token &&
+        actual.fixtureRoot === expected.fixtureRoot &&
+        actual.startTime === expected.startTime &&
+        actual.pgid === expected.pgid &&
+        actual.command === expected.command &&
+        actual.executable === expected.executable
+    );
 }
 
 function isProcessGroupAlive(pid: number) {
@@ -257,12 +242,7 @@ async function waitForReparentedIdentity(
 }
 
 function spawnWorker(root: string, token: string) {
-    const worker = spawn(process.execPath, [
-        fixtureScriptPath,
-        'worker',
-        root,
-        token,
-    ], {
+    const worker = spawn(process.execPath, [fixtureScriptPath, 'worker', root, token], {
         cwd: root,
         env: {
             ...process.env,
@@ -274,10 +254,7 @@ function spawnWorker(root: string, token: string) {
     return worker;
 }
 
-async function terminateOwnedNativeTree(
-    nativeParent: IProject8ProcessIdentity,
-    descendant: IProject8ProcessIdentity,
-) {
+async function terminateOwnedNativeTree(nativeParent: IProject8ProcessIdentity, descendant: IProject8ProcessIdentity) {
     const parentAlive = isProcessAlive(nativeParent.pid);
     const currentParent = parentAlive
         ? await readLinuxProcessIdentity(nativeParent.pid, 'native-parent', nativeParent.fixtureRoot, nativeParent.token)
@@ -285,16 +262,18 @@ async function terminateOwnedNativeTree(
     const currentDescendant = isProcessAlive(descendant.pid)
         ? await readLinuxProcessIdentity(descendant.pid, descendant.role, descendant.fixtureRoot, descendant.token)
         : null;
-    const parentStillMatches = parentAlive
-        && isTaskOwnedIdentity(nativeParent, nativeParent)
-        && currentParent !== null
-        && matchesProject8ProcessIdentity(currentParent, nativeParent)
-        && currentParent.pgid === nativeParent.pid;
-    const descendantStillMatches = !parentAlive
-        && isTaskOwnedIdentity(descendant, descendant)
-        && currentDescendant !== null
-        && matchesProject8ProcessIdentity(currentDescendant, descendant)
-        && currentDescendant.pgid === nativeParent.pid;
+    const parentStillMatches =
+        parentAlive &&
+        isTaskOwnedIdentity(nativeParent, nativeParent) &&
+        currentParent !== null &&
+        matchesProject8ProcessIdentity(currentParent, nativeParent) &&
+        currentParent.pgid === nativeParent.pid;
+    const descendantStillMatches =
+        !parentAlive &&
+        isTaskOwnedIdentity(descendant, descendant) &&
+        currentDescendant !== null &&
+        matchesProject8ProcessIdentity(currentDescendant, descendant) &&
+        currentDescendant.pgid === nativeParent.pid;
     if (!parentStillMatches && !descendantStillMatches) {
         return false;
     }
@@ -314,8 +293,7 @@ async function terminateOwnedNativeTree(
     } catch {
         return false;
     }
-    return (await waitForProcessGroupGone(nativeParent.pid, 1_000))
-        && !isProcessAlive(descendant.pid);
+    return (await waitForProcessGroupGone(nativeParent.pid, 1_000)) && !isProcessAlive(descendant.pid);
 }
 
 async function cleanupFixture(
@@ -326,10 +304,7 @@ async function cleanupFixture(
     nativeParentIdentity: IProject8ProcessIdentity | null,
     descendantIdentity: IProject8ProcessIdentity | null,
 ) {
-    await Promise.all([
-        writeMarker(root, 'release-worker'),
-        writeMarker(root, 'release-native-parent'),
-    ]);
+    await Promise.all([writeMarker(root, 'release-worker'), writeMarker(root, 'release-native-parent')]);
 
     if (nativeParentIdentity && descendantIdentity) {
         await terminateOwnedNativeTree(nativeParentIdentity, descendantIdentity);
@@ -345,12 +320,7 @@ async function cleanupFixture(
     }
 
     if (descendantIdentity && isProcessAlive(descendantIdentity.pid)) {
-        const currentDescendant = await readLinuxProcessIdentity(
-            descendantIdentity.pid,
-            descendantIdentity.role,
-            root,
-            token,
-        );
+        const currentDescendant = await readLinuxProcessIdentity(descendantIdentity.pid, descendantIdentity.role, root, token);
         if (matchesProject8ProcessIdentity(currentDescendant, descendantIdentity)) {
             process.kill(descendantIdentity.pid, 'SIGKILL');
         }
@@ -368,12 +338,8 @@ async function cleanupFixture(
 
     const survivors = [
         worker.pid && isProcessAlive(worker.pid) ? `worker:${String(worker.pid)}` : null,
-        descendantIdentity && isProcessAlive(descendantIdentity.pid)
-            ? `descendant:${String(descendantIdentity.pid)}`
-            : null,
-        nativeParentIdentity && isProcessGroupAlive(nativeParentIdentity.pid)
-            ? `group:${String(nativeParentIdentity.pid)}`
-            : null,
+        descendantIdentity && isProcessAlive(descendantIdentity.pid) ? `descendant:${String(descendantIdentity.pid)}` : null,
+        nativeParentIdentity && isProcessGroupAlive(nativeParentIdentity.pid) ? `group:${String(nativeParentIdentity.pid)}` : null,
     ].filter((value): value is string => value !== null);
     assertCondition(survivors.length === 0, `refusing to remove fixture root while processes remain: ${survivors.join(', ')}`);
     await rm(root, {
@@ -404,44 +370,41 @@ export default async function runProject8ProcessProof(): Promise<IProject8Proces
         nativeParentIdentity = ready.native.identity;
         descendantIdentity = ready.native.descendant.identity;
         assertCondition(isTaskOwnedIdentity(workerIdentity, workerIdentity), 'worker command identity is not task-owned');
-        assertCondition(isTaskOwnedIdentity(nativeParentIdentity, nativeParentIdentity), 'native parent command identity is not task-owned');
-        assertCondition(isTaskOwnedIdentity(descendantIdentity, descendantIdentity), 'native descendant command identity is not task-owned');
+        assertCondition(
+            isTaskOwnedIdentity(nativeParentIdentity, nativeParentIdentity),
+            'native parent command identity is not task-owned',
+        );
+        assertCondition(
+            isTaskOwnedIdentity(descendantIdentity, descendantIdentity),
+            'native descendant command identity is not task-owned',
+        );
         assertCondition(nativeParentIdentity.pgid === nativeParentIdentity.pid, 'native parent did not own a detached process group');
-        assertCondition(descendantIdentity.pgid === nativeParentIdentity.pid, 'native descendant did not inherit the detached process group');
+        assertCondition(
+            descendantIdentity.pgid === nativeParentIdentity.pid,
+            'native descendant did not inherit the detached process group',
+        );
         const observedWorker = await readLinuxProcessIdentity(worker.pid!, 'worker', root, token);
         assertCondition(matchesProject8ProcessIdentity(observedWorker, workerIdentity), 'worker identity changed before handoff');
-        const observedDescendant = await readLinuxProcessIdentity(
-            descendantIdentity.pid,
-            'native-descendant',
-            root,
-            token,
+        const observedDescendant = await readLinuxProcessIdentity(descendantIdentity.pid, 'native-descendant', root, token);
+        assertCondition(
+            matchesProject8ProcessIdentity(observedDescendant, descendantIdentity),
+            'descendant identity changed before handoff',
         );
-        assertCondition(matchesProject8ProcessIdentity(observedDescendant, descendantIdentity), 'descendant identity changed before handoff');
 
         await writeMarker(root, 'release-worker');
         const workerExited = await waitForProcessExit(worker.pid!);
         assertCondition(workerExited, 'worker did not exit after its explicit release barrier');
-        const descendantAfterWorkerExit = await readLinuxProcessIdentity(
-            descendantIdentity.pid,
-            'native-descendant',
-            root,
-            token,
-        );
-        const descendantSurvivedWorkerExit = isProcessAlive(descendantIdentity.pid)
-            && matchesProject8ProcessIdentity(descendantAfterWorkerExit, descendantIdentity);
+        const descendantAfterWorkerExit = await readLinuxProcessIdentity(descendantIdentity.pid, 'native-descendant', root, token);
+        const descendantSurvivedWorkerExit =
+            isProcessAlive(descendantIdentity.pid) && matchesProject8ProcessIdentity(descendantAfterWorkerExit, descendantIdentity);
         assertCondition(descendantSurvivedWorkerExit, 'native descendant did not survive worker exit');
 
         await writeMarker(root, 'release-native-parent');
         const nativeParentExited = await waitForProcessExit(nativeParentIdentity.pid);
         assertCondition(nativeParentExited, 'native parent did not exit after its explicit release barrier');
-        const descendantAfterParentExit = await waitForReparentedIdentity(
-            descendantIdentity,
-            nativeParentIdentity.pid,
-            root,
-            token,
-        );
-        const descendantSurvivedNativeParentExit = isProcessAlive(descendantIdentity.pid)
-            && matchesProject8ProcessIdentity(descendantAfterParentExit, descendantIdentity);
+        const descendantAfterParentExit = await waitForReparentedIdentity(descendantIdentity, nativeParentIdentity.pid, root, token);
+        const descendantSurvivedNativeParentExit =
+            isProcessAlive(descendantIdentity.pid) && matchesProject8ProcessIdentity(descendantAfterParentExit, descendantIdentity);
         assertCondition(descendantSurvivedNativeParentExit, 'native descendant did not survive native parent exit');
         const descendantWasReparented = descendantAfterParentExit.ppid !== nativeParentIdentity.pid;
         assertCondition(descendantWasReparented, 'native descendant remained parented to the exited native parent');
@@ -451,8 +414,8 @@ export default async function runProject8ProcessProof(): Promise<IProject8Proces
             startTime: `stale-${descendantAfterParentExit.startTime}`,
         };
         const staleTerminationAttempt = await terminateOwnedNativeTree(nativeParentIdentity, staleIdentity);
-        const identityMismatchRejected = !matchesProject8ProcessIdentity(descendantAfterParentExit, staleIdentity)
-            && staleTerminationAttempt === false;
+        const identityMismatchRejected =
+            !matchesProject8ProcessIdentity(descendantAfterParentExit, staleIdentity) && staleTerminationAttempt === false;
         assertCondition(identityMismatchRejected, 'stale descendant identity was accepted');
         assertCondition(isProcessAlive(descendantIdentity.pid), 'identity mismatch check disturbed the live descendant');
 
@@ -491,7 +454,7 @@ export default async function runProject8ProcessProof(): Promise<IProject8Proces
     let cleanupFailed = false;
     try {
         const started = await readJsonIfPresent<IProject8StartedMarker>(join(root, 'native-parent-started.json'));
-        const descendantReady = await readJsonIfPresent<{identity: IProject8ProcessIdentity;}>(join(root, 'descendant-ready.json'));
+        const descendantReady = await readJsonIfPresent<{identity: IProject8ProcessIdentity}>(join(root, 'descendant-ready.json'));
         await cleanupFixture(
             root,
             token,

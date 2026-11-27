@@ -1,14 +1,6 @@
-import type {
-    IDebugLogEntry,
-    IRendererLogEntry,
-    TDebugLogLevel,
-    TRendererLogLevel,
-} from '@contracts/electronApiCommon';
-import type {
-    ISettingsCapability,
-    SETTINGS_PLATFORM_FEATURE,
-} from '@contracts/settingsPlatformFeature';
-import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
+import type {IDebugLogEntry, IRendererLogEntry, TDebugLogLevel, TRendererLogLevel} from '@contracts/electronApiCommon';
+import type {ISettingsCapability, SETTINGS_PLATFORM_FEATURE} from '@contracts/settingsPlatformFeature';
+import type {TFeatureBrowserBindings} from '@contracts/platformFeature';
 import {
     DEFAULT_SETTINGS,
     migrateSettings,
@@ -17,21 +9,11 @@ import {
     type TSettingsRecoveryReason,
     UnsupportedSettingsSchemaError,
 } from '@contracts/settings';
-import {
-    formatLogData,
-    toLogData,
-} from '@contracts/logRecord';
-import { redactLogText } from '@contracts/redactLogText';
-import {
-    parseClientDiagnosticsPreference,
-    type TClientDiagnosticsPreference,
-} from '@contracts/diagnostics/diagnosticsPreference';
-import type { ISettingsData } from '@contracts/shared';
-import {
-    readLocalStorageItem,
-    safeSetLocalStorageItem,
-    setLocalStorageItemOrThrow,
-} from '@app/utils/localStorage';
+import {formatLogData, toLogData} from '@contracts/logRecord';
+import {redactLogText} from '@contracts/redactLogText';
+import {parseClientDiagnosticsPreference, type TClientDiagnosticsPreference} from '@contracts/diagnostics/diagnosticsPreference';
+import type {ISettingsData} from '@contracts/shared';
+import {readLocalStorageItem, safeSetLocalStorageItem, setLocalStorageItemOrThrow} from '@app/utils/localStorage';
 import {
     BROWSER_LOCALE_COOKIE_KEY,
     BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS,
@@ -44,15 +26,12 @@ import {
     parseBrowserSettingsPayload,
     parseBrowserSettingsStoragePayload,
 } from '@app/utils/browserSettingsPersistence';
-import { SETTINGS_STORAGE_KEY } from '@app/platform/browser-api/browserApiStorageKeys';
-import { runBrowserLock } from '@app/platform/browser/runBrowserLock';
-import { setRendererDiagnosticsPreference } from '@app/utils/failureReporter';
-import {
-    BrowserLogger,
-    setBrowserLogSink,
-} from '@app/utils/browserLogger';
+import {SETTINGS_STORAGE_KEY} from '@app/platform/browser-api/browserApiStorageKeys';
+import {runBrowserLock} from '@app/platform/browser/runBrowserLock';
+import {setRendererDiagnosticsPreference} from '@app/utils/failureReporter';
+import {BrowserLogger, setBrowserLogSink} from '@app/utils/browserLogger';
 
-let settingsState: ISettingsData = { ...DEFAULT_SETTINGS };
+let settingsState: ISettingsData = {...DEFAULT_SETTINGS};
 let browserSettingsLoaded = false;
 let diagnosticsPreferenceOverride: TClientDiagnosticsPreference | null = null;
 let diagnosticsPreferenceRevision = 0;
@@ -146,25 +125,19 @@ function readLatestBrowserSettingsForSave() {
         return applyDiagnosticsPreferenceOverride(settingsState);
     }
 
-    return applyDiagnosticsPreferenceOverride(
-        readAndMigrateBrowserSettings()?.settings
-            ?? { ...DEFAULT_SETTINGS },
-    );
+    return applyDiagnosticsPreferenceOverride(readAndMigrateBrowserSettings()?.settings ?? {...DEFAULT_SETTINGS});
 }
 
 function applyDiagnosticsPreferenceOverride(settings: ISettingsData) {
     return diagnosticsPreferenceOverride === null
         ? settings
         : {
-            ...settings,
-            clientDiagnosticsPreference: diagnosticsPreferenceOverride,
-        };
+              ...settings,
+              clientDiagnosticsPreference: diagnosticsPreferenceOverride,
+          };
 }
 
-function writeBrowserSettingsBootstrapCookies(
-    nextSettings: ISettingsData,
-    options: {expireLegacySettingsCookie?: boolean} = {},
-) {
+function writeBrowserSettingsBootstrapCookies(nextSettings: ISettingsData, options: {expireLegacySettingsCookie?: boolean} = {}) {
     if (typeof document === 'undefined') {
         return;
     }
@@ -172,9 +145,7 @@ function writeBrowserSettingsBootstrapCookies(
     if (options.expireLegacySettingsCookie !== false) {
         expireLegacyBrowserSettingsCookie();
     }
-    const secureAttribute = typeof location !== 'undefined' && location.protocol === 'https:'
-        ? '; Secure'
-        : '';
+    const secureAttribute = typeof location !== 'undefined' && location.protocol === 'https:' ? '; Secure' : '';
     document.cookie = `${BROWSER_LOCALE_COOKIE_KEY}=${encodeURIComponent(nextSettings.locale)}; Path=/; Max-Age=${BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax${secureAttribute}`;
     document.cookie = `${BROWSER_THEME_COOKIE_KEY}=${encodeURIComponent(nextSettings.theme)}; Path=/; Max-Age=${BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax${secureAttribute}`;
 }
@@ -199,12 +170,8 @@ function readAndMigrateBrowserSettings(options: IBrowserSettingsReadOptions = {}
     const cookieSnapshot = readBrowserSettingsCookies();
     const rawLegacySettings = cookieSnapshot?.rawSettings ?? null;
     assertSupportedBrowserSettingsPayload(rawLegacySettings);
-    const {
-        settings: persistedSettings,
-        available: storageAvailable,
-    } = readBrowserSettingsFromStorage(options);
-    const isValidLegacyCookie = rawLegacySettings !== null
-        && isValidLegacyBrowserSettingsPayload(rawLegacySettings);
+    const {settings: persistedSettings, available: storageAvailable} = readBrowserSettingsFromStorage(options);
+    const isValidLegacyCookie = rawLegacySettings !== null && isValidLegacyBrowserSettingsPayload(rawLegacySettings);
 
     if (persistedSettings) {
         if (rawLegacySettings !== null) {
@@ -224,10 +191,7 @@ function readAndMigrateBrowserSettings(options: IBrowserSettingsReadOptions = {}
         expireLegacyBrowserSettingsCookie();
     }
 
-    const migratedSettings = parseBrowserSettingsPayload(
-        isValidLegacyCookie ? rawLegacySettings : null,
-        cookieSnapshot.fallbackSettings,
-    );
+    const migratedSettings = parseBrowserSettingsPayload(isValidLegacyCookie ? rawLegacySettings : null, cookieSnapshot.fallbackSettings);
     if (!storageAvailable) {
         // Storage that could not be read is not overwritten.
         return {
@@ -259,13 +223,11 @@ function readAndMigrateBrowserSettings(options: IBrowserSettingsReadOptions = {}
 function refreshSharedSettings() {
     const previousPreference = settingsState.clientDiagnosticsPreference;
     try {
-        const shared = hasFutureLegacyBrowserSettingsCookie()
-            ? null
-            : readBrowserSettingsFromStorage({allowUnavailable: true}).settings;
-        settingsState = applyDiagnosticsPreferenceOverride(shared ?? { ...DEFAULT_SETTINGS });
+        const shared = hasFutureLegacyBrowserSettingsCookie() ? null : readBrowserSettingsFromStorage({allowUnavailable: true}).settings;
+        settingsState = applyDiagnosticsPreferenceOverride(shared ?? {...DEFAULT_SETTINGS});
     } catch {
         // A cleared, unreadable or unsupported shared preference grants nothing.
-        settingsState = applyDiagnosticsPreferenceOverride({ ...DEFAULT_SETTINGS });
+        settingsState = applyDiagnosticsPreferenceOverride({...DEFAULT_SETTINGS});
     }
     browserSettingsLoaded = true;
     if (settingsState.clientDiagnosticsPreference !== previousPreference) {
@@ -327,18 +289,18 @@ function toDebugLogEntry(entry: IRendererLogEntry): IDebugLogEntry {
     // BrowserLogger.error always carries a receipt; an error without one cannot be an ERROR entry.
     return entry.failureRef
         ? {
-            ...base,
-            level,
-            failureRef: {
-                eventId: entry.failureRef.eventId,
-                code: entry.failureRef.code,
-                severity: entry.failureRef.severity,
-            },
-        }
+              ...base,
+              level,
+              failureRef: {
+                  eventId: entry.failureRef.eventId,
+                  code: entry.failureRef.code,
+                  severity: entry.failureRef.severity,
+              },
+          }
         : {
-            ...base,
-            level: 'WARN',
-        };
+              ...base,
+              level: 'WARN',
+          };
 }
 
 export const browserSettingsCapability: ISettingsCapability = {
@@ -357,13 +319,15 @@ export const browserSettingsCapability: ISettingsCapability = {
                         recordRecovery: true,
                     });
                 } catch (error) {
-                    if (!(error instanceof UnsupportedSettingsSchemaError)) throw error;
+                    if (!(error instanceof UnsupportedSettingsSchemaError)) {
+                        throw error;
+                    }
                     // A newer version's settings stay as they are, and saves are
                     // refused; desktop instead quarantines its file and writes defaults.
                     recordSettingsRecovery('unsupported');
                     unsupported = true;
                 }
-                settingsState = applyDiagnosticsPreferenceOverride(migration?.settings ?? { ...DEFAULT_SETTINGS });
+                settingsState = applyDiagnosticsPreferenceOverride(migration?.settings ?? {...DEFAULT_SETTINGS});
                 if (!unsupported) {
                     writeBrowserSettingsBootstrapCookies(settingsState, {expireLegacySettingsCookie: migration?.persisted !== false});
                 }
@@ -379,14 +343,11 @@ export const browserSettingsCapability: ISettingsCapability = {
     },
     save(settings) {
         const hasDiagnosticsPreference = Object.hasOwn(settings, 'clientDiagnosticsPreference');
-        const previousDiagnosticsPreference = diagnosticsPreferenceOverride
-            ?? settingsState.clientDiagnosticsPreference;
+        const previousDiagnosticsPreference = diagnosticsPreferenceOverride ?? settingsState.clientDiagnosticsPreference;
         const nextDiagnosticsPreference = hasDiagnosticsPreference
             ? parseClientDiagnosticsPreference(settings.clientDiagnosticsPreference)
             : null;
-        const diagnosticsSaveRevision = nextDiagnosticsPreference === null
-            ? null
-            : diagnosticsPreferenceRevision + 1;
+        const diagnosticsSaveRevision = nextDiagnosticsPreference === null ? null : diagnosticsPreferenceRevision + 1;
         if (diagnosticsSaveRevision !== null) {
             diagnosticsPreferenceRevision = diagnosticsSaveRevision;
         }
@@ -399,32 +360,26 @@ export const browserSettingsCapability: ISettingsCapability = {
             }
         }
 
-        return Promise.resolve().then(() => {
-            return runSerializedBrowserSettingsSave(settings);
-        }).then(() => {
-            if (
-                diagnosticsSaveRevision === null
-                || diagnosticsSaveRevision === diagnosticsPreferenceRevision
-            ) {
-                diagnosticsPreferenceOverride = null;
-            }
-            if (
-                diagnosticsSaveRevision === diagnosticsPreferenceRevision
-                && nextDiagnosticsPreference === 'granted'
-            ) {
-                setRendererDiagnosticsPreference(nextDiagnosticsPreference);
-            }
-            notifySettingsListeners();
-        }).catch((error: unknown) => {
-            if (
-                nextDiagnosticsPreference === 'granted'
-                && diagnosticsSaveRevision === diagnosticsPreferenceRevision
-            ) {
-                // A failed grant must not leave the in-memory reporter open.
-                setRendererDiagnosticsPreference(previousDiagnosticsPreference);
-            }
-            throw error;
-        });
+        return Promise.resolve()
+            .then(() => {
+                return runSerializedBrowserSettingsSave(settings);
+            })
+            .then(() => {
+                if (diagnosticsSaveRevision === null || diagnosticsSaveRevision === diagnosticsPreferenceRevision) {
+                    diagnosticsPreferenceOverride = null;
+                }
+                if (diagnosticsSaveRevision === diagnosticsPreferenceRevision && nextDiagnosticsPreference === 'granted') {
+                    setRendererDiagnosticsPreference(nextDiagnosticsPreference);
+                }
+                notifySettingsListeners();
+            })
+            .catch((error: unknown) => {
+                if (nextDiagnosticsPreference === 'granted' && diagnosticsSaveRevision === diagnosticsPreferenceRevision) {
+                    // A failed grant must not leave the in-memory reporter open.
+                    setRendererDiagnosticsPreference(previousDiagnosticsPreference);
+                }
+                throw error;
+            });
     },
     getDebugLogs(): Promise<IDebugLogEntry[]> {
         return Promise.resolve([...debugLogEntries]);
@@ -446,4 +401,4 @@ export const browserSettingsCapability: ISettingsCapability = {
 
 browserSettingsCapability satisfies TFeatureBrowserBindings<typeof SETTINGS_PLATFORM_FEATURE>;
 
-setBrowserLogSink(entry => browserSettingsCapability.rendererLog(entry));
+setBrowserLogSink((entry) => browserSettingsCapability.rendererLog(entry));

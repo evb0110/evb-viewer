@@ -11,9 +11,17 @@
             />
         </span>
         <span class="scan-cleanup-setting-label-affordances">
-            <span v-if="mixed" class="scan-cleanup-setting-label-mixed">{{ t('scanCleanup.settings.mixed') }}</span>
+            <span
+                v-if="mixed"
+                class="scan-cleanup-setting-label-mixed"
+                >{{ t('scanCleanup.settings.mixed') }}</span
+            >
             <slot />
-            <AppTooltip v-if="overridden" :text="t('scanCleanup.settings.resetToDocument')" usefulness="always">
+            <AppTooltip
+                v-if="overridden"
+                :text="t('scanCleanup.settings.resetToDocument')"
+                usefulness="always"
+            >
                 <UButton
                     type="button"
                     color="neutral"

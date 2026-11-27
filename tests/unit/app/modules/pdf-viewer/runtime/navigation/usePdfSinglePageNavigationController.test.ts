@@ -1,23 +1,9 @@
-import type { Ref } from 'vue';
+import type {Ref} from 'vue';
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    effectScope,
-    h,
-    nextTick,
-    queuePostFlushCb,
-    ref,
-    shallowRef,
-    watch,
-} from 'vue';
+import {describe, expect, it, vi} from 'vitest';
+import {createApp, effectScope, h, nextTick, queuePostFlushCb, ref, shallowRef, watch} from 'vue';
 import {
     buildPageLayoutMetrics,
     createPageNavigationRequest,
@@ -28,14 +14,11 @@ import {
     type IPdfSemanticAnchor,
 } from '@app/modules/document-viewer/public';
 import {BrowserLogger} from '@app/utils/browserLogger';
-import { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController';
-import { getRequestAnchor } from '@app/modules/pdf-viewer/runtime/navigation/pdfNavigationRequestAnchors';
-import { createTestPdfViewportWritePort } from '@tests/helpers/createTestPdfViewportWritePort';
-import { yieldToBrowser } from '@app/utils/yieldToBrowser';
-import {
-    requirePageIndex,
-    requirePageNumber,
-} from '@contracts/pageNumbers';
+import {usePdfSinglePageNavigationController} from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController';
+import {getRequestAnchor} from '@app/modules/pdf-viewer/runtime/navigation/pdfNavigationRequestAnchors';
+import {createTestPdfViewportWritePort} from '@tests/helpers/createTestPdfViewportWritePort';
+import {yieldToBrowser} from '@app/utils/yieldToBrowser';
+import {requirePageIndex, requirePageNumber} from '@contracts/pageNumbers';
 
 function requireLayoutPageTop(layout: IPdfPageLayoutMetrics, pageIndex: number) {
     const top = getLayoutPageTop(layout, requirePageIndex(pageIndex));
@@ -77,9 +60,10 @@ describe('usePdfSinglePageNavigationController', () => {
             const page = document.createElement('div');
             page.className = 'page_container';
             page.dataset.page = String(pageNumber);
-            page.innerHTML = pageNumber === 1
-                ? '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>'
-                : '<div class="document-page-skeleton"></div>';
+            page.innerHTML =
+                pageNumber === 1
+                    ? '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>'
+                    : '<div class="document-page-skeleton"></div>';
             viewer.append(page);
             pages.set(pageNumber, page);
         }
@@ -106,57 +90,61 @@ describe('usePdfSinglePageNavigationController', () => {
         let pageIndicator: Readonly<Ref<number>> = ref(1);
 
         try {
-            const controller = scope.run(() => usePdfSinglePageNavigationController({
-                viewerContainer: ref(viewer),
-                numPages: ref(3),
-                currentPage: ref(1),
-                scaledMargin: ref(20),
-                viewMode: ref('single'),
-                continuousScroll: ref(true),
-                isLoading: ref(false),
-                pdfDocument: shallowRef({numPages: 3} as IPdfDocument),
-                updateVisibleRange: vi.fn(),
-                renderVisiblePages: async (range) => {
-                    pages.get(range.start)!.innerHTML = '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>';
-                    freshPages.add(range.start);
-                    return true;
-                },
-                waitForPageTextLayerReady: async () => {
-                    await textLayerBuilt.promise;
-                    return true;
-                },
-                isPageFreshlyRenderedForNavigation: pageNumber => freshPages.has(pageNumber),
-                visibleRange: ref({
-                    start: 1,
-                    end: 1,
+            const controller = scope.run(() =>
+                usePdfSinglePageNavigationController({
+                    viewerContainer: ref(viewer),
+                    numPages: ref(3),
+                    currentPage: ref(1),
+                    scaledMargin: ref(20),
+                    viewMode: ref('single'),
+                    continuousScroll: ref(true),
+                    isLoading: ref(false),
+                    pdfDocument: shallowRef({numPages: 3} as IPdfDocument),
+                    updateVisibleRange: vi.fn(),
+                    renderVisiblePages: async (range) => {
+                        pages.get(range.start)!.innerHTML = '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>';
+                        freshPages.add(range.start);
+                        return true;
+                    },
+                    waitForPageTextLayerReady: async () => {
+                        await textLayerBuilt.promise;
+                        return true;
+                    },
+                    isPageFreshlyRenderedForNavigation: (pageNumber) => freshPages.has(pageNumber),
+                    visibleRange: ref({
+                        start: 1,
+                        end: 1,
+                    }),
+                    viewportWritePort: viewportWrites.port,
+                    getPageLayoutMetrics: () => layout,
+                    getPhysicalScrollOrigin: () => 0,
+                    getDocumentRevision: () => 1,
+                    getGeometryRevision: () => 1,
                 }),
-                viewportWritePort: viewportWrites.port,
-                getPageLayoutMetrics: () => layout,
-                getPhysicalScrollOrigin: () => 0,
-                getDocumentRevision: () => 1,
-                getGeometryRevision: () => 1,
-            }));
+            );
             if (!controller) {
                 throw new Error('Expected navigation controller');
             }
             pageIndicator = controller.viewportAuthority.currentPage;
 
-            expect(controller.submitNavigationRequest({
-                target: {
-                    kind: 'rect',
-                    page: 2,
-                    rect: {
-                        left: 0.25,
-                        top: 0.75,
-                        width: 0.1,
-                        height: 0.05,
+            expect(
+                controller.submitNavigationRequest({
+                    target: {
+                        kind: 'rect',
+                        page: 2,
+                        rect: {
+                            left: 0.25,
+                            top: 0.75,
+                            width: 0.1,
+                            height: 0.05,
+                        },
                     },
-                },
-                alignment: 'rect-center',
-                readiness: 'page-canvas',
-                source: 'search',
-                supersession: 'latest-wins',
-            })).toBe(true);
+                    alignment: 'rect-center',
+                    readiness: 'page-canvas',
+                    source: 'search',
+                    supersession: 'latest-wins',
+                }),
+            ).toBe(true);
             // A canvas-ready result lands without its text layer.
             await vi.waitFor(() => {
                 expect(pageIndicator.value).toBe(2);
@@ -164,22 +152,24 @@ describe('usePdfSinglePageNavigationController', () => {
             });
             expect(pages.get(2)!.querySelector('canvas')).not.toBeNull();
 
-            expect(controller.submitNavigationRequest({
-                target: {
-                    kind: 'rect',
-                    page: 3,
-                    rect: {
-                        left: 0.25,
-                        top: 0.75,
-                        width: 0.1,
-                        height: 0.05,
+            expect(
+                controller.submitNavigationRequest({
+                    target: {
+                        kind: 'rect',
+                        page: 3,
+                        rect: {
+                            left: 0.25,
+                            top: 0.75,
+                            width: 0.1,
+                            height: 0.05,
+                        },
                     },
-                },
-                alignment: 'rect-center',
-                readiness: 'text-layer',
-                source: 'search',
-                supersession: 'latest-wins',
-            })).toBe(true);
+                    alignment: 'rect-center',
+                    readiness: 'text-layer',
+                    source: 'search',
+                    supersession: 'latest-wins',
+                }),
+            ).toBe(true);
             // A result that needs its text layer for the highlight is still
             // navigating once its canvas is painted.
             await vi.waitFor(() => {
@@ -235,7 +225,7 @@ describe('usePdfSinglePageNavigationController', () => {
             page.innerHTML = '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>';
             page.getBoundingClientRect = () => {
                 const contentTop = pageNumber === 1 ? 20 : targetTop;
-                return ({
+                return {
                     bottom: contentTop - viewer.scrollTop + 900,
                     height: 900,
                     left: 150,
@@ -245,7 +235,7 @@ describe('usePdfSinglePageNavigationController', () => {
                     x: 150,
                     y: contentTop - viewer.scrollTop + 100,
                     toJSON: () => ({}),
-                });
+                };
             };
             viewer.append(page);
         }
@@ -268,28 +258,30 @@ describe('usePdfSinglePageNavigationController', () => {
         let pageIndicator: Readonly<Ref<number>> = ref(1);
 
         try {
-            const controller = scope.run(() => usePdfSinglePageNavigationController({
-                viewerContainer: ref(viewer),
-                numPages: ref(2),
-                currentPage: ref(1),
-                scaledMargin: ref(20),
-                viewMode: ref('single'),
-                continuousScroll: ref(true),
-                isLoading: ref(false),
-                pdfDocument: shallowRef({numPages: 2} as IPdfDocument),
-                updateVisibleRange: vi.fn(),
-                renderVisiblePages: vi.fn(async () => true),
-                isPageFreshlyRenderedForNavigation: vi.fn(() => true),
-                visibleRange: ref({
-                    start: 1,
-                    end: 1,
+            const controller = scope.run(() =>
+                usePdfSinglePageNavigationController({
+                    viewerContainer: ref(viewer),
+                    numPages: ref(2),
+                    currentPage: ref(1),
+                    scaledMargin: ref(20),
+                    viewMode: ref('single'),
+                    continuousScroll: ref(true),
+                    isLoading: ref(false),
+                    pdfDocument: shallowRef({numPages: 2} as IPdfDocument),
+                    updateVisibleRange: vi.fn(),
+                    renderVisiblePages: vi.fn(async () => true),
+                    isPageFreshlyRenderedForNavigation: vi.fn(() => true),
+                    visibleRange: ref({
+                        start: 1,
+                        end: 1,
+                    }),
+                    viewportWritePort: viewportWrites.port,
+                    getPageLayoutMetrics: () => layout,
+                    getPhysicalScrollOrigin: () => 0,
+                    getDocumentRevision: () => 1,
+                    getGeometryRevision: () => 1,
                 }),
-                viewportWritePort: viewportWrites.port,
-                getPageLayoutMetrics: () => layout,
-                getPhysicalScrollOrigin: () => 0,
-                getDocumentRevision: () => 1,
-                getGeometryRevision: () => 1,
-            }));
+            );
             if (!controller) {
                 throw new Error('Expected navigation controller');
             }
@@ -297,11 +289,17 @@ describe('usePdfSinglePageNavigationController', () => {
             // Ending the handoff lays the outgoing page the virtual window held
             // out at the current scale, which moves the target.
             const released: boolean[] = [];
-            const stop = watch(controller.navigationAnchorPage, (page) => {
-                if (page !== null) return;
-                released.push(controller.isProgrammaticNavigationActive.value);
-                targetTop = 2_700;
-            }, {flush: 'sync'});
+            const stop = watch(
+                controller.navigationAnchorPage,
+                (page) => {
+                    if (page !== null) {
+                        return;
+                    }
+                    released.push(controller.isProgrammaticNavigationActive.value);
+                    targetTop = 2_700;
+                },
+                {flush: 'sync'},
+            );
 
             expect(controller.scrollToPage(requirePageNumber(2))).toBe(true);
             await vi.waitFor(() => {
@@ -312,10 +310,7 @@ describe('usePdfSinglePageNavigationController', () => {
             // The handoff ends while the navigation still runs, and it places
             // its page through the released layout before it settles.
             expect(released).toEqual([true]);
-            expect(viewportWrites.writes.map(write => write.top)).toEqual([
-                2_380,
-                2_680,
-            ]);
+            expect(viewportWrites.writes.map((write) => write.top)).toEqual([2_380, 2_680]);
             await nextTick();
             expect(viewer.scrollTop).toBe(2_680);
             expect(pageIndicator.value).toBe(2);
@@ -336,120 +331,127 @@ describe('usePdfSinglePageNavigationController', () => {
             pageWidth: 857,
             expectedLeft: 6,
         },
-    ])('restores the reading centre with $viewportWidth px of viewport and $pageWidth px of paper', async ({
-        viewportWidth, pageWidth, expectedLeft,
-    }) => {
-        const scope = effectScope();
-        const viewer = document.createElement('div');
-        Object.defineProperties(viewer, {
-            clientHeight: {value: 700},
-            clientWidth: {value: viewportWidth},
-            scrollHeight: {value: 4_000},
-            scrollWidth: {value: Math.max(2_200, pageWidth + 40)},
-            scrollLeft: {
-                value: 0,
-                writable: true,
-            },
-            scrollTop: {
-                value: 0,
-                writable: true,
-            },
-        });
-        viewer.getBoundingClientRect = () => ({
-            bottom: 700,
-            height: 700,
-            left: 0,
-            right: viewportWidth,
-            top: 0,
-            width: viewportWidth,
-            x: 0,
-            y: 0,
-            toJSON: () => ({}),
-        });
-        const target = document.createElement('div');
-        target.className = 'page_container page_container--rendered';
-        target.dataset.page = '2';
-        target.innerHTML = `<div class="page_canvas"><canvas width="${String(pageWidth)}" height="800"></canvas></div>`;
-        const pageLeft = Math.max(20, (viewportWidth - pageWidth) / 2);
-        target.getBoundingClientRect = () => ({
-            bottom: 1_700 - viewer.scrollTop,
-            height: 800,
-            left: pageLeft - viewer.scrollLeft,
-            right: pageLeft + pageWidth - viewer.scrollLeft,
-            top: 900 - viewer.scrollTop,
-            width: pageWidth,
-            x: pageLeft - viewer.scrollLeft,
-            y: 900 - viewer.scrollTop,
-            toJSON: () => ({}),
-        });
-        viewer.append(target);
-        const layout = buildPageLayoutMetrics({
-            pageMetrics: Array.from({length: 2}, () => ({
-                width: pageWidth,
-                height: 800,
-            })),
-            totalPages: 2,
-            viewMode: 'single',
-            scale: 1,
-            gap: 20,
-            paddingTop: 20,
-            paddingBottom: 20,
-        });
-        if (!layout) {
-            throw new Error('Expected PDF layout metrics');
-        }
-        const viewportWrites = createTestPdfViewportWritePort();
-        let pageIndicator: Readonly<Ref<number>> = ref(1);
-
-        try {
-            const controller = scope.run(() => usePdfSinglePageNavigationController({
-                viewerContainer: ref(viewer),
-                numPages: ref(2),
-                currentPage: ref(1),
-                scaledMargin: ref(20),
-                viewMode: ref('single'),
-                continuousScroll: ref(true),
-                isLoading: ref(false),
-                pdfDocument: shallowRef({numPages: 2} as IPdfDocument),
-                updateVisibleRange: vi.fn(),
-                renderVisiblePages: vi.fn(async () => true),
-                isPageFreshlyRenderedForNavigation: vi.fn(() => true),
-                visibleRange: ref({
-                    start: 1,
-                    end: 1,
-                }),
-                viewportWritePort: viewportWrites.port,
-                getPageLayoutMetrics: () => layout,
-                getPhysicalScrollOrigin: () => 0,
-                getDocumentRevision: () => 1,
-                getGeometryRevision: () => 1,
-            }));
-            if (!controller) {
-                throw new Error('Expected navigation controller');
-            }
-            pageIndicator = controller.viewportAuthority.currentPage;
-
-            expect(controller.submitNavigationRequest(createPageNavigationRequest(2, 'restore', {
-                page: 2,
-                pageXFraction: 0.5,
-                pageYFraction: 0.425,
-                viewportXFraction: 0.5,
-                viewportYFraction: 0.5,
-                affinity: 'center',
-            }))).toBe(true);
-
-            await vi.waitFor(() => {
-                expect(pageIndicator.value).toBe(2);
-                expect(controller.isProgrammaticNavigationActive.value).toBe(false);
+    ])(
+        'restores the reading centre with $viewportWidth px of viewport and $pageWidth px of paper',
+        async ({viewportWidth, pageWidth, expectedLeft}) => {
+            const scope = effectScope();
+            const viewer = document.createElement('div');
+            Object.defineProperties(viewer, {
+                clientHeight: {value: 700},
+                clientWidth: {value: viewportWidth},
+                scrollHeight: {value: 4_000},
+                scrollWidth: {value: Math.max(2_200, pageWidth + 40)},
+                scrollLeft: {
+                    value: 0,
+                    writable: true,
+                },
+                scrollTop: {
+                    value: 0,
+                    writable: true,
+                },
             });
-            expect(viewer.scrollTop).toBe(890);
-            expect(viewer.scrollLeft).toBe(expectedLeft);
-            const restoredPaperPoint = (viewportWidth / 2 - target.getBoundingClientRect().left) / pageWidth;
-            expect(restoredPaperPoint).toBe(0.5);
-        } finally {
-            scope.stop();
-        }
-    });
+            viewer.getBoundingClientRect = () => ({
+                bottom: 700,
+                height: 700,
+                left: 0,
+                right: viewportWidth,
+                top: 0,
+                width: viewportWidth,
+                x: 0,
+                y: 0,
+                toJSON: () => ({}),
+            });
+            const target = document.createElement('div');
+            target.className = 'page_container page_container--rendered';
+            target.dataset.page = '2';
+            target.innerHTML = `<div class="page_canvas"><canvas width="${String(pageWidth)}" height="800"></canvas></div>`;
+            const pageLeft = Math.max(20, (viewportWidth - pageWidth) / 2);
+            target.getBoundingClientRect = () => ({
+                bottom: 1_700 - viewer.scrollTop,
+                height: 800,
+                left: pageLeft - viewer.scrollLeft,
+                right: pageLeft + pageWidth - viewer.scrollLeft,
+                top: 900 - viewer.scrollTop,
+                width: pageWidth,
+                x: pageLeft - viewer.scrollLeft,
+                y: 900 - viewer.scrollTop,
+                toJSON: () => ({}),
+            });
+            viewer.append(target);
+            const layout = buildPageLayoutMetrics({
+                pageMetrics: Array.from({length: 2}, () => ({
+                    width: pageWidth,
+                    height: 800,
+                })),
+                totalPages: 2,
+                viewMode: 'single',
+                scale: 1,
+                gap: 20,
+                paddingTop: 20,
+                paddingBottom: 20,
+            });
+            if (!layout) {
+                throw new Error('Expected PDF layout metrics');
+            }
+            const viewportWrites = createTestPdfViewportWritePort();
+            let pageIndicator: Readonly<Ref<number>> = ref(1);
+
+            try {
+                const controller = scope.run(() =>
+                    usePdfSinglePageNavigationController({
+                        viewerContainer: ref(viewer),
+                        numPages: ref(2),
+                        currentPage: ref(1),
+                        scaledMargin: ref(20),
+                        viewMode: ref('single'),
+                        continuousScroll: ref(true),
+                        isLoading: ref(false),
+                        pdfDocument: shallowRef({numPages: 2} as IPdfDocument),
+                        updateVisibleRange: vi.fn(),
+                        renderVisiblePages: vi.fn(async () => true),
+                        isPageFreshlyRenderedForNavigation: vi.fn(() => true),
+                        visibleRange: ref({
+                            start: 1,
+                            end: 1,
+                        }),
+                        viewportWritePort: viewportWrites.port,
+                        getPageLayoutMetrics: () => layout,
+                        getPhysicalScrollOrigin: () => 0,
+                        getDocumentRevision: () => 1,
+                        getGeometryRevision: () => 1,
+                    }),
+                );
+                if (!controller) {
+                    throw new Error('Expected navigation controller');
+                }
+                pageIndicator = controller.viewportAuthority.currentPage;
+
+                expect(
+                    controller.submitNavigationRequest(
+                        createPageNavigationRequest(2, 'restore', {
+                            page: 2,
+                            pageXFraction: 0.5,
+                            pageYFraction: 0.425,
+                            viewportXFraction: 0.5,
+                            viewportYFraction: 0.5,
+                            affinity: 'center',
+                        }),
+                    ),
+                ).toBe(true);
+
+                await vi.waitFor(() => {
+                    expect(pageIndicator.value).toBe(2);
+                    expect(controller.isProgrammaticNavigationActive.value).toBe(false);
+                });
+                expect(viewer.scrollTop).toBe(890);
+                expect(viewer.scrollLeft).toBe(expectedLeft);
+                const restoredPaperPoint = (viewportWidth / 2 - target.getBoundingClientRect().left) / pageWidth;
+                expect(restoredPaperPoint).toBe(0.5);
+            } finally {
+                scope.stop();
+            }
+        },
+    );
 
     it('uses page-local scroll coordinates in paged mode instead of the cumulative document track', async () => {
         const scope = effectScope();
@@ -494,28 +496,30 @@ describe('usePdfSinglePageNavigationController', () => {
         let pageIndicator: Readonly<Ref<number>> = ref(1);
 
         try {
-            const controller = scope.run(() => usePdfSinglePageNavigationController({
-                viewerContainer: ref(viewer),
-                numPages: ref(3),
-                currentPage: ref(1),
-                scaledMargin: ref(20),
-                viewMode: ref('single'),
-                continuousScroll: ref(false),
-                isLoading: ref(false),
-                pdfDocument: shallowRef({numPages: 3} as IPdfDocument),
-                updateVisibleRange: vi.fn(),
-                renderVisiblePages: vi.fn(async () => true),
-                isPageFreshlyRenderedForNavigation: vi.fn(() => true),
-                visibleRange: ref({
-                    start: 1,
-                    end: 1,
+            const controller = scope.run(() =>
+                usePdfSinglePageNavigationController({
+                    viewerContainer: ref(viewer),
+                    numPages: ref(3),
+                    currentPage: ref(1),
+                    scaledMargin: ref(20),
+                    viewMode: ref('single'),
+                    continuousScroll: ref(false),
+                    isLoading: ref(false),
+                    pdfDocument: shallowRef({numPages: 3} as IPdfDocument),
+                    updateVisibleRange: vi.fn(),
+                    renderVisiblePages: vi.fn(async () => true),
+                    isPageFreshlyRenderedForNavigation: vi.fn(() => true),
+                    visibleRange: ref({
+                        start: 1,
+                        end: 1,
+                    }),
+                    viewportWritePort: viewportWrites.port,
+                    getPageLayoutMetrics: () => layout,
+                    getPhysicalScrollOrigin: () => 0,
+                    getDocumentRevision: () => 1,
+                    getGeometryRevision: () => 1,
                 }),
-                viewportWritePort: viewportWrites.port,
-                getPageLayoutMetrics: () => layout,
-                getPhysicalScrollOrigin: () => 0,
-                getDocumentRevision: () => 1,
-                getGeometryRevision: () => 1,
-            }));
+            );
             if (!controller) {
                 throw new Error('Expected navigation controller');
             }
@@ -579,46 +583,46 @@ describe('usePdfSinglePageNavigationController', () => {
         const preventDefault = vi.fn();
 
         try {
-            const controller = scope.run(() => usePdfSinglePageNavigationController({
-                viewerContainer: ref(viewer),
-                numPages: ref(5),
-                currentPage: ref(1),
-                scaledMargin: ref(20),
-                viewMode: ref('single'),
-                continuousScroll: ref(false),
-                isLoading: ref(false),
-                pdfDocument: shallowRef({numPages: 5} as IPdfDocument),
-                updateVisibleRange: vi.fn(),
-                renderVisiblePages: vi.fn(async () => true),
-                prepareNavigationLayout: async () => preparation.promise,
-                isPageFreshlyRenderedForNavigation: vi.fn(() => true),
-                visibleRange: ref({
-                    start: 1,
-                    end: 1,
+            const controller = scope.run(() =>
+                usePdfSinglePageNavigationController({
+                    viewerContainer: ref(viewer),
+                    numPages: ref(5),
+                    currentPage: ref(1),
+                    scaledMargin: ref(20),
+                    viewMode: ref('single'),
+                    continuousScroll: ref(false),
+                    isLoading: ref(false),
+                    pdfDocument: shallowRef({numPages: 5} as IPdfDocument),
+                    updateVisibleRange: vi.fn(),
+                    renderVisiblePages: vi.fn(async () => true),
+                    prepareNavigationLayout: async () => preparation.promise,
+                    isPageFreshlyRenderedForNavigation: vi.fn(() => true),
+                    visibleRange: ref({
+                        start: 1,
+                        end: 1,
+                    }),
+                    viewportWritePort: viewportWrites.port,
+                    getPageLayoutMetrics: () => layout,
+                    getPhysicalScrollOrigin: () => 0,
+                    getDocumentRevision: () => 1,
+                    getGeometryRevision: () => 1,
                 }),
-                viewportWritePort: viewportWrites.port,
-                getPageLayoutMetrics: () => layout,
-                getPhysicalScrollOrigin: () => 0,
-                getDocumentRevision: () => 1,
-                getGeometryRevision: () => 1,
-            }));
+            );
             if (!controller) {
                 throw new Error('Expected navigation controller');
             }
             pageIndicator = controller.viewportAuthority.currentPage;
             navigationTargetPage = controller.navigationAnchorPage;
 
-            for (const timeStamp of [
-                1_000,
-                1_200,
-                1_400,
-            ]) {
-                expect(controller.handleWheel({
-                    deltaX: 0,
-                    deltaY: 180,
-                    preventDefault,
-                    timeStamp,
-                })).toBe(true);
+            for (const timeStamp of [1_000, 1_200, 1_400]) {
+                expect(
+                    controller.handleWheel({
+                        deltaX: 0,
+                        deltaY: 180,
+                        preventDefault,
+                        timeStamp,
+                    }),
+                ).toBe(true);
             }
             // Three flips are acknowledged as one destination while the
             // viewport waits on page 1 for the layout.
@@ -634,12 +638,14 @@ describe('usePdfSinglePageNavigationController', () => {
                 expect(navigationTargetPage.value).toBeNull();
             });
             expect(viewportWrites.writes).toHaveLength(1);
-            expect(controller.handleWheel({
-                deltaX: 0,
-                deltaY: 0,
-                preventDefault,
-                timeStamp: 1_600,
-            })).toBe(false);
+            expect(
+                controller.handleWheel({
+                    deltaX: 0,
+                    deltaY: 0,
+                    preventDefault,
+                    timeStamp: 1_600,
+                }),
+            ).toBe(false);
         } finally {
             scope.stop();
         }
@@ -692,40 +698,44 @@ describe('usePdfSinglePageNavigationController', () => {
         const preventDefault = vi.fn();
 
         try {
-            const controller = scope.run(() => usePdfSinglePageNavigationController({
-                viewerContainer: ref(viewer),
-                numPages: ref(5),
-                currentPage: ref(1),
-                scaledMargin: ref(20),
-                viewMode: ref('single'),
-                continuousScroll: ref(false),
-                isLoading: ref(false),
-                pdfDocument: shallowRef({numPages: 5} as IPdfDocument),
-                updateVisibleRange: vi.fn(),
-                renderVisiblePages: vi.fn(async () => true),
-                isPageFreshlyRenderedForNavigation: vi.fn(() => true),
-                visibleRange: ref({
-                    start: 1,
-                    end: 1,
+            const controller = scope.run(() =>
+                usePdfSinglePageNavigationController({
+                    viewerContainer: ref(viewer),
+                    numPages: ref(5),
+                    currentPage: ref(1),
+                    scaledMargin: ref(20),
+                    viewMode: ref('single'),
+                    continuousScroll: ref(false),
+                    isLoading: ref(false),
+                    pdfDocument: shallowRef({numPages: 5} as IPdfDocument),
+                    updateVisibleRange: vi.fn(),
+                    renderVisiblePages: vi.fn(async () => true),
+                    isPageFreshlyRenderedForNavigation: vi.fn(() => true),
+                    visibleRange: ref({
+                        start: 1,
+                        end: 1,
+                    }),
+                    viewportWritePort: viewportWrites.port,
+                    getPageLayoutMetrics: () => layout,
+                    getPhysicalScrollOrigin: () => 0,
+                    getDocumentRevision: () => 1,
+                    getGeometryRevision: () => 1,
                 }),
-                viewportWritePort: viewportWrites.port,
-                getPageLayoutMetrics: () => layout,
-                getPhysicalScrollOrigin: () => 0,
-                getDocumentRevision: () => 1,
-                getGeometryRevision: () => 1,
-            }));
+            );
             if (!controller) {
                 throw new Error('Expected navigation controller');
             }
 
             // First packet flips from page 1 to page 2 and settles.
-            expect(controller.handleWheel({
-                timeStamp: 1_000,
-                deltaX: 0,
-                deltaY: 36,
-                cancelable: true,
-                preventDefault,
-            })).toBe(true);
+            expect(
+                controller.handleWheel({
+                    timeStamp: 1_000,
+                    deltaX: 0,
+                    deltaY: 36,
+                    cancelable: true,
+                    preventDefault,
+                }),
+            ).toBe(true);
             await vi.waitFor(() => {
                 expect(controller.viewportAuthority.currentPage.value).toBe(2);
                 expect(controller.isProgrammaticNavigationActive.value).toBe(false);
@@ -740,11 +750,13 @@ describe('usePdfSinglePageNavigationController', () => {
                 {timeStamp: 1_280, deltaX: 0, deltaY: 4},
                 {timeStamp: 1_360, deltaX: 0, deltaY: 2},
             ]) {
-                expect(controller.handleWheel({
-                    ...packet,
-                    cancelable: true,
-                    preventDefault,
-                })).toBe(true);
+                expect(
+                    controller.handleWheel({
+                        ...packet,
+                        cancelable: true,
+                        preventDefault,
+                    }),
+                ).toBe(true);
             }
             await yieldToBrowser();
             expect(controller.viewportAuthority.currentPage.value).toBe(2);
@@ -752,13 +764,15 @@ describe('usePdfSinglePageNavigationController', () => {
             expect(preventDefault).toHaveBeenCalledTimes(7);
 
             // After a quiet gap (>= 200ms), another small scroll flips to page 3.
-            expect(controller.handleWheel({
-                timeStamp: 1_600,
-                deltaX: 0,
-                deltaY: 36,
-                cancelable: true,
-                preventDefault,
-            })).toBe(true);
+            expect(
+                controller.handleWheel({
+                    timeStamp: 1_600,
+                    deltaX: 0,
+                    deltaY: 36,
+                    cancelable: true,
+                    preventDefault,
+                }),
+            ).toBe(true);
             await vi.waitFor(() => {
                 expect(controller.viewportAuthority.currentPage.value).toBe(3);
                 expect(controller.isProgrammaticNavigationActive.value).toBe(false);
@@ -814,55 +828,65 @@ describe('usePdfSinglePageNavigationController', () => {
         const viewportWrites = createTestPdfViewportWritePort();
 
         try {
-            const controller = scope.run(() => usePdfSinglePageNavigationController({
-                viewerContainer: ref(viewer),
-                numPages: ref(10),
-                currentPage: ref(1),
-                scaledMargin: ref(20),
-                viewMode: ref('single'),
-                continuousScroll: ref(false),
-                isLoading: ref(false),
-                pdfDocument: shallowRef({numPages: 10} as IPdfDocument),
-                updateVisibleRange: vi.fn(),
-                renderVisiblePages: vi.fn(async () => true),
-                isPageFreshlyRenderedForNavigation: vi.fn(() => true),
-                visibleRange: ref({
-                    start: 1,
-                    end: 1,
+            const controller = scope.run(() =>
+                usePdfSinglePageNavigationController({
+                    viewerContainer: ref(viewer),
+                    numPages: ref(10),
+                    currentPage: ref(1),
+                    scaledMargin: ref(20),
+                    viewMode: ref('single'),
+                    continuousScroll: ref(false),
+                    isLoading: ref(false),
+                    pdfDocument: shallowRef({numPages: 10} as IPdfDocument),
+                    updateVisibleRange: vi.fn(),
+                    renderVisiblePages: vi.fn(async () => true),
+                    isPageFreshlyRenderedForNavigation: vi.fn(() => true),
+                    visibleRange: ref({
+                        start: 1,
+                        end: 1,
+                    }),
+                    viewportWritePort: viewportWrites.port,
+                    getPageLayoutMetrics: () => layout,
+                    getPhysicalScrollOrigin: () => 0,
+                    getDocumentRevision: () => 1,
+                    getGeometryRevision: () => 1,
                 }),
-                viewportWritePort: viewportWrites.port,
-                getPageLayoutMetrics: () => layout,
-                getPhysicalScrollOrigin: () => 0,
-                getDocumentRevision: () => 1,
-                getGeometryRevision: () => 1,
-            }));
+            );
             if (!controller) {
                 throw new Error('Expected navigation controller');
             }
 
             // Line mode horizontal-dominant packet: deltaX=2 lines, deltaY=1 line -> deltaPx=16.
             const horizontalPrevent = vi.fn();
-            expect(controller.handleWheel({
-                cancelable: true,
-                deltaMode: 1,
-                deltaX: 2,
-                deltaY: 1,
-                timeStamp: 100,
-                preventDefault: horizontalPrevent,
-            }, 16)).toBe(false);
+            expect(
+                controller.handleWheel(
+                    {
+                        cancelable: true,
+                        deltaMode: 1,
+                        deltaX: 2,
+                        deltaY: 1,
+                        timeStamp: 100,
+                        preventDefault: horizontalPrevent,
+                    },
+                    16,
+                ),
+            ).toBe(false);
             expect(horizontalPrevent).not.toHaveBeenCalled();
             expect(controller.viewportAuthority.currentPage.value).toBe(1);
 
             // Sixteen 1-line vertical notches spaced 100ms apart turn multiple pages.
             for (let index = 0; index < 16; index += 1) {
-                controller.handleWheel({
-                    cancelable: true,
-                    deltaMode: 1,
-                    deltaX: 0,
-                    deltaY: 1,
-                    timeStamp: 500 + index * 100,
-                    preventDefault: vi.fn(),
-                }, 16);
+                controller.handleWheel(
+                    {
+                        cancelable: true,
+                        deltaMode: 1,
+                        deltaX: 0,
+                        deltaY: 1,
+                        timeStamp: 500 + index * 100,
+                        preventDefault: vi.fn(),
+                    },
+                    16,
+                );
                 await yieldToBrowser();
             }
             await vi.waitFor(() => {
@@ -874,10 +898,8 @@ describe('usePdfSinglePageNavigationController', () => {
     });
 
     it('keeps a cancelable tail fenced across a >200ms gap while the viewport write port reports an open host sequence', async () => {
-        const {
-            createDocumentViewportWritePort,
-            observeDocumentViewportWheelInteraction,
-        } = await import('@app/modules/document-viewer/runtime/documentViewportWritePort');
+        const {createDocumentViewportWritePort, observeDocumentViewportWheelInteraction} =
+            await import('@app/modules/document-viewer/runtime/documentViewportWritePort');
         const scope = effectScope();
         const viewer = document.createElement('div');
         Object.defineProperties(viewer, {
@@ -923,28 +945,30 @@ describe('usePdfSinglePageNavigationController', () => {
         const port = createDocumentViewportWritePort();
 
         try {
-            const controller = scope.run(() => usePdfSinglePageNavigationController({
-                viewerContainer: ref(viewer),
-                numPages: ref(5),
-                currentPage: ref(1),
-                scaledMargin: ref(20),
-                viewMode: ref('single'),
-                continuousScroll: ref(false),
-                isLoading: ref(false),
-                pdfDocument: shallowRef({numPages: 5} as IPdfDocument),
-                updateVisibleRange: vi.fn(),
-                renderVisiblePages: vi.fn(async () => true),
-                isPageFreshlyRenderedForNavigation: vi.fn(() => true),
-                visibleRange: ref({
-                    start: 1,
-                    end: 1,
+            const controller = scope.run(() =>
+                usePdfSinglePageNavigationController({
+                    viewerContainer: ref(viewer),
+                    numPages: ref(5),
+                    currentPage: ref(1),
+                    scaledMargin: ref(20),
+                    viewMode: ref('single'),
+                    continuousScroll: ref(false),
+                    isLoading: ref(false),
+                    pdfDocument: shallowRef({numPages: 5} as IPdfDocument),
+                    updateVisibleRange: vi.fn(),
+                    renderVisiblePages: vi.fn(async () => true),
+                    isPageFreshlyRenderedForNavigation: vi.fn(() => true),
+                    visibleRange: ref({
+                        start: 1,
+                        end: 1,
+                    }),
+                    viewportWritePort: port,
+                    getPageLayoutMetrics: () => layout,
+                    getPhysicalScrollOrigin: () => 0,
+                    getDocumentRevision: () => 1,
+                    getGeometryRevision: () => 1,
                 }),
-                viewportWritePort: port,
-                getPageLayoutMetrics: () => layout,
-                getPhysicalScrollOrigin: () => 0,
-                getDocumentRevision: () => 1,
-                getGeometryRevision: () => 1,
-            }));
+            );
             if (!controller) {
                 throw new Error('Expected navigation controller');
             }
@@ -968,22 +992,30 @@ describe('usePdfSinglePageNavigationController', () => {
 
             // 1. Interior scroll starts the host sequence unprevented.
             const interiorEvent = makeEvent(0, 40);
-            observeDocumentViewportWheelInteraction(port, {
-                deltaPx: 40,
-                event: interiorEvent,
-                intent: 'scroll',
-            }, viewer);
+            observeDocumentViewportWheelInteraction(
+                port,
+                {
+                    deltaPx: 40,
+                    event: interiorEvent,
+                    intent: 'scroll',
+                },
+                viewer,
+            );
             expect(controller.handleWheel(interiorEvent, 40)).toBe(false);
             port.observeWheelScrollSequence('begin');
 
             // 2. Reaching the bottom edge flips once to page 2.
             viewer.scrollTop = 340;
             const flipEvent = makeEvent(40, 120);
-            observeDocumentViewportWheelInteraction(port, {
-                deltaPx: 120,
-                event: flipEvent,
-                intent: 'scroll',
-            }, viewer);
+            observeDocumentViewportWheelInteraction(
+                port,
+                {
+                    deltaPx: 120,
+                    event: flipEvent,
+                    intent: 'scroll',
+                },
+                viewer,
+            );
             expect(controller.handleWheel(flipEvent, 120)).toBe(true);
             await vi.waitFor(() => {
                 expect(controller.viewportAuthority.currentPage.value).toBe(2);
@@ -993,11 +1025,15 @@ describe('usePdfSinglePageNavigationController', () => {
             // 3. A cancelable decaying tail after a 260ms gap stays blocked while the host sequence is open.
             viewer.scrollTop = 340;
             const delayedTailEvent = makeEvent(300, 60);
-            observeDocumentViewportWheelInteraction(port, {
-                deltaPx: 60,
-                event: delayedTailEvent,
-                intent: 'scroll',
-            }, viewer);
+            observeDocumentViewportWheelInteraction(
+                port,
+                {
+                    deltaPx: 60,
+                    event: delayedTailEvent,
+                    intent: 'scroll',
+                },
+                viewer,
+            );
             expect(controller.handleWheel(delayedTailEvent, 60)).toBe(true);
             await yieldToBrowser();
             expect(controller.viewportAuthority.currentPage.value).toBe(2);
@@ -1005,11 +1041,15 @@ describe('usePdfSinglePageNavigationController', () => {
             // 4. After the host ends the sequence and a quiet gap passes, a new gesture flips to page 3.
             port.observeWheelScrollSequence('end');
             const nextGestureEvent = makeEvent(560, 120);
-            observeDocumentViewportWheelInteraction(port, {
-                deltaPx: 120,
-                event: nextGestureEvent,
-                intent: 'scroll',
-            }, viewer);
+            observeDocumentViewportWheelInteraction(
+                port,
+                {
+                    deltaPx: 120,
+                    event: nextGestureEvent,
+                    intent: 'scroll',
+                },
+                viewer,
+            );
             expect(controller.handleWheel(nextGestureEvent, 120)).toBe(true);
             await vi.waitFor(() => {
                 expect(controller.viewportAuthority.currentPage.value).toBe(3);
@@ -1019,14 +1059,7 @@ describe('usePdfSinglePageNavigationController', () => {
         }
     });
 
-    it.each([
-        0,
-        1,
-        2,
-        3,
-        4,
-        -1,
-    ])('keeps the reading point through a fit or %i quarter turns before one flush', async (turns) => {
+    it.each([0, 1, 2, 3, 4, -1])('keeps the reading point through a fit or %i quarter turns before one flush', async (turns) => {
         const scope = effectScope();
         const viewer = document.createElement('div');
         Object.defineProperties(viewer, {
@@ -1075,28 +1108,30 @@ describe('usePdfSinglePageNavigationController', () => {
         let pageIndicator: Readonly<Ref<number>> = ref(1);
 
         try {
-            const controller = scope.run(() => usePdfSinglePageNavigationController({
-                viewerContainer: ref(viewer),
-                numPages: ref(6),
-                currentPage: ref(1),
-                scaledMargin: ref(20),
-                viewMode: ref('single'),
-                continuousScroll: ref(true),
-                isLoading: ref(false),
-                pdfDocument: shallowRef({numPages: 6} as IPdfDocument),
-                updateVisibleRange: vi.fn(),
-                renderVisiblePages: vi.fn(async () => true),
-                isPageFreshlyRenderedForNavigation: vi.fn(() => true),
-                visibleRange: ref({
-                    start: 3,
-                    end: 3,
+            const controller = scope.run(() =>
+                usePdfSinglePageNavigationController({
+                    viewerContainer: ref(viewer),
+                    numPages: ref(6),
+                    currentPage: ref(1),
+                    scaledMargin: ref(20),
+                    viewMode: ref('single'),
+                    continuousScroll: ref(true),
+                    isLoading: ref(false),
+                    pdfDocument: shallowRef({numPages: 6} as IPdfDocument),
+                    updateVisibleRange: vi.fn(),
+                    renderVisiblePages: vi.fn(async () => true),
+                    isPageFreshlyRenderedForNavigation: vi.fn(() => true),
+                    visibleRange: ref({
+                        start: 3,
+                        end: 3,
+                    }),
+                    viewportWritePort: viewportWrites.port,
+                    getPageLayoutMetrics: () => layout,
+                    getPhysicalScrollOrigin: () => 0,
+                    getDocumentRevision: () => 1,
+                    getGeometryRevision: () => 1,
                 }),
-                viewportWritePort: viewportWrites.port,
-                getPageLayoutMetrics: () => layout,
-                getPhysicalScrollOrigin: () => 0,
-                getDocumentRevision: () => 1,
-                getGeometryRevision: () => 1,
-            }));
+            );
             if (!controller) {
                 throw new Error('Expected navigation controller');
             }
@@ -1115,27 +1150,31 @@ describe('usePdfSinglePageNavigationController', () => {
             let expectedY = before.pageYFraction;
             const receipts: Array<Promise<unknown>> = [];
             if (turns === 0) {
-                receipts.push(controller.relayout(() => { layout = targetLayout; }));
+                receipts.push(
+                    controller.relayout(() => {
+                        layout = targetLayout;
+                    }),
+                );
             }
             for (let step = 0; step < Math.abs(turns); step += 1) {
-                [
-                    expectedX,
-                    expectedY,
-                ] = turns > 0 ? [
-                    1 - expectedY,
-                    expectedX,
-                ] : [
-                    expectedY,
-                    1 - expectedX,
-                ];
-                receipts.push(controller.relayout(() => { layout = targetLayout; }, anchor => ({
-                    ...anchor,
-                    pageXFraction: turns > 0 ? 1 - anchor.pageYFraction : anchor.pageYFraction,
-                    pageYFraction: turns > 0 ? anchor.pageXFraction : 1 - anchor.pageXFraction,
-                })));
+                [expectedX, expectedY] = turns > 0 ? [1 - expectedY, expectedX] : [expectedY, 1 - expectedX];
+                receipts.push(
+                    controller.relayout(
+                        () => {
+                            layout = targetLayout;
+                        },
+                        (anchor) => ({
+                            ...anchor,
+                            pageXFraction: turns > 0 ? 1 - anchor.pageYFraction : anchor.pageYFraction,
+                            pageYFraction: turns > 0 ? anchor.pageXFraction : 1 - anchor.pageXFraction,
+                        }),
+                    ),
+                );
             }
             const answered: unknown[] = [];
-            for (const receipt of receipts) void receipt.then(result => answered.push(result));
+            for (const receipt of receipts) {
+                void receipt.then((result) => answered.push(result));
+            }
             const writesBefore = viewportWrites.writes.length;
             await nextTick();
             // Every change of the flush is answered by its one placement, in
@@ -1186,10 +1225,7 @@ describe('usePdfSinglePageNavigationController', () => {
             cause: 'the view closing',
             outcome: 'cancelled',
         },
-    ] as const)('answers a layout change that $cause took over before its flush without placing it', async ({
-        cause,
-        outcome,
-    }) => {
+    ] as const)('answers a layout change that $cause took over before its flush without placing it', async ({cause, outcome}) => {
         const view = createRelayoutView();
         try {
             await view.readAt(1_200);
@@ -1209,14 +1245,16 @@ describe('usePdfSinglePageNavigationController', () => {
             }
 
             await expect(receipt).resolves.toEqual({outcome});
-            expect(view.writes.slice(writesBefore).map(write => write.reason)).not.toContain('relayout');
-            if (cause === 'reader input') expect(view.viewer.scrollTop).toBe(1_200);
+            expect(view.writes.slice(writesBefore).map((write) => write.reason)).not.toContain('relayout');
+            if (cause === 'reader input') {
+                expect(view.viewer.scrollTop).toBe(1_200);
+            }
         } finally {
             view.dispose();
         }
     });
 
-    it('starts a layout change afresh from the reader\'s point once the reader moved', async () => {
+    it("starts a layout change afresh from the reader's point once the reader moved", async () => {
         const view = createRelayoutView();
         try {
             await view.readAt(1_200);
@@ -1302,11 +1340,16 @@ describe('usePdfSinglePageNavigationController', () => {
                 pageXFraction: 1 - shown.pageYFraction,
                 pageYFraction: shown.pageXFraction,
             };
-            await expect(view.controller.relayout(() => view.setScale(1, true), anchor => ({
-                ...anchor,
-                pageXFraction: 1 - anchor.pageYFraction,
-                pageYFraction: anchor.pageXFraction,
-            }))).resolves.toEqual({outcome: 'superseded'});
+            await expect(
+                view.controller.relayout(
+                    () => view.setScale(1, true),
+                    (anchor) => ({
+                        ...anchor,
+                        pageXFraction: 1 - anchor.pageYFraction,
+                        pageYFraction: anchor.pageXFraction,
+                    }),
+                ),
+            ).resolves.toEqual({outcome: 'superseded'});
             expect(view.controller.viewportAuthority.committedAnchor.value).toMatchObject(turned);
             expect(view.viewer.scrollTop).toBeCloseTo(view.scrollFor(turned).top, 0);
             expect(view.viewer.scrollLeft).toBeCloseTo(view.scrollFor(turned).left, 0);
@@ -1323,9 +1366,13 @@ describe('usePdfSinglePageNavigationController', () => {
             await view.readAt(1_200);
             const placedAtScale: string[] = [];
             view.onVisibleRangeUpdate(() => placedAtScale.push(view.renderedScale()));
-            const stop = watch(trigger, () => {
-                view.controller.relayout(() => view.setScale(2));
-            }, {flush: 'post'});
+            const stop = watch(
+                trigger,
+                () => {
+                    view.controller.relayout(() => view.setScale(2));
+                },
+                {flush: 'post'},
+            );
             trigger.value += 1;
             const receipt = view.controller.relayout();
 
@@ -1364,13 +1411,15 @@ describe('usePdfSinglePageNavigationController', () => {
  * Six 600x800 pages in continuous scroll, whose layout scale and rotation the
  * test changes, behind a recording write port.
  */
-function createRelayoutView(input: {
-    refuseWrites?: boolean;
-    renderVisiblePages?: () => Promise<boolean>;
-    freshPages?: Set<number>;
-    /** The scale comes from a Vue-rendered element, read when the layout is. */
-    renderedScale?: boolean;
-} = {}) {
+function createRelayoutView(
+    input: {
+        refuseWrites?: boolean;
+        renderVisiblePages?: () => Promise<boolean>;
+        freshPages?: Set<number>;
+        /** The scale comes from a Vue-rendered element, read when the layout is. */
+        renderedScale?: boolean;
+    } = {},
+) {
     const scope = effectScope();
     const viewer = document.createElement('div');
     Object.defineProperties(viewer, {
@@ -1397,9 +1446,7 @@ function createRelayoutView(input: {
     const scale = ref(1);
     let rotated = false;
     const root = document.createElement('div');
-    const app = input.renderedScale
-        ? createApp({render: () => h('div', {'data-scale': String(scale.value)})})
-        : null;
+    const app = input.renderedScale ? createApp({render: () => h('div', {'data-scale': String(scale.value)})}) : null;
     app?.mount(root);
     const renderedScale = () => (root.firstElementChild as HTMLElement | null)?.dataset.scale ?? String(scale.value);
     const buildLayout = () => {
@@ -1415,46 +1462,54 @@ function createRelayoutView(input: {
             paddingTop: 20,
             paddingBottom: 20,
         });
-        if (!layout) throw new Error('Expected PDF layout metrics');
+        if (!layout) {
+            throw new Error('Expected PDF layout metrics');
+        }
         return layout;
     };
     const isLoading = ref(false);
     const documentRevision = ref(1);
     const viewportWrites = createTestPdfViewportWritePort();
-    const port = input.refuseWrites ? {
-        ...viewportWrites.port,
-        apply: () => false,
-    } : viewportWrites.port;
+    const port = input.refuseWrites
+        ? {
+              ...viewportWrites.port,
+              apply: () => false,
+          }
+        : viewportWrites.port;
     const committed: unknown[] = [];
     let onVisibleRangeUpdate = () => {};
     const freshPages = input.freshPages;
-    const controller = scope.run(() => usePdfSinglePageNavigationController({
-        viewerContainer: ref(viewer),
-        numPages: ref(6),
-        currentPage: ref(1),
-        scaledMargin: ref(20),
-        viewMode: ref('single'),
-        continuousScroll: ref(true),
-        isLoading,
-        pdfDocument: shallowRef({numPages: 6} as IPdfDocument),
-        updateVisibleRange: () => onVisibleRangeUpdate(),
-        renderVisiblePages: input.renderVisiblePages ?? (async () => true),
-        isPageFreshlyRenderedForNavigation: page => freshPages?.has(page) ?? true,
-        visibleRange: ref({
-            start: 2,
-            end: 2,
+    const controller = scope.run(() =>
+        usePdfSinglePageNavigationController({
+            viewerContainer: ref(viewer),
+            numPages: ref(6),
+            currentPage: ref(1),
+            scaledMargin: ref(20),
+            viewMode: ref('single'),
+            continuousScroll: ref(true),
+            isLoading,
+            pdfDocument: shallowRef({numPages: 6} as IPdfDocument),
+            updateVisibleRange: () => onVisibleRangeUpdate(),
+            renderVisiblePages: input.renderVisiblePages ?? (async () => true),
+            isPageFreshlyRenderedForNavigation: (page) => freshPages?.has(page) ?? true,
+            visibleRange: ref({
+                start: 2,
+                end: 2,
+            }),
+            viewportWritePort: port,
+            getPageLayoutMetrics: buildLayout,
+            getPhysicalScrollOrigin: () => 0,
+            getDocumentRevision: () => documentRevision.value,
+            getGeometryRevision: () => 1,
+            onViewportPositionCommitted: (commit) => {
+                committed.push(commit);
+                return true;
+            },
         }),
-        viewportWritePort: port,
-        getPageLayoutMetrics: buildLayout,
-        getPhysicalScrollOrigin: () => 0,
-        getDocumentRevision: () => documentRevision.value,
-        getGeometryRevision: () => 1,
-        onViewportPositionCommitted: (commit) => {
-            committed.push(commit);
-            return true;
-        },
-    }));
-    if (!controller) throw new Error('Expected navigation controller');
+    );
+    if (!controller) {
+        throw new Error('Expected navigation controller');
+    }
     return {
         scope,
         viewer,
@@ -1467,7 +1522,9 @@ function createRelayoutView(input: {
         renderedScale,
         setScale(next: number, turn = false) {
             scale.value = next;
-            if (turn) rotated = !rotated;
+            if (turn) {
+                rotated = !rotated;
+            }
         },
         onVisibleRangeUpdate(callback: () => void) {
             onVisibleRangeUpdate = callback;
@@ -1479,11 +1536,19 @@ function createRelayoutView(input: {
             await nextTick();
         },
         scrollFor(anchor: IPdfSemanticAnchor) {
-            return resolveScrollForAnchor(createPdfViewportGeometryFromLayout(buildLayout(), {
-                width: 900,
-                height: 700,
-                paddingInline: 20,
-            }, 1, 0), anchor);
+            return resolveScrollForAnchor(
+                createPdfViewportGeometryFromLayout(
+                    buildLayout(),
+                    {
+                        width: 900,
+                        height: 700,
+                        paddingInline: 20,
+                    },
+                    1,
+                    0,
+                ),
+                anchor,
+            );
         },
         dispose() {
             scope.stop();

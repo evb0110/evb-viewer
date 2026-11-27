@@ -1,12 +1,9 @@
-import { createAbortError } from '@contracts/isAbortError';
-import { createLogger } from '@electron/utils/createLogger';
+import {createAbortError} from '@contracts/isAbortError';
+import {createLogger} from '@electron/utils/createLogger';
 import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
-import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeCommand';
-import {
-    registerMainOperation,
-    type IMainOperationUserCancel,
-} from '@electron/operation-lifecycle/mainOperationLifecycle';
-import { runWithWorkingCopyMutationCommitSignal } from '@electron/file-access/workingCopyMutationCommitSignal';
+import {cancelNativeCommandGroup} from '@electron/native-tools/runNativeCommand';
+import {registerMainOperation, type IMainOperationUserCancel} from '@electron/operation-lifecycle/mainOperationLifecycle';
+import {runWithWorkingCopyMutationCommitSignal} from '@electron/file-access/workingCopyMutationCommitSignal';
 
 const log = createLogger('workingCopyMutationQueue');
 interface IWorkingCopyMutationQueueEntry {
@@ -49,10 +46,9 @@ function getMutationOrigin() {
         const error = new Error();
         Error.captureStackTrace(error, getMutationOrigin);
         const stack = error.stack?.split('\n', MUTATION_ORIGIN_STACK_TRACE_LIMIT) ?? [];
-        return stack
-            .map(line => line.trim())
-            .find(line => line.startsWith('at ') && !line.includes('workingCopyMutationQueue'))
-            ?? null;
+        return (
+            stack.map((line) => line.trim()).find((line) => line.startsWith('at ') && !line.includes('workingCopyMutationQueue')) ?? null
+        );
     } finally {
         Error.stackTraceLimit = previousStackTraceLimit;
     }
@@ -85,7 +81,7 @@ export async function drainWorkingCopyMutations(workingCopyPath?: string) {
         return;
     }
 
-    const tails = [...workingCopyMutationQueue.values()].map(entry => entry.tail);
+    const tails = [...workingCopyMutationQueue.values()].map((entry) => entry.tail);
     await Promise.allSettled(tails);
 }
 
@@ -128,25 +124,27 @@ export function enqueueWorkingCopyMutation<T>(
         enqueuedAt,
         depth: (previousEntry?.depth ?? 0) + 1,
     };
-    const enqueueLog = previousEntry || activeEntryAtEnqueue
-        ? log.warn.bind(log)
-        : log.debug.bind(log);
+    const enqueueLog = previousEntry || activeEntryAtEnqueue ? log.warn.bind(log) : log.debug.bind(log);
     enqueueLog('Working-copy mutation enqueued', {
         queueKey,
         operationId: entry.operationId,
         kind: entry.kind,
         origin: entry.origin,
         depth: entry.depth,
-        queuedBehind: previousEntry ? {
-            operationId: previousEntry.operationId,
-            kind: previousEntry.kind,
-            origin: previousEntry.origin,
-        } : null,
-        activeOwner: activeEntryAtEnqueue ? {
-            operationId: activeEntryAtEnqueue.operationId,
-            kind: activeEntryAtEnqueue.kind,
-            origin: activeEntryAtEnqueue.origin,
-        } : null,
+        queuedBehind: previousEntry
+            ? {
+                  operationId: previousEntry.operationId,
+                  kind: previousEntry.kind,
+                  origin: previousEntry.origin,
+              }
+            : null,
+        activeOwner: activeEntryAtEnqueue
+            ? {
+                  operationId: activeEntryAtEnqueue.operationId,
+                  kind: activeEntryAtEnqueue.kind,
+                  origin: activeEntryAtEnqueue.origin,
+              }
+            : null,
     });
     const operationPromise = previousTail
         .then(async () => {
@@ -165,11 +163,13 @@ export function enqueueWorkingCopyMutation<T>(
                 origin: entry.origin,
                 depth: entry.depth,
                 waitedMs,
-                queuedBehind: previousEntry ? {
-                    operationId: previousEntry.operationId,
-                    kind: previousEntry.kind,
-                    origin: previousEntry.origin,
-                } : null,
+                queuedBehind: previousEntry
+                    ? {
+                          operationId: previousEntry.operationId,
+                          kind: previousEntry.kind,
+                          origin: previousEntry.origin,
+                      }
+                    : null,
             });
             try {
                 return await runWithWorkingCopyMutationCommitSignal(mutationOperation, () => operation(mutationOperation));
@@ -193,7 +193,10 @@ export function enqueueWorkingCopyMutation<T>(
         });
 
     const nextTail = operationPromise
-        .then(() => undefined, () => undefined)
+        .then(
+            () => undefined,
+            () => undefined,
+        )
         .finally(() => {
             if (workingCopyMutationQueue.get(queueKey) === entry) {
                 workingCopyMutationQueue.delete(queueKey);
@@ -204,4 +207,3 @@ export function enqueueWorkingCopyMutation<T>(
     workingCopyMutationQueue.set(queueKey, entry);
     return operationPromise;
 }
-

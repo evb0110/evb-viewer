@@ -1,23 +1,10 @@
-import type {
-    IPdfDocument,
-    IPdfPage,
-} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import type {
-    ComputedRef,
-    Ref,
-    ShallowRef,
-} from 'vue';
-import { usePdfViewerLoadingState } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerLoadingState';
-import type {
-    TFitMode,
-    TZoomMode,
-} from '@app/types/pdfContracts';
-import type {
-    IContentInsets,
-    TPdfSource,
-} from '@app/types/pdfUi';
-import type { ILinkAnnotation } from '@app/types/annotations';
-import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
+import type {IPdfDocument, IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type {ComputedRef, Ref, ShallowRef} from 'vue';
+import {usePdfViewerLoadingState} from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerLoadingState';
+import type {TFitMode, TZoomMode} from '@app/types/pdfContracts';
+import type {IContentInsets, TPdfSource} from '@app/types/pdfUi';
+import type {ILinkAnnotation} from '@app/types/annotations';
+import type {IDocumentOpenSurfaceSession} from '@app/modules/document-viewer/public';
 
 interface IUsePdfRenderViewModelOptions {
     src: ComputedRef<TPdfSource | null>;
@@ -47,28 +34,29 @@ interface IUsePdfRenderViewModelOptions {
 const emptyLinksByPage: Record<number, never[]> = {};
 
 export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) => {
-    const { isViewerLoadingOverlayVisible } = usePdfViewerLoadingState({
+    const {isViewerLoadingOverlayVisible} = usePdfViewerLoadingState({
         src: options.src,
         isLoading: options.isLoading,
         pdfDocument: options.pdfDocument,
         openSurface: options.openSurface,
         holdOverlayVisible: options.isVisualReloadTransitionActive,
     });
-    const isInitialSkeletonGeometryPending = computed(() => (
-        Boolean(options.src.value)
-        && Boolean(options.pdfDocument.value)
-        && isViewerLoadingOverlayVisible.value
-        && options.openSurface.snapshot.value.phase !== 'ready'
-        && options.skeletonContentInsets.value === null
-    ));
+    const isInitialSkeletonGeometryPending = computed(
+        () =>
+            Boolean(options.src.value) &&
+            Boolean(options.pdfDocument.value) &&
+            isViewerLoadingOverlayVisible.value &&
+            options.openSurface.snapshot.value.phase !== 'ready' &&
+            options.skeletonContentInsets.value === null,
+    );
 
-    const visibleLinksByPage = computed(() => (
+    const visibleLinksByPage = computed(() =>
         isViewerLoadingOverlayVisible.value
             ? emptyLinksByPage
             : Object.fromEntries(
-                Object.entries(options.linksByPage.value).filter(([page]) => options.isPageRenderedForClass(Number(page))),
-            )
-    ));
+                  Object.entries(options.linksByPage.value).filter(([page]) => options.isPageRenderedForClass(Number(page))),
+              ),
+    );
 
     function shouldShowPageSkeleton(page: number) {
         if (options.isPageRenderFailed(page)) {

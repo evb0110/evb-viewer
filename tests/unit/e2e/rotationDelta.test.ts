@@ -1,9 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { resolveClockwiseRotationDelta } from '@tests/e2e/electron/helpers/resolveClockwiseRotationDelta';
+import {describe, expect, it} from 'vitest';
+import {resolveClockwiseRotationDelta} from '@tests/e2e/electron/helpers/resolveClockwiseRotationDelta';
 
 describe('resolveClockwiseRotationDelta', () => {
     it('converges a fresh page to the requested quarter turn', () => {

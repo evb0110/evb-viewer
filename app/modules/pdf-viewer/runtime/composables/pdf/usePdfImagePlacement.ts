@@ -1,27 +1,23 @@
-import { captureFailureForPresentation } from '@app/utils/failureReporter';
-import { useFailureToast } from '@app/composables/useFailureToast';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { createAbortError } from '@contracts/isAbortError';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import type { TPageNumber } from '@contracts/pageNumbers';
+import {captureFailureForPresentation} from '@app/utils/failureReporter';
+import {useFailureToast} from '@app/composables/useFailureToast';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {createAbortError} from '@contracts/isAbortError';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 
-import type { Ref } from 'vue';
-import { clamp } from 'es-toolkit/math';
-import { computeInitialImagePlacementDimensions } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/computeInitialImagePlacementDimensions';
-import type { IImagePlacementDimensions } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/pdfImagePlacementSizingTypes';
-import { getInitialImagePlacementRect } from '@app/modules/pdf-viewer/engine/image-placement/getInitialImagePlacementRect';
-import type { IImagePlacementTarget } from '@app/modules/pdf-viewer/engine/image-placement/getInitialImagePlacementRect';
-import type {
-    IPdfImagePlacementDraft,
-    IPdfImagePlacementRectUpdate,
-    IPdfPlacedImageFinalizePayload,
-} from '@app/types/pdfImagePlacement';
+import type {Ref} from 'vue';
+import {clamp} from 'es-toolkit/math';
+import {computeInitialImagePlacementDimensions} from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/computeInitialImagePlacementDimensions';
+import type {IImagePlacementDimensions} from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/pdfImagePlacementSizingTypes';
+import {getInitialImagePlacementRect} from '@app/modules/pdf-viewer/engine/image-placement/getInitialImagePlacementRect';
+import type {IImagePlacementTarget} from '@app/modules/pdf-viewer/engine/image-placement/getInitialImagePlacementRect';
+import type {IPdfImagePlacementDraft, IPdfImagePlacementRectUpdate, IPdfPlacedImageFinalizePayload} from '@app/types/pdfImagePlacement';
 import {
     createStaticBrowserImagePreview,
     PDF_IMAGE_PLACEMENT_RESOURCE_LIMITS,
     probeBrowserImageFile,
 } from '@app/platform/browser-api/public';
-import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+import {logPdfRenderTrace} from '@app/utils/pdfRenderTrace';
 import {
     rotateAnnotationPlacementRect,
     unrotateAnnotationPlacementRect,
@@ -35,7 +31,7 @@ interface IUsePdfImagePlacementOptions {
     viewRotation?: Ref<number>;
     getPageDimensions?: (pageNumber: number) => {
         width: number;
-        height: number
+        height: number;
     } | null;
     // The editor session owns the placement transaction and reports whether
     // the draft can be released.
@@ -45,27 +41,18 @@ interface IUsePdfImagePlacementOptions {
 }
 
 function resolveDevicePixelRatio() {
-    return typeof window !== 'undefined' && window.devicePixelRatio > 0
-        ? window.devicePixelRatio
-        : 1;
+    return typeof window !== 'undefined' && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
 }
 
 const MIN_PLACED_IMAGE_TARGET_LONG_EDGE_PX = 64;
 const MIN_PLACED_IMAGE_TARGET_SHORT_EDGE_PX = 16;
 
-function resolvePlacedImageTargetPixels(options: {
-    width: number;
-    height: number;
-}) {
+function resolvePlacedImageTargetPixels(options: {width: number; height: number}) {
     const requestedWidth = Math.max(1, Math.round(options.width));
     const requestedHeight = Math.max(1, Math.round(options.height));
     const longEdge = Math.max(requestedWidth, requestedHeight);
     const shortEdge = Math.min(requestedWidth, requestedHeight);
-    const scaleFactor = Math.max(
-        1,
-        MIN_PLACED_IMAGE_TARGET_LONG_EDGE_PX / longEdge,
-        MIN_PLACED_IMAGE_TARGET_SHORT_EDGE_PX / shortEdge,
-    );
+    const scaleFactor = Math.max(1, MIN_PLACED_IMAGE_TARGET_LONG_EDGE_PX / longEdge, MIN_PLACED_IMAGE_TARGET_SHORT_EDGE_PX / shortEdge);
 
     return {
         width: Math.max(1, Math.round(requestedWidth * scaleFactor)),
@@ -79,12 +66,7 @@ function getInitialImagePlacementDimensions(
     pageWidthPx: number | null,
     pageHeightPx: number | null,
 ) {
-    if (
-        !pageWidthPx
-        || !pageHeightPx
-        || pageWidthPx <= 0
-        || pageHeightPx <= 0
-    ) {
+    if (!pageWidthPx || !pageHeightPx || pageWidthPx <= 0 || pageHeightPx <= 0) {
         return null;
     }
 
@@ -104,16 +86,10 @@ function getInitialImagePlacementDimensions(
 }
 
 function getPageContainer(container: HTMLElement | null, pageNumber: TPageNumber) {
-    return container?.querySelector<HTMLElement>(
-        `.page_container[data-page="${pageNumber}"]`,
-    ) ?? null;
+    return container?.querySelector<HTMLElement>(`.page_container[data-page="${pageNumber}"]`) ?? null;
 }
 
-function resolvePlacementPageNumber(
-    requestedPageNumber: number | null | undefined,
-    fallbackPageNumber: number,
-    pageCount: number,
-) {
+function resolvePlacementPageNumber(requestedPageNumber: number | null | undefined, fallbackPageNumber: number, pageCount: number) {
     if (!Number.isFinite(requestedPageNumber)) {
         return requirePageNumber(Math.max(1, fallbackPageNumber), pageCount);
     }
@@ -126,8 +102,8 @@ function resolvePlacementCoordinate(value: number | null | undefined) {
 }
 
 export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
-    const { t } = useTypedI18n();
-    const { presentFailureToast } = useFailureToast();
+    const {t} = useTypedI18n();
+    const {presentFailureToast} = useFailureToast();
     const {
         viewerContainer,
         currentPage,
@@ -151,12 +127,16 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
         if (!placement || !dimensions || previousRotation === undefined || previousRotation === nextRotation) {
             return;
         }
-        const canonical = unrotateAnnotationPlacementRect({
-            left: placement.x,
-            top: placement.y,
-            width: placement.width,
-            height: placement.height,
-        }, previousRotation, dimensions);
+        const canonical = unrotateAnnotationPlacementRect(
+            {
+                left: placement.x,
+                top: placement.y,
+                width: placement.width,
+                height: placement.height,
+            },
+            previousRotation,
+            dimensions,
+        );
         const displayed = rotateAnnotationPlacementRect(canonical, nextRotation, dimensions);
         pendingImagePlacement.value = {
             ...placement,
@@ -170,7 +150,7 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
     }
 
     if (options.viewRotation) {
-        watch(options.viewRotation, next => reprojectPendingPlacement(next), {flush: 'sync'});
+        watch(options.viewRotation, (next) => reprojectPendingPlacement(next), {flush: 'sync'});
     }
 
     function revokePendingImagePlacementPreview() {
@@ -180,7 +160,7 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
         }
     }
 
-    function clearPendingImagePlacement(options: {invalidatePendingStarts?: boolean;} = {}) {
+    function clearPendingImagePlacement(options: {invalidatePendingStarts?: boolean} = {}) {
         if (options.invalidatePendingStarts !== false) {
             latestImagePlacementRequestId += 1;
             imagePlacementAbortController?.abort(createAbortError('Image placement superseded'));
@@ -206,11 +186,7 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
         pageY?: number | null;
     }): IImagePlacementTarget {
         const container = viewerContainer.value;
-        const pageNumber = resolvePlacementPageNumber(
-            optionsOverride?.pageNumber,
-            currentPage.value,
-            numPages.value,
-        );
+        const pageNumber = resolvePlacementPageNumber(optionsOverride?.pageNumber, currentPage.value, numPages.value);
         const pageContainer = getPageContainer(container, pageNumber);
         const pageRect = pageContainer?.getBoundingClientRect() ?? null;
 
@@ -248,17 +224,8 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
         let bytes: Uint8Array;
         let previewBlob: Blob;
         try {
-            const image = await probeImage(
-                file,
-                PDF_IMAGE_PLACEMENT_RESOURCE_LIMITS,
-                abortController.signal,
-            );
-            initialDimensions = getInitialImagePlacementDimensions(
-                image.width,
-                image.height,
-                target.pageWidthPx,
-                target.pageHeightPx,
-            );
+            const image = await probeImage(file, PDF_IMAGE_PLACEMENT_RESOURCE_LIMITS, abortController.signal);
+            initialDimensions = getInitialImagePlacementDimensions(image.width, image.height, target.pageWidthPx, target.pageHeightPx);
             bytes = image.bytes;
             previewBlob = await createPreview(image, 2_048, abortController.signal);
             if (!initialDimensions) {
@@ -271,7 +238,7 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
             const previewUrl = URL.createObjectURL(previewBlob);
             const placementRect = getInitialImagePlacementRect(target, initialDimensions);
 
-            clearPendingImagePlacement({ invalidatePendingStarts: false });
+            clearPendingImagePlacement({invalidatePendingStarts: false});
             pendingImagePlacement.value = {
                 ...(optionsOverride?.appAnnotationId ? {appAnnotationId: optionsOverride.appAnnotationId} : {}),
                 stableKey: optionsOverride?.stableKey ?? `placed-image-${crypto.randomUUID()}`,
@@ -295,7 +262,10 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
             if (!abortController.signal.aborted) {
                 BrowserLogger.warn('annotations', 'Failed to read image for placement', error);
                 presentFailureToast({
-                    ...captureFailureForPresentation({code: 'RENDERER_WORKSPACE_OPERATION_FAILED', local: {source: 'annotations', message: 'Failed to read image for placement', cause: error}}),
+                    ...captureFailureForPresentation({
+                        code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                        local: {source: 'annotations', message: 'Failed to read image for placement', cause: error},
+                    }),
                     title: t('assistant.imageReadFailed', {name: file.name}),
                 });
             }
@@ -326,16 +296,12 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
     }
 
     function getPendingImagePlacementTargetPixels(placement: IPdfImagePlacementDraft) {
-        const pageContainer = getPageContainer(
-            viewerContainer.value,
-            requirePageNumber(placement.pageNumber, numPages.value),
-        );
+        const pageContainer = getPageContainer(viewerContainer.value, requirePageNumber(placement.pageNumber, numPages.value));
         const canvas = pageContainer?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
         const devicePixelRatioValue = resolveDevicePixelRatio();
-        const renderedPagePixelWidth = canvas?.width
-            ?? Math.max(1, Math.round((pageContainer?.clientWidth ?? 1) * devicePixelRatioValue));
-        const renderedPagePixelHeight = canvas?.height
-            ?? Math.max(1, Math.round((pageContainer?.clientHeight ?? 1) * devicePixelRatioValue));
+        const renderedPagePixelWidth = canvas?.width ?? Math.max(1, Math.round((pageContainer?.clientWidth ?? 1) * devicePixelRatioValue));
+        const renderedPagePixelHeight =
+            canvas?.height ?? Math.max(1, Math.round((pageContainer?.clientHeight ?? 1) * devicePixelRatioValue));
         const renderScale = effectiveScale.value > 0 ? effectiveScale.value : 1;
         const basePagePixelWidth = Math.max(1, Math.round(renderedPagePixelWidth / renderScale));
         const basePagePixelHeight = Math.max(1, Math.round(renderedPagePixelHeight / renderScale));
@@ -386,21 +352,23 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
             throw error;
         }
         if (result instanceof Promise) {
-            void result.then(success => {
-                if (latestImagePlacementRequestId !== placementRequestId) {
-                    return;
-                }
-                if (success) {
-                    clearPendingImagePlacement();
-                } else {
+            void result
+                .then((success) => {
+                    if (latestImagePlacementRequestId !== placementRequestId) {
+                        return;
+                    }
+                    if (success) {
+                        clearPendingImagePlacement();
+                    } else {
+                        restorePendingImagePlacement();
+                    }
+                })
+                .catch(() => {
+                    if (latestImagePlacementRequestId !== placementRequestId) {
+                        return;
+                    }
                     restorePendingImagePlacement();
-                }
-            }).catch(() => {
-                if (latestImagePlacementRequestId !== placementRequestId) {
-                    return;
-                }
-                restorePendingImagePlacement();
-            });
+                });
             return;
         }
         if (result === false) {

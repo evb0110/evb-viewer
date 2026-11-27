@@ -1,14 +1,9 @@
 #!/usr/bin/env node
-import { getCliErrorMessage } from '../lib/cli-error.mjs';
-import {
-    copyFileSync,
-    existsSync,
-    readdirSync,
-    readFileSync,
-} from 'node:fs';
+import {getCliErrorMessage} from '../lib/cli-error.mjs';
+import {copyFileSync, existsSync, readdirSync, readFileSync} from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { pathToFileURL } from 'node:url';
+import {pathToFileURL} from 'node:url';
 
 /** @typedef {'ia32' | 'x64' | 'arm64'} TWindowsMachine */
 /** @typedef {{virtualSize: number, virtualAddress: number, sizeOfRawData: number, pointerToRawData: number}} IWindowsPeSection */
@@ -24,18 +19,9 @@ import { pathToFileURL } from 'node:url';
 export const MSVC_RUNTIME_DLL_PATTERN = /^(?:msvcp140(?:_[a-z0-9_]+)?|vcruntime140(?:_[a-z0-9]+)?|concrt140)\.dll$/iu;
 
 const MACHINE_NAMES = new Map([
-    [
-        0x014c,
-        'ia32',
-    ],
-    [
-        0x8664,
-        'x64',
-    ],
-    [
-        0xaa64,
-        'arm64',
-    ],
+    [0x014c, 'ia32'],
+    [0x8664, 'x64'],
+    [0xaa64, 'arm64'],
 ]);
 
 /** @param {string} filePath @param {string} [platform] @returns {string} */
@@ -49,11 +35,7 @@ export function normalizeWindowsHostPath(filePath, platform = process.platform) 
         return filePath;
     }
 
-    const [
-        ,
-        drive,
-        remainder = '',
-    ] = msysDrivePath;
+    const [, drive, remainder = ''] = msysDrivePath;
     if (!drive) {
         return filePath;
     }
@@ -138,11 +120,12 @@ export function readWindowsPeInfo(filePath) {
     const optionalMagic = readUInt16(buffer, optionalHeaderOffset, 'optional header magic');
     ensureRange(buffer, optionalHeaderOffset + 2, 2, 'linker version');
     const linkerVersion = buffer.readUInt8(optionalHeaderOffset + 2) * 100 + buffer.readUInt8(optionalHeaderOffset + 3);
-    const dataDirectoryOffset = optionalMagic === 0x10b
-        ? optionalHeaderOffset + 96
-        : optionalMagic === 0x20b
-            ? optionalHeaderOffset + 112
-            : fail(`Unsupported PE optional header magic 0x${optionalMagic.toString(16)}`);
+    const dataDirectoryOffset =
+        optionalMagic === 0x10b
+            ? optionalHeaderOffset + 96
+            : optionalMagic === 0x20b
+              ? optionalHeaderOffset + 112
+              : fail(`Unsupported PE optional header magic 0x${optionalMagic.toString(16)}`);
     const numberOfRvaAndSizesOffset = dataDirectoryOffset - 4;
     const numberOfRvaAndSizes = readUInt32(buffer, numberOfRvaAndSizesOffset, 'data directory count');
     const sizeOfHeaders = readUInt32(buffer, optionalHeaderOffset + 60, 'PE headers size');
@@ -182,7 +165,9 @@ export function readWindowsPeInfo(filePath) {
                     fail(`Import descriptor ${descriptorIndex} has no DLL name RVA`);
                 }
 
-                imports.push(readCString(buffer, rvaToOffset(nameRva, sections, sizeOfHeaders), `import descriptor ${descriptorIndex} DLL name`));
+                imports.push(
+                    readCString(buffer, rvaToOffset(nameRva, sections, sizeOfHeaders), `import descriptor ${descriptorIndex} DLL name`),
+                );
             }
         }
     }
@@ -198,12 +183,7 @@ export function readWindowsPeInfo(filePath) {
 
 // VS_FIXEDFILEINFO starts with this signature; dwFileVersionMS follows two
 // DWORDs later with the major version in its high word.
-const FIXED_FILE_INFO_SIGNATURE = Buffer.from([
-    0xbd,
-    0x04,
-    0xef,
-    0xfe,
-]);
+const FIXED_FILE_INFO_SIGNATURE = Buffer.from([0xbd, 0x04, 0xef, 0xfe]);
 
 /** @param {Buffer} buffer @returns {number | null} major * 100 + minor */
 function readFixedFileVersion(buffer) {
@@ -243,15 +223,11 @@ function readSystemDllPattern(patternFilePath) {
 }
 
 /** @param {IVerifyWindowsPeDependenciesOptions} options @returns {string[]} */
-export function verifyWindowsPeDependencies({
-    allowedMachines,
-    files,
-    systemDllPattern,
-}) {
-    files = files.map(file => normalizeWindowsHostPath(file));
+export function verifyWindowsPeDependencies({allowedMachines, files, systemDllPattern}) {
+    files = files.map((file) => normalizeWindowsHostPath(file));
     const allowedMachineSet = new Set(allowedMachines);
     const bundledDllsByDirectory = new Map();
-    for (const file of files.filter(file => /\.dll$/iu.test(file))) {
+    for (const file of files.filter((file) => /\.dll$/iu.test(file))) {
         const directory = path.resolve(path.dirname(file));
         const names = bundledDllsByDirectory.get(directory) ?? new Set();
         names.add(path.basename(file).toLowerCase());
@@ -291,7 +267,9 @@ export function verifyWindowsPeDependencies({
                 if (runtime && runtime.machine !== info.machine) {
                     errors.push(`Error: Bundled ${dependencyName} is ${runtime.machine} but ${file} is ${info.machine}`);
                 } else if (runtime && runtimeVersion(runtime) < info.linkerVersion) {
-                    errors.push(`Error: Bundled ${dependency} ${formatVersion(runtimeVersion(runtime))} is older than the MSVC ${formatVersion(info.linkerVersion)} toolset that built ${file}`);
+                    errors.push(
+                        `Error: Bundled ${dependency} ${formatVersion(runtimeVersion(runtime))} is older than the MSVC ${formatVersion(info.linkerVersion)} toolset that built ${file}`,
+                    );
                 }
                 continue;
             }
@@ -322,12 +300,9 @@ export function verifyWindowsPeDependencies({
  * @param {{directories: string[], sourceDirectories: Partial<Record<TWindowsMachine, string>>}} options
  * @returns {string[]} the copied files
  */
-export function bundleWindowsMsvcRuntime({
-    directories,
-    sourceDirectories,
-}) {
+export function bundleWindowsMsvcRuntime({directories, sourceDirectories}) {
     const copied = [];
-    for (const directory of directories.map(entry => normalizeWindowsHostPath(entry))) {
+    for (const directory of directories.map((entry) => normalizeWindowsHostPath(entry))) {
         /** @type {Map<string, IWindowsPeInfo>} */
         const localPeInfo = new Map();
         for (const name of readdirSync(directory)) {
@@ -337,9 +312,11 @@ export function bundleWindowsMsvcRuntime({
         }
         // A directory holds one copy of each runtime DLL, so all its runtime
         // importers must share one architecture.
-        const importerMachines = new Set([...localPeInfo.values()]
-            .filter(info => info.imports.some(dependency => MSVC_RUNTIME_DLL_PATTERN.test(dependency)))
-            .map(info => info.machine));
+        const importerMachines = new Set(
+            [...localPeInfo.values()]
+                .filter((info) => info.imports.some((dependency) => MSVC_RUNTIME_DLL_PATTERN.test(dependency)))
+                .map((info) => info.machine),
+        );
         if (importerMachines.size === 0) {
             continue;
         }
@@ -370,10 +347,7 @@ export function bundleWindowsMsvcRuntime({
                 }
             }
         };
-        for (const [
-            name,
-            info,
-        ] of localPeInfo) {
+        for (const [name, info] of localPeInfo) {
             requireRuntimeImports(info, path.join(directory, name));
         }
         if (required.size === 0) {
@@ -386,7 +360,7 @@ export function bundleWindowsMsvcRuntime({
 
         /** @type {Map<string, IWindowsPeInfo>} */
         const sources = new Map();
-        for (let pending = [...required.keys()]; pending.length > 0; pending = [...required.keys()].filter(name => !sources.has(name))) {
+        for (let pending = [...required.keys()]; pending.length > 0; pending = [...required.keys()].filter((name) => !sources.has(name))) {
             for (const name of pending) {
                 const sourcePath = path.join(sourceDirectory, name);
                 if (!existsSync(sourcePath)) {
@@ -401,16 +375,15 @@ export function bundleWindowsMsvcRuntime({
             }
         }
 
-        for (const [
-            name,
-            requirement,
-        ] of required) {
+        for (const [name, requirement] of required) {
             const source = sources.get(name);
             if (!source) {
                 continue;
             }
             if (runtimeVersion(source) < requirement.requiredVersion) {
-                fail(`${path.join(sourceDirectory, name)} ${formatVersion(runtimeVersion(source))} is older than the MSVC ${formatVersion(requirement.requiredVersion)} toolset that built ${requirement.importer}`);
+                fail(
+                    `${path.join(sourceDirectory, name)} ${formatVersion(runtimeVersion(source))} is older than the MSVC ${formatVersion(requirement.requiredVersion)} toolset that built ${requirement.importer}`,
+                );
             }
             const destination = path.join(directory, name);
             copyFileSync(path.join(sourceDirectory, name), destination);
@@ -433,7 +406,7 @@ function usage() {
 function readFileList(fileListPath) {
     return readFileSync(fileListPath, 'utf8')
         .split(/\r?\n/u)
-        .map(line => line.trim())
+        .map((line) => line.trim())
         .filter(Boolean);
 }
 
@@ -450,8 +423,9 @@ function parseVerifyArgs(args) {
         const arg = args[index];
         const value = args[index + 1];
         if (arg === '--allowed-machines' && value) {
-            options.allowedMachines = value.split(',')
-                .map(machine => machine.trim())
+            options.allowedMachines = value
+                .split(',')
+                .map((machine) => machine.trim())
                 .filter(Boolean);
             index += 1;
         } else if (arg === '--system-dll-pattern-file' && value) {
@@ -473,10 +447,7 @@ function parseVerifyArgs(args) {
 }
 
 function runCli() {
-    const [
-        command,
-        ...args
-    ] = process.argv.slice(2);
+    const [command, ...args] = process.argv.slice(2);
 
     if (command === 'info' || command === 'imports') {
         const filePath = args[0];

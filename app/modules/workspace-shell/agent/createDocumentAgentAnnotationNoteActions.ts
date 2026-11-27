@@ -1,17 +1,11 @@
-import type { Ref } from 'vue';
+import type {Ref} from 'vue';
 import {parseAgentAnnotationRef} from '@contracts/agent';
-import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import type { IWorkspaceAgentCommandContext } from '@app/types/workspaceExpose';
-import {
-    normalizeMarkerRect,
-    annotationIdForSummary,
-} from '@app/modules/pdf-viewer/public';
-import type { IWorkspacePdfViewerAgentAnnotationNotePort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
-import {
-    getAgentRawStringInput,
-    getAgentStringInput,
-} from '@app/modules/workspace-shell/agent/documentWorkspaceAgentInputs';
+import type {IAnnotationNoteWindowViewModel} from '@app/types/annotationNoteWindow';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
+import type {IWorkspaceAgentCommandContext} from '@app/types/workspaceExpose';
+import {normalizeMarkerRect, annotationIdForSummary} from '@app/modules/pdf-viewer/public';
+import type {IWorkspacePdfViewerAgentAnnotationNotePort} from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import {getAgentRawStringInput, getAgentStringInput} from '@app/modules/workspace-shell/agent/documentWorkspaceAgentInputs';
 import {
     defineAgentActionHandler,
     type IAgentActionHandlerDefinition,
@@ -36,17 +30,14 @@ interface ICreateDocumentAgentAnnotationNoteActionsOptions {
 
 function parseAgentUpdateNoteInput(input: Record<string, unknown>): IAgentUpdateNoteInput {
     parseAgentAnnotationRef(input);
-    const text = getAgentRawStringInput(input, 'text')
-        ?? getAgentRawStringInput(input, 'note')
-        ?? getAgentRawStringInput(input, 'noteText');
+    const text =
+        getAgentRawStringInput(input, 'text') ?? getAgentRawStringInput(input, 'note') ?? getAgentRawStringInput(input, 'noteText');
     if (text === null) {
         throw new Error('annotation.update_note requires input.text.');
     }
     return {
         input,
-        markerRect: normalizeMarkerRect(
-            input.markerRect as IAnnotationCommentSummary['markerRect'],
-        ),
+        markerRect: normalizeMarkerRect(input.markerRect as IAnnotationCommentSummary['markerRect']),
         text,
     };
 }
@@ -75,7 +66,7 @@ export function createDocumentAgentAnnotationNoteActions(
 ): ReadonlyArray<IAgentActionHandlerDefinition<unknown>> {
     function findOpenAgentAnnotationNote(comment: IAnnotationCommentSummary) {
         const annotationId = annotationIdForSummary(comment);
-        return options.sortedAnnotationNoteWindows.value.find(note => note.annotationId === annotationId);
+        return options.sortedAnnotationNoteWindows.value.find((note) => note.annotationId === annotationId);
     }
 
     function applyAgentAnnotationNoteTextUpdate(
@@ -85,10 +76,10 @@ export function createDocumentAgentAnnotationNoteActions(
     ) {
         const commentForUpdate = markerRect
             ? {
-                ...comment,
-                markerRect,
-                hasNote: text.trim().length > 0 || comment.hasNote === true,
-            }
+                  ...comment,
+                  markerRect,
+                  hasNote: text.trim().length > 0 || comment.hasNote === true,
+              }
             : comment;
         if (markerRect && options.pdfViewerRef.value?.moveAnnotationMarker(comment, markerRect) !== true) {
             return false;
@@ -110,10 +101,7 @@ export function createDocumentAgentAnnotationNoteActions(
         nextText: string,
         nextMarkerRect: IAnnotationCommentSummary['markerRect'] | null,
     ) {
-        if (
-            previousText === nextText
-            && markerRectsEqual(previousMarkerRect, nextMarkerRect)
-        ) {
+        if (previousText === nextText && markerRectsEqual(previousMarkerRect, nextMarkerRect)) {
             return;
         }
 
@@ -137,20 +125,16 @@ export function createDocumentAgentAnnotationNoteActions(
                 const previousMarkerRect = comment.markerRect ?? null;
                 const commentForUpdate = parsedInput.markerRect
                     ? {
-                        ...comment,
-                        markerRect: parsedInput.markerRect,
-                        hasNote: true,
-                    }
+                          ...comment,
+                          markerRect: parsedInput.markerRect,
+                          hasNote: true,
+                      }
                     : comment;
                 options.handleOpenAnnotationNote(commentForUpdate);
                 // The open window's draft is what the reader sees and Undo must
                 // bring back, saved or not; the stored text may be older.
                 const previousText = findOpenAgentAnnotationNote(commentForUpdate)?.draftText ?? comment.text;
-                const updated = await applyAgentAnnotationNoteTextUpdate(
-                    commentForUpdate,
-                    parsedInput.text,
-                    parsedInput.markerRect,
-                );
+                const updated = await applyAgentAnnotationNoteTextUpdate(commentForUpdate, parsedInput.text, parsedInput.markerRect);
                 context?.assertCurrentDocument();
                 if (!updated) {
                     throw new Error('Annotation note could not be updated.');
@@ -183,11 +167,7 @@ export function createDocumentAgentAnnotationNoteActions(
             ids: ['annotation.update_text_markup_color'],
             policy: {mutatesDocument: true},
             parse: parseAgentAnnotationColorInput,
-            async run(
-                parsedInput: ReturnType<typeof parseAgentAnnotationColorInput>,
-                _actionId,
-                context?: IWorkspaceAgentCommandContext,
-            ) {
+            async run(parsedInput: ReturnType<typeof parseAgentAnnotationColorInput>, _actionId, context?: IWorkspaceAgentCommandContext) {
                 const comment = options.findAgentAnnotationComment(parsedInput.input);
                 context?.assertCurrentDocument();
                 const updated = options.updateTextMarkupColorWithHistory(comment, parsedInput.color);

@@ -1,17 +1,7 @@
-import {
-    lstat,
-    readFile,
-    readdir,
-    rm,
-} from 'fs/promises';
+import {lstat, readFile, readdir, rm} from 'fs/promises';
 import {join} from 'path';
 import {tmpdir} from 'os';
-import {
-    APP_TEMP_DIR_NAME,
-    getAppStateDir,
-    getAppTempNamespaceDirectoryName,
-    getAppTempUserId,
-} from '@node-runtime/appTempNamespace';
+import {APP_TEMP_DIR_NAME, getAppStateDir, getAppTempNamespaceDirectoryName, getAppTempUserId} from '@node-runtime/appTempNamespace';
 import {DOCUMENTS_DIR} from '@document-store/documentDirectory';
 import {isErrnoException} from '@contracts/runtimeGuards';
 import {
@@ -21,18 +11,9 @@ import {
     getAppTempDirPath,
     getRetiredAppTempDirPath,
 } from '@electron/utils/appTempDir';
-import {
-    getManagedProcessRegistryDirectory,
-    reapOrphanedManagedProcesses,
-} from '@electron/native-tools/managedProcessRegistry';
-import {
-    OWN_PROFILE,
-    isRecordedProcessRunning,
-} from '@electron/utils/processIdentity';
-import {
-    MANAGED_SCRATCH_RECORD_FILE,
-    sweepStaleManagedScratchTempDirs,
-} from '@electron/utils/managedScratchTemp';
+import {getManagedProcessRegistryDirectory, reapOrphanedManagedProcesses} from '@electron/native-tools/managedProcessRegistry';
+import {OWN_PROFILE, isRecordedProcessRunning} from '@electron/utils/processIdentity';
+import {MANAGED_SCRATCH_RECORD_FILE, sweepStaleManagedScratchTempDirs} from '@electron/utils/managedScratchTemp';
 import * as v from 'valibot';
 
 // The startup owner of the profile namespaces: this profile's own scratch, and
@@ -44,7 +25,10 @@ const APP_TEMP_NAMESPACE_SCAN_LIMIT = 512;
 
 const appTempNamespaceOwnerSchema = v.object({
     namespace: v.pipe(v.string(), v.regex(SAFE_NAMESPACE_PATTERN)),
-    userDataPath: v.pipe(v.string(), v.check(path => path.trim().length > 0)),
+    userDataPath: v.pipe(
+        v.string(),
+        v.check((path) => path.trim().length > 0),
+    ),
     pid: v.pipe(v.number(), v.integer(), v.minValue(1)),
     // Absent from older versions; null when the owner could not read its own.
     startTime: v.optional(v.nullable(v.string())),
@@ -55,8 +39,16 @@ type TAppTempNamespaceOwner = v.InferOutput<typeof appTempNamespaceOwnerSchema>;
 
 // Only a checkpoint known to be absent lets the namespace go; a failed read keeps it.
 async function hasWorkspaceRecoveryCheckpoint(owner: TAppTempNamespaceOwner) {
-    return await readdir(join(owner.userDataPath, 'workspace-recovery')).then(records => records.some(name => name.endsWith('.json')), (error: unknown) => !isErrnoException(error) || error.code !== 'ENOENT')
-        || lstat(join(owner.userDataPath, 'workspace-checkpoint.json')).then(() => true, (error: unknown) => !isErrnoException(error) || error.code !== 'ENOENT');
+    return (
+        (await readdir(join(owner.userDataPath, 'workspace-recovery')).then(
+            (records) => records.some((name) => name.endsWith('.json')),
+            (error: unknown) => !isErrnoException(error) || error.code !== 'ENOENT',
+        )) ||
+        lstat(join(owner.userDataPath, 'workspace-checkpoint.json')).then(
+            () => true,
+            (error: unknown) => !isErrnoException(error) || error.code !== 'ENOENT',
+        )
+    );
 }
 
 async function readAppTempNamespaceOwner(namespacePath: string) {
@@ -77,34 +69,29 @@ export interface ICleanupStaleAppTempNamespacesOptions {
     maxEntries?: number;
 }
 
-export async function cleanupStaleAppTempNamespaces(
-    options: ICleanupStaleAppTempNamespacesOptions = {},
-) {
-    const {
-        maxAgeMs = APP_TEMP_NAMESPACE_STALE_MAX_AGE_MS,
-        maxEntries = APP_TEMP_NAMESPACE_SCAN_LIMIT,
-    } = options;
+export async function cleanupStaleAppTempNamespaces(options: ICleanupStaleAppTempNamespacesOptions = {}) {
+    const {maxAgeMs = APP_TEMP_NAMESPACE_STALE_MAX_AGE_MS, maxEntries = APP_TEMP_NAMESPACE_SCAN_LIMIT} = options;
     // This profile's own scratch: the records of a run that ended go back.
     await sweepStaleManagedScratchTempDirs(getAppTempDir(), undefined, undefined, OWN_PROFILE);
     const currentNamespacePath = getAppTempDirPath();
-    const entries = (await Promise.all([...new Set([
-        getAppStateDir(),
-        tmpdir(),
-    ])].map(async baseDir => (await readdir(baseDir, {withFileTypes: true}).catch(() => []))
-        .map(entry => ({
-            baseDir,
-            entry,
-        }))))).flat();
+    const entries = (
+        await Promise.all(
+            [...new Set([getAppStateDir(), tmpdir()])].map(async (baseDir) =>
+                (await readdir(baseDir, {withFileTypes: true}).catch(() => [])).map((entry) => ({
+                    baseDir,
+                    entry,
+                })),
+            ),
+        )
+    ).flat();
 
     const namespacePrefix = `${APP_TEMP_DIR_NAME}-${getAppTempUserId()}-`;
     let removedCount = 0;
     const now = Date.now();
     const candidates = entries
-        .filter(candidate => candidate.entry.isDirectory() && candidate.entry.name.startsWith(namespacePrefix))
+        .filter((candidate) => candidate.entry.isDirectory() && candidate.entry.name.startsWith(namespacePrefix))
         .slice(0, maxEntries);
-    for (const {
-        baseDir, entry,
-    } of candidates) {
+    for (const {baseDir, entry} of candidates) {
         const namespacePath = join(baseDir, entry.name);
         if (namespacePath === currentNamespacePath) {
             continue;
@@ -129,7 +116,7 @@ export async function cleanupStaleAppTempNamespaces(
                 continue;
             }
             const profile = namespacePath === getRetiredAppTempDirPath() ? OWN_PROFILE : owner.userDataPath;
-            if (profile !== OWN_PROFILE && await isRecordedProcessRunning(owner.pid, owner.startTime, profile)) {
+            if (profile !== OWN_PROFILE && (await isRecordedProcessRunning(owner.pid, owner.startTime, profile))) {
                 continue;
             }
             // Its export records go back first, whatever its age: one that
@@ -138,19 +125,30 @@ export async function cleanupStaleAppTempNamespaces(
             // hold unsaved work that only its own profile collects.
             await sweepStaleManagedScratchTempDirs(namespacePath, undefined, undefined, profile);
             const scopes = await readdir(namespacePath);
-            if ((await readdir(getManagedProcessRegistryDirectory(namespacePath)).catch(() => [])).length > 0 || (await Promise.all(scopes.flatMap(scope => [
-                join(namespacePath, scope, MANAGED_SCRATCH_RECORD_FILE),
-                join(namespacePath, scope, DOCUMENTS_DIR),
-            ]).map(path => lstat(path).then(() => true, () => false)))).includes(true)) {
+            if (
+                (await readdir(getManagedProcessRegistryDirectory(namespacePath)).catch(() => [])).length > 0 ||
+                (
+                    await Promise.all(
+                        scopes
+                            .flatMap((scope) => [
+                                join(namespacePath, scope, MANAGED_SCRATCH_RECORD_FILE),
+                                join(namespacePath, scope, DOCUMENTS_DIR),
+                            ])
+                            .map((path) =>
+                                lstat(path).then(
+                                    () => true,
+                                    () => false,
+                                ),
+                            ),
+                    )
+                ).includes(true)
+            ) {
                 continue;
             }
             if (await hasWorkspaceRecoveryCheckpoint(owner)) {
                 continue;
             }
-            const lastTouchedAt = Math.floor(Math.max(
-                namespaceStat.mtimeMs,
-                owner.startedAt,
-            ));
+            const lastTouchedAt = Math.floor(Math.max(namespaceStat.mtimeMs, owner.startedAt));
             if (!Number.isFinite(lastTouchedAt) || now - lastTouchedAt < maxAgeMs) {
                 continue;
             }

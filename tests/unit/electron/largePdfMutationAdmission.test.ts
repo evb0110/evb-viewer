@@ -1,9 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {
     LARGE_PDF_MUTATION_THRESHOLD_BYTES,
     LARGE_PDF_MUTATION_QUEUE_LIMIT,
@@ -12,7 +7,7 @@ import {
 
 function deferred() {
     let resolve!: () => void;
-    const promise = new Promise<void>(settle => {
+    const promise = new Promise<void>((settle) => {
         resolve = settle;
     });
     return {
@@ -28,20 +23,12 @@ describe('withLargePdfMutationAdmission', () => {
         const secondOperation = vi.fn(async () => undefined);
         const signal = new AbortController().signal;
 
-        const first = withLargePdfMutationAdmission(
-            LARGE_PDF_MUTATION_THRESHOLD_BYTES + 1,
-            signal,
-            async () => {
-                firstStarted.resolve();
-                await releaseFirst.promise;
-            },
-        );
+        const first = withLargePdfMutationAdmission(LARGE_PDF_MUTATION_THRESHOLD_BYTES + 1, signal, async () => {
+            firstStarted.resolve();
+            await releaseFirst.promise;
+        });
         await firstStarted.promise;
-        const second = withLargePdfMutationAdmission(
-            LARGE_PDF_MUTATION_THRESHOLD_BYTES + 1,
-            signal,
-            secondOperation,
-        );
+        const second = withLargePdfMutationAdmission(LARGE_PDF_MUTATION_THRESHOLD_BYTES + 1, signal, secondOperation);
         await Promise.resolve();
 
         try {
@@ -49,10 +36,7 @@ describe('withLargePdfMutationAdmission', () => {
         } finally {
             releaseFirst.resolve();
         }
-        await Promise.all([
-            first,
-            second,
-        ]);
+        await Promise.all([first, second]);
         expect(secondOperation).toHaveBeenCalledOnce();
     });
 
@@ -62,28 +46,16 @@ describe('withLargePdfMutationAdmission', () => {
         const queuedOperation = vi.fn(async () => undefined);
         const queuedController = new AbortController();
 
-        const first = withLargePdfMutationAdmission(
-            LARGE_PDF_MUTATION_THRESHOLD_BYTES + 1,
-            new AbortController().signal,
-            async () => {
-                firstStarted.resolve();
-                await releaseFirst.promise;
-            },
-        );
+        const first = withLargePdfMutationAdmission(LARGE_PDF_MUTATION_THRESHOLD_BYTES + 1, new AbortController().signal, async () => {
+            firstStarted.resolve();
+            await releaseFirst.promise;
+        });
         await firstStarted.promise;
-        const queued = withLargePdfMutationAdmission(
-            LARGE_PDF_MUTATION_THRESHOLD_BYTES + 1,
-            queuedController.signal,
-            queuedOperation,
-        );
+        const queued = withLargePdfMutationAdmission(LARGE_PDF_MUTATION_THRESHOLD_BYTES + 1, queuedController.signal, queuedOperation);
         queuedController.abort(new Error('Document closed'));
 
         const laterOperation = vi.fn(async () => undefined);
-        const later = withLargePdfMutationAdmission(
-            LARGE_PDF_MUTATION_THRESHOLD_BYTES + 1,
-            new AbortController().signal,
-            laterOperation,
-        );
+        const later = withLargePdfMutationAdmission(LARGE_PDF_MUTATION_THRESHOLD_BYTES + 1, new AbortController().signal, laterOperation);
         try {
             await expect(queued).rejects.toThrow('Document closed');
             expect(queuedOperation).not.toHaveBeenCalled();
@@ -93,10 +65,7 @@ describe('withLargePdfMutationAdmission', () => {
             releaseFirst.resolve();
         }
 
-        await Promise.all([
-            first,
-            later,
-        ]);
+        await Promise.all([first, later]);
         expect(laterOperation).toHaveBeenCalledOnce();
     });
 
@@ -107,16 +76,12 @@ describe('withLargePdfMutationAdmission', () => {
         const controller = new AbortController();
         controller.signal.addEventListener('abort', operationSawAbort.resolve, {once: true});
 
-        const active = withLargePdfMutationAdmission(
-            LARGE_PDF_MUTATION_THRESHOLD_BYTES + 1,
-            controller.signal,
-            async signal => {
-                operationStarted.resolve();
-                signal.addEventListener('abort', operationSawAbort.resolve, {once: true});
-                await releaseCleanup.promise;
-                throw signal.reason;
-            },
-        );
+        const active = withLargePdfMutationAdmission(LARGE_PDF_MUTATION_THRESHOLD_BYTES + 1, controller.signal, async (signal) => {
+            operationStarted.resolve();
+            signal.addEventListener('abort', operationSawAbort.resolve, {once: true});
+            await releaseCleanup.promise;
+            throw signal.reason;
+        });
         let settled = false;
         void active.then(
             () => {
@@ -146,11 +111,9 @@ describe('withLargePdfMutationAdmission', () => {
         const operation = vi.fn(async () => undefined);
         controller.abort(new Error('Already closed'));
 
-        await expect(withLargePdfMutationAdmission(
-            LARGE_PDF_MUTATION_THRESHOLD_BYTES + 1,
-            controller.signal,
-            operation,
-        )).rejects.toThrow('Already closed');
+        await expect(withLargePdfMutationAdmission(LARGE_PDF_MUTATION_THRESHOLD_BYTES + 1, controller.signal, operation)).rejects.toThrow(
+            'Already closed',
+        );
         expect(operation).not.toHaveBeenCalled();
     });
 
@@ -159,21 +122,13 @@ describe('withLargePdfMutationAdmission', () => {
         const releaseLarge = deferred();
         const thresholdOperation = vi.fn(async () => undefined);
 
-        const large = withLargePdfMutationAdmission(
-            LARGE_PDF_MUTATION_THRESHOLD_BYTES + 1,
-            new AbortController().signal,
-            async () => {
-                largeStarted.resolve();
-                await releaseLarge.promise;
-            },
-        );
+        const large = withLargePdfMutationAdmission(LARGE_PDF_MUTATION_THRESHOLD_BYTES + 1, new AbortController().signal, async () => {
+            largeStarted.resolve();
+            await releaseLarge.promise;
+        });
         await largeStarted.promise;
         try {
-            await withLargePdfMutationAdmission(
-                LARGE_PDF_MUTATION_THRESHOLD_BYTES,
-                new AbortController().signal,
-                thresholdOperation,
-            );
+            await withLargePdfMutationAdmission(LARGE_PDF_MUTATION_THRESHOLD_BYTES, new AbortController().signal, thresholdOperation);
 
             expect(thresholdOperation).toHaveBeenCalledOnce();
         } finally {
@@ -185,14 +140,10 @@ describe('withLargePdfMutationAdmission', () => {
     it('rejects admissions beyond the bounded queue', async () => {
         const firstStarted = deferred();
         const releaseFirst = deferred();
-        const first = withLargePdfMutationAdmission(
-            LARGE_PDF_MUTATION_THRESHOLD_BYTES + 1,
-            new AbortController().signal,
-            async () => {
-                firstStarted.resolve();
-                await releaseFirst.promise;
-            },
-        );
+        const first = withLargePdfMutationAdmission(LARGE_PDF_MUTATION_THRESHOLD_BYTES + 1, new AbortController().signal, async () => {
+            firstStarted.resolve();
+            await releaseFirst.promise;
+        });
         await firstStarted.promise;
         const queued = withLargePdfMutationAdmission(
             LARGE_PDF_MUTATION_THRESHOLD_BYTES + 1,
@@ -206,15 +157,10 @@ describe('withLargePdfMutationAdmission', () => {
         );
 
         try {
-            await expect(rejected).rejects.toThrow(
-                `maximum ${String(LARGE_PDF_MUTATION_QUEUE_LIMIT)} queued operation`,
-            );
+            await expect(rejected).rejects.toThrow(`maximum ${String(LARGE_PDF_MUTATION_QUEUE_LIMIT)} queued operation`);
         } finally {
             releaseFirst.resolve();
         }
-        await Promise.all([
-            first,
-            queued,
-        ]);
+        await Promise.all([first, queued]);
     });
 });

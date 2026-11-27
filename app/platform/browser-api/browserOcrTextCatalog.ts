@@ -3,9 +3,7 @@ import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserP
 import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdfjsDocument';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
-import {
-    parseDocumentRef, type TDocumentRef,
-} from '@contracts/documentRef';
+import {parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import {
     MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES,
@@ -27,16 +25,14 @@ import {range} from 'es-toolkit/math';
 // as its text layer reads.
 
 async function digest(parts: readonly string[]) {
-    const bytes = new TextEncoder().encode(parts.map(part => `${part}\0`).join(''));
+    const bytes = new TextEncoder().encode(parts.map((part) => `${part}\0`).join(''));
     const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
-    return Array.from(hash, byte => byte.toString(16).padStart(2, '0')).join('');
+    return Array.from(hash, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 async function readPdfjsPageText(page: IPdfPage) {
     const content = await page.getTextContent();
-    return normalizeExtractedPageText(content.items
-        .map(item => ('str' in item ? `${item.str}${item.hasEOL ? '\n' : ''}` : ''))
-        .join(''));
+    return normalizeExtractedPageText(content.items.map((item) => ('str' in item ? `${item.str}${item.hasEOL ? '\n' : ''}` : '')).join(''));
 }
 
 /**
@@ -45,21 +41,34 @@ async function readPdfjsPageText(page: IPdfPage) {
  * alike.
  */
 export async function readEvbLayerLines(ref: TDocumentRef, pageNumbers: number[], signal?: AbortSignal) {
-    const layers = new Map<number, {
-        text: string;
-        layout: IDocumentTextPageLayout
-    }>();
-    if (pageNumbers.length === 0) return layers;
-    const report = await runBrowserPageOpsWorkerRequest('ocrTextVisibility', {
-        source: await browserDocumentStore.readableBlob(ref),
-        pages: pageNumbers,
-        withEvbOcrText: true,
-    }, signal === undefined ? {} : {signal}).catch(() => null);
-    if (report === null || isBrowserPageOpsWasmFailure(report)) return layers;
+    const layers = new Map<
+        number,
+        {
+            text: string;
+            layout: IDocumentTextPageLayout;
+        }
+    >();
+    if (pageNumbers.length === 0) {
+        return layers;
+    }
+    const report = await runBrowserPageOpsWorkerRequest(
+        'ocrTextVisibility',
+        {
+            source: await browserDocumentStore.readableBlob(ref),
+            pages: pageNumbers,
+            withEvbOcrText: true,
+        },
+        signal === undefined ? {} : {signal},
+    ).catch(() => null);
+    if (report === null || isBrowserPageOpsWasmFailure(report)) {
+        return layers;
+    }
     for (const page of report.pages) {
-        if (page.paintedText || !page.evbOcrLayer || page.evbOcrLines === null) continue;
+        if (page.paintedText || !page.evbOcrLayer || page.evbOcrLines === null) {
+            continue;
+        }
         layers.set(page.pageNumber, {
-            text: normalizeExtractedPageText(page.evbOcrLines.map(line => line.text).join('\n')),
+            text: normalizeExtractedPageText(page.evbOcrLines.map((line) => line.text).join('\n')),
             layout: readOcrLayerLayout(page.evbOcrLines),
         });
     }
@@ -76,14 +85,18 @@ const EVB_LAYER_WINDOW_PAGES = 2048;
  */
 export function createEvbLayerTextReader(path: string, pageCount: number) {
     const ref = parseDocumentRef(path);
-    let current: {
-        firstPage: number;
-        layers: ReturnType<typeof readEvbLayerLines>;
-        signal: AbortSignal | undefined;
-    } | undefined;
+    let current:
+        | {
+              firstPage: number;
+              layers: ReturnType<typeof readEvbLayerLines>;
+              signal: AbortSignal | undefined;
+          }
+        | undefined;
     const readText = async (pageNumber: number, signal?: AbortSignal): Promise<string | undefined> => {
-        if (ref === null) return undefined;
-        const firstPage = pageNumber - (pageNumber - 1) % EVB_LAYER_WINDOW_PAGES;
+        if (ref === null) {
+            return undefined;
+        }
+        const firstPage = pageNumber - ((pageNumber - 1) % EVB_LAYER_WINDOW_PAGES);
         if (current?.firstPage !== firstPage) {
             const lastPage = Math.min(firstPage + EVB_LAYER_WINDOW_PAGES - 1, pageCount);
             current = {
@@ -97,7 +110,9 @@ export function createEvbLayerTextReader(path: string, pageCount: number) {
         // A canceled read leaves its window unread: the canceled search stops,
         // and another search reads the window again.
         if (window.signal?.aborted) {
-            if (current === window) current = undefined;
+            if (current === window) {
+                current = undefined;
+            }
             signal?.throwIfAborted();
             return readText(pageNumber, signal);
         }
@@ -111,7 +126,7 @@ async function readTextPages(
     documentRevision: TDocumentRevisionToken,
     range: {
         firstPage: number;
-        lastPage: number | undefined
+        lastPage: number | undefined;
     },
     maxTextLength: number,
     signal?: AbortSignal,
@@ -132,22 +147,22 @@ async function readTextPages(
         }
         const layers = await readEvbLayerLines(
             ref,
-            [...texts].filter(([
-                , text,
-            ]) => text.length > 0).map(([pageNumber]) => pageNumber),
+            [...texts].filter(([, text]) => text.length > 0).map(([pageNumber]) => pageNumber),
             signal,
         );
         let textLength = 0;
         const pages: IDocumentTextCatalogPage[] = [];
-        for (const [
-            pageNumber,
-            pdfText,
-        ] of texts) {
+        for (const [pageNumber, pdfText] of texts) {
             const layer = layers.get(pageNumber);
             const text = layer?.text ?? pdfText;
-            if (!text.trim()) continue;
-            textLength += text.length
-                + (layer?.layout.regions.flatMap(region => region.columns.flat()).reduce((length, paragraph) => length + paragraph.length, 0) ?? 0);
+            if (!text.trim()) {
+                continue;
+            }
+            textLength +=
+                text.length +
+                (layer?.layout.regions
+                    .flatMap((region) => region.columns.flat())
+                    .reduce((length, paragraph) => length + paragraph.length, 0) ?? 0);
             if (textLength > maxTextLength) {
                 throw new RangeError(`Document text exceeds ${maxTextLength} characters; export it in page windows`);
             }
@@ -156,10 +171,7 @@ async function readTextPages(
                 text,
                 source: 'pdf-native',
                 ...(layer === undefined ? {} : {layout: layer.layout}),
-                contentDigest: await digest([
-                    String(pageNumber),
-                    text,
-                ]),
+                contentDigest: await digest([String(pageNumber), text]),
             });
         }
         await browserDocumentStore.assertDocumentRevisionCurrent(ref, documentRevision);
@@ -177,15 +189,20 @@ export async function readBrowserDocumentTextSnapshot(
     documentRevision: TDocumentRevisionToken,
     pageCount: number | undefined,
 ): Promise<IDocumentTextSnapshot> {
-    const read = await readTextPages(ref, documentRevision, {
-        firstPage: 1,
-        lastPage: pageCount,
-    }, MAX_DOCUMENT_TEXT_SNAPSHOT_TOTAL_TEXT_LENGTH);
+    const read = await readTextPages(
+        ref,
+        documentRevision,
+        {
+            firstPage: 1,
+            lastPage: pageCount,
+        },
+        MAX_DOCUMENT_TEXT_SNAPSHOT_TOTAL_TEXT_LENGTH,
+    );
     return {
         documentRevision,
         pageCount: pageCount ?? read.pageCount,
         pages: read.pages,
-        contentDigest: await digest(read.pages.map(page => page.contentDigest)),
+        contentDigest: await digest(read.pages.map((page) => page.contentDigest)),
     };
 }
 
@@ -195,23 +212,28 @@ export async function readBrowserDocumentTextWindow(
     window: {
         firstPage: number;
         lastPage: number;
-        pageCount: number
+        pageCount: number;
     },
 ): Promise<IDocumentTextCatalogWindow> {
     const lastPage = Math.min(window.lastPage, window.pageCount);
     if (window.firstPage < 1 || lastPage - window.firstPage + 1 > MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES) {
         throw new RangeError(`Document text windows hold 1-${MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES} pages`);
     }
-    const read = await readTextPages(ref, documentRevision, {
-        firstPage: window.firstPage,
-        lastPage,
-    }, MAX_DOCUMENT_TEXT_CATALOG_WINDOW_TOTAL_TEXT_LENGTH);
+    const read = await readTextPages(
+        ref,
+        documentRevision,
+        {
+            firstPage: window.firstPage,
+            lastPage,
+        },
+        MAX_DOCUMENT_TEXT_CATALOG_WINDOW_TOTAL_TEXT_LENGTH,
+    );
     return {
         documentRevision,
         pageCount: window.pageCount,
         firstPage: window.firstPage,
         lastPage,
         pages: read.pages,
-        contentDigest: await digest(read.pages.map(page => page.contentDigest)),
+        contentDigest: await digest(read.pages.map((page) => page.contentDigest)),
     };
 }

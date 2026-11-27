@@ -1,18 +1,9 @@
-import {
-    isMainThread,
-    threadId,
-} from 'worker_threads';
-import { statSync } from 'fs';
-import {
-    appendFile,
-    mkdir,
-    readdir,
-    rename,
-    rm,
-} from 'fs/promises';
-import { join } from 'path';
-import { sortBy } from 'es-toolkit/array';
-import { sumBy } from 'es-toolkit/math';
+import {isMainThread, threadId} from 'worker_threads';
+import {statSync} from 'fs';
+import {appendFile, mkdir, readdir, rename, rm} from 'fs/promises';
+import {join} from 'path';
+import {sortBy} from 'es-toolkit/array';
+import {sumBy} from 'es-toolkit/math';
 import {
     decodeFailureReceipt,
     getFailureReceipt,
@@ -22,8 +13,8 @@ import {
     type FailureSeverity,
 } from '@contracts/diagnostics/failureReceipt';
 import {captureMainFailure} from '@electron/utils/captureMainFailure';
-import { CORE_IPC_EVENT_CHANNELS } from '@electron/platform-ipc/coreContract';
-import { redactLogText } from '@contracts/redactLogText';
+import {CORE_IPC_EVENT_CHANNELS} from '@electron/platform-ipc/coreContract';
+import {redactLogText} from '@contracts/redactLogText';
 import {
     APP_LOG_FILE_NAME,
     formatLogData,
@@ -60,11 +51,7 @@ export interface ILogger {
     debug(msg: string, data?: unknown): void;
     info(msg: string, data?: unknown): void;
     warn(msg: string, data?: unknown): void;
-    error(
-        msg: string,
-        failure: FailureReceipt | ILoggerFailureInput,
-        data?: unknown,
-    ): FailureReceipt | undefined;
+    error(msg: string, failure: FailureReceipt | ILoggerFailureInput, data?: unknown): FailureReceipt | undefined;
 }
 
 export interface ILoggerFailureInput {
@@ -73,7 +60,9 @@ export interface ILoggerFailureInput {
     cause?: unknown;
 }
 
-interface ILoggerOptions {broadcastToRenderers?: boolean;}
+interface ILoggerOptions {
+    broadcastToRenderers?: boolean;
+}
 
 interface IFileLogState {
     queue: Promise<void>;
@@ -87,8 +76,7 @@ interface IFileLogState {
 }
 
 const IS_PACKAGED_RUNTIME = !process.execPath.toLowerCase().includes('node_modules');
-const FILE_LOG_LEVEL: TLogLevel = parseLogLevel(process.env.ELECTRON_FILE_LOG_LEVEL)
-    ?? (IS_PACKAGED_RUNTIME ? 'info' : 'debug');
+const FILE_LOG_LEVEL: TLogLevel = parseLogLevel(process.env.ELECTRON_FILE_LOG_LEVEL) ?? (IS_PACKAGED_RUNTIME ? 'info' : 'debug');
 const RENDER_LOG_LEVEL: TLogLevel = parseLogLevel(process.env.ELECTRON_RENDER_LOG_LEVEL) ?? 'warn';
 /**
  * `EVB_LOG_STDOUT=ndjson` mirrors records to stdout as NDJSON. The dev
@@ -152,7 +140,7 @@ async function broadcastToRenderers(data: ILogMessage) {
     }
 
     try {
-        const { BrowserWindow } = await import('electron');
+        const {BrowserWindow} = await import('electron');
         const windows = BrowserWindow.getAllWindows();
         for (const win of windows) {
             if (!win.isDestroyed()) {
@@ -171,7 +159,7 @@ async function initializeState(state: IFileLogState, appLogFile: string, logDire
     state.initialized = true;
 
     try {
-        await mkdir(logDirectory, { recursive: true });
+        await mkdir(logDirectory, {recursive: true});
         await appendFile(appLogFile, '', 'utf8');
     } catch {
         // Ignore initialization failures, writes will keep retrying.
@@ -187,7 +175,7 @@ async function initializeState(state: IFileLogState, appLogFile: string, logDire
 async function rotateFile(logFile: string) {
     if (LOG_FILE_MAX_BACKUPS <= 0) {
         try {
-            await rm(logFile, { force: true });
+            await rm(logFile, {force: true});
         } catch {
             // Ignore cleanup failures.
         }
@@ -195,13 +183,11 @@ async function rotateFile(logFile: string) {
     }
 
     for (let index = LOG_FILE_MAX_BACKUPS; index >= 1; index -= 1) {
-        const source = index === 1
-            ? logFile
-            : `${logFile}.${index - 1}`;
+        const source = index === 1 ? logFile : `${logFile}.${index - 1}`;
         const destination = `${logFile}.${index}`;
 
         try {
-            await rm(destination, { force: true });
+            await rm(destination, {force: true});
         } catch {
             // Ignore destination cleanup failures.
         }
@@ -265,7 +251,7 @@ async function pruneLogDirectory(force = false) {
             }
         }
 
-        let totalBytes = sumBy(files, file => file.size) + fileLogState.approximateBytes;
+        let totalBytes = sumBy(files, (file) => file.size) + fileLogState.approximateBytes;
         if (totalBytes <= LOG_DIR_MAX_BYTES) {
             return;
         }
@@ -276,7 +262,7 @@ async function pruneLogDirectory(force = false) {
             }
 
             try {
-                await rm(file.path, { force: true });
+                await rm(file.path, {force: true});
                 totalBytes -= file.size;
             } catch {
                 // Ignore cleanup failures and continue pruning.
@@ -451,23 +437,21 @@ export function redactLogData(data: TLogData | undefined): TLogData | undefined 
     }
     try {
         const parsed: unknown = JSON.parse(redacted);
-        return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
-            ? parsed as TLogData
-            : {value: redacted};
+        return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? (parsed as TLogData) : {value: redacted};
     } catch {
         return {value: redacted};
     }
 }
 
 /** `stdout: false` keeps a record out of the stdout mirror (the launcher already sees it). */
-export interface IWriteLogRecordOptions {readonly stdout?: boolean;}
+export interface IWriteLogRecordOptions {
+    readonly stdout?: boolean;
+}
 
 function selectLogSinks(level: TLogLevel, options: IWriteLogRecordOptions) {
     return {
         toFile: isLogLevelEnabled(level, FILE_LOG_LEVEL),
-        toStdout: STDOUT_LOG_ENABLED
-            && options.stdout !== false
-            && isLogLevelEnabled(level, STDOUT_LOG_LEVEL),
+        toStdout: STDOUT_LOG_ENABLED && options.stdout !== false && isLogLevelEnabled(level, STDOUT_LOG_LEVEL),
     };
 }
 
@@ -485,10 +469,7 @@ export function writeLogRecord(
     },
     options: IWriteLogRecordOptions = {},
 ): ILogRecord | null {
-    const {
-        toFile,
-        toStdout,
-    } = selectLogSinks(input.level, options);
+    const {toFile, toStdout} = selectLogSinks(input.level, options);
     if (!toFile && !toStdout) {
         return null;
     }
@@ -595,12 +576,15 @@ function captureMainLoggerFailure(message: string, failureInput: ILoggerFailureI
         return undefined;
     }
     try {
-        return getFailureReceipt(decodedInput.cause) ?? captureMainFailure({
-            code: decodedInput.code,
-            message,
-            cause: decodedInput.cause,
-            ...(decodedInput.severity === undefined ? {} : {severity: decodedInput.severity}),
-        });
+        return (
+            getFailureReceipt(decodedInput.cause) ??
+            captureMainFailure({
+                code: decodedInput.code,
+                message,
+                cause: decodedInput.cause,
+                ...(decodedInput.severity === undefined ? {} : {severity: decodedInput.severity}),
+            })
+        );
     } catch {
         return undefined;
     }
@@ -616,21 +600,25 @@ function toFailureData(failure: unknown, data: unknown) {
     }
     return typeof data === 'object' && data !== null && !Array.isArray(data)
         ? {
-            ...data,
-            cause,
-        }
+              ...data,
+              cause,
+          }
         : {
-            value: data,
-            cause,
-        };
+              value: data,
+              cause,
+          };
 }
 
 function toDebugLogLevel(level: TLogLevel): ILogMessage['level'] {
     switch (level) {
-        case 'debug': return 'DEBUG';
-        case 'info': return 'INFO';
-        case 'warn': return 'WARN';
-        case 'error': return 'ERROR';
+        case 'debug':
+            return 'DEBUG';
+        case 'info':
+            return 'INFO';
+        case 'warn':
+            return 'WARN';
+        case 'error':
+            return 'ERROR';
     }
 }
 
@@ -639,20 +627,23 @@ export function createLogger(source: string, options: ILoggerOptions = {}): ILog
 
     function log(level: TLogLevel, msg: string, data: unknown, failureRef?: IFailureRef) {
         const sinks = selectLogSinks(level, {});
-        const record = sinks.toFile || sinks.toStdout
-            ? writeLogRecord({
-                level,
-                proc: processKind(),
-                scope: source,
-                msg: redactLogText(msg),
-                data: redactLogData(toLogData(data)),
-                ...(isMainThread ? {} : {thread: threadId}),
-                ...(failureRef ? {
-                    errorId: failureRef.eventId,
-                    code: failureRef.code,
-                } : {}),
-            })
-            : null;
+        const record =
+            sinks.toFile || sinks.toStdout
+                ? writeLogRecord({
+                      level,
+                      proc: processKind(),
+                      scope: source,
+                      msg: redactLogText(msg),
+                      data: redactLogData(toLogData(data)),
+                      ...(isMainThread ? {} : {thread: threadId}),
+                      ...(failureRef
+                          ? {
+                                errorId: failureRef.eventId,
+                                code: failureRef.code,
+                            }
+                          : {}),
+                  })
+                : null;
 
         const canBroadcast = level !== 'error' || (isMainThread && failureRef !== undefined);
         if (broadcastToRenderersEnabled && canBroadcast && isLogLevelEnabled(level, RENDER_LOG_LEVEL)) {
@@ -680,9 +671,7 @@ export function createLogger(source: string, options: ILoggerOptions = {}): ILog
                 return undefined;
             }
 
-            const receipt = isFailureReceipt(existingReceipt)
-                ? existingReceipt
-                : captureMainLoggerFailure(msg, existingReceipt);
+            const receipt = isFailureReceipt(existingReceipt) ? existingReceipt : captureMainLoggerFailure(msg, existingReceipt);
             log('error', msg, recordData, toFailureRef(receipt));
             return receipt;
         },

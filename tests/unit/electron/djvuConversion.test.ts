@@ -1,19 +1,7 @@
-import {
-    mkdtemp,
-    readFile,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     runDjvuEngine: vi.fn(),
@@ -25,10 +13,12 @@ const mocks = vi.hoisted(() => ({
     logicalCpus: 8,
 }));
 
-vi.mock('electron', () => ({app: {
-    getPath: () => tmpdir(),
-    isPackaged: false,
-}}));
+vi.mock('electron', () => ({
+    app: {
+        getPath: () => tmpdir(),
+        isPackaged: false,
+    },
+}));
 vi.mock('@electron/features/djvu/main/djvuEnginePool', () => ({runDjvuEngine: mocks.runDjvuEngine}));
 vi.mock('@electron/native-tools/runNativeCommand', () => ({
     runNativeCommand: mocks.runNativeCommand,
@@ -36,19 +26,16 @@ vi.mock('@electron/native-tools/runNativeCommand', () => ({
 }));
 vi.mock('@electron/native-tools/resolveNativeToolPath', () => ({resolveNativeToolPath: mocks.resolveNativeToolPath}));
 vi.mock('@electron/features/page-ops/publicNative', () => ({runPageStructureCommand: mocks.runPageStructureCommand}));
-vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfileSnapshot: () => ({
-    tier: mocks.hostTier,
-    logicalCpus: mocks.logicalCpus,
-    performanceMode: 'auto',
-})}));
+vi.mock('@electron/resources/hostResourceProfile', () => ({
+    getHostResourceProfileSnapshot: () => ({
+        tier: mocks.hostTier,
+        logicalCpus: mocks.logicalCpus,
+        performanceMode: 'auto',
+    }),
+}));
 
-const {
-    cancelConversion,
-    convertDjvuToPdfFile,
-    renderDjvuPageToImage,
-    resolveDjvuRangeWorkerCount,
-    runRegisteredDjvuProcess,
-} = await import('@electron/features/djvu/main/ddjvuConversion');
+const {cancelConversion, convertDjvuToPdfFile, renderDjvuPageToImage, resolveDjvuRangeWorkerCount, runRegisteredDjvuProcess} =
+    await import('@electron/features/djvu/main/ddjvuConversion');
 
 describe('resolveDjvuRangeWorkerCount', () => {
     it('does not clamp a two-core host up to two conversion workers', () => {
@@ -88,10 +75,7 @@ describe('ddjvuConversion (DjVuLibre WASM + evb-pdf-image-combine)', () => {
 
     it('renders requested DjVu page modes through the DjVuLibre WASM engine pool', async () => {
         const outputPath = join(tempDir, 'mask.pbm');
-        mocks.runDjvuEngine.mockImplementationOnce(async (request: {
-            type: string;
-            outputPath: string;
-        }) => {
+        mocks.runDjvuEngine.mockImplementationOnce(async (request: {type: string; outputPath: string}) => {
             expect(request).toMatchObject({
                 type: 'renderPageToFile',
                 djvuPath: '/tmp/book.djvu',
@@ -129,11 +113,7 @@ describe('ddjvuConversion (DjVuLibre WASM + evb-pdf-image-combine)', () => {
         const progressValues: number[] = [];
         let capturedManifest = '';
 
-        mocks.runDjvuEngine.mockImplementation(async (request: {
-            type: string;
-            pageNumber?: number;
-            outputPath?: string;
-        }) => {
+        mocks.runDjvuEngine.mockImplementation(async (request: {type: string; pageNumber?: number; outputPath?: string}) => {
             if (request.type === 'getDocInfo') {
                 return {
                     pageCount: 5,
@@ -167,26 +147,24 @@ describe('ddjvuConversion (DjVuLibre WASM + evb-pdf-image-combine)', () => {
             throw new Error(`Unexpected request: ${request.type}`);
         });
 
-        mocks.runNativeCommand.mockImplementationOnce(async (
-            _command: string,
-            args: string[],
-            options: { onStdout?: (chunk: string) => void },
-        ) => {
-            const manifestPath = args[args.indexOf('--compact-manifest') + 1]!;
-            capturedManifest = await readFile(manifestPath, 'utf8');
-            options.onStdout?.('{"type":"progress","processed":2,"total":2,"percent":100,"elapsedMs":1,"estimatedRemainingMs":0}\n');
-            await writeFile(args[args.indexOf('--output') + 1]!, '%PDF-1.4\n%%EOF\n', 'utf8');
-            return {
-                stdout: '',
-                stderr: '',
-                exitCode: 0,
-            };
-        });
+        mocks.runNativeCommand.mockImplementationOnce(
+            async (_command: string, args: string[], options: {onStdout?: (chunk: string) => void}) => {
+                const manifestPath = args[args.indexOf('--compact-manifest') + 1]!;
+                capturedManifest = await readFile(manifestPath, 'utf8');
+                options.onStdout?.('{"type":"progress","processed":2,"total":2,"percent":100,"elapsedMs":1,"estimatedRemainingMs":0}\n');
+                await writeFile(args[args.indexOf('--output') + 1]!, '%PDF-1.4\n%%EOF\n', 'utf8');
+                return {
+                    stdout: '',
+                    stderr: '',
+                    exitCode: 0,
+                };
+            },
+        );
 
         const result = await convertDjvuToPdfFile('/tmp/book.djvu', outputPath, 'job-direct', {
             pages: '2,4',
             subsample: 2,
-            onProgress: percent => progressValues.push(percent),
+            onProgress: (percent) => progressValues.push(percent),
         });
 
         expect(result).toMatchObject({
@@ -196,7 +174,7 @@ describe('ddjvuConversion (DjVuLibre WASM + evb-pdf-image-combine)', () => {
         expect(result.fileSize).toBeGreaterThan(0);
         const lines = capturedManifest.trim().split('\n');
         expect(lines).toHaveLength(3);
-        expect(JSON.parse(lines[0]!)).toMatchObject({ pageCount: 2 });
+        expect(JSON.parse(lines[0]!)).toMatchObject({pageCount: 2});
         expect(lines[1]).toContain('image-jpeg\t144.0000\t216.0000\t92\t');
         expect(lines[2]).toContain('image-jpeg\t576.0000\t768.0000\t92\t');
         expect(progressValues.at(-1)).toBe(94);
@@ -207,11 +185,7 @@ describe('ddjvuConversion (DjVuLibre WASM + evb-pdf-image-combine)', () => {
         const capturedManifests: string[] = [];
         const batchPpmPaths: string[][] = [];
 
-        mocks.runDjvuEngine.mockImplementation(async (request: {
-            type: string;
-            pageNumber?: number;
-            outputPath?: string;
-        }) => {
+        mocks.runDjvuEngine.mockImplementation(async (request: {type: string; pageNumber?: number; outputPath?: string}) => {
             if (request.type === 'getDocInfo') {
                 return {
                     pageCount: 26,
@@ -221,7 +195,7 @@ describe('ddjvuConversion (DjVuLibre WASM + evb-pdf-image-combine)', () => {
                 };
             }
             if (request.type === 'getPageSizes') {
-                return Array.from({ length: 26 }, () => ({
+                return Array.from({length: 26}, () => ({
                     width: 600,
                     height: 900,
                     dpi: 300,
@@ -246,12 +220,12 @@ describe('ddjvuConversion (DjVuLibre WASM + evb-pdf-image-combine)', () => {
                 .trim()
                 .split('\n')
                 .slice(1)
-                .map(line => line.split('\t').at(-1)!);
+                .map((line) => line.split('\t').at(-1)!);
             batchPpmPaths.push(ppmPaths);
             if (batchPpmPaths.length === 2) {
                 // Batch 1 PPMs must already be unlinked before batch 2 combines.
-                const { existsSync } = await import('node:fs');
-                expect(batchPpmPaths[0]!.every(ppm => !existsSync(ppm))).toBe(true);
+                const {existsSync} = await import('node:fs');
+                expect(batchPpmPaths[0]!.every((ppm) => !existsSync(ppm))).toBe(true);
             }
             await writeFile(args[args.indexOf('--output') + 1]!, '%PDF-1.4\n%%EOF\n', 'utf8');
             return {
@@ -261,18 +235,15 @@ describe('ddjvuConversion (DjVuLibre WASM + evb-pdf-image-combine)', () => {
             };
         });
 
-        mocks.runPageStructureCommand.mockImplementationOnce(async (
-            command: string,
-            firstChunk: string,
-            finalOutput: string,
-            args: { sources?: string[] },
-        ) => {
-            expect(command).toBe('merge-pages');
-            expect(firstChunk).toContain('direct-chunk-0001.pdf');
-            expect(args.sources).toHaveLength(1);
-            expect(args.sources?.[0]).toContain('direct-chunk-0002.pdf');
-            await writeFile(finalOutput, '%PDF-1.4\n%merged\n%%EOF\n', 'utf8');
-        });
+        mocks.runPageStructureCommand.mockImplementationOnce(
+            async (command: string, firstChunk: string, finalOutput: string, args: {sources?: string[]}) => {
+                expect(command).toBe('merge-pages');
+                expect(firstChunk).toContain('direct-chunk-0001.pdf');
+                expect(args.sources).toHaveLength(1);
+                expect(args.sources?.[0]).toContain('direct-chunk-0002.pdf');
+                await writeFile(finalOutput, '%PDF-1.4\n%merged\n%%EOF\n', 'utf8');
+            },
+        );
 
         const result = await convertDjvuToPdfFile('/tmp/book.djvu', outputPath, 'job-batched', {
             subsample: 1,
@@ -285,8 +256,8 @@ describe('ddjvuConversion (DjVuLibre WASM + evb-pdf-image-combine)', () => {
         expect(capturedManifests).toHaveLength(2);
         const batch1Lines = capturedManifests[0]!.trim().split('\n');
         const batch2Lines = capturedManifests[1]!.trim().split('\n');
-        expect(JSON.parse(batch1Lines[0]!)).toMatchObject({ pageCount: 24 });
-        expect(JSON.parse(batch2Lines[0]!)).toMatchObject({ pageCount: 2 });
+        expect(JSON.parse(batch1Lines[0]!)).toMatchObject({pageCount: 24});
+        expect(JSON.parse(batch2Lines[0]!)).toMatchObject({pageCount: 2});
         expect(batch1Lines[1]).toMatch(/^image\t144\.0000\t216\.0000\t/);
         expect(batch2Lines[1]).toMatch(/^image\t144\.0000\t216\.0000\t/);
         expect(mocks.runPageStructureCommand).toHaveBeenCalledTimes(1);
@@ -296,11 +267,11 @@ describe('ddjvuConversion (DjVuLibre WASM + evb-pdf-image-combine)', () => {
         const started = Promise.withResolvers<undefined>();
         let observedSignal: AbortSignal | undefined;
 
-        mocks.runDjvuEngine.mockImplementationOnce(async (_request: unknown, options?: { signal?: AbortSignal }) => {
+        mocks.runDjvuEngine.mockImplementationOnce(async (_request: unknown, options?: {signal?: AbortSignal}) => {
             observedSignal = options?.signal;
             started.resolve(undefined);
             await new Promise((_resolve, reject) => {
-                options?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
+                options?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), {once: true});
             });
         });
 

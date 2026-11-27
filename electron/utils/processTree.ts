@@ -1,6 +1,6 @@
-import { promisify } from 'node:util';
-import { clamp } from 'es-toolkit/math';
-import { delay } from 'es-toolkit/promise';
+import {promisify} from 'node:util';
+import {clamp} from 'es-toolkit/math';
+import {delay} from 'es-toolkit/promise';
 
 interface ITerminateProcessTreeOptions {
     graceMs?: number;
@@ -68,9 +68,7 @@ function isProcessGroupAlive(pid: number) {
 }
 
 export function isProcessTreeAlive(pid: number, platform: NodeJS.Platform = process.platform) {
-    return platform === 'win32'
-        ? isPidAlive(pid)
-        : isProcessGroupAlive(pid) || isPidAlive(pid);
+    return platform === 'win32' ? isPidAlive(pid) : isProcessGroupAlive(pid) || isPidAlive(pid);
 }
 
 async function waitForExit(isAlive: () => boolean, timeoutMs: number) {
@@ -85,11 +83,7 @@ async function waitForExit(isAlive: () => boolean, timeoutMs: number) {
     return !isAlive();
 }
 
-async function waitForPreferredProcessExit(
-    pid: number,
-    timeoutMs: number,
-    isDirectTargetAlive: () => boolean,
-) {
+async function waitForPreferredProcessExit(pid: number, timeoutMs: number, isDirectTargetAlive: () => boolean) {
     const deadline = processTreeRuntime.now() + Math.max(0, timeoutMs);
     while (processTreeRuntime.now() < deadline) {
         if (!isProcessGroupAlive(pid) && !isDirectTargetAlive()) {
@@ -101,11 +95,7 @@ async function waitForPreferredProcessExit(
     return !isProcessGroupAlive(pid) && !isDirectTargetAlive();
 }
 
-function sendPosixSignal(
-    pid: number,
-    signal: NodeJS.Signals,
-    preferProcessGroup: boolean,
-) {
+function sendPosixSignal(pid: number, signal: NodeJS.Signals, preferProcessGroup: boolean) {
     try {
         if (preferProcessGroup) {
             processTreeRuntime.kill(-pid, signal);
@@ -123,11 +113,7 @@ function sendPosixSignal(
 }
 
 async function runTaskkill(pid: number, force: boolean, timeoutMs: number) {
-    const args = [
-        '/PID',
-        String(pid),
-        '/T',
-    ];
+    const args = ['/PID', String(pid), '/T'];
     if (force) {
         args.push('/F');
     }
@@ -143,10 +129,7 @@ async function runTaskkill(pid: number, force: boolean, timeoutMs: number) {
     }
 }
 
-export async function terminateProcessTree(
-    pid: number,
-    options: ITerminateProcessTreeOptions = {},
-) {
+export async function terminateProcessTree(pid: number, options: ITerminateProcessTreeOptions = {}) {
     const graceMs = options.graceMs ?? DEFAULT_GRACE_MS;
     const forceKillWaitMs = clamp(Math.floor(graceMs / 2), MIN_FORCE_KILL_WAIT_MS, MAX_FORCE_KILL_WAIT_MS);
     const platform = options.platform ?? process.platform;
@@ -156,27 +139,31 @@ export async function terminateProcessTree(
 
     if (platform === 'win32') {
         // A dead root gives no descendant identity, and signalling a reused PID is unsafe.
-        if (!isDirectTargetAlive()) return false;
+        if (!isDirectTargetAlive()) {
+            return false;
+        }
         const gracefulTreeKill = await runTaskkill(pid, false, taskkillTimeoutMs);
-        if (await waitForExit(isDirectTargetAlive, graceMs)) return gracefulTreeKill;
-        if (!isDirectTargetAlive()) return false;
+        if (await waitForExit(isDirectTargetAlive, graceMs)) {
+            return gracefulTreeKill;
+        }
+        if (!isDirectTargetAlive()) {
+            return false;
+        }
         const forcedTreeKill = await runTaskkill(pid, true, taskkillTimeoutMs);
-        return await waitForExit(isDirectTargetAlive, forceKillWaitMs) && forcedTreeKill;
+        return (await waitForExit(isDirectTargetAlive, forceKillWaitMs)) && forcedTreeKill;
     }
 
-    const targetAlive = preferProcessGroup
-        ? isProcessGroupAlive(pid) || isDirectTargetAlive()
-        : isDirectTargetAlive();
-    if (!targetAlive) return true;
+    const targetAlive = preferProcessGroup ? isProcessGroupAlive(pid) || isDirectTargetAlive() : isDirectTargetAlive();
+    if (!targetAlive) {
+        return true;
+    }
 
     const processGroupWasAlive = preferProcessGroup && isProcessGroupAlive(pid);
     sendPosixSignal(pid, 'SIGTERM', processGroupWasAlive);
     const exitedGracefully = processGroupWasAlive
         ? await waitForPreferredProcessExit(pid, graceMs, isDirectTargetAlive)
         : await waitForExit(isDirectTargetAlive, graceMs);
-    const stillAlive = preferProcessGroup
-        ? isProcessGroupAlive(pid) || isDirectTargetAlive()
-        : isDirectTargetAlive();
+    const stillAlive = preferProcessGroup ? isProcessGroupAlive(pid) || isDirectTargetAlive() : isDirectTargetAlive();
     if (exitedGracefully || !stillAlive || (!preferProcessGroup && !isDirectTargetAlive())) {
         return true;
     }

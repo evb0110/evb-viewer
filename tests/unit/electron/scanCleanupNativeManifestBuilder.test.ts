@@ -1,20 +1,7 @@
-import {
-    mkdir,
-    mkdtemp,
-    readFile,
-    rm,
-    symlink,
-    writeFile,
-} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, rm, symlink, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {
-    join,
-    resolve,
-} from 'node:path';
-import {
-    existsSync,
-    realpathSync,
-} from 'node:fs';
+import {join, resolve} from 'node:path';
+import {existsSync, realpathSync} from 'node:fs';
 import type * as nodeFs from 'fs';
 import type {
     INativeScanCleanupManifestV3,
@@ -42,25 +29,17 @@ import {resolveEffectiveScanCleanupOptions} from '@evb/scan-cleanup/core/policy/
 import {resolveScanCleanupManifestPageOptions} from '@evb/scan-cleanup/core/policy/scanCleanupManifestPagePolicy';
 import {createScanCleanupFacingPairGeometry} from '@evb/scan-cleanup/core/policy/createScanCleanupFacingPairGeometry';
 import {ScanCleanupContractError} from '@evb/scan-cleanup/core/errors';
-import {
-    afterAll,
-    beforeAll,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterAll, beforeAll, describe, expect, it, vi} from 'vitest';
 
-const buildGeometryOnlyNativeScanCleanupManifest = (
-    input: IBuildNativeScanCleanupManifestInput,
-) => buildShapeOnlyNativeScanCleanupManifest(input);
+const buildGeometryOnlyNativeScanCleanupManifest = (input: IBuildNativeScanCleanupManifestInput) =>
+    buildShapeOnlyNativeScanCleanupManifest(input);
 
 const {realpathSyncCalls} = vi.hoisted(() => ({realpathSyncCalls: [] as string[]}));
 
 // The builder resolves paths through `fs`, and a spy cannot be installed on an
 // ESM namespace. Recording the real implementation's arguments is what makes
 // "the root is canonicalized once per manifest" observable.
-vi.mock('fs', async importOriginal => {
+vi.mock('fs', async (importOriginal) => {
     const actual = await importOriginal<typeof nodeFs>();
     const realpathSync = (...args: Parameters<typeof actual.realpathSync>) => {
         realpathSyncCalls.push(String(args[0]));
@@ -143,7 +122,7 @@ const cases: IGoldenCase[] = [
 ];
 
 describe('native scan-cleanup manifest builder', () => {
-    it('declares a page as wide as two of its document\'s pages a facing pair to the engine', () => {
+    it("declares a page as wide as two of its document's pages a facing pair to the engine", () => {
         const single = {
             pageNumber: 1,
             xPoints: 0,
@@ -171,22 +150,20 @@ describe('native scan-cleanup manifest builder', () => {
             rotation: 90,
         };
         const geometry = createScanCleanupFacingPairGeometry();
-        for (const page of [
-            single,
-            spread,
-            landscape,
-            turnedSpread,
-        ]) geometry.add(page);
-        const pageOptions = (page: typeof single) => resolveScanCleanupManifestPageOptions({
-            options,
-            analysisPurpose: 'page-plan',
-            qualityPath: 'raster',
-            page: {
-                pageNumber: page.pageNumber,
-                dpi: 150,
-                facingPairGeometry: geometry.isFacingPair(page),
-            },
-        });
+        for (const page of [single, spread, landscape, turnedSpread]) {
+            geometry.add(page);
+        }
+        const pageOptions = (page: typeof single) =>
+            resolveScanCleanupManifestPageOptions({
+                options,
+                analysisPurpose: 'page-plan',
+                qualityPath: 'raster',
+                page: {
+                    pageNumber: page.pageNumber,
+                    dpi: 150,
+                    facingPairGeometry: geometry.isFacingPair(page),
+                },
+            });
         expect(pageOptions(spread).facingPairGeometry).toBe(true);
         expect(pageOptions(turnedSpread).facingPairGeometry).toBe(true);
         expect(pageOptions(single).facingPairGeometry).toBeUndefined();
@@ -194,23 +171,27 @@ describe('native scan-cleanup manifest builder', () => {
     });
 
     it('keeps manual crops, exclusion and output mode out of automatic page-plan evidence but retains them for rendering', () => {
-        const manualContentBoxes = {right: {
-            xNormalized: 0.55,
-            yNormalized: 0.1,
-            widthNormalized: 0.35,
-            heightNormalized: 0.8,
-            rotationDegrees: 0 as const,
-        }};
+        const manualContentBoxes = {
+            right: {
+                xNormalized: 0.55,
+                yNormalized: 0.1,
+                widthNormalized: 0.35,
+                heightNormalized: 0.8,
+                rotationDegrees: 0 as const,
+            },
+        };
         const optionsWithManualCrop: IScanCleanupOptions = {
             ...options,
-            pageOverrides: {'1': {
-                rotationDegrees: 0,
-                layoutOverride: 'auto',
-                excluded: true,
-                manualSplit: null,
-                manualContentBoxes,
-                outputModeOverride: 'grayscale',
-            }},
+            pageOverrides: {
+                '1': {
+                    rotationDegrees: 0,
+                    layoutOverride: 'auto',
+                    excluded: true,
+                    manualSplit: null,
+                    manualContentBoxes,
+                    outputModeOverride: 'grayscale',
+                },
+            },
         };
         const page = {
             inputPath: '/fixtures/input/page-1.png',
@@ -233,13 +214,17 @@ describe('native scan-cleanup manifest builder', () => {
             canvasScope: 'page',
             qualityPath: 'raster',
             options: optionsWithManualCrop,
-            pages: [{
-                ...page,
-                outputs: [{
-                    outputPath: '/fixtures/output/page-1.png',
-                    metadataPath: '/fixtures/output/page-1-output.json',
-                }],
-            }],
+            pages: [
+                {
+                    ...page,
+                    outputs: [
+                        {
+                            outputPath: '/fixtures/output/page-1.png',
+                            metadataPath: '/fixtures/output/page-1-output.json',
+                        },
+                    ],
+                },
+            ],
         });
 
         expect(pagePlan.pages[0]?.options.manualContentBoxes).toEqual({});
@@ -249,17 +234,21 @@ describe('native scan-cleanup manifest builder', () => {
         expect(preview.pages[0]?.options.excluded).toBe(true);
         expect(preview.pages[0]?.options.outputMode).toBe('grayscale');
         // The browser engine resolves the same options without a manifest.
-        expect(resolveScanCleanupManifestPageOptions({
-            options: optionsWithManualCrop,
-            analysisPurpose: 'page-plan',
-            qualityPath: 'raster',
-            page,
-        })).toEqual(pagePlan.pages[0]?.options);
-        expect(resolveScanCleanupManifestPageOptions({
-            options: optionsWithManualCrop,
-            qualityPath: 'raster',
-            page,
-        })).toEqual(preview.pages[0]?.options);
+        expect(
+            resolveScanCleanupManifestPageOptions({
+                options: optionsWithManualCrop,
+                analysisPurpose: 'page-plan',
+                qualityPath: 'raster',
+                page,
+            }),
+        ).toEqual(pagePlan.pages[0]?.options);
+        expect(
+            resolveScanCleanupManifestPageOptions({
+                options: optionsWithManualCrop,
+                qualityPath: 'raster',
+                page,
+            }),
+        ).toEqual(preview.pages[0]?.options);
     });
 
     it('carries the admitted raster cap into automatic native page budgets', () => {
@@ -271,12 +260,14 @@ describe('native scan-cleanup manifest builder', () => {
             qualityPath: 'raster',
             options,
             rasterMaxPixels,
-            pages: [{
-                inputPath: '/fixtures/input/page-1.png',
-                pageNumber: 1,
-                dpi: 600,
-                pageMetadataPath: '/fixtures/output/page-1.json',
-            }],
+            pages: [
+                {
+                    inputPath: '/fixtures/input/page-1.png',
+                    pageNumber: 1,
+                    dpi: 600,
+                    pageMetadataPath: '/fixtures/output/page-1.json',
+                },
+            ],
         });
 
         expect(manifest.pages[0]?.options.maxPixels).toBe(rasterMaxPixels);
@@ -289,14 +280,16 @@ describe('native scan-cleanup manifest builder', () => {
             canvasScope: 'page',
             qualityPath: 'raster',
             options,
-            pages: [{
-                inputPath: '/fixtures/input/page-1.png',
-                pageNumber: 1,
-                dpi: 150,
-                observedLayout: 'single-uncut-page',
-                resolvedOutputMode: 'bw',
-                pageMetadataPath: '/fixtures/output/page-1.json',
-            }],
+            pages: [
+                {
+                    inputPath: '/fixtures/input/page-1.png',
+                    pageNumber: 1,
+                    dpi: 150,
+                    observedLayout: 'single-uncut-page',
+                    resolvedOutputMode: 'bw',
+                    pageMetadataPath: '/fixtures/output/page-1.json',
+                },
+            ],
         });
 
         expect(manifest.pages[0]?.options).toMatchObject({
@@ -312,123 +305,145 @@ describe('native scan-cleanup manifest builder', () => {
             canvasScope: 'document',
             qualityPath: 'raster',
             options,
-            pages: [{
-                inputPath: '/fixtures/input/page-1.png',
-                pageNumber: 1,
-                dpi: 300,
-                pageMetadataPath: '/fixtures/output/page-1.json',
-                resolvedOptions: {
-                    maxPixels: Number.MAX_SAFE_INTEGER,
-                    maxDimensionPx: Number.MAX_SAFE_INTEGER,
+            pages: [
+                {
+                    inputPath: '/fixtures/input/page-1.png',
+                    pageNumber: 1,
+                    dpi: 300,
+                    pageMetadataPath: '/fixtures/output/page-1.json',
+                    resolvedOptions: {
+                        maxPixels: Number.MAX_SAFE_INTEGER,
+                        maxDimensionPx: Number.MAX_SAFE_INTEGER,
+                    },
                 },
-            }],
+            ],
         });
 
         expect(manifest.pages[0]?.options).toMatchObject({
             maxPixels: 160_000_000,
             maxDimensionPx: 40_000,
         });
-        expect(() => buildGeometryOnlyNativeScanCleanupManifest({
-            operation: 'render',
-            renderMode: 'final',
-            canvasScope: 'document',
-            qualityPath: 'raster',
-            options,
-            pages: [{
-                inputPath: '/fixtures/input/page-1.png',
-                pageNumber: 1,
-                dpi: 300,
-                pageMetadataPath: '/fixtures/output/page-1.json',
-                resolvedOptions: {maxPixels: Number.NaN},
-            }],
-        })).toThrow(ScanCleanupContractError);
+        expect(() =>
+            buildGeometryOnlyNativeScanCleanupManifest({
+                operation: 'render',
+                renderMode: 'final',
+                canvasScope: 'document',
+                qualityPath: 'raster',
+                options,
+                pages: [
+                    {
+                        inputPath: '/fixtures/input/page-1.png',
+                        pageNumber: 1,
+                        dpi: 300,
+                        pageMetadataPath: '/fixtures/output/page-1.json',
+                        resolvedOptions: {maxPixels: Number.NaN},
+                    },
+                ],
+            }),
+        ).toThrow(ScanCleanupContractError);
     });
 
     it('rejects a soft-alpha output plane without a base layer', () => {
-        expect(() => buildGeometryOnlyNativeScanCleanupManifest({
-            operation: 'render',
-            renderMode: 'final',
-            canvasScope: 'document',
-            qualityPath: 'raster',
-            options,
-            pages: [{
-                inputPath: '/fixtures/input/page-1.png',
-                pageNumber: 1,
-                dpi: 300,
-                pageMetadataPath: '/fixtures/output/page-1.json',
-                outputs: [{
-                    outputPath: '/fixtures/output/page-1.png',
-                    metadataPath: '/fixtures/output/page-1-output.json',
-                    foregroundAlphaOutputPath: '/fixtures/output/page-1-alpha.pgm',
-                }],
-            }],
-        })).toThrow(ScanCleanupContractError);
+        expect(() =>
+            buildGeometryOnlyNativeScanCleanupManifest({
+                operation: 'render',
+                renderMode: 'final',
+                canvasScope: 'document',
+                qualityPath: 'raster',
+                options,
+                pages: [
+                    {
+                        inputPath: '/fixtures/input/page-1.png',
+                        pageNumber: 1,
+                        dpi: 300,
+                        pageMetadataPath: '/fixtures/output/page-1.json',
+                        outputs: [
+                            {
+                                outputPath: '/fixtures/output/page-1.png',
+                                metadataPath: '/fixtures/output/page-1-output.json',
+                                foregroundAlphaOutputPath: '/fixtures/output/page-1-alpha.pgm',
+                            },
+                        ],
+                    },
+                ],
+            }),
+        ).toThrow(ScanCleanupContractError);
     });
 
-    it.each(cases)('matches the shared $name golden', async testCase => {
+    it.each(cases)('matches the shared $name golden', async (testCase) => {
         const golden = JSON.parse(await readFile(resolve(fixtureDirectory, testCase.name), 'utf8')) as INativeScanCleanupManifestV3;
         const manifest = buildGeometryOnlyNativeScanCleanupManifest({
             operation: testCase.operation,
             renderMode: testCase.renderMode,
             canvasScope: testCase.canvasScope,
             ...(testCase.operation === 'render' && testCase.canvasScope === 'document'
-                ? {documentCanvas: {
-                    widthPx: 2_550,
-                    heightPx: 3_300,
-                    widthPoints: 612,
-                    heightPoints: 792,
-                }}
+                ? {
+                      documentCanvas: {
+                          widthPx: 2_550,
+                          heightPx: 3_300,
+                          widthPoints: 612,
+                          heightPoints: 792,
+                      },
+                  }
                 : {}),
             qualityPath: testCase.qualityPath,
             ...(testCase.name === 'raster-final-v3.json'
-                ? {documentCanvas: {
-                    widthPoints: 612,
-                    heightPoints: 792,
-                    widthPx: 2_550,
-                    heightPx: 3_300,
-                }}
-                : {}),
-            options: testCase.name === 'preview-raster-v3.json'
                 ? {
-                    ...options,
-                    matchPageSize: false,
-                }
-                : options,
-            pages: [{
-                inputPath: '/fixtures/input/page-1.png',
-                pageNumber: 1,
-                dpi: 300,
-                ...(testCase.name === 'preview-raster-v3.json'
-                    ? {renderCrop: {
-                        xNormalized: 0.25,
-                        yNormalized: 0.2,
-                        widthNormalized: 0.5,
-                        heightNormalized: 0.4,
-                        rotationDegrees: 0 as const,
-                    }}
-                    : {}),
-                pageMetadataPath: '/fixtures/output/page-1.json',
-                outputs: testCase.withOutput ? [{
-                    outputPath: '/fixtures/output/page-1.png',
-                    metadataPath: '/fixtures/output/page-1-output.json',
-                    ...(testCase.renderMode === 'final'
+                      documentCanvas: {
+                          widthPoints: 612,
+                          heightPoints: 792,
+                          widthPx: 2_550,
+                          heightPx: 3_300,
+                      },
+                  }
+                : {}),
+            options:
+                testCase.name === 'preview-raster-v3.json'
+                    ? {
+                          ...options,
+                          matchPageSize: false,
+                      }
+                    : options,
+            pages: [
+                {
+                    inputPath: '/fixtures/input/page-1.png',
+                    pageNumber: 1,
+                    dpi: 300,
+                    ...(testCase.name === 'preview-raster-v3.json'
                         ? {
-                            bilevelOutputPath: '/fixtures/output/page-1.pbm',
-                            backgroundOutputPath: '/fixtures/output/page-1-background.png',
-                            foregroundMaskOutputPath: '/fixtures/output/page-1-mask.pbm',
-                        }
+                              renderCrop: {
+                                  xNormalized: 0.25,
+                                  yNormalized: 0.2,
+                                  widthNormalized: 0.5,
+                                  heightNormalized: 0.4,
+                                  rotationDegrees: 0 as const,
+                              },
+                          }
                         : {}),
-                }] : [],
-            }],
+                    pageMetadataPath: '/fixtures/output/page-1.json',
+                    outputs: testCase.withOutput
+                        ? [
+                              {
+                                  outputPath: '/fixtures/output/page-1.png',
+                                  metadataPath: '/fixtures/output/page-1-output.json',
+                                  ...(testCase.renderMode === 'final'
+                                      ? {
+                                            bilevelOutputPath: '/fixtures/output/page-1.pbm',
+                                            backgroundOutputPath: '/fixtures/output/page-1-background.png',
+                                            foregroundMaskOutputPath: '/fixtures/output/page-1-mask.pbm',
+                                        }
+                                      : {}),
+                              },
+                          ]
+                        : [],
+                },
+            ],
         });
         expect(manifest).toEqual(golden);
     });
 
     it('omits additive option keys when they only repeat legacy-derived defaults', () => {
-        for (const despeckle of [
-            false,
-            true,
-        ]) {
+        for (const despeckle of [false, true]) {
             const manifest = buildGeometryOnlyNativeScanCleanupManifest({
                 operation: 'analyze',
                 renderMode: 'preview',
@@ -438,12 +453,14 @@ describe('native scan-cleanup manifest builder', () => {
                     ...options,
                     despeckle,
                 },
-                pages: [{
-                    inputPath: '/fixtures/input/page-1.png',
-                    pageNumber: 1,
-                    dpi: 300,
-                    pageMetadataPath: '/fixtures/output/page-1.json',
-                }],
+                pages: [
+                    {
+                        inputPath: '/fixtures/input/page-1.png',
+                        pageNumber: 1,
+                        dpi: 300,
+                        pageMetadataPath: '/fixtures/output/page-1.json',
+                    },
+                ],
             });
 
             expect(manifest.pages[0]?.options).not.toHaveProperty('despeckleLevel');
@@ -473,16 +490,18 @@ describe('native scan-cleanup manifest builder', () => {
             options: {
                 ...options,
                 outputMode: 'mixed',
-                pageOverrides: {'1': {
-                    rotationDegrees: 0,
-                    layoutOverride: 'auto',
-                    excluded: false,
-                    manualSplit: null,
-                    manualZones: {
-                        picture: [],
-                        fill: [polygon],
+                pageOverrides: {
+                    '1': {
+                        rotationDegrees: 0,
+                        layoutOverride: 'auto',
+                        excluded: false,
+                        manualSplit: null,
+                        manualZones: {
+                            picture: [],
+                            fill: [polygon],
+                        },
                     },
-                }},
+                },
             },
             pageOverride: {
                 rotationDegrees: 0,
@@ -555,19 +574,23 @@ describe('native scan-cleanup manifest builder', () => {
         const populatedOptions: IScanCleanupOptions = {
             ...options,
             outputMode: 'mixed',
-            pageOverrides: {'1': {
-                rotationDegrees: 0,
-                layoutOverride: 'auto',
-                excluded: false,
-                manualSplit: null,
-                manualZones: {
-                    picture: [{
-                        polygon: picturePolygon,
-                        layer: 'painter2',
-                    }],
-                    fill: [fillPolygon],
+            pageOverrides: {
+                '1': {
+                    rotationDegrees: 0,
+                    layoutOverride: 'auto',
+                    excluded: false,
+                    manualSplit: null,
+                    manualZones: {
+                        picture: [
+                            {
+                                polygon: picturePolygon,
+                                layer: 'painter2',
+                            },
+                        ],
+                        fill: [fillPolygon],
+                    },
                 },
-            }},
+            },
         };
         const manifest = buildGeometryOnlyNativeScanCleanupManifest({
             operation: 'render',
@@ -581,19 +604,23 @@ describe('native scan-cleanup manifest builder', () => {
                 heightPx: 2552,
             },
             options: populatedOptions,
-            pages: [{
-                inputPath: '/fixtures/input/page-1.png',
-                pageNumber: 1,
-                dpi: 300,
-                pageMetadataPath: '/fixtures/output/page-1.json',
-                outputs: [{
-                    outputPath: '/fixtures/output/page-1.png',
-                    metadataPath: '/fixtures/output/page-1-output.json',
-                    bilevelOutputPath: '/fixtures/output/page-1.pbm',
-                    backgroundOutputPath: '/fixtures/output/page-1-background.png',
-                    foregroundMaskOutputPath: '/fixtures/output/page-1-mask.pbm',
-                }],
-            }],
+            pages: [
+                {
+                    inputPath: '/fixtures/input/page-1.png',
+                    pageNumber: 1,
+                    dpi: 300,
+                    pageMetadataPath: '/fixtures/output/page-1.json',
+                    outputs: [
+                        {
+                            outputPath: '/fixtures/output/page-1.png',
+                            metadataPath: '/fixtures/output/page-1-output.json',
+                            bilevelOutputPath: '/fixtures/output/page-1.pbm',
+                            backgroundOutputPath: '/fixtures/output/page-1-background.png',
+                            foregroundMaskOutputPath: '/fixtures/output/page-1-mask.pbm',
+                        },
+                    ],
+                },
+            ],
         });
         manifest.pages[0]!.options = serializeNativeScanCleanupOptions({
             ...resolveEffectiveScanCleanupOptions({
@@ -604,10 +631,9 @@ describe('native scan-cleanup manifest builder', () => {
             }),
             despeckleLevel: 'aggressive',
         });
-        const golden = JSON.parse(await readFile(
-            resolve(fixtureDirectory, 'populated-raster-v3.json'),
-            'utf8',
-        )) as INativeScanCleanupManifestV3;
+        const golden = JSON.parse(
+            await readFile(resolve(fixtureDirectory, 'populated-raster-v3.json'), 'utf8'),
+        ) as INativeScanCleanupManifestV3;
 
         expect(manifest).toEqual(golden);
     });
@@ -662,16 +688,20 @@ describe('native scan-cleanup manifest builder', () => {
             },
             qualityPath: 'raster',
             options,
-            pages: [{
-                inputPath: '/fixtures/input/page-1.png',
-                pageNumber: 1,
-                dpi: 150,
-                pageMetadataPath: '/fixtures/output/page-1.json',
-                outputs: [{
-                    outputPath: '/fixtures/output/page-1.png',
-                    metadataPath: '/fixtures/output/page-1-output.json',
-                }],
-            }],
+            pages: [
+                {
+                    inputPath: '/fixtures/input/page-1.png',
+                    pageNumber: 1,
+                    dpi: 150,
+                    pageMetadataPath: '/fixtures/output/page-1.json',
+                    outputs: [
+                        {
+                            outputPath: '/fixtures/output/page-1.png',
+                            metadataPath: '/fixtures/output/page-1-output.json',
+                        },
+                    ],
+                },
+            ],
         });
 
         expect(manifest).toMatchObject({
@@ -686,31 +716,36 @@ describe('native scan-cleanup manifest builder', () => {
     });
 
     it('ships resolved ink anchors per page', () => {
-        const build = (anchorY: number) => buildGeometryOnlyNativeScanCleanupManifest({
-            operation: 'render',
-            renderMode: 'final',
-            canvasScope: 'document',
-            qualityPath: 'raster',
-            options: {
-                ...options,
-                matchPageSize: true,
-                pageAlignment: 'ink',
-            },
-            pages: [{
-                inputPath: '/fixtures/input/page-1.png',
-                pageNumber: 4,
-                dpi: 300,
-                pageMetadataPath: '/fixtures/output/page-1.json',
-                placementAnchors: {
-                    full: {yNormalized: anchorY},
-                    left: {yNormalized: 0.1},
+        const build = (anchorY: number) =>
+            buildGeometryOnlyNativeScanCleanupManifest({
+                operation: 'render',
+                renderMode: 'final',
+                canvasScope: 'document',
+                qualityPath: 'raster',
+                options: {
+                    ...options,
+                    matchPageSize: true,
+                    pageAlignment: 'ink',
                 },
-                outputs: [{
-                    outputPath: '/fixtures/output/page-1.png',
-                    metadataPath: '/fixtures/output/page-1-output.json',
-                }],
-            }],
-        });
+                pages: [
+                    {
+                        inputPath: '/fixtures/input/page-1.png',
+                        pageNumber: 4,
+                        dpi: 300,
+                        pageMetadataPath: '/fixtures/output/page-1.json',
+                        placementAnchors: {
+                            full: {yNormalized: anchorY},
+                            left: {yNormalized: 0.1},
+                        },
+                        outputs: [
+                            {
+                                outputPath: '/fixtures/output/page-1.png',
+                                metadataPath: '/fixtures/output/page-1-output.json',
+                            },
+                        ],
+                    },
+                ],
+            });
 
         const manifest = build(0.125);
         expect(manifest.pages[0]?.options.placementAnchors).toEqual({
@@ -720,24 +755,29 @@ describe('native scan-cleanup manifest builder', () => {
     });
 
     it('reports the host memory the sidecar cannot read for itself, and omits it when unknown', () => {
-        const build = (hostMemoryBytes?: number) => buildGeometryOnlyNativeScanCleanupManifest({
-            operation: 'render',
-            renderMode: 'final',
-            canvasScope: 'document',
-            qualityPath: 'raster',
-            options,
-            ...(hostMemoryBytes === undefined ? {} : {hostMemoryBytes}),
-            pages: [{
-                inputPath: '/fixtures/input/page-1.png',
-                pageNumber: 1,
-                dpi: 300,
-                pageMetadataPath: '/fixtures/output/page-1.json',
-                outputs: [{
-                    outputPath: '/fixtures/output/page-1.png',
-                    metadataPath: '/fixtures/output/page-1-output.json',
-                }],
-            }],
-        });
+        const build = (hostMemoryBytes?: number) =>
+            buildGeometryOnlyNativeScanCleanupManifest({
+                operation: 'render',
+                renderMode: 'final',
+                canvasScope: 'document',
+                qualityPath: 'raster',
+                options,
+                ...(hostMemoryBytes === undefined ? {} : {hostMemoryBytes}),
+                pages: [
+                    {
+                        inputPath: '/fixtures/input/page-1.png',
+                        pageNumber: 1,
+                        dpi: 300,
+                        pageMetadataPath: '/fixtures/output/page-1.json',
+                        outputs: [
+                            {
+                                outputPath: '/fixtures/output/page-1.png',
+                                metadataPath: '/fixtures/output/page-1-output.json',
+                            },
+                        ],
+                    },
+                ],
+            });
 
         expect(build(34_359_738_368).hostMemoryBytes).toBe(34_359_738_368);
         expect(build()).not.toHaveProperty('hostMemoryBytes');
@@ -755,13 +795,15 @@ describe('native scan-cleanup manifest builder', () => {
                 options,
                 ...(stagedInputWindow === undefined ? {} : {stagedInputWindow}),
                 ...(stagedInputPeakPixels === undefined ? {} : {stagedInputPeakPixels}),
-                pages: [{
-                    inputPath: '/fixtures/input/page-1.png',
-                    pageNumber: 1,
-                    dpi: 150,
-                    pageMetadataPath: '/fixtures/output/page-1.json',
-                    outputs: [],
-                }],
+                pages: [
+                    {
+                        inputPath: '/fixtures/input/page-1.png',
+                        pageNumber: 1,
+                        dpi: 150,
+                        pageMetadataPath: '/fixtures/output/page-1.json',
+                        outputs: [],
+                    },
+                ],
             });
 
         expect(build(4, 2_317_034).stagedInputWindow).toBe(4);
@@ -800,25 +842,28 @@ describe('runnable native scan-cleanup manifest path containment', () => {
     let canonicalRoot = '';
     let outside = '';
 
-    const runnable = (pages: Parameters<typeof buildRunnableNativeScanCleanupManifest>[0]['pages'], allowedPathRoot = root) => buildRunnableNativeScanCleanupManifest({
-        operation: 'render',
-        renderMode: 'final',
-        canvasScope: 'document',
-        qualityPath: 'raster',
-        options,
-        allowedPathRoot,
-        pages,
-    });
+    const runnable = (pages: Parameters<typeof buildRunnableNativeScanCleanupManifest>[0]['pages'], allowedPathRoot = root) =>
+        buildRunnableNativeScanCleanupManifest({
+            operation: 'render',
+            renderMode: 'final',
+            canvasScope: 'document',
+            qualityPath: 'raster',
+            options,
+            allowedPathRoot,
+            pages,
+        });
 
     const page = (inputPath: string, outputPath: string) => ({
         inputPath,
         pageNumber: 1,
         dpi: 300,
         pageMetadataPath: join(root, 'page-1.json'),
-        outputs: [{
-            outputPath,
-            metadataPath: join(root, 'page-1-output.json'),
-        }],
+        outputs: [
+            {
+                outputPath,
+                metadataPath: join(root, 'page-1-output.json'),
+            },
+        ],
     });
 
     beforeAll(async () => {
@@ -868,57 +913,43 @@ describe('runnable native scan-cleanup manifest path containment', () => {
     });
 
     it('rejects an existing input symlink that points outside the root', () => {
-        expect(() => runnable([page(join(root, 'input-link.png'), join(root, 'nested/output.png'))]))
-            .toThrow(ScanCleanupContractError);
+        expect(() => runnable([page(join(root, 'input-link.png'), join(root, 'nested/output.png'))])).toThrow(ScanCleanupContractError);
     });
 
     it('rejects a missing output below a directory symlinked outside the root', () => {
-        expect(() => runnable([page(join(root, 'input.png'), join(root, 'escape-dir/output.png'))]))
-            .toThrow(ScanCleanupContractError);
+        expect(() => runnable([page(join(root, 'input.png'), join(root, 'escape-dir/output.png'))])).toThrow(ScanCleanupContractError);
     });
 
     it('rejects a dangling symlink segment', () => {
-        expect(() => runnable([page(join(root, 'dangling.png'), join(root, 'nested/output.png'))]))
-            .toThrow(/unresolved symlink/u);
+        expect(() => runnable([page(join(root, 'dangling.png'), join(root, 'nested/output.png'))])).toThrow(/unresolved symlink/u);
     });
 
     it('rejects a lexical parent-directory escape', () => {
-        expect(() => runnable([page(join(root, 'input.png'), join(root, '../outside/output.png'))]))
-            .toThrow(ScanCleanupContractError);
+        expect(() => runnable([page(join(root, 'input.png'), join(root, '../outside/output.png'))])).toThrow(ScanCleanupContractError);
     });
 
     it('rejects a relative candidate path and a relative root', () => {
-        expect(() => runnable([page('input.png', join(root, 'nested/output.png'))]))
-            .toThrow(/must be an absolute path/u);
-        expect(() => runnable(
-            [page(join(root, 'input.png'), join(root, 'nested/output.png'))],
-            'relative-root',
-        )).toThrow(/must be an absolute path/u);
+        expect(() => runnable([page('input.png', join(root, 'nested/output.png'))])).toThrow(/must be an absolute path/u);
+        expect(() => runnable([page(join(root, 'input.png'), join(root, 'nested/output.png'))], 'relative-root')).toThrow(
+            /must be an absolute path/u,
+        );
     });
 
     it('rejects a root that does not exist or is not a directory', () => {
-        expect(() => runnable(
-            [page(join(root, 'input.png'), join(root, 'nested/output.png'))],
-            join(root, 'no-such-root'),
-        )).toThrow(/allowed root does not exist/u);
-        expect(() => runnable(
-            [page(join(root, 'input.png'), join(root, 'nested/output.png'))],
-            join(root, 'input.png'),
-        )).toThrow(/allowed root is not a directory/u);
+        expect(() => runnable([page(join(root, 'input.png'), join(root, 'nested/output.png'))], join(root, 'no-such-root'))).toThrow(
+            /allowed root does not exist/u,
+        );
+        expect(() => runnable([page(join(root, 'input.png'), join(root, 'nested/output.png'))], join(root, 'input.png'))).toThrow(
+            /allowed root is not a directory/u,
+        );
     });
 
     it('treats a canonical root alias such as /var and /private/var as the same root', () => {
         // On macOS the OS temp directory is reached through a symlinked /var.
         // The uncanonicalized spelling and its canonical form describe the same
         // directory, and both must accept the same paths.
-        expect(() => runnable(
-            [page(join(root, 'input.png'), join(root, 'nested/output.png'))],
-            canonicalRoot,
-        )).not.toThrow();
-        expect(() => runnable(
-            [page(join(canonicalRoot, 'input.png'), join(canonicalRoot, 'nested/output.png'))],
-            root,
-        )).not.toThrow();
+        expect(() => runnable([page(join(root, 'input.png'), join(root, 'nested/output.png'))], canonicalRoot)).not.toThrow();
+        expect(() => runnable([page(join(canonicalRoot, 'input.png'), join(canonicalRoot, 'nested/output.png'))], root)).not.toThrow();
     });
 
     // Path coverage is proved against what the builder actually emits rather
@@ -931,11 +962,7 @@ describe('runnable native scan-cleanup manifest path containment', () => {
         widthPx: 16,
         heightPx: 16,
     };
-    const detailPlan = (
-        baseMetadataPath: string,
-        baseRasterPath: string,
-        baseCleanedRasterPath: string,
-    ) => ({
+    const detailPlan = (baseMetadataPath: string, baseRasterPath: string, baseCleanedRasterPath: string) => ({
         baseMetadataPath,
         baseRasterPath,
         baseCleanedRasterPath,
@@ -955,14 +982,9 @@ describe('runnable native scan-cleanup manifest path containment', () => {
         if (value === null || typeof value !== 'object') {
             return [];
         }
-        return Object.entries(value).flatMap(([
-            key,
-            entry,
-        ]) => {
+        return Object.entries(value).flatMap(([key, entry]) => {
             const fieldTrail = trail === '' ? key : `${trail}.${key}`;
-            return key.endsWith('Path') && typeof entry === 'string'
-                ? [fieldTrail]
-                : pathTrails(entry, fieldTrail);
+            return key.endsWith('Path') && typeof entry === 'string' ? [fieldTrail] : pathTrails(entry, fieldTrail);
         });
     };
 
@@ -986,21 +1008,19 @@ describe('runnable native scan-cleanup manifest path containment', () => {
         pageNumber: 1,
         dpi: 300,
         pageMetadataPath: join(root, 'page-1.json'),
-        outputs: [{
-            outputPath: join(root, 'nested/output.png'),
-            metadataPath: join(root, 'page-1-output.json'),
-            bilevelOutputPath: join(root, 'nested/output.pbm'),
-            backgroundOutputPath: join(root, 'nested/output-background.png'),
-            foregroundMaskOutputPath: join(root, 'nested/output-mask.pbm'),
-            foregroundAlphaOutputPath: join(root, 'nested/output-alpha.pgm'),
-            pictureMaskOutputPath: join(root, 'nested/output-picture-mask.pbm'),
-            tonePreservationAlphaOutputPath: join(root, 'nested/output-tone.pgm'),
-        }],
-        detailRenderPlan: detailPlan(
-            join(root, 'inside-link.png'),
-            join(root, 'inside-link.png'),
-            join(root, 'inside-link.png'),
-        ),
+        outputs: [
+            {
+                outputPath: join(root, 'nested/output.png'),
+                metadataPath: join(root, 'page-1-output.json'),
+                bilevelOutputPath: join(root, 'nested/output.pbm'),
+                backgroundOutputPath: join(root, 'nested/output-background.png'),
+                foregroundMaskOutputPath: join(root, 'nested/output-mask.pbm'),
+                foregroundAlphaOutputPath: join(root, 'nested/output-alpha.pgm'),
+                pictureMaskOutputPath: join(root, 'nested/output-picture-mask.pbm'),
+                tonePreservationAlphaOutputPath: join(root, 'nested/output-tone.pgm'),
+            },
+        ],
+        detailRenderPlan: detailPlan(join(root, 'inside-link.png'), join(root, 'inside-link.png'), join(root, 'inside-link.png')),
     });
 
     it('emits no path the builder input does not already own', () => {
@@ -1008,22 +1028,21 @@ describe('runnable native scan-cleanup manifest path containment', () => {
         const manifest = runnable([page]);
 
         expect(pathTrails(manifest).toSorted()).toEqual(
-            pathTrails(page).map(trail => `pages.0.${trail}`).toSorted(),
+            pathTrails(page)
+                .map((trail) => `pages.0.${trail}`)
+                .toSorted(),
         );
     });
 
-    it.each(pathTrails(fullyPopulatedPage()))(
-        'judges %s by the same root as the page input',
-        trail => {
-            const accepted = fullyPopulatedPage();
-            setByTrail(accepted, trail, join(root, 'inside-link.png'));
-            expect(() => runnable([accepted])).not.toThrow();
+    it.each(pathTrails(fullyPopulatedPage()))('judges %s by the same root as the page input', (trail) => {
+        const accepted = fullyPopulatedPage();
+        setByTrail(accepted, trail, join(root, 'inside-link.png'));
+        expect(() => runnable([accepted])).not.toThrow();
 
-            const escaping = fullyPopulatedPage();
-            setByTrail(escaping, trail, join(root, 'input-link.png'));
-            expect(() => runnable([escaping])).toThrow(ScanCleanupContractError);
-        },
-    );
+        const escaping = fullyPopulatedPage();
+        setByTrail(escaping, trail, join(root, 'input-link.png'));
+        expect(() => runnable([escaping])).toThrow(ScanCleanupContractError);
+    });
 
     it('refuses a manifest that carries a path no field descriptor claimed', () => {
         const page = fullyPopulatedPage();
@@ -1036,16 +1055,19 @@ describe('runnable native scan-cleanup manifest path containment', () => {
         };
         page.outputs = [outputWithFutureSlot];
 
-        expect(() => runnable([page]))
-            .toThrow('manifest field pages.0.outputs.0.futureOutputPath was not checked against the allowed root');
-        expect(() => buildGeometryOnlyNativeScanCleanupManifest({
-            operation: 'render',
-            renderMode: 'final',
-            canvasScope: 'document',
-            qualityPath: 'raster',
-            options,
-            pages: [page],
-        })).not.toThrow();
+        expect(() => runnable([page])).toThrow(
+            'manifest field pages.0.outputs.0.futureOutputPath was not checked against the allowed root',
+        );
+        expect(() =>
+            buildGeometryOnlyNativeScanCleanupManifest({
+                operation: 'render',
+                renderMode: 'final',
+                canvasScope: 'document',
+                qualityPath: 'raster',
+                options,
+                pages: [page],
+            }),
+        ).not.toThrow();
     });
 
     it('refuses an unclaimed path slot that repeats a path checked elsewhere', () => {
@@ -1059,8 +1081,9 @@ describe('runnable native scan-cleanup manifest path containment', () => {
         };
         page.outputs = [outputWithFutureSlot];
 
-        expect(() => runnable([page]))
-            .toThrow('manifest field pages.0.outputs.0.futureOutputPath was not checked against the allowed root');
+        expect(() => runnable([page])).toThrow(
+            'manifest field pages.0.outputs.0.futureOutputPath was not checked against the allowed root',
+        );
     });
 
     it('canonicalizes the allowed root once for a whole manifest', () => {
@@ -1075,10 +1098,12 @@ describe('runnable native scan-cleanup manifest path containment', () => {
             trustedForegroundMaskPath: join(root, 'nested/mask.pbm'),
             trustedMrcBackgroundPath: join(root, 'nested/background.png'),
             pageMetadataPath: join(root, `nested/page-${String(pageNumber)}.json`),
-            outputs: [{
-                ...fullyPopulatedPage().outputs![0]!,
-                metadataPath: join(root, `nested/page-${String(pageNumber)}-output.json`),
-            }],
+            outputs: [
+                {
+                    ...fullyPopulatedPage().outputs![0]!,
+                    metadataPath: join(root, `nested/page-${String(pageNumber)}-output.json`),
+                },
+            ],
             detailRenderPlan: detailPlan(
                 join(root, 'nested/base.json'),
                 join(root, 'nested/base.png'),
@@ -1086,48 +1111,46 @@ describe('runnable native scan-cleanup manifest path containment', () => {
             ),
         });
         realpathSyncCalls.length = 0;
-        runnable([
-            nestedPage(1),
-            nestedPage(2),
-        ]);
+        runnable([nestedPage(1), nestedPage(2)]);
 
-        expect(realpathSyncCalls.filter(candidate => candidate === root)).toEqual([root]);
+        expect(realpathSyncCalls.filter((candidate) => candidate === root)).toEqual([root]);
         // Two pages of paths were still judged, so the single nested-directory
         // resolution is reuse rather than skipped work.
-        expect(realpathSyncCalls.filter(candidate => candidate === join(root, 'nested')).length)
-            .toBeGreaterThan(0);
+        expect(realpathSyncCalls.filter((candidate) => candidate === join(root, 'nested')).length).toBeGreaterThan(0);
     });
 
     it('names the allowed root in root failures and the field in candidate failures', () => {
         const validPage = page(join(root, 'input.png'), join(root, 'nested/output.png'));
         const missingRoot = join(root, 'no-such-root');
 
-        expect(() => runnable([validPage], missingRoot))
-            .toThrow(`allowed root does not exist: ${missingRoot}`);
-        expect(() => runnable([validPage], join(root, 'input.png')))
-            .toThrow(`allowed root is not a directory: ${join(root, 'input.png')}`);
-        expect(() => runnable([validPage], 'relative-root'))
-            .toThrow('allowed root must be an absolute path: relative-root');
+        expect(() => runnable([validPage], missingRoot)).toThrow(`allowed root does not exist: ${missingRoot}`);
+        expect(() => runnable([validPage], join(root, 'input.png'))).toThrow(`allowed root is not a directory: ${join(root, 'input.png')}`);
+        expect(() => runnable([validPage], 'relative-root')).toThrow('allowed root must be an absolute path: relative-root');
 
         // A candidate that cannot be canonicalized names its own field: it is
         // the manifest path that failed, not the configured root.
-        expect(() => runnable([page(join(root, 'dangling.png'), join(root, 'nested/output.png'))]))
-            .toThrow('page 1 input path contains an unresolved symlink');
-        expect(() => runnable([page(join(root, 'input.png'), join(root, 'escape-dir/output.png'))]))
-            .toThrow('page 1 output 0 output path is outside its allowed root');
-        expect(() => runnable([page(join(root, 'input.png'), 'output.png')]))
-            .toThrow('page 1 output 0 output path must be an absolute path');
+        expect(() => runnable([page(join(root, 'dangling.png'), join(root, 'nested/output.png'))])).toThrow(
+            'page 1 input path contains an unresolved symlink',
+        );
+        expect(() => runnable([page(join(root, 'input.png'), join(root, 'escape-dir/output.png'))])).toThrow(
+            'page 1 output 0 output path is outside its allowed root',
+        );
+        expect(() => runnable([page(join(root, 'input.png'), 'output.png')])).toThrow(
+            'page 1 output 0 output path must be an absolute path',
+        );
     });
 
     it('rejects a root object the canonicalizer never issued', () => {
-        expect(() => assertScanCleanupPathWithinCanonicalRoot(
-            join(root, 'input.png'),
-            {
-                configuredPath: root,
-                canonicalPath: canonicalRoot,
-            },
-            'forged root path',
-        )).toThrow('forged root path was judged against a root that was never canonicalized');
+        expect(() =>
+            assertScanCleanupPathWithinCanonicalRoot(
+                join(root, 'input.png'),
+                {
+                    configuredPath: root,
+                    canonicalPath: canonicalRoot,
+                },
+                'forged root path',
+            ),
+        ).toThrow('forged root path was judged against a root that was never canonicalized');
     });
 
     it('revalidates a cached descendant before joining a missing path tail', async () => {
@@ -1148,39 +1171,46 @@ describe('runnable native scan-cleanup manifest path containment', () => {
         });
         await symlink(outside, mutableDirectory);
 
-        expect(() => assertScanCleanupPathWithinCanonicalRoot(
-            join(mutableDirectory, 'second-output.png'),
-            allowedRoot,
-            'second output path',
-            pathResolutionCache,
-        )).toThrow('second output path is outside its allowed root');
+        expect(() =>
+            assertScanCleanupPathWithinCanonicalRoot(
+                join(mutableDirectory, 'second-output.png'),
+                allowedRoot,
+                'second output path',
+                pathResolutionCache,
+            ),
+        ).toThrow('second output path is outside its allowed root');
     });
 
-
     it('keeps geometry-only placeholders out of path validation and matches the runnable assembly', () => {
-        const placeholderPages = [{
-            inputPath: '',
-            pageNumber: 1,
-            dpi: 300,
-            pageMetadataPath: '',
-        }];
-        expect(() => buildGeometryOnlyNativeScanCleanupManifest({
-            operation: 'render',
-            renderMode: 'final',
-            canvasScope: 'document',
-            qualityPath: 'raster',
-            options,
-            pages: placeholderPages,
-        })).not.toThrow();
+        const placeholderPages = [
+            {
+                inputPath: '',
+                pageNumber: 1,
+                dpi: 300,
+                pageMetadataPath: '',
+            },
+        ];
+        expect(() =>
+            buildGeometryOnlyNativeScanCleanupManifest({
+                operation: 'render',
+                renderMode: 'final',
+                canvasScope: 'document',
+                qualityPath: 'raster',
+                options,
+                pages: placeholderPages,
+            }),
+        ).not.toThrow();
 
         const realPages = [page(join(root, 'input.png'), join(root, 'nested/output.png'))];
-        expect(runnable(realPages)).toEqual(buildGeometryOnlyNativeScanCleanupManifest({
-            operation: 'render',
-            renderMode: 'final',
-            canvasScope: 'document',
-            qualityPath: 'raster',
-            options,
-            pages: realPages,
-        }));
+        expect(runnable(realPages)).toEqual(
+            buildGeometryOnlyNativeScanCleanupManifest({
+                operation: 'render',
+                renderMode: 'final',
+                canvasScope: 'document',
+                qualityPath: 'raster',
+                options,
+                pages: realPages,
+            }),
+        );
     });
 });

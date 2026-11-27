@@ -1,7 +1,8 @@
 export default {
     app: {
         title: 'EVB Viewer',
-        description: 'Herramientas sin conexión para limpiar escaneos sin procesar y archivos DjVu, hacer OCR, añadir anotaciones y exportar PDF en macOS, Windows y Linux. Gratis y con licencia MIT.',
+        description:
+            'Herramientas sin conexión para limpiar escaneos sin procesar y archivos DjVu, hacer OCR, añadir anotaciones y exportar PDF en macOS, Windows y Linux. Gratis y con licencia MIT.',
         seo: {titleTemplate: '{title} · EVB Viewer'},
     },
     header: {
@@ -30,7 +31,8 @@ export default {
         seo: {
             title: 'Aplicación web de EVB Viewer y descargas de escritorio',
             ogTitle: 'EVB Viewer para trabajo documental en web y escritorio',
-            ogDescription: 'Convierte escaneos sin procesar y archivos DjVu en PDF buscables y anotables con limpieza, OCR, anotación y exportación sin conexión en macOS, Windows y Linux. Gratis y con licencia MIT.',
+            ogDescription:
+                'Convierte escaneos sin procesar y archivos DjVu en PDF buscables y anotables con limpieza, OCR, anotación y exportación sin conexión en macOS, Windows y Linux. Gratis y con licencia MIT.',
         },
         hero: {
             lede: 'EVB Viewer limpia escaneos sin procesar y archivos DjVu, reconoce su texto y guarda PDF con búsqueda y anotaciones. Funciona sin conexión en macOS, Windows y Linux, y es gratuito con licencia MIT.',
@@ -40,7 +42,8 @@ export default {
             downloadInstaller: 'Descargar {installerLabel}',
             browseInstallers: 'Ver todos los instaladores',
             openInBrowser: 'Usar en el navegador',
-            detectionUnavailable: 'La detección automática del instalador no está disponible. Aun así puedes abrir la app web o elegir un build de escritorio abajo.',
+            detectionUnavailable:
+                'La detección automática del instalador no está disponible. Aun así puedes abrir la app web o elegir un build de escritorio abajo.',
             suggestedDevice: 'Build de escritorio sugerido: {installerLabel}',
             published: 'Publicado el {date}',
         },
@@ -53,7 +56,8 @@ export default {
         },
         installers: {
             heading: 'Descargas de escritorio',
-            description: 'Los builds de escritorio añaden limpieza de escaneos, integración nativa con el sistema operativo y flujos más pesados, como combinaciones grandes. El instalador recomendado se basa en tu dispositivo actual, pero todos los builds siguen disponibles.',
+            description:
+                'Los builds de escritorio añaden limpieza de escaneos, integración nativa con el sistema operativo y flujos más pesados, como combinaciones grandes. El instalador recomendado se basa en tu dispositivo actual, pero todos los builds siguen disponibles.',
             loading: 'Cargando enlaces de la versión más reciente...',
             error: 'No se pudieron cargar los artefactos de la versión en este momento.',
             retry: 'Reintentar',
@@ -175,10 +179,12 @@ export default {
         },
         entryPoints: {
             heading: 'Elige el punto de entrada correcto',
-            description: 'Empieza en el navegador para trabajo rápido con PDF, DjVu e imágenes locales, incluido el OCR en unos 30 idiomas, o elige la app de escritorio para limpieza de escaneos, integración nativa con el sistema y combinaciones más grandes.',
+            description:
+                'Empieza en el navegador para trabajo rápido con PDF, DjVu e imágenes locales, incluido el OCR en unos 30 idiomas, o elige la app de escritorio para limpieza de escaneos, integración nativa con el sistema y combinaciones más grandes.',
             web: {
                 title: 'App web',
-                description: 'Ideal para abrir PDF locales, archivos DjVu e imágenes comunes de inmediato y luego revisar, marcar y exportar sin instalar nada.',
+                description:
+                    'Ideal para abrir PDF locales, archivos DjVu e imágenes comunes de inmediato y luego revisar, marcar y exportar sin instalar nada.',
                 point1: 'Flujos de trabajo de PDF, DjVu e imágenes',
                 point2: 'Sin fricción de instalación ni actualizaciones',
                 point3: 'Genial para revisión rápida, marcado, edición de páginas, OCR y exportación',
@@ -186,7 +192,8 @@ export default {
             },
             desktop: {
                 title: 'App de escritorio',
-                description: 'Ideal para limpieza de escaneos, integración nativa con el sistema, trabajos de combinación más grandes y flujos que necesitan más que los límites de memoria del navegador.',
+                description:
+                    'Ideal para limpieza de escaneos, integración nativa con el sistema, trabajos de combinación más grandes y flujos que necesitan más que los límites de memoria del navegador.',
                 point1: 'Limpieza de escaneos antes del OCR',
                 point2: 'Trabajos mayores de combinación y exportación',
                 point3: 'Diálogos nativos de escritorio e integración con el sistema',
@@ -195,7 +202,8 @@ export default {
         },
         explore: {
             heading: 'Explora el producto en contexto',
-            description: 'Usa las páginas detalladas para orientarte sobre funciones de navegador frente a escritorio y consultar una guía práctica de usuario.',
+            description:
+                'Usa las páginas detalladas para orientarte sobre funciones de navegador frente a escritorio y consultar una guía práctica de usuario.',
             featuresPage: 'Abrir página completa de funciones',
             docsPage: 'Abrir documentación completa',
         },
@@ -204,25 +212,30 @@ export default {
         seo: {
             title: 'Funciones de EVB Viewer para navegador y escritorio',
             ogTitle: 'Vista general de funciones de EVB Viewer',
-            ogDescription: 'Mira qué cubre EVB Viewer en el navegador hoy y qué añade la app de escritorio para limpieza de escaneos, integración nativa con el sistema y trabajos más grandes.',
+            ogDescription:
+                'Mira qué cubre EVB Viewer en el navegador hoy y qué añade la app de escritorio para limpieza de escaneos, integración nativa con el sistema y trabajos más grandes.',
         },
         hero: {
             badge: 'Limpieza nativa de escaneos y OCR',
             title: 'Limpia escaneos sin procesar, luego busca y anota el PDF',
-            subtitle: 'EVB Viewer funciona sin conexión en macOS, Windows y Linux. Su motor nativo en Rust endereza, elimina motas, binariza, recorta y divide páginas dobles. El OCR de Tesseract con modelos tessdata-best admite 30 idiomas. Está pensado para archivistas, bibliotecarios, historiadores, filólogos y personas que mantienen bibliotecas personales de escaneos.',
+            subtitle:
+                'EVB Viewer funciona sin conexión en macOS, Windows y Linux. Su motor nativo en Rust endereza, elimina motas, binariza, recorta y divide páginas dobles. El OCR de Tesseract con modelos tessdata-best admite 30 idiomas. Está pensado para archivistas, bibliotecarios, historiadores, filólogos y personas que mantienen bibliotecas personales de escaneos.',
         },
         capabilities: {
             heading: 'Capacidades principales del espacio de trabajo',
-            description: 'Lee, revisa, anota, reorganiza y exporta documentos en un solo espacio de trabajo, y luego elige el entorno que encaja con la tarea.',
+            description:
+                'Lee, revisa, anota, reorganiza y exporta documentos en un solo espacio de trabajo, y luego elige el entorno que encaja con la tarea.',
         },
         cards: {
             pdfDjvu: {
                 title: 'PDF, imágenes y DjVu donde encajan',
-                description: 'Los flujos del navegador abren PDF locales, archivos DjVu e imágenes comunes. La app de escritorio añade limpieza de escaneos y evita los límites de memoria del navegador en trabajos más pesados.',
+                description:
+                    'Los flujos del navegador abren PDF locales, archivos DjVu e imágenes comunes. La app de escritorio añade limpieza de escaneos y evita los límites de memoria del navegador en trabajos más pesados.',
             },
             ocr: {
                 title: 'OCR con salida buscable',
-                description: 'El OCR se ejecuta localmente en el navegador y en los builds de escritorio y conserva el resultado buscable dentro del documento editado. Ambos leen los mismos idiomas, unos 30.',
+                description:
+                    'El OCR se ejecuta localmente en el navegador y en los builds de escritorio y conserva el resultado buscable dentro del documento editado. Ambos leen los mismos idiomas, unos 30.',
             },
             annotations: {
                 title: 'Herramientas de anotación profundas',
@@ -230,20 +243,24 @@ export default {
             },
             pages: {
                 title: 'Operaciones de páginas',
-                description: 'Elimina, extrae, reordena, gira, recorta y captura páginas. Las combinaciones en navegador están limitadas por memoria; escritorio es mejor para lotes grandes.',
+                description:
+                    'Elimina, extrae, reordena, gira, recorta y captura páginas. Las combinaciones en navegador están limitadas por memoria; escritorio es mejor para lotes grandes.',
             },
             workspace: {
                 title: 'Gestión del espacio de trabajo',
-                description: 'Usa pestañas, diseños divididos, marcadores, búsqueda y paneles laterales enfocados en lugar de saltar entre herramientas.',
+                description:
+                    'Usa pestañas, diseños divididos, marcadores, búsqueda y paneles laterales enfocados en lugar de saltar entre herramientas.',
             },
             exports: {
                 title: 'Múltiples destinos de exportación',
-                description: 'Exporta a PDF, PNG, JPG, TIFF y DOCX desde el mismo espacio de trabajo que gestionó la revisión y las ediciones.',
+                description:
+                    'Exporta a PDF, PNG, JPG, TIFF y DOCX desde el mismo espacio de trabajo que gestionó la revisión y las ediciones.',
             },
         },
         workflow: {
             heading: 'Cómo encaja el producto en el trabajo real',
-            description: 'Una sesión típica de EVB Viewer empieza con trabajo rápido en el navegador y pasa al escritorio cuando la limpieza de escaneos o la escala lo requieren.',
+            description:
+                'Una sesión típica de EVB Viewer empieza con trabajo rápido en el navegador y pasa al escritorio cuando la limpieza de escaneos o la escala lo requieren.',
             load: {
                 title: 'Empieza en el navegador',
                 body: 'Abre un PDF local, un archivo DjVu o una imagen de inmediato cuando una instalación retrasaría la tarea.',
@@ -285,11 +302,13 @@ export default {
         seo: {
             title: 'Documentación de EVB Viewer para flujos en navegador y escritorio',
             ogTitle: 'Guía de usuario de EVB Viewer',
-            ogDescription: 'Empieza con la app del navegador para archivos locales y OCR, y luego instala la app de escritorio cuando necesites limpieza de escaneos, integración nativa con el sistema o trabajos mayores de combinación/exportación.',
+            ogDescription:
+                'Empieza con la app del navegador para archivos locales y OCR, y luego instala la app de escritorio cuando necesites limpieza de escaneos, integración nativa con el sistema o trabajos mayores de combinación/exportación.',
         },
         hero: {
             title: 'Guías para la app del navegador y la de escritorio',
-            subtitle: 'Empieza con la app web para trabajo rápido con PDF, DjVu e imágenes locales, OCR incluido, y luego pasa a la app de escritorio para limpieza de escaneos, integración nativa con el sistema o trabajos mayores de combinación/exportación.',
+            subtitle:
+                'Empieza con la app web para trabajo rápido con PDF, DjVu e imágenes locales, OCR incluido, y luego pasa a la app de escritorio para limpieza de escaneos, integración nativa con el sistema o trabajos mayores de combinación/exportación.',
         },
         guideCardAction: 'Ir a la sección',
         browserQuickstart: {
@@ -352,7 +371,8 @@ export default {
             li3: 'El nombre del archivo generado sigue el primer archivo seleccionado, por ejemplo {example}.',
             li4: 'Si ya hay un documento abierto, la salida combinada se abre en una pestaña nueva para mantener intacto el trabajo actual.',
             li5: '{openRecent} mantiene el historial e incluye un comando para borrar archivos recientes.',
-            convertIntro: '{menuPath} tiene dos comportamientos: en modo DjVu abre opciones de conversión DjVu; de lo contrario abre la selección de archivos y crea un PDF desde las fuentes seleccionadas.',
+            convertIntro:
+                '{menuPath} tiene dos comportamientos: en modo DjVu abre opciones de conversión DjVu; de lo contrario abre la selección de archivos y crea un PDF desde las fuentes seleccionadas.',
         },
         tabsSplits: {
             heading: 'Pestañas y editor dividido',
@@ -424,13 +444,15 @@ export default {
             actionCol: 'Acción',
             shortcutCol: 'Atajo',
             menuFile: 'Archivo',
-            menuFileActions: 'Abrir archivo, Abrir reciente, Guardar, Guardar como, Exportar DOCX/Imágenes/TIFF, Convertir a PDF, Nueva pestaña, Cerrar pestaña',
+            menuFileActions:
+                'Abrir archivo, Abrir reciente, Guardar, Guardar como, Exportar DOCX/Imágenes/TIFF, Convertir a PDF, Nueva pestaña, Cerrar pestaña',
             menuActions: 'Acciones',
             menuActionsActions: 'Deshacer, Rehacer, Copiar',
             menuPages: 'Páginas',
             menuPagesActions: 'Eliminar páginas seleccionadas, extraer páginas seleccionadas, rotar, insertar páginas',
             menuView: 'Ver',
-            menuViewActions: 'Controles de zoom, modos de ajuste, modos de diseño de página, dividir/enfocar/mover/copiar paneles del editor',
+            menuViewActions:
+                'Controles de zoom, modos de ajuste, modos de diseño de página, dividir/enfocar/mover/copiar paneles del editor',
             menuWindow: 'Ventana',
             menuWindowActions: 'Mover pestaña activa a nueva ventana, mover pestaña activa a otra ventana, fusionar esta ventana en',
             menuHelp: 'Ayuda',
@@ -451,7 +473,8 @@ export default {
             shortcutSplitEditor: 'Dividir editor a la derecha',
             shortcutFind: 'Buscar en el documento',
             shortcutCycleTabs: 'Cambiar entre pestañas',
-            contextMenuNote: 'La mayoría de los controles de edición y diseño están disponibles tanto desde menús como desde los menús contextuales de pestaña/página.',
+            contextMenuNote:
+                'La mayoría de los controles de edición y diseño están disponibles tanto desde menús como desde los menús contextuales de pestaña/página.',
             repoNote: 'Para errores y solicitudes de funciones, consulta el repositorio del proyecto.',
         },
         license: {

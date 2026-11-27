@@ -1,5 +1,5 @@
-import type { IAnnotationMarkerRect } from '@app/types/annotations';
-import { clamp } from 'es-toolkit/math';
+import type {IAnnotationMarkerRect} from '@app/types/annotations';
+import {clamp} from 'es-toolkit/math';
 
 export function normalizeMarkerRect(rect: IAnnotationMarkerRect | null | undefined): IAnnotationMarkerRect | null {
     if (!rect) {

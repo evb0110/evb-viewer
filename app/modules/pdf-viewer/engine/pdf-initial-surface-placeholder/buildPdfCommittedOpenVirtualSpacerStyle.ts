@@ -1,7 +1,7 @@
-import { parsePageNumber } from '@contracts/pageNumbers';
-import type { TPageNumber } from '@contracts/pageNumbers';
+import {parsePageNumber} from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 
-import type { TPdfViewMode } from '@app/types/pdfContracts';
+import type {TPdfViewMode} from '@app/types/pdfContracts';
 import {
     hasCommittedDocumentOpeningLayout,
     isDocumentOpenEmptySurfaceTransition,
@@ -65,9 +65,7 @@ function resolvePdfCommittedOpenVirtualSpacerHeight(input: {
     }
     const hiddenRows = Math.max(
         0,
-        resolveUniformPageRowCount(geometry.pageCount, input.viewMode)
-        - resolveUniformPageRowIndex(pageNumber, input.viewMode)
-        - 1,
+        resolveUniformPageRowCount(geometry.pageCount, input.viewMode) - resolveUniformPageRowIndex(pageNumber, input.viewMode) - 1,
     );
     if (hiddenRows === 0) {
         return null;
@@ -105,9 +103,9 @@ export function resolvePdfCommittedOpenVirtualExtentMinimumScrollHeight(input: {
         return 0;
     }
     if (
-        isDocumentOpenEmptySurfaceTransition(input.snapshot)
-        && input.snapshot.openingPageFrame !== null
-        && input.snapshot.openingPageGeometry === null
+        isDocumentOpenEmptySurfaceTransition(input.snapshot) &&
+        input.snapshot.openingPageFrame !== null &&
+        input.snapshot.openingPageGeometry === null
     ) {
         return null;
     }

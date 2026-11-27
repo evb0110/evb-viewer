@@ -1,6 +1,6 @@
-import type { TPdfSource } from '@app/types/pdfUi';
+import type {TPdfSource} from '@app/types/pdfUi';
 
-function isPdfPathSource(source: TPdfSource): source is Extract<TPdfSource, { kind: 'path' }> {
+function isPdfPathSource(source: TPdfSource): source is Extract<TPdfSource, {kind: 'path'}> {
     return !(source instanceof Blob);
 }
 
@@ -17,9 +17,11 @@ export function pdfSourcesMatch(left: TPdfSource | null, right: TPdfSource | nul
     if (left instanceof Blob || right instanceof Blob) {
         return left === right;
     }
-    return isPdfPathSource(left)
-        && isPdfPathSource(right)
-        && left.path === right.path
-        && left.size === right.size
-        && (left.revision ?? null) === (right.revision ?? null);
+    return (
+        isPdfPathSource(left) &&
+        isPdfPathSource(right) &&
+        left.path === right.path &&
+        left.size === right.size &&
+        (left.revision ?? null) === (right.revision ?? null)
+    );
 }

@@ -1,36 +1,25 @@
-import { captureFailureForPresentation } from '@app/utils/failureReporter';
-import { useFailureToast } from '@app/composables/useFailureToast';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
-import { isEqual } from 'es-toolkit/predicate';
-import type { TDocumentRef } from '@contracts/documentRef';
-import { parseTabId } from '@contracts/windowTabs';
-import type {
-    IEditorPaneState,
-    TPaneDirection,
-} from '@contracts/editorPanes';
-import type { ITab } from '@app/types/tabs';
+import {captureFailureForPresentation} from '@app/utils/failureReporter';
+import {useFailureToast} from '@app/composables/useFailureToast';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import type {ComputedRef, Ref} from 'vue';
+import {isEqual} from 'es-toolkit/predicate';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {parseTabId} from '@contracts/windowTabs';
+import type {IEditorPaneState, TPaneDirection} from '@contracts/editorPanes';
+import type {ITab} from '@app/types/tabs';
 import type {
     ITabContextAvailability,
     TDirectionalCommandAvailability,
     TDirectionalTabContextCommand,
     TTabContextCommand,
 } from '@app/types/tabContextMenu';
-import { hasElectronAPI } from '@app/utils/platform';
-import { isBrowserDocumentRef } from '@app/utils/documentRef';
-import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
-import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import type { TChangeWorkspaceLayout } from '@app/modules/workspace-shell/composables/workspaceLayoutChange';
+import {hasElectronAPI} from '@app/utils/platform';
+import {isBrowserDocumentRef} from '@app/utils/documentRef';
+import {getDocumentWindowCapability} from '@app/utils/platformDocuments';
+import type {IWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import type {TChangeWorkspaceLayout} from '@app/modules/workspace-shell/composables/workspaceLayoutChange';
 
-const DIRECTION_ORDER = [
-    'left',
-    'right',
-    'up',
-    'down',
-] as const satisfies readonly TPaneDirection[];
+const DIRECTION_ORDER = ['left', 'right', 'up', 'down'] as const satisfies readonly TPaneDirection[];
 
 interface IUseAppShellDirectionalTabsOptions {
     activePaneId: Ref<string | null>;
@@ -41,16 +30,8 @@ interface IUseAppShellDirectionalTabsOptions {
     getPaneById: (paneId: string | null | undefined) => IEditorPaneState | null;
     findDirectionalPane: (sourcePaneId: string, direction: TPaneDirection, wrap?: boolean) => IEditorPaneState | null;
     splitPane: (sourcePaneId: string, direction: TPaneDirection) => string | null;
-    moveTabToPane: (
-        tabId: string,
-        targetPaneId: string,
-        activate?: boolean,
-        targetIndex?: number | null,
-    ) => boolean;
-    createTab: (options: {
-        paneId?: string | null;
-        activate?: boolean;
-    }) => ITab;
+    moveTabToPane: (tabId: string, targetPaneId: string, activate?: boolean, targetIndex?: number | null) => boolean;
+    createTab: (options: {paneId?: string | null; activate?: boolean}) => ITab;
     activatePane: (paneId: string) => void;
     activateTab: (paneId: string, tabId: string) => void;
     /** Shows the source tab's document in the target tab too; false when it cannot be linked. */
@@ -64,7 +45,7 @@ interface IUseAppShellDirectionalTabsOptions {
 }
 
 type TStaticTabContextCommand = Exclude<TTabContextCommand, TDirectionalTabContextCommand>;
-type TStaticTabContextCommandWithoutTargetWindow = Exclude<TStaticTabContextCommand, { kind: 'move-to-window' }>;
+type TStaticTabContextCommandWithoutTargetWindow = Exclude<TStaticTabContextCommand, {kind: 'move-to-window'}>;
 
 function createDirectionalAvailability(value: boolean): TDirectionalCommandAvailability {
     return {
@@ -99,19 +80,15 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         handleCloseTab,
     } = options;
 
-    const { t } = useTypedI18n();
-    const { presentFailureToast } = useFailureToast();
+    const {t} = useTypedI18n();
+    const {presentFailureToast} = useFailureToast();
     const canTransferTabsAcrossWindows = computed(() => hasElectronAPI());
 
     function getDirectionalTargetPane(sourcePaneId: string, direction: TPaneDirection) {
         return findDirectionalPane(sourcePaneId, direction, false);
     }
 
-    function buildDirectionalCommandAvailability(
-        pane: IEditorPaneState,
-        hasActiveTab: boolean,
-        transitionsBusy: boolean,
-    ) {
+    function buildDirectionalCommandAvailability(pane: IEditorPaneState, hasActiveTab: boolean, transitionsBusy: boolean) {
         const move = createDirectionalAvailability(false);
 
         for (const direction of DIRECTION_ORDER) {
@@ -125,15 +102,10 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         return {move};
     }
 
-    function buildTabContextAvailabilityForPane(
-        pane: IEditorPaneState,
-        transitionsBusy: boolean,
-    ): ITabContextAvailability {
+    function buildTabContextAvailabilityForPane(pane: IEditorPaneState, transitionsBusy: boolean): ITabContextAvailability {
         const activeTabIdForPane = pane.activeTabId;
         const hasActiveTab = Boolean(activeTabIdForPane);
-        const closeBlocked = activeTabIdForPane
-            ? isSingletonPlaceholderCloseBlocked(pane.paneId, activeTabIdForPane)
-            : false;
+        const closeBlocked = activeTabIdForPane ? isSingletonPlaceholderCloseBlocked(pane.paneId, activeTabIdForPane) : false;
         const {move} = buildDirectionalCommandAvailability(pane, hasActiveTab, transitionsBusy);
 
         return {
@@ -158,9 +130,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         for (const pane of panes.value) {
             const availability = buildTabContextAvailabilityForPane(pane, transitionsBusy);
             const previousAvailability = previous?.[pane.paneId];
-            result[pane.paneId] = previousAvailability && isEqual(previousAvailability, availability)
-                ? previousAvailability
-                : availability;
+            result[pane.paneId] = previousAvailability && isEqual(previousAvailability, availability) ? previousAvailability : availability;
             unchanged &&= result[pane.paneId] === previousAvailability;
         }
 
@@ -241,7 +211,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         if (!pane) {
             return;
         }
-        const targetIds = pane.tabIds.filter(id => id !== tabId);
+        const targetIds = pane.tabIds.filter((id) => id !== tabId);
         for (const id of targetIds) {
             await handleCloseTab(paneId, id);
         }
@@ -268,23 +238,27 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
 
     function getTabFilePath(tabId: string): TDocumentRef | null {
         const path = options.documentSessionsByTabId.value[tabId]?.snapshot.value.identity.originalPath ?? null;
-        return typeof path === 'string' && path.trim().length > 0 && !isBrowserDocumentRef(path)
-            ? path
-            : null;
+        return typeof path === 'string' && path.trim().length > 0 && !isBrowserDocumentRef(path) ? path : null;
     }
 
     async function runTabPathAction(tabId: string, action: 'reveal-in-folder' | 'copy-path') {
         const path = getTabFilePath(tabId);
-        if (path === null) return;
+        if (path === null) {
+            return;
+        }
         try {
-            if (action === 'copy-path') await globalThis.navigator.clipboard.writeText(path);
-            else if (!await getDocumentWindowCapability().showItemInFolder(path)) {
+            if (action === 'copy-path') {
+                await globalThis.navigator.clipboard.writeText(path);
+            } else if (!(await getDocumentWindowCapability().showItemInFolder(path))) {
                 throw new Error('File manager did not reveal the file');
             }
         } catch (error) {
             BrowserLogger.warn('workspace', `Tab ${action} failed`, error);
             presentFailureToast({
-                ...captureFailureForPresentation({code: 'RENDERER_WORKSPACE_OPERATION_FAILED', local: {source: 'workspace', message: `Tab ${action} failed`, cause: error}}),
+                ...captureFailureForPresentation({
+                    code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                    local: {source: 'workspace', message: `Tab ${action} failed`, cause: error},
+                }),
                 title: t(action === 'copy-path' ? 'assistant.copyFailed' : 'errors.workspace.revealInFolderFailed'),
             });
         }
@@ -294,11 +268,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         return 'direction' in command;
     }
 
-    function getStaticContextCommandRunner(
-        paneId: string,
-        tabId: string,
-        command: TStaticTabContextCommand,
-    ) {
+    function getStaticContextCommandRunner(paneId: string, tabId: string, command: TStaticTabContextCommand) {
         if (command.kind === 'move-to-window') {
             return () => enqueueTabTransition(() => moveTabToWindow(command.targetWindowId, tabId));
         }
@@ -331,11 +301,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         await handlers[command.kind](command.direction);
     }
 
-    async function handleTabContextCommand(
-        paneId: string,
-        tabId: string,
-        command: TTabContextCommand,
-    ) {
+    async function handleTabContextCommand(paneId: string, tabId: string, command: TTabContextCommand) {
         const pane = getPaneById(paneId);
         if (!pane) {
             return;
@@ -346,11 +312,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         await runTabContextCommand(paneId, tabId, command);
     }
 
-    async function runTabContextCommand(
-        paneId: string,
-        tabId: string,
-        command: TTabContextCommand,
-    ) {
+    async function runTabContextCommand(paneId: string, tabId: string, command: TTabContextCommand) {
         if (isDirectionalContextCommand(command)) {
             await runDirectionalContextCommand(command);
             return;
@@ -359,12 +321,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         await getStaticContextCommandRunner(paneId, tabId, command)();
     }
 
-    function handleTabMoveDirection(
-        paneId: string,
-        tabId: string,
-        direction: 'left' | 'right',
-        targetIndex?: number | null,
-    ) {
+    function handleTabMoveDirection(paneId: string, tabId: string, direction: 'left' | 'right', targetIndex?: number | null) {
         const pane = getPaneById(paneId);
         const parsedTabId = parseTabId(tabId);
         if (!pane || parsedTabId === null || !pane.tabIds.includes(parsedTabId)) {

@@ -15,17 +15,11 @@
 </template>
 
 <script setup lang="ts">
-import {
-    useIntervalFn,
-    useTimeoutFn,
-} from '@vueuse/core';
+import {useIntervalFn, useTimeoutFn} from '@vueuse/core';
 import AppProgressOverlay from '@app/components/AppProgressOverlay.vue';
-import {
-    displayProcessedCount,
-    formatEtaDuration,
-} from '@app/utils/progressFormatting';
-import type { IPageOperationPresentation } from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
-import { useDocumentContext } from '@app/modules/workspace-shell/documentContext';
+import {displayProcessedCount, formatEtaDuration} from '@app/utils/progressFormatting';
+import type {IPageOperationPresentation} from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
+import {useDocumentContext} from '@app/modules/workspace-shell/documentContext';
 
 const {
     pageOpBatchProgress: progress,
@@ -38,7 +32,7 @@ const {
 } = useDocumentContext().pageOps;
 const etaText = computed(() => formatEtaDuration(progress.value?.estimatedRemainingMs ?? null));
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 const toast = useToast();
 
 const cancelLabel = computed(() => {
@@ -62,12 +56,13 @@ function requestCancel() {
 }
 
 const delayedProgressVisible = ref(false);
-const {
-    start: startProgressDelay,
-    stop: stopProgressDelay,
-} = useTimeoutFn(() => {
-    delayedProgressVisible.value = true;
-}, 400, {immediate: false});
+const {start: startProgressDelay, stop: stopProgressDelay} = useTimeoutFn(
+    () => {
+        delayedProgressVisible.value = true;
+    },
+    400,
+    {immediate: false},
+);
 
 const showProgress = computed(() => isPageOperationInProgress.value && delayedProgressVisible.value);
 function resolveOperationTitle(activeOperation: IPageOperationPresentation) {
@@ -84,18 +79,17 @@ function resolveOperationTitle(activeOperation: IPageOperationPresentation) {
             case 'move':
                 return t('pageOps.movePages');
             case 'rotate':
-                return activeOperation.direction === 'ccw'
-                    ? t('pageOps.rotateCcw')
-                    : t('pageOps.rotateCw');
+                return activeOperation.direction === 'ccw' ? t('pageOps.rotateCcw') : t('pageOps.rotateCw');
             case 'crop':
                 return t('crop.dialogTitle');
             case 'removeCrop':
                 return t('crop.removeCrop');
         }
     })();
-    const operationCountLabel = activeOperation.kind === 'insertFile'
-        ? t('combinePdf.fileCount', activeOperation.pageCount)
-        : t('export.pageCount', activeOperation.pageCount);
+    const operationCountLabel =
+        activeOperation.kind === 'insertFile'
+            ? t('combinePdf.fileCount', activeOperation.pageCount)
+            : t('export.pageCount', activeOperation.pageCount);
     return `${operationLabel} · ${operationCountLabel}`;
 }
 const operationTitle = computed(() => {
@@ -106,39 +100,40 @@ const operationTitle = computed(() => {
 // keeps visibly moving (behavior contract I4).
 const operationStartedAt = ref<number | null>(null);
 const now = ref(Date.now());
-const {
-    pause: pauseElapsedClock,
-    resume: resumeElapsedClock,
-} = useIntervalFn(() => {
-    now.value = Date.now();
-}, 1_000, {immediate: false});
-const elapsedText = computed(() => (
-    operationStartedAt.value === null
-        ? null
-        : formatEtaDuration(now.value - operationStartedAt.value)
-));
+const {pause: pauseElapsedClock, resume: resumeElapsedClock} = useIntervalFn(
+    () => {
+        now.value = Date.now();
+    },
+    1_000,
+    {immediate: false},
+);
+const elapsedText = computed(() => (operationStartedAt.value === null ? null : formatEtaDuration(now.value - operationStartedAt.value)));
 
-watch(isPageOperationInProgress, (inProgress) => {
-    stopProgressDelay();
-    delayedProgressVisible.value = false;
-    if (inProgress) {
+watch(
+    isPageOperationInProgress,
+    (inProgress) => {
+        stopProgressDelay();
+        delayedProgressVisible.value = false;
+        if (inProgress) {
+            userRequestedCancel = false;
+            operationStartedAt.value = Date.now();
+            now.value = operationStartedAt.value;
+            resumeElapsedClock();
+            startProgressDelay();
+            return;
+        }
+        pauseElapsedClock();
+        operationStartedAt.value = null;
+        if (userRequestedCancel && lastPageOperationOutcome.value?.status === 'canceled') {
+            toast.add({
+                color: 'neutral',
+                title: t('pageOps.canceled'),
+            });
+        }
         userRequestedCancel = false;
-        operationStartedAt.value = Date.now();
-        now.value = operationStartedAt.value;
-        resumeElapsedClock();
-        startProgressDelay();
-        return;
-    }
-    pauseElapsedClock();
-    operationStartedAt.value = null;
-    if (userRequestedCancel && lastPageOperationOutcome.value?.status === 'canceled') {
-        toast.add({
-            color: 'neutral',
-            title: t('pageOps.canceled'),
-        });
-    }
-    userRequestedCancel = false;
-}, {immediate: true});
+    },
+    {immediate: true},
+);
 
 onBeforeUnmount(() => {
     stopProgressDelay();
@@ -149,19 +144,17 @@ const detailText = computed(() => {
     const current = progress.value;
     return current
         ? t('emptyState.preparingBatchProgress', {
-            processed: displayProcessedCount(current.processed, current.total),
-            total: current.total,
-        })
+              processed: displayProcessedCount(current.processed, current.total),
+              total: current.total,
+          })
         : '';
 });
 
 const subDetailText = computed(() => {
     if (etaText.value) {
-        return t('emptyState.preparingBatchEta', { eta: etaText.value });
+        return t('emptyState.preparingBatchEta', {eta: etaText.value});
     }
-    return !progress.value && elapsedText.value
-        ? t('pageOps.elapsed', {time: elapsedText.value})
-        : '';
+    return !progress.value && elapsedText.value ? t('pageOps.elapsed', {time: elapsedText.value}) : '';
 });
 </script>
 
@@ -175,7 +168,8 @@ const subDetailText = computed(() => {
     justify-content: flex-end;
     box-sizing: border-box;
     width: 100%;
-    padding-inline: var(--app-space-md) calc(var(--app-toolbar-control-size) + var(--app-space-9xl) + (2 * var(--app-space-3xl)) + var(--app-space-md));
+    padding-inline: var(--app-space-md)
+        calc(var(--app-toolbar-control-size) + var(--app-space-9xl) + (2 * var(--app-space-3xl)) + var(--app-space-md));
     pointer-events: none;
     background: transparent;
 }

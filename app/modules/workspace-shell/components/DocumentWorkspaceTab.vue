@@ -35,7 +35,10 @@
         so it paints while the workspace loads; every action on it goes through
         the tab's controller to the mounted workspace. The host owns its lifetime,
         so returning to Start restores its state without mounting it again. -->
-        <div v-show="isStartVisible" class="workspace-host__start">
+        <div
+            v-show="isStartVisible"
+            class="workspace-host__start"
+        >
             <PdfEmptyState
                 :recent-files="recentFiles"
                 :recent-files-resolved="recentFilesResolved"
@@ -46,7 +49,7 @@
                 :is-visible="isStartVisible && isRenderActive"
                 :start-section="startSection"
                 can-combine-files
-                :open-combine-result="result => withWorkspace(workspace => workspace.handleOpenFileWithResult(result))"
+                :open-combine-result="(result) => withWorkspace((workspace) => workspace.handleOpenFileWithResult(result))"
                 @update:start-section="emit('update:start-section', $event)"
                 @open-file="openPicked(() => platformDocuments.getDocumentPickerCapability().openDocumentDialog())"
                 @press-recent="pressRecentFile"
@@ -57,39 +60,42 @@
                 @retry-recent="retryRecentFiles"
             />
         </div>
-        <div v-if="isOpening" class="workspace-host__opening-progress">
-            <AppProgressBar variant="edge" :aria-label="t('common.loading')" />
+        <div
+            v-if="isOpening"
+            class="workspace-host__opening-progress"
+        >
+            <AppProgressBar
+                variant="edge"
+                :aria-label="t('common.loading')"
+            />
         </div>
     </div>
 </template>
 
 <script setup lang="ts">
-import { captureFailureForPresentation } from '@app/utils/failureReporter';
-import { useFailureToast } from '@app/composables/useFailureToast';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import type { IRecentFile } from '@contracts/shared';
-import type { TStartSection } from '@app/types/startSection';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import { PdfEmptyState } from '@app/modules/pdf-viewer/public/component-exports/pdfEmptyState';
-import {
-    describeDocumentTarget,
-    describeOpenResult,
-} from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
+import {captureFailureForPresentation} from '@app/utils/failureReporter';
+import {useFailureToast} from '@app/composables/useFailureToast';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TOpenFileResult} from '@contracts/electronApiDocuments';
+import type {IRecentFile} from '@contracts/shared';
+import type {TStartSection} from '@app/types/startSection';
+import type {IWorkspaceExpose} from '@app/types/workspaceExpose';
+import {PdfEmptyState} from '@app/modules/pdf-viewer/public/component-exports/pdfEmptyState';
+import {describeDocumentTarget, describeOpenResult} from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
 import DocumentWorkspaceFailurePanel from '@app/modules/workspace-shell/components/DocumentWorkspaceFailurePanel.vue';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
-import { handleDocumentWorkspaceCrash } from '@app/modules/workspace-shell/checkpoint/handleDocumentWorkspaceCrash';
-import { describeRefusedDocumentOpen } from '@app/modules/workspace-shell/composables/document-session/classifyDocumentOpenError';
+import {handleDocumentWorkspaceCrash} from '@app/modules/workspace-shell/checkpoint/handleDocumentWorkspaceCrash';
+import {describeRefusedDocumentOpen} from '@app/modules/workspace-shell/composables/document-session/classifyDocumentOpenError';
 import type {
     IWorkspaceDocumentController,
     IWorkspaceOpenRequest,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
-import { openRecentFileKey } from '@app/modules/workspace-shell/composables/useTabsShellBindings';
-import { useRecentFiles } from '@app/composables/useRecentFiles';
+import {useWorkspaceRestoreTracker} from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
+import {openRecentFileKey} from '@app/modules/workspace-shell/composables/useTabsShellBindings';
+import {useRecentFiles} from '@app/composables/useRecentFiles';
 import * as platformDocuments from '@app/utils/platformDocuments';
-import { getErrorMessage } from '@app/utils/error';
+import {getErrorMessage} from '@app/utils/error';
 import {
     readPdfPageShape,
     type IPdfPageShapeRead,
@@ -97,10 +103,7 @@ import {
 
 const DocumentWorkspace = defineAsyncComponent(() => import('@app/modules/workspace-shell/components/DocumentWorkspace.vue'));
 
-const {
-    documentSession,
-    tabId,
-} = defineProps<{
+const {documentSession, tabId} = defineProps<{
     tabId: string;
     isActive: boolean;
     isRenderActive: boolean;
@@ -118,8 +121,8 @@ const emit = defineEmits<{
     'open-settings': [];
     'toggle-fullscreen': [];
 }>();
-const { t } = useTypedI18n();
-const { presentFailureToast } = useFailureToast();
+const {t} = useTypedI18n();
+const {presentFailureToast} = useFailureToast();
 const workspaceRestoreTracker = useWorkspaceRestoreTracker();
 const {
     recentFiles,
@@ -146,11 +149,13 @@ const isOpening = computed(() => {
 const isStartVisible = computed(() => {
     const phase = snapshot.value.phase;
     const toolbar = documentView.value?.toolbarSnapshot.value;
-    return (phase === 'empty' || phase === 'failed')
-        && !isOpening.value
-        && !toolbar?.hasPdf
-        && !toolbar?.isDjvuMode
-        && !workspaceRestoreTracker.has(tabId);
+    return (
+        (phase === 'empty' || phase === 'failed') &&
+        !isOpening.value &&
+        !toolbar?.hasPdf &&
+        !toolbar?.isDjvuMode &&
+        !workspaceRestoreTracker.has(tabId)
+    );
 });
 function isRecentOpenReady(file: IRecentFile) {
     return snapshot.value.activeTransaction?.target?.originalPath !== file.originalPath;
@@ -163,7 +168,7 @@ function withWorkspace(run: (workspace: IWorkspaceExpose) => Promise<boolean>) {
     const workspace = documentView.value?.mountedWorkspace.value;
     return workspace
         ? run(workspace)
-        : (documentView.value?.whenMounted() ?? Promise.resolve(null)).then(mounted => (mounted ? run(mounted) : false));
+        : (documentView.value?.whenMounted() ?? Promise.resolve(null)).then((mounted) => (mounted ? run(mounted) : false));
 }
 
 // The page's shape is asked for when a Recent row is pressed; main answers a
@@ -178,14 +183,19 @@ function pressRecentFile(file: IRecentFile) {
 function openRecentFile(file: IRecentFile, pressed: boolean, follow: (opening: Promise<boolean>) => void) {
     const pressedShape = pressed && pressedRecentShape?.path === file.originalPath ? pressedRecentShape : null;
     pressedRecentShape = null;
-    follow(openRecent(file.originalPath, () => {
-        const pageShape = pressedShape ?? readPdfPageShape(file.originalPath);
-        return openInWorkspace({
-            kind: 'open',
-            target: describeDocumentTarget(file.originalPath),
-            pageShape,
-        }, workspace => workspace.handleOpenFileDirectWithPersist(file.originalPath, pageShape));
-    }));
+    follow(
+        openRecent(file.originalPath, () => {
+            const pageShape = pressedShape ?? readPdfPageShape(file.originalPath);
+            return openInWorkspace(
+                {
+                    kind: 'open',
+                    target: describeDocumentTarget(file.originalPath),
+                    pageShape,
+                },
+                (workspace) => workspace.handleOpenFileDirectWithPersist(file.originalPath, pageShape),
+            );
+        }),
+    );
 }
 
 // The picker is requested in the click's own call: a browser shows a file
@@ -202,9 +212,7 @@ async function openPicked(pick: () => Promise<TOpenFileResult | null>) {
         documentSession.markFailed(describeRefusedDocumentOpen(error, t));
         return false;
     }
-    return result
-        ? openInWorkspace(describeOpenResult(result), workspace => workspace.handleOpenFileWithResult(result))
-        : false;
+    return result ? openInWorkspace(describeOpenResult(result), (workspace) => workspace.handleOpenFileWithResult(result)) : false;
 }
 
 function openInWorkspace(request: IWorkspaceOpenRequest, open: (workspace: IWorkspaceExpose) => Promise<boolean>) {
@@ -216,19 +224,23 @@ function openInWorkspace(request: IWorkspaceOpenRequest, open: (workspace: IWork
     // arrives; the workspace's own open replaces this transaction once
     // mounted, and the result is that open's. A claim lost before then is false.
     let opened = Promise.resolve(false);
-    return documentSession.runOpen(request, () => withWorkspace(workspace => (opened = open(workspace))).then(() => null))
+    return documentSession
+        .runOpen(request, () => withWorkspace((workspace) => (opened = open(workspace))).then(() => null))
         .finished.then(() => opened);
 }
 
 async function revealRecentFile(file: IRecentFile) {
     try {
-        if (!await platformDocuments.getDocumentWindowCapability().showItemInFolder(file.originalPath)) {
+        if (!(await platformDocuments.getDocumentWindowCapability().showItemInFolder(file.originalPath))) {
             throw new Error('File manager did not reveal the file');
         }
     } catch (error) {
         BrowserLogger.warn('workspace', 'Recent-file reveal failed', error);
         presentFailureToast({
-            ...captureFailureForPresentation({code: 'RENDERER_WORKSPACE_OPERATION_FAILED', local: {source: 'workspace', message: 'Recent-file reveal failed', cause: error}}),
+            ...captureFailureForPresentation({
+                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                local: {source: 'workspace', message: 'Recent-file reveal failed', cause: error},
+            }),
             title: t('errors.workspace.revealInFolderFailed'),
         });
     }
@@ -239,7 +251,9 @@ async function revealRecentFile(file: IRecentFile) {
 // other tabs keep working. Until Retry, one crash is reported once: other
 // descendants can still fail in the render update that replaces the subtree.
 onErrorCaptured((error, instance, info) => {
-    if (crashDescription.value !== null) return false;
+    if (crashDescription.value !== null) {
+        return false;
+    }
     const failure = handleDocumentWorkspaceCrash(error, instance?.$options.name ?? null, info, {tabId});
     documentSession.markFailed({
         message: getErrorMessage(error),

@@ -1,5 +1,5 @@
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import {readFile} from 'node:fs/promises';
+import {join} from 'node:path';
 import {
     PDFArray,
     PDFDict,
@@ -17,20 +17,11 @@ import {
     StandardFonts,
 } from 'pdf-lib';
 
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 import * as v from 'valibot';
-import type { IPageGeometry } from '@contracts/shared';
+import type {IPageGeometry} from '@contracts/shared';
 import {PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA} from '@contracts/pdfBookmarkEntry';
-import {
-    isBrowserPageOpsWasmFailure,
-    type IPageMutationWorkerResult,
-} from '@contracts/browserPageOpsWorker';
+import {isBrowserPageOpsWasmFailure, type IPageMutationWorkerResult} from '@contracts/browserPageOpsWorker';
 import type {IBrowserPageOpsWasmFailure} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 import type {TPageStructureEdit} from '@app/platform/browser/pdfPageEngine';
 import {
@@ -40,10 +31,7 @@ import {
     REPLACE_PAGE_IMAGES_INSTRUCTIONS_SCHEMA,
 } from '@contracts/browserPageOpsWriters';
 import {decodeBrowserPdfAnnotationsOutput} from '@app/platform/browser-api/decodeBrowserPdfAnnotationsOutput';
-import {
-    PDF_ANNOTATION_PARSE_MAX_ENTRIES,
-    PDF_ANNOTATION_PARSE_MAX_LINE_BYTES,
-} from '@contracts/pdfAnnotationParseTypes';
+import {PDF_ANNOTATION_PARSE_MAX_ENTRIES, PDF_ANNOTATION_PARSE_MAX_LINE_BYTES} from '@contracts/pdfAnnotationParseTypes';
 import {normalizePdfNativeMutationSet} from '@contracts/nativePdfMutations';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {readPdfCatalogWithPdfjs} from '@tests/e2e/electron/helpers/fixtures';
@@ -71,20 +59,10 @@ function assertSuccessfulWasmMutation(
     }
 }
 
-async function createPdf(options: {
-    pageWidths: number[];
-    cropSecondPage?: boolean;
-    rotateSecondPage?: boolean;
-}) {
+async function createPdf(options: {pageWidths: number[]; cropSecondPage?: boolean; rotateSecondPage?: boolean}) {
     const pdfDocument = await PDFDocument.create();
-    for (const [
-        index,
-        width,
-    ] of options.pageWidths.entries()) {
-        const page = pdfDocument.addPage([
-            width,
-            100 + (index * 20),
-        ]);
+    for (const [index, width] of options.pageWidths.entries()) {
+        const page = pdfDocument.addPage([width, 100 + index * 20]);
         if (index === 1 && options.cropSecondPage) {
             page.setCropBox(10, 12, width - 30, 80);
         }
@@ -98,48 +76,35 @@ async function createPdf(options: {
 
 async function createMetadataPdf() {
     const pdfDocument = await PDFDocument.create();
-    const pages = [
-        pdfDocument.addPage([
-            200,
-            100,
-        ]),
-        pdfDocument.addPage([
-            300,
-            100,
-        ]),
-        pdfDocument.addPage([
-            400,
-            100,
-        ]),
-    ];
+    const pages = [pdfDocument.addPage([200, 100]), pdfDocument.addPage([300, 100]), pdfDocument.addPage([400, 100])];
     const {context} = pdfDocument;
-    const decimalLabels = context.register(context.obj({
-        S: PDFName.of('D'),
-        St: PDFNumber.of(1),
-    }));
-    const romanLabels = context.register(context.obj({
-        S: PDFName.of('R'),
-        St: PDFNumber.of(1),
-    }));
-    const pageLabels = context.register(context.obj({Nums: [
-        0,
-        decimalLabels,
-        1,
-        romanLabels,
-    ]}));
-    const outlineItem = context.register(context.obj({
-        Title: PDFString.of('Page three'),
-        Dest: [
-            pages[2]!.ref,
-            PDFName.of('Fit'),
-        ],
-    }));
-    const outlines = context.register(context.obj({
-        Type: PDFName.of('Outlines'),
-        First: outlineItem,
-        Last: outlineItem,
-        Count: PDFNumber.of(1),
-    }));
+    const decimalLabels = context.register(
+        context.obj({
+            S: PDFName.of('D'),
+            St: PDFNumber.of(1),
+        }),
+    );
+    const romanLabels = context.register(
+        context.obj({
+            S: PDFName.of('R'),
+            St: PDFNumber.of(1),
+        }),
+    );
+    const pageLabels = context.register(context.obj({Nums: [0, decimalLabels, 1, romanLabels]}));
+    const outlineItem = context.register(
+        context.obj({
+            Title: PDFString.of('Page three'),
+            Dest: [pages[2]!.ref, PDFName.of('Fit')],
+        }),
+    );
+    const outlines = context.register(
+        context.obj({
+            Type: PDFName.of('Outlines'),
+            First: outlineItem,
+            Last: outlineItem,
+            Count: PDFNumber.of(1),
+        }),
+    );
     (context.lookup(outlineItem) as PDFDict).set(PDFName.of('Parent'), outlines);
     pdfDocument.catalog.set(PDFName.of('PageLabels'), pageLabels);
     pdfDocument.catalog.set(PDFName.of('Outlines'), outlines);
@@ -147,17 +112,12 @@ async function createMetadataPdf() {
 }
 
 async function readPasswordProtectedPdf() {
-    const encoded = await readFile(
-        join(process.cwd(), 'tests/fixtures/electron/password-protected.pdf.b64'),
-        'utf8',
-    );
+    const encoded = await readFile(join(process.cwd(), 'tests/fixtures/electron/password-protected.pdf.b64'), 'utf8');
     return Uint8Array.from(Buffer.from(encoded.trim(), 'base64'));
 }
 
 function readOutlineDestination(pdfDocument: PDFDocument) {
-    const outlines = pdfDocument.context.lookup(
-        pdfDocument.catalog.get(PDFName.of('Outlines')) as PDFRef,
-    ) as PDFDict;
+    const outlines = pdfDocument.context.lookup(pdfDocument.catalog.get(PDFName.of('Outlines')) as PDFRef) as PDFDict;
     const first = pdfDocument.context.lookup(outlines.get(PDFName.of('First'))) as PDFDict;
     return (first.get(PDFName.of('Dest')) as PDFArray).get(0) as PDFRef;
 }
@@ -165,29 +125,30 @@ function readOutlineDestination(pdfDocument: PDFDocument) {
 /** A three-page PDF whose top-level outline items are the given dictionaries. */
 async function createOutlinePdf(describeItems: (pdfDocument: PDFDocument, pages: PDFRef[]) => Array<Record<string, unknown>>) {
     const pdfDocument = await PDFDocument.create();
-    const pages = [
-        0,
-        1,
-        2,
-    ].map(() => pdfDocument.addPage([
-        200,
-        200,
-    ]).ref);
+    const pages = [0, 1, 2].map(() => pdfDocument.addPage([200, 200]).ref);
     const definitions = describeItems(pdfDocument, pages);
     const outlines = pdfDocument.context.nextRef();
     const items = definitions.map(() => pdfDocument.context.nextRef());
-    definitions.forEach((definition, index) => pdfDocument.context.assign(items[index]!, pdfDocument.context.obj({
-        ...definition,
-        Parent: outlines,
-        ...(index > 0 ? {Prev: items[index - 1]} : {}),
-        ...(index + 1 < items.length ? {Next: items[index + 1]} : {}),
-    })));
-    pdfDocument.context.assign(outlines, pdfDocument.context.obj({
-        Type: PDFName.of('Outlines'),
-        First: items[0],
-        Last: items.at(-1),
-        Count: items.length,
-    }));
+    definitions.forEach((definition, index) =>
+        pdfDocument.context.assign(
+            items[index]!,
+            pdfDocument.context.obj({
+                ...definition,
+                Parent: outlines,
+                ...(index > 0 ? {Prev: items[index - 1]} : {}),
+                ...(index + 1 < items.length ? {Next: items[index + 1]} : {}),
+            }),
+        ),
+    );
+    pdfDocument.context.assign(
+        outlines,
+        pdfDocument.context.obj({
+            Type: PDFName.of('Outlines'),
+            First: items[0],
+            Last: items.at(-1),
+            Count: items.length,
+        }),
+    );
     pdfDocument.catalog.set(PDFName.of('Outlines'), outlines);
     return pdfDocument.save();
 }
@@ -220,25 +181,26 @@ async function renameFirstBookmarkAndSave(data: Uint8Array) {
     if (catalog === null || 'status' in catalog || !catalog.bookmarks) {
         throw new Error('Expected the browser page-ops catalog to read the outline');
     }
-    const [
-        first,
-        ...rest
-    ] = v.parse(v.array(PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA), catalog.bookmarks);
+    const [first, ...rest] = v.parse(v.array(PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA), catalog.bookmarks);
     const saved = await wasm.append(data, {
-        mutations: {bookmarks: {
-            totalPages: 3,
-            untitledLabel: 'Untitled',
-            items: [
-                {
-                    ...first!,
-                    title: `${first!.title} renamed`,
-                },
-                ...rest,
-            ],
-        }},
+        mutations: {
+            bookmarks: {
+                totalPages: 3,
+                untitledLabel: 'Untitled',
+                items: [
+                    {
+                        ...first!,
+                        title: `${first!.title} renamed`,
+                    },
+                    ...rest,
+                ],
+            },
+        },
         modifiedAt: 'D:20261012000000Z',
     });
-    if ('status' in saved) throw new Error(`Expected the bookmarks to save: ${saved.error.message}`);
+    if ('status' in saved) {
+        throw new Error(`Expected the bookmarks to save: ${saved.error.message}`);
+    }
     return saved.data;
 }
 
@@ -247,13 +209,7 @@ async function summarizePdf(data: Uint8Array): Promise<IPdfPageSummary[]> {
     return pdfDocument.getPages().map((page) => {
         const mediaBox = page.getMediaBox();
         const cropBox = page.getCropBox();
-        const sameAsMedia = ([
-            'x',
-            'y',
-            'width',
-            'height',
-        ] as const)
-            .every(key => cropBox[key] === mediaBox[key]);
+        const sameAsMedia = (['x', 'y', 'width', 'height'] as const).every((key) => cropBox[key] === mediaBox[key]);
         return {
             mediaBox,
             cropBox: sameAsMedia ? null : cropBox,
@@ -331,7 +287,9 @@ async function runPageStructureInMemory(
 ) {
     let output = new Uint8Array(1024);
     const slice = (bytes: Uint8Array, at: number, length: number) => {
-        if (at + length > bytes.byteLength) throw new Error('Read past the end');
+        if (at + length > bytes.byteLength) {
+            throw new Error('Read past the end');
+        }
         return bytes.subarray(at, at + length);
     };
     const sink = {
@@ -346,19 +304,23 @@ async function runPageStructureInMemory(
         read: (into: Uint8Array, at: number) => into.set(slice(output, at, into.byteLength)),
     };
     const result = await module.runPageStructureEdit(edit, {
-        sources: documents.map(document => ({
+        sources: documents.map((document) => ({
             size: document.byteLength,
             read: (into, at) => into.set(slice(document, at, into.byteLength)),
         })),
         sink,
         async copy(copies) {
-            for (const {source, from, length, at} of copies) sink.write(slice(documents[source]!, from, length), at);
+            for (const {source, from, length, at} of copies) {
+                sink.write(slice(documents[source]!, from, length), at);
+            }
         },
     });
-    return isBrowserPageOpsWasmFailure(result) ? result : {
-        data: output.slice(0, result.length),
-        pageCount: result.pageCount,
-    };
+    return isBrowserPageOpsWasmFailure(result)
+        ? result
+        : {
+              data: output.slice(0, result.length),
+              pageCount: result.pageCount,
+          };
 }
 
 async function loadWasmRunner() {
@@ -394,84 +356,97 @@ describe('browser page-ops WASM fast path', () => {
         vi.unstubAllGlobals();
     });
 
-    it.each([
-        'rotate',
-        'crop',
-        'removeCrop',
-    ] as const)('preserves the signed historical revision for browser %s', async operation => {
+    it.each(['rotate', 'crop', 'removeCrop'] as const)('preserves the signed historical revision for browser %s', async (operation) => {
         const data = new Uint8Array(await readFile(join(process.cwd(), 'tests/fixtures/electron/pdf-preservation/signed.pdf')));
         const wasm = await loadWasmRunner();
-        const result = operation === 'rotate'
-            ? await wasm.append(data, {
-                mutations: {pageRotations: [{
-                    pageIndex: requirePageIndex(0),
-                    angle: 90,
-                }]},
-                modifiedAt: 'D:20261012000000Z',
-            })
-            : operation === 'crop'
+        const result =
+            operation === 'rotate'
                 ? await wasm.append(data, {
-                    mutations: {pageCrops: [{
-                        pageIndex: requirePageIndex(0),
-                        top: 4,
-                        bottom: 6,
-                        left: 8,
-                        right: 10,
-                    }]},
-                    modifiedAt: 'D:20261012000000Z',
-                })
-                : await wasm.append(data, {
-                    mutations: {pageCropRemovals: [requirePageIndex(0)]},
-                    modifiedAt: 'D:20261012000000Z',
-                });
+                      mutations: {
+                          pageRotations: [
+                              {
+                                  pageIndex: requirePageIndex(0),
+                                  angle: 90,
+                              },
+                          ],
+                      },
+                      modifiedAt: 'D:20261012000000Z',
+                  })
+                : operation === 'crop'
+                  ? await wasm.append(data, {
+                        mutations: {
+                            pageCrops: [
+                                {
+                                    pageIndex: requirePageIndex(0),
+                                    top: 4,
+                                    bottom: 6,
+                                    left: 8,
+                                    right: 10,
+                                },
+                            ],
+                        },
+                        modifiedAt: 'D:20261012000000Z',
+                    })
+                  : await wasm.append(data, {
+                        mutations: {pageCropRemovals: [requirePageIndex(0)]},
+                        modifiedAt: 'D:20261012000000Z',
+                    });
         assertSuccessfulWasmMutation(result);
         expect(result.data.subarray(0, data.length)).toEqual(data);
         const original = await PDFDocument.load(data);
         const saved = await PDFDocument.load(result.data);
-        const signatures = (pdf: PDFDocument) => pdf.context.enumerateIndirectObjects().flatMap(([
-            , object,
-        ]) => {
-            if (!(object instanceof PDFDict) || !object.has(PDFName.of('ByteRange'))) return [];
-            return [[
-                String(object.get(PDFName.of('ByteRange'))),
-                String(object.get(PDFName.of('Contents'))),
-            ]];
-        });
+        const signatures = (pdf: PDFDocument) =>
+            pdf.context.enumerateIndirectObjects().flatMap(([, object]) => {
+                if (!(object instanceof PDFDict) || !object.has(PDFName.of('ByteRange'))) {
+                    return [];
+                }
+                return [[String(object.get(PDFName.of('ByteRange'))), String(object.get(PDFName.of('Contents')))]];
+            });
         expect(signatures(saved)).toEqual(signatures(original));
         expect(signatures(saved)).toHaveLength(1);
-        if (operation === 'rotate') expect(saved.getPage(0).getRotation().angle).toBe(90);
-        if (operation === 'crop') expect(saved.getPage(0).getCropBox()).toEqual({
-            x: 8,
-            y: 6,
-            width: 102,
-            height: 110,
-        });
+        if (operation === 'rotate') {
+            expect(saved.getPage(0).getRotation().angle).toBe(90);
+        }
+        if (operation === 'crop') {
+            expect(saved.getPage(0).getCropBox()).toEqual({
+                x: 8,
+                y: 6,
+                width: 102,
+                height: 110,
+            });
+        }
     });
 
-    it.each([
-        'deletePages',
-        'extractPages',
-    ] as const)('removes discarded form values from saved %s bytes', async operation => {
+    it.each(['deletePages', 'extractPages'] as const)('removes discarded form values from saved %s bytes', async (operation) => {
         const data = new Uint8Array(await readFile(join(process.cwd(), 'tests/fixtures/electron/pdf-preservation/forms.pdf')));
         const wasm = await loadWasmRunner();
-        const result = operation === 'deletePages'
-            ? await wasm.structure({kind: 'delete', pages: [2]}, [data])
-            : await wasm.structure({kind: 'extract', pages: [1]}, [data]);
+        const result =
+            operation === 'deletePages'
+                ? await wasm.structure({kind: 'delete', pages: [2]}, [data])
+                : await wasm.structure({kind: 'extract', pages: [1]}, [data]);
         assertSuccessfulWasmMutation(result);
         const output = await PDFDocument.load(result.data);
         expect(output.getPageCount()).toBe(1);
-        expect(output.getForm().getFields().map(field => field.getName())).toEqual(['retained']);
+        expect(
+            output
+                .getForm()
+                .getFields()
+                .map((field) => field.getName()),
+        ).toEqual(['retained']);
         expect(output.getForm().getTextField('retained').getText()).toBe('VISIBLE');
         const strings: string[] = [];
         const visit = (object: unknown): void => {
-            if (object instanceof PDFString || object instanceof PDFHexString) strings.push(object.decodeText());
-            else if (object instanceof PDFDict) object.values().forEach(visit);
-            else if (object instanceof PDFArray) object.asArray().forEach(visit);
-            else if (object instanceof PDFRawStream) visit(object.dict);
+            if (object instanceof PDFString || object instanceof PDFHexString) {
+                strings.push(object.decodeText());
+            } else if (object instanceof PDFDict) {
+                object.values().forEach(visit);
+            } else if (object instanceof PDFArray) {
+                object.asArray().forEach(visit);
+            } else if (object instanceof PDFRawStream) {
+                visit(object.dict);
+            }
         };
-        output.context.enumerateIndirectObjects().forEach(([
-            , object,
-        ]) => visit(object));
+        output.context.enumerateIndirectObjects().forEach(([, object]) => visit(object));
         expect(strings).not.toContain('REMOVED-SECRET');
         expect(strings).not.toContain('removed');
     });
@@ -480,22 +455,24 @@ describe('browser page-ops WASM fast path', () => {
         const data = new Uint8Array(await readFile(join(process.cwd(), 'tests/fixtures/electron/pdf-preservation/shared-field.pdf')));
         const original = await PDFDocument.load(data);
         const [originalField] = original.getForm().getFields();
-        if (!originalField) throw new Error('Shared field fixture is empty');
+        if (!originalField) {
+            throw new Error('Shared field fixture is empty');
+        }
         const name = originalField.getName();
         const value = original.getForm().getTextField(name).getText();
         const wasm = await loadWasmRunner();
-        for (const operation of [
-            'extractPages',
-            'deletePages',
-            'reorderPages',
-        ] as const) {
-            const result = operation === 'reorderPages'
-                ? await wasm.structure({kind: 'reorder', pages: [2, 1]}, [data])
-                : await wasm.structure({kind: operation === 'extractPages' ? 'extract' : 'delete', pages: [operation === 'extractPages' ? 1 : 2]}, [data]);
+        for (const operation of ['extractPages', 'deletePages', 'reorderPages'] as const) {
+            const result =
+                operation === 'reorderPages'
+                    ? await wasm.structure({kind: 'reorder', pages: [2, 1]}, [data])
+                    : await wasm.structure(
+                          {kind: operation === 'extractPages' ? 'extract' : 'delete', pages: [operation === 'extractPages' ? 1 : 2]},
+                          [data],
+                      );
             assertSuccessfulWasmMutation(result);
             const saved = await PDFDocument.load(result.data);
             const fields = saved.getForm().getFields();
-            expect(fields.map(field => field.getName())).toEqual([name]);
+            expect(fields.map((field) => field.getName())).toEqual([name]);
             expect(saved.getForm().getTextField(name).getText()).toBe(value);
             const field = fields[0]!;
             const kids = field.acroField.dict.lookup(PDFName.of('Kids'), PDFArray).asArray();
@@ -510,24 +487,17 @@ describe('browser page-ops WASM fast path', () => {
         }
     });
 
-    it.each([
-        'StructTreeRoot',
-        'OCProperties',
-    ])('combines PDFs with %s in either source position', async key => {
-        const source = await PDFDocument.load(await readFile(join(process.cwd(), 'tests/fixtures/electron/pdf-preservation/layers-and-tags.pdf')));
+    it.each(['StructTreeRoot', 'OCProperties'])('combines PDFs with %s in either source position', async (key) => {
+        const source = await PDFDocument.load(
+            await readFile(join(process.cwd(), 'tests/fixtures/electron/pdf-preservation/layers-and-tags.pdf')),
+        );
         source.catalog.delete(PDFName.of(key === 'StructTreeRoot' ? 'OCProperties' : 'StructTreeRoot'));
         const feature = new Uint8Array(await source.save());
         const ordinary = await createPdf({pageWidths: [200]});
         const wasm = await loadWasmRunner();
         for (const documents of [
-            [
-                feature,
-                ordinary,
-            ],
-            [
-                ordinary,
-                feature,
-            ],
+            [feature, ordinary],
+            [ordinary, feature],
         ]) {
             const result = await wasm.structure({kind: 'merge'}, documents);
             expect(result).toMatchObject({pageCount: 2});
@@ -543,26 +513,13 @@ describe('browser page-ops WASM fast path', () => {
         const results = [
             await wasm.structure({kind: 'delete', pages: [2]}, [data]),
             await wasm.structure({kind: 'extract', pages: [1]}, [data]),
-            await wasm.structure({kind: 'reorder', pages: [
-                    2,
-                    1,
-                ]}, [data]),
+            await wasm.structure({kind: 'reorder', pages: [2, 1]}, [data]),
             await wasm.structure({kind: 'insert', afterPage: 1}, [data, ordinary]),
             await wasm.structure({kind: 'insert', afterPage: 1}, [ordinary, data]),
             await wasm.structure({kind: 'insert', afterPage: 1}, [data, data]),
         ];
-        for (const [
-            index,
-            result,
-        ] of results.entries()) {
-            const count = [
-                1,
-                1,
-                2,
-                3,
-                3,
-                4,
-            ][index];
+        for (const [index, result] of results.entries()) {
+            const count = [1, 1, 2, 3, 3, 4][index];
             expect(result).toMatchObject({pageCount: count});
             assertSuccessfulWasmMutation(result);
             expect((await PDFDocument.load(result.data)).getPageCount()).toBe(count);
@@ -572,13 +529,19 @@ describe('browser page-ops WASM fast path', () => {
     it('judges only the live append-admission allocation with its matching pointer and length', async () => {
         const bytes = await createPdf({pageWidths: [200]});
         const module = await NativeWebAssembly.compile(await readFile(join(process.cwd(), 'public/wasm/evb-pdf-page-ops.wasm')));
-        const {exports} = await NativeWebAssembly.instantiate(module, {evb_host: Object.fromEntries(NativeWebAssembly.Module.imports(module).map(({name}) => [name, () => -1]))});
+        const {exports} = await NativeWebAssembly.instantiate(module, {
+            evb_host: Object.fromEntries(NativeWebAssembly.Module.imports(module).map(({name}) => [name, () => -1])),
+        });
         const memory = exports.memory;
         const alloc = exports.evb_pdf_page_ops_alloc;
         const free = exports.evb_pdf_page_ops_free;
         const admit = exports.evb_pdf_page_ops_append_admission;
-        if (!(memory instanceof NativeWebAssembly.Memory) || typeof alloc !== 'function'
-            || typeof free !== 'function' || typeof admit !== 'function') {
+        if (
+            !(memory instanceof NativeWebAssembly.Memory) ||
+            typeof alloc !== 'function' ||
+            typeof free !== 'function' ||
+            typeof admit !== 'function'
+        ) {
             throw new Error('Missing append-admission WASM exports');
         }
         const pointer = Number(alloc(bytes.byteLength));
@@ -596,48 +559,33 @@ describe('browser page-ops WASM fast path', () => {
         const {run} = await loadWasmRunner();
         const result = await run('textBoxAppearance', {
             page: {
-                view: [
-                    0,
-                    0,
-                    200,
-                    100,
-                ],
+                view: [0, 0, 200, 100],
                 rotation: 0,
                 userUnit: 1,
             },
-            textBoxes: [{
-                textBox: {
-                    pageIndex: requirePageIndex(0),
-                    stableKey: 'browser-appearance',
-                    text: 'Browser café',
-                    rect: [
-                        10,
-                        10,
-                        90,
-                        40,
-                    ],
-                    rotation: 0,
-                    fontSize: 18,
-                    color: [
-                        17,
-                        24,
-                        39,
-                    ],
+            textBoxes: [
+                {
+                    textBox: {
+                        pageIndex: requirePageIndex(0),
+                        stableKey: 'browser-appearance',
+                        text: 'Browser café',
+                        rect: [10, 10, 90, 40],
+                        rotation: 0,
+                        fontSize: 18,
+                        color: [17, 24, 39],
+                    },
+                    source: {
+                        version: 1,
+                        rawRD: [1, 2, 7, 12],
+                        borderWidth: 0,
+                        staleFill: false,
+                    },
                 },
-                source: {
-                    version: 1,
-                    rawRD: [
-                        1,
-                        2,
-                        7,
-                        12,
-                    ],
-                    borderWidth: 0,
-                    staleFill: false,
-                },
-            }],
+            ],
         });
-        if (!result || 'status' in result) throw new Error(`Expected source-free appearance: ${JSON.stringify(result)}`);
+        if (!result || 'status' in result) {
+            throw new Error(`Expected source-free appearance: ${JSON.stringify(result)}`);
+        }
         expect(result.textBoxes).toHaveLength(1);
         expect(result.textBoxes[0]).toMatchObject({stableKey: 'browser-appearance'});
         expect(result.textBoxes[0]!.fittedFontSize).toBeGreaterThan(0);
@@ -649,41 +597,34 @@ describe('browser page-ops WASM fast path', () => {
 
     it('restores the original appearance from separate source bytes after an intervening save', async () => {
         const original = await PDFDocument.create();
-        const page = original.addPage([
-            200,
-            100,
-        ]);
-        const font = original.context.register(original.context.obj({
-            Type: 'Font',
-            Subtype: 'Type1',
-            BaseFont: 'Times-Italic',
-        }));
-        const appearance = original.context.register(original.context.flateStream('BT /F1 12 Tf 0 0 0 rg 2 10 Td (Original) Tj ET', {
-            Type: 'XObject',
-            Subtype: 'Form',
-            BBox: [
-                0,
-                0,
-                120,
-                30,
-            ],
-            Resources: {Font: {F1: font}},
-        }));
-        const annotation = original.context.register(original.context.obj({
-            Type: 'Annot',
-            Subtype: 'FreeText',
-            Rect: [
-                10,
-                40,
-                130,
-                70,
-            ],
-            NM: PDFString.of('original-box'),
-            Contents: PDFString.of('Original'),
-            DA: PDFString.of('/F1 12 Tf 0 0 0 rg'),
-            AP: {N: appearance},
-            F: 4,
-        }));
+        const page = original.addPage([200, 100]);
+        const font = original.context.register(
+            original.context.obj({
+                Type: 'Font',
+                Subtype: 'Type1',
+                BaseFont: 'Times-Italic',
+            }),
+        );
+        const appearance = original.context.register(
+            original.context.flateStream('BT /F1 12 Tf 0 0 0 rg 2 10 Td (Original) Tj ET', {
+                Type: 'XObject',
+                Subtype: 'Form',
+                BBox: [0, 0, 120, 30],
+                Resources: {Font: {F1: font}},
+            }),
+        );
+        const annotation = original.context.register(
+            original.context.obj({
+                Type: 'Annot',
+                Subtype: 'FreeText',
+                Rect: [10, 40, 130, 70],
+                NM: PDFString.of('original-box'),
+                Contents: PDFString.of('Original'),
+                DA: PDFString.of('/F1 12 Tf 0 0 0 rg'),
+                AP: {N: appearance},
+                F: 4,
+            }),
+        );
         page.node.set(PDFName.of('Annots'), original.context.obj([annotation]));
         const source = new Uint8Array(await original.save());
         const mutation = {
@@ -691,105 +632,127 @@ describe('browser page-ops WASM fast path', () => {
             annotationId: annotation.toString(),
             pageIndex: 0,
             text: 'Changed',
-            rect: [
-                10,
-                40,
-                130,
-                70,
-            ],
+            rect: [10, 40, 130, 70],
             rotation: 0,
             fontSize: 12,
-            color: [
-                0,
-                0,
-                0,
-            ],
+            color: [0, 0, 0],
         };
         const wasm = await loadWasmRunner();
         const edited = await wasm.append(source, {
             mutations: normalizePdfNativeMutationSet({textBoxes: [mutation]}, 'Browser appearance edit'),
             modifiedAt: 'D:20261016000000Z',
         });
-        if ('status' in edited) throw new Error('Expected the text edit to save');
-        const restore = normalizePdfNativeMutationSet({
-            originalAppearanceSource: 'browser://documents/original-appearance',
-            textBoxes: [{
-                ...mutation,
-                text: 'Original',
-                originalAppearance: {sourceAnnotationId: annotation.toString()},
-            }],
-        }, 'Browser original appearance restore');
+        if ('status' in edited) {
+            throw new Error('Expected the text edit to save');
+        }
+        const restore = normalizePdfNativeMutationSet(
+            {
+                originalAppearanceSource: 'browser://documents/original-appearance',
+                textBoxes: [
+                    {
+                        ...mutation,
+                        text: 'Original',
+                        originalAppearance: {sourceAnnotationId: annotation.toString()},
+                    },
+                ],
+            },
+            'Browser original appearance restore',
+        );
         // The original appearance is read by range from its own document.
         const restored = await wasm.append(edited.data, {
             mutations: restore,
             modifiedAt: 'D:20261016000001Z',
             appearanceSource: new Blob([source]),
         });
-        if ('status' in restored) throw new Error(`Expected the original appearance to restore: ${JSON.stringify(restored)}`);
+        if ('status' in restored) {
+            throw new Error(`Expected the original appearance to restore: ${JSON.stringify(restored)}`);
+        }
         const restoredDocument = await PDFDocument.load(restored.data);
         const restoredAnnotation = restoredDocument.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray).lookup(0, PDFDict);
-        const restoredAppearance = restoredDocument.context.lookup(restoredAnnotation.lookup(PDFName.of('AP'), PDFDict).get(PDFName.of('N')));
+        const restoredAppearance = restoredDocument.context.lookup(
+            restoredAnnotation.lookup(PDFName.of('AP'), PDFDict).get(PDFName.of('N')),
+        );
         const originalAppearance = original.context.lookup(appearance);
-        if (!(restoredAppearance instanceof PDFRawStream) || !(originalAppearance instanceof PDFRawStream)) throw new Error('Expected saved appearance streams');
+        if (!(restoredAppearance instanceof PDFRawStream) || !(originalAppearance instanceof PDFRawStream)) {
+            throw new Error('Expected saved appearance streams');
+        }
         expect(restoredAppearance.contents).toEqual(originalAppearance.contents);
         expect(restoredAnnotation.lookup(PDFName.of('Contents'), PDFString, PDFHexString).decodeText()).toBe('Original');
-        const restoredFont = restoredAppearance.dict.lookup(PDFName.of('Resources'), PDFDict).lookup(PDFName.of('Font'), PDFDict).lookup(PDFName.of('F1'), PDFDict);
+        const restoredFont = restoredAppearance.dict
+            .lookup(PDFName.of('Resources'), PDFDict)
+            .lookup(PDFName.of('Font'), PDFDict)
+            .lookup(PDFName.of('F1'), PDFDict);
         expect(restoredFont.get(PDFName.of('BaseFont'))).toBe(PDFName.of('Times-Italic'));
     });
 
-    it.each([
-        false,
-        true,
-    ])('publishes a complete bounded note save, or no bytes when a continuation fails: %s', async (failContinuation) => {
-        const input = await createPdf({pageWidths: [200]});
-        const original = input.slice();
-        const mutations = normalizePdfNativeMutationSet({freeTextNotes: Array.from({length: 257}, (_, index) => ({
-            stableKey: `new-browser-note-${index}`,
-            pageIndex: failContinuation && index === 256 ? 1 : 0,
-            text: `Note ${index}`,
-            markerRect: {
-                left: 0.1,
-                top: 0.1,
-                width: 0.1,
-                height: 0.1,
-            },
-        }))}, 'Browser continuation notes');
-        const wasm = await loadWasmRunner();
-        const result = await wasm.append(input, {
-            mutations,
-            modifiedAt: 'D:20261013000000Z',
-        });
-        expect(input).toEqual(original);
-        if (failContinuation) {
-            expect(result).toMatchObject({status: 'failed'});
-            expect(result).not.toHaveProperty('data');
-            return;
-        }
-        if ('status' in result) throw new Error('Expected all note continuations to save');
-        expect(result.identityBindings.map(binding => binding.annotationId).sort())
-            .toEqual(mutations.freeTextNotes!.map(note => note.stableKey).sort());
-        const reopened = await PDFDocument.load(result.data);
-        const annotations = reopened.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
-        const texts = Array.from({length: annotations.size()}, (_, index) => annotations.lookup(index, PDFDict))
-            .filter(annotation => annotation.get(PDFName.of('Subtype')) === PDFName.of('Text'))
-            .map(annotation => annotation.lookup(PDFName.of('Contents'), PDFString, PDFHexString).decodeText());
-        expect(texts.sort()).toEqual(mutations.freeTextNotes!.map(note => note.text).sort());
-    });
+    it.each([false, true])(
+        'publishes a complete bounded note save, or no bytes when a continuation fails: %s',
+        async (failContinuation) => {
+            const input = await createPdf({pageWidths: [200]});
+            const original = input.slice();
+            const mutations = normalizePdfNativeMutationSet(
+                {
+                    freeTextNotes: Array.from({length: 257}, (_, index) => ({
+                        stableKey: `new-browser-note-${index}`,
+                        pageIndex: failContinuation && index === 256 ? 1 : 0,
+                        text: `Note ${index}`,
+                        markerRect: {
+                            left: 0.1,
+                            top: 0.1,
+                            width: 0.1,
+                            height: 0.1,
+                        },
+                    })),
+                },
+                'Browser continuation notes',
+            );
+            const wasm = await loadWasmRunner();
+            const result = await wasm.append(input, {
+                mutations,
+                modifiedAt: 'D:20261013000000Z',
+            });
+            expect(input).toEqual(original);
+            if (failContinuation) {
+                expect(result).toMatchObject({status: 'failed'});
+                expect(result).not.toHaveProperty('data');
+                return;
+            }
+            if ('status' in result) {
+                throw new Error('Expected all note continuations to save');
+            }
+            expect(result.identityBindings.map((binding) => binding.annotationId).sort()).toEqual(
+                mutations.freeTextNotes!.map((note) => note.stableKey).sort(),
+            );
+            const reopened = await PDFDocument.load(result.data);
+            const annotations = reopened.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+            const texts = Array.from({length: annotations.size()}, (_, index) => annotations.lookup(index, PDFDict))
+                .filter((annotation) => annotation.get(PDFName.of('Subtype')) === PDFName.of('Text'))
+                .map((annotation) => annotation.lookup(PDFName.of('Contents'), PDFString, PDFHexString).decodeText());
+            expect(texts.sort()).toEqual(mutations.freeTextNotes!.map((note) => note.text).sort());
+        },
+    );
 
     it('saves a change that writes no object as the unchanged document', async () => {
         const input = await createPdf({pageWidths: [200]});
         const wasm = await loadWasmRunner();
         const result = await wasm.append(input, {
-            mutations: normalizePdfNativeMutationSet({shapes: {
-                totalPages: 1,
-                rewriteShapeState: false,
-                shapes: [],
-                deletedAnnotationIds: [],
-                deletedStableKeys: [],
-            }}, 'Browser no-op save'),
+            mutations: normalizePdfNativeMutationSet(
+                {
+                    shapes: {
+                        totalPages: 1,
+                        rewriteShapeState: false,
+                        shapes: [],
+                        deletedAnnotationIds: [],
+                        deletedStableKeys: [],
+                    },
+                },
+                'Browser no-op save',
+            ),
             modifiedAt: 'D:20261120000000Z',
         });
-        if ('status' in result) throw new Error(`Expected a no-op save: ${JSON.stringify(result)}`);
+        if ('status' in result) {
+            throw new Error(`Expected a no-op save: ${JSON.stringify(result)}`);
+        }
         expect(result.data).toEqual(input);
         expect(result.identityBindings).toEqual([]);
     });
@@ -797,29 +760,24 @@ describe('browser page-ops WASM fast path', () => {
     it('keeps one exact live request allocation across repeated awkward lengths', async () => {
         const wasmBytes = await readFile(join(process.cwd(), 'public/wasm/evb-pdf-page-ops.wasm'));
         const module = new NativeWebAssembly.Module(toArrayBuffer(wasmBytes));
-        const instance = await NativeWebAssembly.instantiate(module, {evb_host: Object.fromEntries(NativeWebAssembly.Module.imports(module).map(({name}) => [name, () => -1]))});
+        const instance = await NativeWebAssembly.instantiate(module, {
+            evb_host: Object.fromEntries(NativeWebAssembly.Module.imports(module).map(({name}) => [name, () => -1])),
+        });
         const memory = instance.exports.memory;
         const allocationAbiVersion = instance.exports.evb_wasm_request_allocation_abi_version;
         const alloc = instance.exports.evb_pdf_page_ops_alloc;
         const free = instance.exports.evb_pdf_page_ops_free;
         if (
-            !(memory instanceof NativeWebAssembly.Memory)
-            || typeof allocationAbiVersion !== 'function'
-            || typeof alloc !== 'function'
-            || typeof free !== 'function'
+            !(memory instanceof NativeWebAssembly.Memory) ||
+            typeof allocationAbiVersion !== 'function' ||
+            typeof alloc !== 'function' ||
+            typeof free !== 'function'
         ) {
             throw new Error('Page operation WASM allocation exports are missing');
         }
         expect(allocationAbiVersion()).toBe(1);
 
-        for (const length of [
-            1,
-            3,
-            17,
-            257,
-            1021,
-            4093,
-        ]) {
+        for (const length of [1, 3, 17, 257, 1021, 4093]) {
             const pointer = alloc(length);
             expect(pointer).not.toBe(0);
             expect(alloc(1)).toBe(0);
@@ -831,10 +789,7 @@ describe('browser page-ops WASM fast path', () => {
     it('inspects every page, or the requested ones, as desktop scan cleanup reads its page geometry', async () => {
         const wasm = await loadWasmRunner();
         const data = await createPdf({
-            pageWidths: [
-                200,
-                300,
-            ],
+            pageWidths: [200, 300],
             cropSecondPage: true,
             rotateSecondPage: true,
         });
@@ -843,9 +798,11 @@ describe('browser page-ops WASM fast path', () => {
             data,
             pages: [],
         });
-        if (inspected === null || 'status' in inspected) throw new Error('inspection failed');
+        if (inspected === null || 'status' in inspected) {
+            throw new Error('inspection failed');
+        }
         expect(inspected.pageCount).toBe(2);
-        const pages = inspected.pages.map(page => decodePdfPageSizeRecord(page, inspected.pageCount, 'page'));
+        const pages = inspected.pages.map((page) => decodePdfPageSizeRecord(page, inspected.pageCount, 'page'));
         expect(pages[0]).toMatchObject({
             pageNumber: 1,
             widthPoints: 200,
@@ -868,33 +825,26 @@ describe('browser page-ops WASM fast path', () => {
             data,
             pages: [2],
         });
-        if (selected === null || 'status' in selected) throw new Error('inspection failed');
-        expect(selected.pages.map(page => decodePdfPageSizeRecord(page, selected.pageCount, 'page'))).toEqual([pages[1]]);
+        if (selected === null || 'status' in selected) {
+            throw new Error('inspection failed');
+        }
+        expect(selected.pages.map((page) => decodePdfPageSizeRecord(page, selected.pageCount, 'page'))).toEqual([pages[1]]);
     });
 
-    it('inspects past a form it cannot read, marking only that page\'s raster inventory incomplete', async () => {
+    it("inspects past a form it cannot read, marking only that page's raster inventory incomplete", async () => {
         const wasm = await loadWasmRunner();
         const pdfDocument = await PDFDocument.create();
-        const unreadable = pdfDocument.addPage([
-            100,
-            100,
-        ]);
-        pdfDocument.addPage([
-            100,
-            100,
-        ]);
+        const unreadable = pdfDocument.addPage([100, 100]);
+        pdfDocument.addPage([100, 100]);
         // A form whose content declares an inline image of zero width, which
         // the content reader refuses to parse; pdfimages skips such a form.
-        const form = pdfDocument.context.register(pdfDocument.context.stream('BI /W 0 /H 2 /BPC 8 /CS /G ID \x00\x00 EI', {
-            Type: 'XObject',
-            Subtype: 'Form',
-            BBox: [
-                0,
-                0,
-                1,
-                1,
-            ],
-        }));
+        const form = pdfDocument.context.register(
+            pdfDocument.context.stream('BI /W 0 /H 2 /BPC 8 /CS /G ID \x00\x00 EI', {
+                Type: 'XObject',
+                Subtype: 'Form',
+                BBox: [0, 0, 1, 1],
+            }),
+        );
         unreadable.pushOperators(drawObject(unreadable.node.newXObject('F', form)));
         const data = await pdfDocument.save({useObjectStreams: false});
 
@@ -902,11 +852,10 @@ describe('browser page-ops WASM fast path', () => {
             data,
             pages: [],
         });
-        if (inspected === null || 'status' in inspected) throw new Error('inspection failed');
-        expect(inspected.pages.map(page => Reflect.get(page, 'rasterInventoryComplete'))).toEqual([
-            false,
-            true,
-        ]);
+        if (inspected === null || 'status' in inspected) {
+            throw new Error('inspection failed');
+        }
+        expect(inspected.pages.map((page) => Reflect.get(page, 'rasterInventoryComplete'))).toEqual([false, true]);
     });
 
     it.each([
@@ -967,7 +916,9 @@ describe('browser page-ops WASM fast path', () => {
             },
         });
 
-        if (rendered === null || 'status' in rendered) throw new Error('raster failed');
+        if (rendered === null || 'status' in rendered) {
+            throw new Error('raster failed');
+        }
         expect(rendered.report).toEqual({
             width: Number(header[1]),
             height: Number(header[2]),
@@ -980,48 +931,40 @@ describe('browser page-ops WASM fast path', () => {
     // -cropbox -hide-annotations -r 96` wrote for them: lossy 9/7 gray and RGB
     // (with the color transform), 16-bit, 1-bit, signed, alpha and sYCC
     // components. The engine decodes JPX with OpenJPEG, as Poppler does.
-    it.each([
-        'gray',
-        'rgb',
-        'gray16',
-        'rgb16',
-        'gray1',
-        'gray-signed',
-        'gray-alpha',
-        'rgb-alpha',
-        'sycc444',
-    ] as const)('rasterizes a %s JPEG 2000 scan page with the RGB bytes pdftoppm wrote for it', async (name) => {
-        const fixture = join(process.cwd(), 'native/pdf-page-ops/tests/fixtures/scan-raster-jpx');
-        const expected = new Uint8Array(await readFile(join(fixture, `${name}-expected.ppm`)));
-        const header = /^P6\s+(\d+)\s+(\d+)\s+255\s/u.exec(new TextDecoder().decode(expected.subarray(0, 32)))!;
-        const wasm = await loadWasmRunner();
+    it.each(['gray', 'rgb', 'gray16', 'rgb16', 'gray1', 'gray-signed', 'gray-alpha', 'rgb-alpha', 'sycc444'] as const)(
+        'rasterizes a %s JPEG 2000 scan page with the RGB bytes pdftoppm wrote for it',
+        async (name) => {
+            const fixture = join(process.cwd(), 'native/pdf-page-ops/tests/fixtures/scan-raster-jpx');
+            const expected = new Uint8Array(await readFile(join(fixture, `${name}-expected.ppm`)));
+            const header = /^P6\s+(\d+)\s+(\d+)\s+255\s/u.exec(new TextDecoder().decode(expected.subarray(0, 32)))!;
+            const wasm = await loadWasmRunner();
 
-        const rendered = await wasm.run('renderScanCleanupRaster', {
-            data: new Uint8Array(await readFile(join(fixture, `${name}.pdf`))),
-            request: {
-                pageNumber: 1,
-                dpi: 96,
-                renderBox: 'cropBox',
-                maxPixels: 1_000_000,
-            },
-        });
+            const rendered = await wasm.run('renderScanCleanupRaster', {
+                data: new Uint8Array(await readFile(join(fixture, `${name}.pdf`))),
+                request: {
+                    pageNumber: 1,
+                    dpi: 96,
+                    renderBox: 'cropBox',
+                    maxPixels: 1_000_000,
+                },
+            });
 
-        if (rendered === null || 'status' in rendered) throw new Error('raster failed');
-        expect(rendered.report).toEqual({
-            width: Number(header[1]),
-            height: Number(header[2]),
-            compatibility: 'exact',
-        });
-        expect(rendered.data).toEqual(expected.subarray(header[0].length));
-    });
+            if (rendered === null || 'status' in rendered) {
+                throw new Error('raster failed');
+            }
+            expect(rendered.report).toEqual({
+                width: Number(header[1]),
+                height: Number(header[2]),
+                compatibility: 'exact',
+            });
+            expect(rendered.data).toEqual(expected.subarray(header[0].length));
+        },
+    );
 
-    it('keeps an RGB JPEG near when its PDF overrides the stream\'s color transform', async () => {
+    it("keeps an RGB JPEG near when its PDF overrides the stream's color transform", async () => {
         const fixture = join(process.cwd(), 'native/scan-cleanup/tests/fixtures/source-raster/jpeg-rgb');
         const pdfDocument = await PDFDocument.load(await readFile(join(fixture, 'input.pdf')));
-        for (const [
-            ,
-            object,
-        ] of pdfDocument.context.enumerateIndirectObjects()) {
+        for (const [, object] of pdfDocument.context.enumerateIndirectObjects()) {
             if (object instanceof PDFRawStream && object.dict.get(PDFName.of('Subtype')) === PDFName.of('Image')) {
                 object.dict.set(PDFName.of('DecodeParms'), pdfDocument.context.obj({ColorTransform: 1}));
             }
@@ -1038,7 +981,9 @@ describe('browser page-ops WASM fast path', () => {
             },
         });
 
-        if (rendered === null || 'status' in rendered) throw new Error('raster failed');
+        if (rendered === null || 'status' in rendered) {
+            throw new Error('raster failed');
+        }
         expect(rendered.report).toMatchObject({compatibility: 'near'});
     });
 
@@ -1047,11 +992,7 @@ describe('browser page-ops WASM fast path', () => {
         const valid = new Uint8Array(await readFile(join(fixture, 'input.pdf')));
         // The same page with its JPEG's start-of-image marker broken.
         const broken = valid.slice();
-        const start = Buffer.from(broken).indexOf(Buffer.from([
-            0xff,
-            0xd8,
-            0xff,
-        ]));
+        const start = Buffer.from(broken).indexOf(Buffer.from([0xff, 0xd8, 0xff]));
         expect(start).toBeGreaterThan(0);
         broken[start + 1] = 0x00;
         const wasm = await loadWasmRunner();
@@ -1077,16 +1018,15 @@ describe('browser page-ops WASM fast path', () => {
             status: 'failed',
             error: {code: 'too-large'},
         });
-        if (rendered === null || 'status' in rendered) throw new Error('raster failed');
+        if (rendered === null || 'status' in rendered) {
+            throw new Error('raster failed');
+        }
         expect(rendered.report).toMatchObject({compatibility: 'exact'});
     });
 
     it('reports a page with vector content unsupported, for PDF.js to paint', async () => {
         const pdfDocument = await PDFDocument.create();
-        pdfDocument.addPage([
-            200,
-            100,
-        ]).drawRectangle({
+        pdfDocument.addPage([200, 100]).drawRectangle({
             x: 10,
             y: 10,
             width: 50,
@@ -1103,7 +1043,9 @@ describe('browser page-ops WASM fast path', () => {
             },
         });
 
-        if (rendered === null || 'status' in rendered) throw new Error('raster failed');
+        if (rendered === null || 'status' in rendered) {
+            throw new Error('raster failed');
+        }
         expect(rendered.report).toHaveProperty('unsupported');
         expect(rendered.data.byteLength).toBe(0);
     });
@@ -1141,10 +1083,7 @@ describe('browser page-ops WASM fast path', () => {
     });
 
     it('parses reachable FreeText and Popup entries through the writer WASM operation', async () => {
-        const data = new Uint8Array(await readFile(join(
-            process.cwd(),
-            'tests/fixtures/electron/freetext-lifecycle-test.pdf',
-        )));
+        const data = new Uint8Array(await readFile(join(process.cwd(), 'tests/fixtures/electron/freetext-lifecycle-test.pdf')));
         const wasm = await loadWasmRunner();
         const result = await wasm.run('parseAnnotations', {source: new Blob([data])});
         expect(result).not.toBeNull();
@@ -1154,12 +1093,8 @@ describe('browser page-ops WASM fast path', () => {
 
         const parsed = decodeBrowserPdfAnnotationsOutput(result.data);
         expect(parsed.pageCount).toBe(1);
-        expect(parsed.entities.map(entity => entity.kind)).toEqual([
-            'note',
-            'text-box',
-            'text-box',
-        ]);
-        expect(parsed.entities.map(entity => entity.name)).toEqual([
+        expect(parsed.entities.map((entity) => entity.kind)).toEqual(['note', 'text-box', 'text-box']);
+        expect(parsed.entities.map((entity) => entity.name)).toEqual([
             'lifecycle-note',
             'lifecycle-text-box-one',
             'lifecycle-text-box-two',
@@ -1168,27 +1103,23 @@ describe('browser page-ops WASM fast path', () => {
     });
 
     it('decodes annotation parse output of any total size and keeps the desktop entry limit', async () => {
-        const data = new Uint8Array(await readFile(join(
-            process.cwd(),
-            'tests/fixtures/electron/freetext-lifecycle-test.pdf',
-        )));
+        const data = new Uint8Array(await readFile(join(process.cwd(), 'tests/fixtures/electron/freetext-lifecycle-test.pdf')));
         const wasm = await loadWasmRunner();
         const result = await wasm.run('parseAnnotations', {source: new Blob([data])});
         if (result === null || 'status' in result) {
             throw new Error('Expected annotation parse WASM output');
         }
-        const [
-            header,
-            firstChunk,
-        ] = new TextDecoder().decode(result.data).split('\n');
+        const [header, firstChunk] = new TextDecoder().decode(result.data).split('\n');
         const note = (JSON.parse(firstChunk!) as {entries: Array<Record<string, unknown>>}).entries[0]!;
         const output = (entryCount: number, entriesPerLine: number, entry: unknown = note) => {
             const lines = [header!];
             for (let offset = 0; offset < entryCount; offset += entriesPerLine) {
-                lines.push(JSON.stringify({
-                    chunkIndex: lines.length - 1,
-                    entries: new Array(Math.min(entriesPerLine, entryCount - offset)).fill(entry),
-                }));
+                lines.push(
+                    JSON.stringify({
+                        chunkIndex: lines.length - 1,
+                        entries: new Array(Math.min(entriesPerLine, entryCount - offset)).fill(entry),
+                    }),
+                );
             }
             return new TextEncoder().encode(`${lines.join('\r\n')}\n`);
         };
@@ -1204,26 +1135,26 @@ describe('browser page-ops WASM fast path', () => {
         expect(parsed.entities).toHaveLength(2_500);
         expect(parsed.entities.at(-1)).toEqual(longNote);
 
-        expect(() => decodeBrowserPdfAnnotationsOutput(output(PDF_ANNOTATION_PARSE_MAX_ENTRIES + 1, 2_000)))
-            .toThrow(`contains more than ${PDF_ANNOTATION_PARSE_MAX_ENTRIES} entries`);
-        const longLine = new TextEncoder().encode(`${header}\n${JSON.stringify({
-            chunkIndex: 0,
-            entries: [],
-            padding: 'x'.repeat(PDF_ANNOTATION_PARSE_MAX_LINE_BYTES),
-        })}\n`);
+        expect(() => decodeBrowserPdfAnnotationsOutput(output(PDF_ANNOTATION_PARSE_MAX_ENTRIES + 1, 2_000))).toThrow(
+            `contains more than ${PDF_ANNOTATION_PARSE_MAX_ENTRIES} entries`,
+        );
+        const longLine = new TextEncoder().encode(
+            `${header}\n${JSON.stringify({
+                chunkIndex: 0,
+                entries: [],
+                padding: 'x'.repeat(PDF_ANNOTATION_PARSE_MAX_LINE_BYTES),
+            })}\n`,
+        );
         expect(decodeBrowserPdfAnnotationsOutput(output(1, 1)).entities).toEqual([note]);
         expect(() => decodeBrowserPdfAnnotationsOutput(longLine)).toThrow('line 2 exceeds');
-        expect(() => decodeBrowserPdfAnnotationsOutput(Uint8Array.of(...new TextEncoder().encode(`${header}\n`), 0xff, 0x0a)))
-            .toThrow('not valid UTF-8');
+        expect(() => decodeBrowserPdfAnnotationsOutput(Uint8Array.of(...new TextEncoder().encode(`${header}\n`), 0xff, 0x0a))).toThrow(
+            'not valid UTF-8',
+        );
     });
 
     it('matches pdf-lib page summaries for representative operations', async () => {
         const basePdf = await createPdf({
-            pageWidths: [
-                200,
-                300,
-                400,
-            ],
+            pageWidths: [200, 300, 400],
             cropSecondPage: true,
             rotateSecondPage: true,
         });
@@ -1231,37 +1162,36 @@ describe('browser page-ops WASM fast path', () => {
 
         const wasm = await loadWasmRunner();
         const wasmDelete = await wasm.structure({kind: 'delete', pages: [2]}, [basePdf]);
-        const wasmExtract = await wasm.structure({kind: 'extract', pages: [
-                3,
-                1,
-            ]}, [basePdf]);
-        const wasmReorder = await wasm.structure({kind: 'reorder', pages: [
-                3,
-                1,
-                2,
-            ]}, [basePdf]);
+        const wasmExtract = await wasm.structure({kind: 'extract', pages: [3, 1]}, [basePdf]);
+        const wasmReorder = await wasm.structure({kind: 'reorder', pages: [3, 1, 2]}, [basePdf]);
         const wasmInsert = await wasm.structure({kind: 'insert', afterPage: 1}, [basePdf, insertionPdf]);
         const wasmRotate = await wasm.append(basePdf, {
-            mutations: {pageRotations: [
-                {
-                    pageIndex: requirePageIndex(0),
-                    angle: 90,
-                },
-                {
-                    pageIndex: requirePageIndex(2),
-                    angle: 90,
-                },
-            ]},
+            mutations: {
+                pageRotations: [
+                    {
+                        pageIndex: requirePageIndex(0),
+                        angle: 90,
+                    },
+                    {
+                        pageIndex: requirePageIndex(2),
+                        angle: 90,
+                    },
+                ],
+            },
             modifiedAt: 'D:20261012000000Z',
         });
         const wasmCrop = await wasm.append(basePdf, {
-            mutations: {pageCrops: [{
-                pageIndex: requirePageIndex(0),
-                top: 4,
-                bottom: 6,
-                left: 8,
-                right: 10,
-            }]},
+            mutations: {
+                pageCrops: [
+                    {
+                        pageIndex: requirePageIndex(0),
+                        top: 4,
+                        bottom: 6,
+                        left: 8,
+                        right: 10,
+                    },
+                ],
+            },
             modifiedAt: 'D:20261012000000Z',
         });
         const wasmRemoveCrop = await wasm.append(basePdf, {
@@ -1288,40 +1218,13 @@ describe('browser page-ops WASM fast path', () => {
         assertSuccessfulWasmMutation(wasmRotate);
         assertSuccessfulWasmMutation(wasmCrop);
         assertSuccessfulWasmMutation(wasmRemoveCrop);
-        expect(wasm.fetchMock).toHaveBeenCalledWith(
-            'https://viewer.test/wasm/evb-pdf-page-ops.wasm',
-            {signal: expect.any(AbortSignal)},
-        );
+        expect(wasm.fetchMock).toHaveBeenCalledWith('https://viewer.test/wasm/evb-pdf-page-ops.wasm', {signal: expect.any(AbortSignal)});
 
-        expect((await summarizePdf(wasmDelete.data)).map(page => page.mediaBox.width))
-            .toEqual([
-                200,
-                400,
-            ]);
-        expect((await summarizePdf(wasmExtract.data)).map(page => page.mediaBox.width))
-            .toEqual([
-                400,
-                200,
-            ]);
-        expect((await summarizePdf(wasmReorder.data)).map(page => page.mediaBox.width))
-            .toEqual([
-                400,
-                200,
-                300,
-            ]);
-        expect((await summarizePdf(wasmInsert.data)).map(page => page.mediaBox.width))
-            .toEqual([
-                200,
-                500,
-                300,
-                400,
-            ]);
-        expect((await summarizePdf(wasmRotate.data)).map(page => page.rotation))
-            .toEqual([
-                90,
-                90,
-                90,
-            ]);
+        expect((await summarizePdf(wasmDelete.data)).map((page) => page.mediaBox.width)).toEqual([200, 400]);
+        expect((await summarizePdf(wasmExtract.data)).map((page) => page.mediaBox.width)).toEqual([400, 200]);
+        expect((await summarizePdf(wasmReorder.data)).map((page) => page.mediaBox.width)).toEqual([400, 200, 300]);
+        expect((await summarizePdf(wasmInsert.data)).map((page) => page.mediaBox.width)).toEqual([200, 500, 300, 400]);
+        expect((await summarizePdf(wasmRotate.data)).map((page) => page.rotation)).toEqual([90, 90, 90]);
         expect((await summarizePdf(wasmCrop.data))[0]?.cropBox).toEqual({
             x: 8,
             y: 6,
@@ -1349,66 +1252,64 @@ describe('browser page-ops WASM fast path', () => {
 
     it('saves one physical inch on mixed UserUnit pages and retains their scale', async () => {
         const pdf = await PDFDocument.create();
-        for (const userUnit of [
-            1,
-            2,
-        ]) {
-            const page = pdf.addPage([
-                300,
-                200,
-            ]);
+        for (const userUnit of [1, 2]) {
+            const page = pdf.addPage([300, 200]);
             page.node.set(PDFName.of('UserUnit'), PDFNumber.of(userUnit));
         }
         const data = new Uint8Array(await pdf.save());
         const wasm = await loadWasmRunner();
         const result = await wasm.append(data, {
-            mutations: {pageCrops: [
-                {
-                    pageIndex: requirePageIndex(0),
-                    top: 0,
-                    bottom: 0,
-                    left: 72,
-                    right: 0,
-                    physical: true,
-                },
-                {
-                    pageIndex: requirePageIndex(1),
-                    top: 0,
-                    bottom: 0,
-                    left: 72,
-                    right: 0,
-                    physical: true,
-                },
-            ]},
+            mutations: {
+                pageCrops: [
+                    {
+                        pageIndex: requirePageIndex(0),
+                        top: 0,
+                        bottom: 0,
+                        left: 72,
+                        right: 0,
+                        physical: true,
+                    },
+                    {
+                        pageIndex: requirePageIndex(1),
+                        top: 0,
+                        bottom: 0,
+                        left: 72,
+                        right: 0,
+                        physical: true,
+                    },
+                ],
+            },
             modifiedAt: 'D:20261012000000Z',
         });
         assertSuccessfulWasmMutation(result);
         const reopened = await PDFDocument.load(result.data);
-        for (const [
-            index,
-            page,
-        ] of reopened.getPages().entries()) {
+        for (const [index, page] of reopened.getPages().entries()) {
             const userUnit = page.node.lookup(PDFName.of('UserUnit'), PDFNumber).asNumber();
             expect(userUnit).toBe(index + 1);
             expect(page.getCropBox().x).toBe(72 / userUnit);
-            expect(page.getCropBox().x * userUnit / 72).toBe(1);
+            expect((page.getCropBox().x * userUnit) / 72).toBe(1);
         }
-        expect(await wasm.run('getPageGeometry', {
-            source: new Blob([result.data.slice()]),
-            pageNumber: 2,
-        }))
-            .toMatchObject({
-                userUnit: 2,
-                cropBox: reopened.getPage(1).getCropBox(),
-            });
+        expect(
+            await wasm.run('getPageGeometry', {
+                source: new Blob([result.data.slice()]),
+                pageNumber: 2,
+            }),
+        ).toMatchObject({
+            userUnit: 2,
+            cropBox: reopened.getPage(1).getCropBox(),
+        });
         const raw = await wasm.append(data, {
-            mutations: {pageCrops: [{
-                pageIndex: requirePageIndex(1),
-                top: 0,
-                bottom: 0,
-                left: 72,
-                right: 0,
-            }]},
+            mutations: {
+                pageCrops: [
+                    {
+                        pageIndex: requirePageIndex(1),
+                        top: 0,
+                        bottom: 0,
+                        left: 72,
+                        right: 0,
+                    },
+                ],
+            },
             modifiedAt: 'D:20261012000000Z',
         });
         assertSuccessfulWasmMutation(raw);
@@ -1422,34 +1323,18 @@ describe('browser page-ops WASM fast path', () => {
         const operations = [
             {
                 result: await wasm.structure({kind: 'delete', pages: [2]}, [basePdf]),
-                labels: [
-                    '1',
-                    'II',
-                ],
+                labels: ['1', 'II'],
                 destinationPage: 2,
             },
             {
-                result: await wasm.structure({kind: 'reorder', pages: [
-                        3,
-                        1,
-                        2,
-                    ]}, [basePdf]),
-                labels: [
-                    'II',
-                    '1',
-                    'I',
-                ],
+                result: await wasm.structure({kind: 'reorder', pages: [3, 1, 2]}, [basePdf]),
+                labels: ['II', '1', 'I'],
                 destinationPage: 1,
             },
             {
                 result: await wasm.structure({kind: 'insert', afterPage: 1}, [basePdf, insertionPdf]),
                 // The unlabelled inserted page continues the range it lands in.
-                labels: [
-                    '1',
-                    '2',
-                    'I',
-                    'II',
-                ],
+                labels: ['1', '2', 'I', 'II'],
                 destinationPage: 4,
             },
         ];
@@ -1459,8 +1344,7 @@ describe('browser page-ops WASM fast path', () => {
             const output = await PDFDocument.load(operation.result.data);
             expect(output.catalog.get(PDFName.of('Outlines'))).toBeDefined();
             expect((await readPdfCatalogWithPdfjs(operation.result.data)).pageLabels).toEqual(operation.labels);
-            expect(readOutlineDestination(output).objectNumber)
-                .toBe(output.getPage(operation.destinationPage - 1).ref.objectNumber);
+            expect(readOutlineDestination(output).objectNumber).toBe(output.getPage(operation.destinationPage - 1).ref.objectNumber);
         }
     });
 
@@ -1472,21 +1356,23 @@ describe('browser page-ops WASM fast path', () => {
 
         const catalogResult = await wasm.run('readCatalog', {source: new Blob([sourcePdf])});
         expect(catalogResult).toEqual({
-            bookmarks: [{
-                title: 'Page three',
-                pageIndex: 2,
-                pageYRatio: 0,
-                originalDestination: {
-                    kind: 'Fit',
-                    coordinates: [],
-                    sourceTarget: 2,
+            bookmarks: [
+                {
+                    title: 'Page three',
+                    pageIndex: 2,
+                    pageYRatio: 0,
+                    originalDestination: {
+                        kind: 'Fit',
+                        coordinates: [],
+                        sourceTarget: 2,
+                    },
+                    namedDest: null,
+                    bold: false,
+                    italic: false,
+                    color: null,
+                    items: [],
                 },
-                namedDest: null,
-                bold: false,
-                italic: false,
-                color: null,
-                items: [],
-            }],
+            ],
             pageLabels: [
                 {
                     pageIndex: 0,
@@ -1510,24 +1396,23 @@ describe('browser page-ops WASM fast path', () => {
             hasXfa: false,
         });
 
-        const mergedResult = await wasm.structure({kind: 'merge'}, [
-            sourcePdf,
-            secondPdf,
-        ]);
+        const mergedResult = await wasm.structure({kind: 'merge'}, [sourcePdf, secondPdf]);
         assertSuccessfulWasmMutation(mergedResult);
         expect(mergedResult.pageCount).toBe(4);
         const merged = await PDFDocument.load(mergedResult.data);
         const mergedCatalog = await wasm.run('readCatalog', {source: new Blob([mergedResult.data])});
         expect(mergedCatalog).toMatchObject({
-            bookmarks: [{
-                title: 'Page three',
-                pageIndex: 2,
-                originalDestination: {
-                    kind: 'Fit',
-                    coordinates: [],
-                    sourceTarget: 2,
+            bookmarks: [
+                {
+                    title: 'Page three',
+                    pageIndex: 2,
+                    originalDestination: {
+                        kind: 'Fit',
+                        coordinates: [],
+                        sourceTarget: 2,
+                    },
                 },
-            }],
+            ],
             pageLabels: [
                 {
                     pageIndex: 0,
@@ -1540,15 +1425,17 @@ describe('browser page-ops WASM fast path', () => {
                 {pageIndex: 3},
             ],
         });
-        expect(readOutlineDestination(merged).objectNumber)
-            .toBe(merged.getPage(2).ref.objectNumber);
+        expect(readOutlineDestination(merged).objectNumber).toBe(merged.getPage(2).ref.objectNumber);
         expect(sourcePdf).toEqual(sourceSnapshot);
     });
 
     it('merges more than 500 documents and reads catalogs of more than 500 pages, as desktop does', async () => {
         const wasm = await loadWasmRunner();
         const onePage = await createPdf({pageWidths: [200]});
-        const mergedResult = await wasm.structure({kind: 'merge'}, Array.from({length: 600}, () => onePage.slice()));
+        const mergedResult = await wasm.structure(
+            {kind: 'merge'},
+            Array.from({length: 600}, () => onePage.slice()),
+        );
         assertSuccessfulWasmMutation(mergedResult);
         expect(mergedResult.pageCount).toBe(600);
         expect((await PDFDocument.load(mergedResult.data)).getPageCount()).toBe(600);
@@ -1561,14 +1448,14 @@ describe('browser page-ops WASM fast path', () => {
         const pdfDocument = await PDFDocument.create();
         const nums = [];
         for (let pageIndex = 0; pageIndex < 3_000; pageIndex += 1) {
-            pdfDocument.addPage([
-                100,
-                100,
-            ]);
-            nums.push(PDFNumber.of(pageIndex), pdfDocument.context.obj({
-                S: PDFName.of(pageIndex % 2 === 0 ? 'D' : 'r'),
-                P: PDFString.of(`part-${pageIndex}-`),
-            }));
+            pdfDocument.addPage([100, 100]);
+            nums.push(
+                PDFNumber.of(pageIndex),
+                pdfDocument.context.obj({
+                    S: PDFName.of(pageIndex % 2 === 0 ? 'D' : 'r'),
+                    P: PDFString.of(`part-${pageIndex}-`),
+                }),
+            );
         }
         pdfDocument.catalog.set(PDFName.of('PageLabels'), pdfDocument.context.obj({Nums: pdfDocument.context.obj(nums)}));
         const catalog = await wasm.run('readCatalog', {source: new Blob([(await pdfDocument.save()).slice()])});
@@ -1587,10 +1474,7 @@ describe('browser page-ops WASM fast path', () => {
         const sourcePdf = await createMetadataPdf();
         const wasm = await loadWasmRunner();
 
-        const mergedResult = await wasm.structure({kind: 'merge'}, [
-            sourcePdf,
-            sourcePdf,
-        ]);
+        const mergedResult = await wasm.structure({kind: 'merge'}, [sourcePdf, sourcePdf]);
         assertSuccessfulWasmMutation(mergedResult);
 
         const mergedCatalog = await wasm.run('readCatalog', {source: new Blob([mergedResult.data])});
@@ -1598,26 +1482,15 @@ describe('browser page-ops WASM fast path', () => {
             throw new Error('Expected a successful browser page-ops catalog read');
         }
         expect(mergedCatalog.bookmarks).toHaveLength(2);
-        expect(mergedCatalog.bookmarks?.map(bookmark => bookmark.pageIndex)).toEqual([
-            2,
-            5,
-        ]);
-        expect(mergedCatalog.pageLabels?.map(range => range.pageIndex)).toEqual([
-            0,
-            1,
-            3,
-            4,
-        ]);
+        expect(mergedCatalog.bookmarks?.map((bookmark) => bookmark.pageIndex)).toEqual([2, 5]);
+        expect(mergedCatalog.pageLabels?.map((range) => range.pageIndex)).toEqual([0, 1, 3, 4]);
     });
 
     it('review-b6yr reads valid sibling bookmarks when one destination is dangling', async () => {
         const data = await createOutlinePdf((_pdfDocument, pages) => [
             {
                 Title: PDFString.of('Valid first'),
-                Dest: [
-                    pages[0],
-                    PDFName.of('Fit'),
-                ],
+                Dest: [pages[0], PDFName.of('Fit')],
             },
             {
                 Title: PDFString.of('Target under review'),
@@ -1625,11 +1498,7 @@ describe('browser page-ops WASM fast path', () => {
             },
             {
                 Title: PDFString.of('Valid last'),
-                Dest: [
-                    pages[2],
-                    PDFName.of('FitH'),
-                    null,
-                ],
+                Dest: [pages[2], PDFName.of('FitH'), null],
             },
         ]);
         const wasm = await loadWasmRunner();
@@ -1639,42 +1508,23 @@ describe('browser page-ops WASM fast path', () => {
         }
 
         expect(catalog.bookmarksError).toBeUndefined();
-        expect(catalog.bookmarks?.map(bookmark => [
-            bookmark.title,
-            bookmark.pageIndex,
-        ])).toEqual([
-            [
-                'Valid first',
-                0,
-            ],
-            [
-                'Target under review',
-                null,
-            ],
-            [
-                'Valid last',
-                2,
-            ],
+        expect(catalog.bookmarks?.map((bookmark) => [bookmark.title, bookmark.pageIndex])).toEqual([
+            ['Valid first', 0],
+            ['Target under review', null],
+            ['Valid last', 2],
         ]);
     });
 
     it('review-b6yr keeps an untouched Unicode named destination when another bookmark is renamed', async () => {
         const data = await createOutlinePdf((pdfDocument, pages) => {
-            pdfDocument.catalog.set(PDFName.of('Names'), pdfDocument.context.obj({Dests: {Names: [
-                PDFHexString.fromText('caf\u00e9'),
-                [
-                    pages[2],
-                    PDFName.of('FitH'),
-                    null,
-                ],
-            ]}}));
+            pdfDocument.catalog.set(
+                PDFName.of('Names'),
+                pdfDocument.context.obj({Dests: {Names: [PDFHexString.fromText('caf\u00e9'), [pages[2], PDFName.of('FitH'), null]]}}),
+            );
             return [
                 {
                     Title: PDFString.of('Chapter'),
-                    Dest: [
-                        pages[1],
-                        PDFName.of('Fit'),
-                    ],
+                    Dest: [pages[1], PDFName.of('Fit')],
                 },
                 {
                     Title: PDFString.of('Named'),
@@ -1686,46 +1536,24 @@ describe('browser page-ops WASM fast path', () => {
 
         const saved = await readOutlineTargets(await renameFirstBookmarkAndSave(data));
 
-        expect(saved.map(target => target.title)).toEqual([
-            'Chapter renamed',
-            'Named',
-        ]);
+        expect(saved.map((target) => target.title)).toEqual(['Chapter renamed', 'Named']);
         expect(saved[1]).toEqual(source[1]);
     });
 
     it.each([
-        [
-            'a PDFDocEncoding name',
-            'caf\u00e9',
-            PDFHexString.of('636166E9'),
-        ],
-        [
-            'an ASCII name stored as UTF-16',
-            'chapter',
-            PDFHexString.fromText('chapter'),
-        ],
-        [
-            'a name with surrounding spaces',
-            ' intro ',
-            PDFString.of(' intro '),
-        ],
+        ['a PDFDocEncoding name', 'caf\u00e9', PDFHexString.of('636166E9')],
+        ['an ASCII name stored as UTF-16', 'chapter', PDFHexString.fromText('chapter')],
+        ['a name with surrounding spaces', ' intro ', PDFString.of(' intro ')],
     ])('keeps the name tree bytes of an untouched named destination in %s when another bookmark is renamed', async (_case, name, key) => {
         const data = await createOutlinePdf((pdfDocument, pages) => {
-            pdfDocument.catalog.set(PDFName.of('Names'), pdfDocument.context.obj({Dests: {Names: [
-                key,
-                [
-                    pages[2],
-                    PDFName.of('FitH'),
-                    null,
-                ],
-            ]}}));
+            pdfDocument.catalog.set(
+                PDFName.of('Names'),
+                pdfDocument.context.obj({Dests: {Names: [key, [pages[2], PDFName.of('FitH'), null]]}}),
+            );
             return [
                 {
                     Title: PDFString.of('Chapter'),
-                    Dest: [
-                        pages[1],
-                        PDFName.of('Fit'),
-                    ],
+                    Dest: [pages[1], PDFName.of('Fit')],
                 },
                 {
                     Title: PDFString.of('Named'),
@@ -1737,8 +1565,12 @@ describe('browser page-ops WASM fast path', () => {
         const saved = await renameFirstBookmarkAndSave(data);
 
         const savedDocument = await PDFDocument.load(saved);
-        const treeKey = savedDocument.catalog.lookup(PDFName.of('Names'), PDFDict).lookup(PDFName.of('Dests'), PDFDict)
-            .lookup(PDFName.of('Names'), PDFArray).get(0).toString();
+        const treeKey = savedDocument.catalog
+            .lookup(PDFName.of('Names'), PDFDict)
+            .lookup(PDFName.of('Dests'), PDFDict)
+            .lookup(PDFName.of('Names'), PDFArray)
+            .get(0)
+            .toString();
         expect(treeKey).toBe(key.toString());
         expect((await readOutlineTargets(saved))[1]!.dest).toBe(treeKey);
         const reread = await (await loadWasmRunner()).run('readCatalog', {source: new Blob([saved])});
@@ -1755,24 +1587,20 @@ describe('browser page-ops WASM fast path', () => {
         const data = await createOutlinePdf((pdfDocument, pages) => [
             {
                 Title: PDFString.of('Chapter'),
-                Dest: [
-                    pages[1],
-                    PDFName.of('Fit'),
-                ],
+                Dest: [pages[1], PDFName.of('Fit')],
             },
             {
                 Title: PDFString.of('Remote'),
                 A: {
                     S: PDFName.of('GoToR'),
-                    F: pdfDocument.context.register(pdfDocument.context.obj({
-                        Type: PDFName.of('Filespec'),
-                        F: PDFString.of('chapter-two.pdf'),
-                        UF: PDFHexString.fromText('chapter-two.pdf'),
-                    })),
-                    D: [
-                        0,
-                        PDFName.of('Fit'),
-                    ],
+                    F: pdfDocument.context.register(
+                        pdfDocument.context.obj({
+                            Type: PDFName.of('Filespec'),
+                            F: PDFString.of('chapter-two.pdf'),
+                            UF: PDFHexString.fromText('chapter-two.pdf'),
+                        }),
+                    ),
+                    D: [0, PDFName.of('Fit')],
                 },
             },
         ]);
@@ -1788,47 +1616,29 @@ describe('browser page-ops WASM fast path', () => {
         const basePdf = await createPdf({pageWidths: [200]});
         const core = await loadCoreWithWasm();
 
-        await expect(core.getPageGeometryFromPdfBytes(basePdf, 1.5))
-            .rejects.toThrow('Invalid page-op WASM integer field');
-        expect(core.fetchMock).toHaveBeenCalledWith(
-            'https://viewer.test/wasm/evb-pdf-page-ops.wasm',
-            {signal: expect.any(AbortSignal)},
-        );
+        await expect(core.getPageGeometryFromPdfBytes(basePdf, 1.5)).rejects.toThrow('Invalid page-op WASM integer field');
+        expect(core.fetchMock).toHaveBeenCalledWith('https://viewer.test/wasm/evb-pdf-page-ops.wasm', {signal: expect.any(AbortSignal)});
     });
 
     it('lays out the selected pages on A4 print sheets through WASM operation 15', async () => {
         const basePdf = await createPdf({
-            pageWidths: [
-                200,
-                300,
-                400,
-            ],
+            pageWidths: [200, 300, 400],
             rotateSecondPage: true,
         });
         const core = await loadCoreWithWasm();
 
         const single = await core.layoutPdfForPrint(basePdf, {
-            pageNumbers: [
-                3,
-                2,
-            ],
+            pageNumbers: [3, 2],
             viewMode: 'single',
             orientation: 'auto',
         });
         // Sheets follow page order: page 2 (300x120 turned a quarter) prints
         // portrait and page 3 (400x140) landscape.
-        expect((await summarizePdf(single.data)).map(page => [
-            Math.round(page.mediaBox.width),
-            Math.round(page.mediaBox.height),
-        ])).toEqual([
-            [
-                595,
-                842,
-            ],
-            [
-                842,
-                595,
-            ],
+        expect(
+            (await summarizePdf(single.data)).map((page) => [Math.round(page.mediaBox.width), Math.round(page.mediaBox.height)]),
+        ).toEqual([
+            [595, 842],
+            [842, 595],
         ]);
 
         const facing = await core.layoutPdfForPrint(basePdf, {
@@ -1858,83 +1668,118 @@ describe('browser page-ops WASM fast path', () => {
                 ...split,
                 unexpected: true,
             },
-            {pages: [{
-                ...page,
-                unexpected: true,
-            }]},
-            {pages: [{
-                ...page,
-                outputs: [{
-                    ...output,
-                    unexpected: true,
-                }],
-            }]},
-            {pages: [{
-                ...page,
-                outputs: [{cropRect: {
-                    ...cropRect,
-                    unexpected: true,
-                }}],
-            }]},
-            {pages: [{
-                ...page,
-                outputs: [{
-                    ...output,
-                    contentTransform: {
-                        scale: 1,
-                        translateX: 0,
-                        translateY: 0,
+            {
+                pages: [
+                    {
+                        ...page,
                         unexpected: true,
                     },
-                }],
-            }]},
-        ]) expect(v.safeParse(SPLIT_PAGES_INSTRUCTIONS_SCHEMA, instructions).success).toBe(false);
+                ],
+            },
+            {
+                pages: [
+                    {
+                        ...page,
+                        outputs: [
+                            {
+                                ...output,
+                                unexpected: true,
+                            },
+                        ],
+                    },
+                ],
+            },
+            {
+                pages: [
+                    {
+                        ...page,
+                        outputs: [
+                            {
+                                cropRect: {
+                                    ...cropRect,
+                                    unexpected: true,
+                                },
+                            },
+                        ],
+                    },
+                ],
+            },
+            {
+                pages: [
+                    {
+                        ...page,
+                        outputs: [
+                            {
+                                ...output,
+                                contentTransform: {
+                                    scale: 1,
+                                    translateX: 0,
+                                    translateY: 0,
+                                    unexpected: true,
+                                },
+                            },
+                        ],
+                    },
+                ],
+            },
+        ]) {
+            expect(v.safeParse(SPLIT_PAGES_INSTRUCTIONS_SCHEMA, instructions).success).toBe(false);
+        }
         const overlayPage = {
             sourcePageIndex: 0,
             outputPageIndex: 0,
-            matrix: [
-                1,
-                0,
-                0,
-                1,
-                0,
-                0,
-            ],
+            matrix: [1, 0, 0, 1, 0, 0],
         };
         for (const instructions of [
             {
                 pages: [overlayPage],
                 unexpected: true,
             },
-            {pages: [{
-                ...overlayPage,
-                unexpected: true,
-            }]},
-            {pages: [{
-                ...overlayPage,
-                sourceRegion: {
-                    rect: cropRect,
-                    matrix: overlayPage.matrix,
-                    unexpected: true,
-                },
-            }]},
-            {pages: [{
-                ...overlayPage,
-                sourceRegion: {
-                    rect: {
-                        ...cropRect,
+            {
+                pages: [
+                    {
+                        ...overlayPage,
                         unexpected: true,
                     },
-                    matrix: overlayPage.matrix,
-                },
-            }]},
-        ]) expect(v.safeParse(OVERLAY_TEXT_INSTRUCTIONS_SCHEMA, instructions).success).toBe(false);
-        expect(v.safeParse(RECOMPRESS_IMAGES_INSTRUCTIONS_SCHEMA, {
-            targetDpi: 150,
-            quality: 80,
-            maxByteRatio: 0.9,
-            unexpected: true,
-        }).success).toBe(false);
+                ],
+            },
+            {
+                pages: [
+                    {
+                        ...overlayPage,
+                        sourceRegion: {
+                            rect: cropRect,
+                            matrix: overlayPage.matrix,
+                            unexpected: true,
+                        },
+                    },
+                ],
+            },
+            {
+                pages: [
+                    {
+                        ...overlayPage,
+                        sourceRegion: {
+                            rect: {
+                                ...cropRect,
+                                unexpected: true,
+                            },
+                            matrix: overlayPage.matrix,
+                        },
+                    },
+                ],
+            },
+        ]) {
+            expect(v.safeParse(OVERLAY_TEXT_INSTRUCTIONS_SCHEMA, instructions).success).toBe(false);
+        }
+        expect(
+            v.safeParse(RECOMPRESS_IMAGES_INSTRUCTIONS_SCHEMA, {
+                targetDpi: 150,
+                quality: 80,
+                maxByteRatio: 0.9,
+                unexpected: true,
+            }).success,
+        ).toBe(false);
         for (const instructions of [
             {
                 maxByteRatio: 0.9,
@@ -1943,27 +1788,25 @@ describe('browser page-ops WASM fast path', () => {
             },
             {
                 maxByteRatio: 0.9,
-                pages: [{
-                    pageNumber: 1,
-                    replacement: 0,
-                    replacementPageNumber: 1,
-                    unexpected: true,
-                }],
+                pages: [
+                    {
+                        pageNumber: 1,
+                        replacement: 0,
+                        replacementPageNumber: 1,
+                        unexpected: true,
+                    },
+                ],
             },
-        ]) expect(v.safeParse(REPLACE_PAGE_IMAGES_INSTRUCTIONS_SCHEMA, instructions).success).toBe(false);
+        ]) {
+            expect(v.safeParse(REPLACE_PAGE_IMAGES_INSTRUCTIONS_SCHEMA, instructions).success).toBe(false);
+        }
     });
 
     it('splits a scan and overlays its source text through the scan-cleanup writers', async () => {
         const source = await PDFDocument.create();
         const font = await source.embedFont(StandardFonts.Helvetica);
-        for (const label of [
-            'Left',
-            'Whole',
-        ]) {
-            source.addPage([
-                200,
-                120,
-            ]).drawText(`${label} source text`, {
+        for (const label of ['Left', 'Whole']) {
+            source.addPage([200, 120]).drawText(`${label} source text`, {
                 x: 10,
                 y: 60,
                 size: 10,
@@ -1980,61 +1823,50 @@ describe('browser page-ops WASM fast path', () => {
                     sourcePageIndex: 0,
                     rotationQuarterTurns: 0,
                     outputs: [
-                        {cropRect: {
-                            x: 0,
-                            y: 0,
-                            width: 100,
-                            height: 120,
-                        }},
-                        {cropRect: {
-                            x: 100,
-                            y: 0,
-                            width: 100,
-                            height: 120,
-                        }},
+                        {
+                            cropRect: {
+                                x: 0,
+                                y: 0,
+                                width: 100,
+                                height: 120,
+                            },
+                        },
+                        {
+                            cropRect: {
+                                x: 100,
+                                y: 0,
+                                width: 100,
+                                height: 120,
+                            },
+                        },
                     ],
                 },
                 {
                     sourcePageIndex: 1,
                     rotationQuarterTurns: 0,
-                    outputs: [{cropRect: {
-                        x: 0,
-                        y: 0,
-                        width: 200,
-                        height: 120,
-                    }}],
+                    outputs: [
+                        {
+                            cropRect: {
+                                x: 0,
+                                y: 0,
+                                width: 200,
+                                height: 120,
+                            },
+                        },
+                    ],
                 },
             ],
         });
         expect(split.pageCount).toBe(3);
         expect(split.report).toEqual({textOmittedSourcePages: []});
-        expect((await summarizePdf(split.data)).map(page => Math.round((page.cropBox ?? page.mediaBox).width)))
-            .toEqual([
-                100,
-                100,
-                200,
-            ]);
+        expect((await summarizePdf(split.data)).map((page) => Math.round((page.cropBox ?? page.mediaBox).width))).toEqual([100, 100, 200]);
 
         // Cleaned output pages carry no text until the overlay copies it.
         const staged = await PDFDocument.create();
-        for (const width of [
-            100,
-            100,
-            200,
-        ]) {
-            staged.addPage([
-                width,
-                120,
-            ]);
+        for (const width of [100, 100, 200]) {
+            staged.addPage([width, 120]);
         }
-        const identity: [number, number, number, number, number, number] = [
-            1,
-            0,
-            0,
-            1,
-            0,
-            0,
-        ];
+        const identity: [number, number, number, number, number, number] = [1, 0, 0, 1, 0, 0];
         const overlaid = await core.overlayPdfTextLayers(new Uint8Array(await staged.save()), sourceData, {
             provenanceStampHex: '54455354',
             pages: [
@@ -2057,14 +1889,18 @@ describe('browser page-ops WASM fast path', () => {
         expect(info.lookup(PDFName.of('EVBScanCleanup'), PDFString).decodeText()).toBe('54455354');
         const pageText = (index: number) => {
             const contents = output.getPage(index).node.Contents();
-            if (contents === undefined) return '';
-            const streams = contents instanceof PDFArray
-                ? contents.asArray().map(ref => output.context.lookup(ref))
-                : [contents];
-            return streams.map((stream) => {
-                if (!(stream instanceof PDFRawStream)) throw new Error('Expected an encoded content stream');
-                return new TextDecoder().decode(decodePDFRawStream(stream).decode());
-            }).join('\n');
+            if (contents === undefined) {
+                return '';
+            }
+            const streams = contents instanceof PDFArray ? contents.asArray().map((ref) => output.context.lookup(ref)) : [contents];
+            return streams
+                .map((stream) => {
+                    if (!(stream instanceof PDFRawStream)) {
+                        throw new Error('Expected an encoded content stream');
+                    }
+                    return new TextDecoder().decode(decodePDFRawStream(stream).decode());
+                })
+                .join('\n');
         };
         expect(pageText(0)).toMatch(/T[jJ]/);
         expect(pageText(1)).not.toMatch(/T[jJ]/);
@@ -2075,10 +1911,7 @@ describe('browser page-ops WASM fast path', () => {
         const jpeg = await readFile(join(process.cwd(), 'tests/fixtures/electron/early-print/breviary-1677-rubrics.jpg'));
         const document = await PDFDocument.create();
         const image = await document.embedJpg(jpeg);
-        document.addPage([
-            200,
-            218,
-        ]).drawImage(image, {
+        document.addPage([200, 218]).drawImage(image, {
             x: 0,
             y: 0,
             width: 200,
@@ -2094,7 +1927,7 @@ describe('browser page-ops WASM fast path', () => {
         });
         expect(kept.data.byteLength).toBe(0);
         expect(kept.report.pages).toEqual([]);
-        expect(kept.report.images.map(entry => entry.outcome)).toEqual(['not-smaller']);
+        expect(kept.report.images.map((entry) => entry.outcome)).toEqual(['not-smaller']);
 
         const recompressed = await core.recompressPdfImages(data, {
             targetDpi: 72,
@@ -2111,56 +1944,57 @@ describe('browser page-ops WASM fast path', () => {
         saved.set(recompressed.data, data.byteLength);
         const reopened = await PDFDocument.load(saved);
         const stored = reopened.context.lookup(PDFRef.of(entry!.objectNumber));
-        if (!(stored instanceof PDFRawStream)) throw new Error('Expected the recompressed image stream');
+        if (!(stored instanceof PDFRawStream)) {
+            throw new Error('Expected the recompressed image stream');
+        }
         expect(stored.getContentsSize()).toBe(entry!.recompressedBytes);
     });
 
     it.each([
-        [
-            'tagged-content',
-            '/Figure <</MCID 0>> BDC',
-        ],
-        [
-            'optional-content',
-            '/OC /Hidden BDC',
-        ],
+        ['tagged-content', '/Figure <</MCID 0>> BDC'],
+        ['optional-content', '/OC /Hidden BDC'],
     ])('decodes a %s image-replacement refusal with an empty browser revision', async (outcome, prefix) => {
         const source = await PDFDocument.create();
         const jpeg = await readFile(join(process.cwd(), 'tests/fixtures/electron/early-print/breviary-1677-rubrics.jpg'));
-        const page = source.addPage([
-            200,
-            218,
-        ]);
+        const page = source.addPage([200, 218]);
         const image = await source.embedJpg(jpeg);
-        page.node.set(PDFName.of('Contents'), source.context.register(source.context.stream(
-            `${prefix}\nq 200 0 0 218 0 0 cm /Scan Do Q\nEMC\n`,
-        )));
-        const layer = source.context.register(source.context.obj({
-            Type: 'OCG',
-            Name: PDFString.of('Hidden'),
-        }));
-        page.node.set(PDFName.of('Resources'), source.context.obj({
-            XObject: {Scan: image.ref},
-            Properties: {Hidden: layer},
-        }));
-        source.catalog.set(PDFName.of('OCProperties'), source.context.obj({
-            OCGs: [layer],
-            D: {OFF: [layer]},
-        }));
+        page.node.set(
+            PDFName.of('Contents'),
+            source.context.register(source.context.stream(`${prefix}\nq 200 0 0 218 0 0 cm /Scan Do Q\nEMC\n`)),
+        );
+        const layer = source.context.register(
+            source.context.obj({
+                Type: 'OCG',
+                Name: PDFString.of('Hidden'),
+            }),
+        );
+        page.node.set(
+            PDFName.of('Resources'),
+            source.context.obj({
+                XObject: {Scan: image.ref},
+                Properties: {Hidden: layer},
+            }),
+        );
+        source.catalog.set(
+            PDFName.of('OCProperties'),
+            source.context.obj({
+                OCGs: [layer],
+                D: {OFF: [layer]},
+            }),
+        );
         const data = new Uint8Array(await source.save());
         const replacement = await PDFDocument.create();
-        replacement.addPage([
-            200,
-            218,
-        ]);
+        replacement.addPage([200, 218]);
         const core = await loadCoreWithWasm();
         const result = await core.replacePdfPageImages(data, [new Uint8Array(await replacement.save())], {
             maxByteRatio: 0.9,
-            pages: [{
-                pageNumber: 1,
-                replacement: 0,
-                replacementPageNumber: 1,
-            }],
+            pages: [
+                {
+                    pageNumber: 1,
+                    replacement: 0,
+                    replacementPageNumber: 1,
+                },
+            ],
         });
         expect(result.report.pages[0]?.outcome).toBe(outcome);
         expect(result.data.byteLength).toBe(0);
@@ -2169,10 +2003,7 @@ describe('browser page-ops WASM fast path', () => {
     it('replaces a scanned page image from an attached replacement PDF', async () => {
         const jpeg = await readFile(join(process.cwd(), 'tests/fixtures/electron/early-print/breviary-1677-rubrics.jpg'));
         const scan = await PDFDocument.create();
-        scan.addPage([
-            200,
-            218,
-        ]).drawImage(await scan.embedJpg(jpeg), {
+        scan.addPage([200, 218]).drawImage(await scan.embedJpg(jpeg), {
             x: 0,
             y: 0,
             width: 200,
@@ -2181,10 +2012,7 @@ describe('browser page-ops WASM fast path', () => {
         const data = new Uint8Array(await scan.save());
         // A compact re-encoding of the page; a filled page view stands in for it.
         const replacement = await PDFDocument.create();
-        replacement.addPage([
-            200,
-            218,
-        ]).drawRectangle({
+        replacement.addPage([200, 218]).drawRectangle({
             x: 0,
             y: 0,
             width: 200,
@@ -2196,39 +2024,44 @@ describe('browser page-ops WASM fast path', () => {
 
         const replaced = await core.replacePdfPageImages(data, [replacementData], {
             maxByteRatio: 0.9,
-            pages: [{
-                pageNumber: 1,
-                replacement: 0,
-                replacementPageNumber: 1,
-            }],
+            pages: [
+                {
+                    pageNumber: 1,
+                    replacement: 0,
+                    replacementPageNumber: 1,
+                },
+            ],
         });
-        expect(replaced.report.pages.map(page => page.outcome)).toEqual(['replaced']);
+        expect(replaced.report.pages.map((page) => page.outcome)).toEqual(['replaced']);
         expect(replaced.data.byteLength).toBeGreaterThan(0);
         const saved = new Uint8Array(data.byteLength + replaced.data.byteLength);
         saved.set(data);
         saved.set(replaced.data, data.byteLength);
         expect((await PDFDocument.load(saved)).getPageCount()).toBe(1);
 
-        await expect(core.replacePdfPageImages(data, [], {
-            maxByteRatio: 0.9,
-            pages: [{
-                pageNumber: 1,
-                replacement: 0,
-                replacementPageNumber: 1,
-            }],
-        })).rejects.toThrow('does not carry');
-        await expect(core.overlayPdfTextLayers(data, data, {pages: [{
-            sourcePageIndex: 0,
-            outputPageIndex: 0,
-            matrix: [
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-            ],
-        }]})).rejects.toThrow('invertible');
+        await expect(
+            core.replacePdfPageImages(data, [], {
+                maxByteRatio: 0.9,
+                pages: [
+                    {
+                        pageNumber: 1,
+                        replacement: 0,
+                        replacementPageNumber: 1,
+                    },
+                ],
+            }),
+        ).rejects.toThrow('does not carry');
+        await expect(
+            core.overlayPdfTextLayers(data, data, {
+                pages: [
+                    {
+                        sourcePageIndex: 0,
+                        outputPageIndex: 0,
+                        matrix: [0, 0, 0, 0, 0, 0],
+                    },
+                ],
+            }),
+        ).rejects.toThrow('invertible');
     });
 
     it('rejects delete-all through native page-ops WASM before saving a zero-page PDF', async () => {
@@ -2245,14 +2078,19 @@ describe('browser page-ops WASM fast path', () => {
         vi.resetModules();
         vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
         vi.stubGlobal('WebAssembly', NativeWebAssembly);
-        vi.stubGlobal('fetch', vi.fn(async () => new Response(null, {status: 404})));
-        const { tryRunBrowserPageOpsWithWasm } = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () => new Response(null, {status: 404})),
+        );
+        const {tryRunBrowserPageOpsWithWasm} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
         const basePdf = await createPdf({pageWidths: [200]});
 
-        await expect(tryRunBrowserPageOpsWithWasm('decrypt', {
-            data: basePdf,
-            password: '',
-        })).resolves.toEqual({
+        await expect(
+            tryRunBrowserPageOpsWithWasm('decrypt', {
+                data: basePdf,
+                password: '',
+            }),
+        ).resolves.toEqual({
             status: 'failed',
             error: {
                 code: 'io',
@@ -2264,7 +2102,10 @@ describe('browser page-ops WASM fast path', () => {
     it('reports a module with an incompatible allocation ABI', async () => {
         vi.resetModules();
         vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
-        vi.stubGlobal('fetch', vi.fn(async () => new Response(new ArrayBuffer(8))));
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () => new Response(new ArrayBuffer(8))),
+        );
         const wasmMock = createFailingPageOpsWasmExports('unused');
         wasmMock.exports.evb_wasm_request_allocation_abi_version.mockReturnValue(0);
         vi.stubGlobal('WebAssembly', {
@@ -2274,10 +2115,12 @@ describe('browser page-ops WASM fast path', () => {
         const {tryRunBrowserPageOpsWithWasm} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
         const basePdf = await createPdf({pageWidths: [200]});
 
-        await expect(tryRunBrowserPageOpsWithWasm('decrypt', {
-            data: basePdf,
-            password: '',
-        })).resolves.toEqual({
+        await expect(
+            tryRunBrowserPageOpsWithWasm('decrypt', {
+                data: basePdf,
+                password: '',
+            }),
+        ).resolves.toEqual({
             status: 'failed',
             error: {
                 code: 'io',
@@ -2290,22 +2133,29 @@ describe('browser page-ops WASM fast path', () => {
     it('preserves native WASM error envelopes when a page operation falls back', async () => {
         vi.resetModules();
         vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
-        vi.stubGlobal('fetch', vi.fn(async () => new Response(new ArrayBuffer(8))));
-        const wasmMock = createFailingPageOpsWasmExports(JSON.stringify({
-            code: 'corrupt-xref',
-            message: 'page wasm failed',
-        }));
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () => new Response(new ArrayBuffer(8))),
+        );
+        const wasmMock = createFailingPageOpsWasmExports(
+            JSON.stringify({
+                code: 'corrupt-xref',
+                message: 'page wasm failed',
+            }),
+        );
         vi.stubGlobal('WebAssembly', {
             Memory: NativeWebAssembly.Memory,
             instantiate: vi.fn(async () => ({instance: {exports: wasmMock.exports}})),
         });
-        const { tryRunBrowserPageOpsWithWasm } = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
+        const {tryRunBrowserPageOpsWithWasm} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
         const basePdf = await createPdf({pageWidths: [200]});
 
-        await expect(tryRunBrowserPageOpsWithWasm('decrypt', {
-            data: basePdf,
-            password: '',
-        })).resolves.toEqual({
+        await expect(
+            tryRunBrowserPageOpsWithWasm('decrypt', {
+                data: basePdf,
+                password: '',
+            }),
+        ).resolves.toEqual({
             status: 'failed',
             error: {
                 code: 'corrupt-xref',
@@ -2320,7 +2170,10 @@ describe('browser page-ops WASM fast path', () => {
     it('classifies allocation failure without touching linear memory', async () => {
         vi.resetModules();
         vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
-        vi.stubGlobal('fetch', vi.fn(async () => new Response(new ArrayBuffer(8))));
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () => new Response(new ArrayBuffer(8))),
+        );
         const wasmMock = createFailingPageOpsWasmExports('unused');
         wasmMock.exports.evb_pdf_page_ops_alloc.mockReturnValue(0);
         vi.stubGlobal('WebAssembly', {
@@ -2330,10 +2183,12 @@ describe('browser page-ops WASM fast path', () => {
         const {tryRunBrowserPageOpsWithWasm} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
         const basePdf = await createPdf({pageWidths: [200]});
 
-        await expect(tryRunBrowserPageOpsWithWasm('decrypt', {
-            data: basePdf,
-            password: '',
-        })).resolves.toMatchObject({
+        await expect(
+            tryRunBrowserPageOpsWithWasm('decrypt', {
+                data: basePdf,
+                password: '',
+            }),
+        ).resolves.toMatchObject({
             status: 'failed',
             error: {code: 'too-large'},
         });
@@ -2344,7 +2199,10 @@ describe('browser page-ops WASM fast path', () => {
     it('rejects an out-of-bounds allocation pointer and releases ABI ownership', async () => {
         vi.resetModules();
         vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
-        vi.stubGlobal('fetch', vi.fn(async () => new Response(new ArrayBuffer(8))));
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () => new Response(new ArrayBuffer(8))),
+        );
         const wasmMock = createFailingPageOpsWasmExports('unused');
         const probePointer = wasmMock.alloc(7);
         wasmMock.free(probePointer, 6);
@@ -2363,20 +2221,24 @@ describe('browser page-ops WASM fast path', () => {
         const {tryRunBrowserPageOpsWithWasm} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
         const basePdf = await createPdf({pageWidths: [200]});
 
-        await expect(tryRunBrowserPageOpsWithWasm('decrypt', {
-            data: basePdf,
-            password: '',
-        })).resolves.toMatchObject({
+        await expect(
+            tryRunBrowserPageOpsWithWasm('decrypt', {
+                data: basePdf,
+                password: '',
+            }),
+        ).resolves.toMatchObject({
             status: 'failed',
             error: {code: 'invalid-request'},
         });
         expect(wasmMock.run).not.toHaveBeenCalled();
         expect(wasmMock.free).toHaveBeenCalledOnce();
 
-        await expect(tryRunBrowserPageOpsWithWasm('decrypt', {
-            data: basePdf,
-            password: '',
-        })).resolves.toMatchObject({status: 'failed'});
+        await expect(
+            tryRunBrowserPageOpsWithWasm('decrypt', {
+                data: basePdf,
+                password: '',
+            }),
+        ).resolves.toMatchObject({status: 'failed'});
         expect(wasmMock.run).toHaveBeenCalledOnce();
         expect(wasmMock.free).toHaveBeenCalledTimes(2);
     });
@@ -2384,7 +2246,10 @@ describe('browser page-ops WASM fast path', () => {
     it('rejects an out-of-bounds output span and frees the valid request allocation', async () => {
         vi.resetModules();
         vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
-        vi.stubGlobal('fetch', vi.fn(async () => new Response(new ArrayBuffer(8))));
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () => new Response(new ArrayBuffer(8))),
+        );
         const wasmMock = createFailingPageOpsWasmExports('unused');
         const probePointer = wasmMock.alloc(7);
         wasmMock.free(probePointer, 6);
@@ -2405,20 +2270,24 @@ describe('browser page-ops WASM fast path', () => {
         const {tryRunBrowserPageOpsWithWasm} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
         const basePdf = await createPdf({pageWidths: [200]});
 
-        await expect(tryRunBrowserPageOpsWithWasm('decrypt', {
-            data: basePdf,
-            password: '',
-        })).resolves.toMatchObject({
+        await expect(
+            tryRunBrowserPageOpsWithWasm('decrypt', {
+                data: basePdf,
+                password: '',
+            }),
+        ).resolves.toMatchObject({
             status: 'failed',
             error: {code: 'invalid-request'},
         });
         expect(wasmMock.run).toHaveBeenCalledOnce();
         expect(wasmMock.free).toHaveBeenCalledOnce();
 
-        await expect(tryRunBrowserPageOpsWithWasm('decrypt', {
-            data: basePdf,
-            password: '',
-        })).resolves.toMatchObject({
+        await expect(
+            tryRunBrowserPageOpsWithWasm('decrypt', {
+                data: basePdf,
+                password: '',
+            }),
+        ).resolves.toMatchObject({
             status: 'failed',
             error: {code: 'invalid-request'},
         });
@@ -2435,53 +2304,65 @@ describe('browser page-ops WASM fast path', () => {
     ])('falls back to native-failure for malformed or unknown WASM errors', async (encodedError) => {
         vi.resetModules();
         vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
-        vi.stubGlobal('fetch', vi.fn(async () => new Response(new ArrayBuffer(8))));
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () => new Response(new ArrayBuffer(8))),
+        );
         const wasmMock = createFailingPageOpsWasmExports(encodedError);
         vi.stubGlobal('WebAssembly', {
             Memory: NativeWebAssembly.Memory,
             instantiate: vi.fn(async () => ({instance: {exports: wasmMock.exports}})),
         });
-        const {tryRunBrowserPageOpsWithWasm} = await import(
-            '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm'
-        );
+        const {tryRunBrowserPageOpsWithWasm} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
         const basePdf = await createPdf({pageWidths: [200]});
 
-        await expect(tryRunBrowserPageOpsWithWasm('decrypt', {
-            data: basePdf,
-            password: '',
-        })).resolves.toMatchObject({
+        await expect(
+            tryRunBrowserPageOpsWithWasm('decrypt', {
+                data: basePdf,
+                password: '',
+            }),
+        ).resolves.toMatchObject({
             status: 'failed',
             error: {code: 'native-failure'},
         });
     });
-    it.each([
-        'success',
-        'native-error',
-        'throw',
-        'malformed-success',
-    ] as const)(
-        'clears encoded password bytes before releasing WASM memory on %s', async (outcome) => {
+    it.each(['success', 'native-error', 'throw', 'malformed-success'] as const)(
+        'clears encoded password bytes before releasing WASM memory on %s',
+        async (outcome) => {
             vi.resetModules();
             vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
-            vi.stubGlobal('fetch', vi.fn(async () => new Response(new ArrayBuffer(8))));
-            const wasm = createFailingPageOpsWasmExports(JSON.stringify({
-                code: 'needs-password',
-                message: 'Password required',
-            }));
+            vi.stubGlobal(
+                'fetch',
+                vi.fn(async () => new Response(new ArrayBuffer(8))),
+            );
+            const wasm = createFailingPageOpsWasmExports(
+                JSON.stringify({
+                    code: 'needs-password',
+                    message: 'Password required',
+                }),
+            );
             const password = '秘密-transient-password';
             const passwordBytes = new TextEncoder().encode(password);
             let encodedJs: Uint8Array | undefined;
             const nativeEncode = TextEncoder.prototype.encode;
             vi.spyOn(TextEncoder.prototype, 'encode').mockImplementation(function (this: TextEncoder, value) {
                 const encoded = nativeEncode.call(this, value);
-                if (value === password) encodedJs = encoded;
+                if (value === password) {
+                    encodedJs = encoded;
+                }
                 return encoded;
             });
             let encodedBefore: Uint8Array | undefined;
             let encodedAtRelease: Uint8Array | undefined;
             wasm.exports.evb_pdf_page_ops_run.mockImplementation((pointer: number, length: number) => {
-                encodedBefore = new Uint8Array(wasm.exports.memory.buffer, pointer + length - passwordBytes.byteLength, passwordBytes.byteLength).slice();
-                if (outcome === 'throw') throw new Error('Writer failed');
+                encodedBefore = new Uint8Array(
+                    wasm.exports.memory.buffer,
+                    pointer + length - passwordBytes.byteLength,
+                    passwordBytes.byteLength,
+                ).slice();
+                if (outcome === 'throw') {
+                    throw new Error('Writer failed');
+                }
                 if (outcome === 'success') {
                     const output = new Uint8Array(13);
                     const view = new DataView(output.buffer);
@@ -2497,7 +2378,11 @@ describe('browser page-ops WASM fast path', () => {
                 return outcome === 'malformed-success' ? 0 : -7;
             });
             wasm.exports.evb_pdf_page_ops_free.mockImplementation((pointer: number, length: number) => {
-                encodedAtRelease = new Uint8Array(wasm.exports.memory.buffer, pointer + length - passwordBytes.byteLength, passwordBytes.byteLength).slice();
+                encodedAtRelease = new Uint8Array(
+                    wasm.exports.memory.buffer,
+                    pointer + length - passwordBytes.byteLength,
+                    passwordBytes.byteLength,
+                ).slice();
             });
             vi.stubGlobal('WebAssembly', {
                 Memory: NativeWebAssembly.Memory,
@@ -2508,10 +2393,14 @@ describe('browser page-ops WASM fast path', () => {
                 data: new Uint8Array([1]),
                 password,
             });
-            expect(result).toMatchObject(outcome === 'success' ? {
-                data: new Uint8Array([2]),
-                pageCount: 1,
-            } : {status: 'failed'});
+            expect(result).toMatchObject(
+                outcome === 'success'
+                    ? {
+                          data: new Uint8Array([2]),
+                          pageCount: 1,
+                      }
+                    : {status: 'failed'},
+            );
             expect(encodedBefore).toEqual(passwordBytes);
             expect(encodedAtRelease).toEqual(new Uint8Array(passwordBytes.byteLength));
             expect(encodedJs).toEqual(new Uint8Array(passwordBytes.byteLength));
@@ -2523,17 +2412,11 @@ describe('browser page-ops WASM fast path', () => {
         const marker = new TextEncoder().encode('EVB_STREAM_PAYLOAD_MARKER_START');
         const filler = new Uint8Array(512 * 1024);
         filler.set(marker, 0);
-        filler.fill(0x5A, marker.byteLength);
+        filler.fill(0x5a, marker.byteLength);
         const contentRef = pdfDocument.context.register(pdfDocument.context.stream(filler));
-        const page1 = pdfDocument.addPage([
-            612,
-            792,
-        ]);
+        const page1 = pdfDocument.addPage([612, 792]);
         page1.node.set(PDFName.of('Contents'), contentRef);
-        const page2 = pdfDocument.addPage([
-            500,
-            700,
-        ]);
+        const page2 = pdfDocument.addPage([500, 700]);
         page2.setCropBox(20, 30, 400, 600);
         page2.setRotation(degrees(90));
         page2.node.set(PDFName.of('UserUnit'), PDFNumber.of(2));
@@ -2570,10 +2453,7 @@ describe('browser page-ops WASM fast path', () => {
             public override slice(start = 0, end = this.size) {
                 const clampedStart = Math.max(0, Math.min(this.size, start));
                 const clampedEnd = Math.max(clampedStart, Math.min(this.size, end));
-                return new GuardedSyncBlob(
-                    this.content.subarray(clampedStart, clampedEnd),
-                    this.startOffset + clampedStart,
-                );
+                return new GuardedSyncBlob(this.content.subarray(clampedStart, clampedEnd), this.startOffset + clampedStart);
             }
 
             public override arrayBuffer(): Promise<ArrayBuffer> {
@@ -2583,21 +2463,24 @@ describe('browser page-ops WASM fast path', () => {
 
         const wasm = await loadWasmRunner();
         const slices: Array<{start: number; length: number}> = [];
-        vi.stubGlobal('FileReaderSync', class {
-            public readAsArrayBuffer(blob: Blob) {
-                if (!(blob instanceof GuardedSyncBlob)) {
-                    throw new TypeError('Expected GuardedSyncBlob slice');
+        vi.stubGlobal(
+            'FileReaderSync',
+            class {
+                public readAsArrayBuffer(blob: Blob) {
+                    if (!(blob instanceof GuardedSyncBlob)) {
+                        throw new TypeError('Expected GuardedSyncBlob slice');
+                    }
+                    const start = blob.startOffset;
+                    const end = start + blob.size;
+                    expect(end <= forbiddenStart || start >= forbiddenEnd).toBe(true);
+                    slices.push({
+                        start,
+                        length: blob.size,
+                    });
+                    return blob.content.slice().buffer;
                 }
-                const start = blob.startOffset;
-                const end = start + blob.size;
-                expect(end <= forbiddenStart || start >= forbiddenEnd).toBe(true);
-                slices.push({
-                    start,
-                    length: blob.size,
-                });
-                return blob.content.slice().buffer;
-            }
-        });
+            },
+        );
 
         const table = await wasm.run('readPageSizes', {source: new GuardedSyncBlob(pdfBytes)});
         expect(table).toEqual({
@@ -2624,7 +2507,7 @@ describe('browser page-ops WASM fast path', () => {
             ],
         });
         expect(slices.length).toBeGreaterThan(0);
-        expect(Math.max(...slices.map(slice => slice.length))).toBeLessThanOrEqual(64 * 1024);
+        expect(Math.max(...slices.map((slice) => slice.length))).toBeLessThanOrEqual(64 * 1024);
         expect(slices.reduce((sum, slice) => sum + slice.length, 0)).toBeLessThan(pdfBytes.byteLength / 2);
 
         slices.length = 0;
@@ -2682,13 +2565,12 @@ describe('browser page-ops WASM fast path', () => {
         expect(verdict).toEqual({verdict: 'appendable'});
 
         const latin1 = Buffer.from(pdf).toString('latin1');
-        const damaged = new Uint8Array(Buffer.from(
-            `${latin1.slice(0, latin1.lastIndexOf('startxref'))}startxref\n9\n%%EOF\n`,
-            'latin1',
-        ));
+        const damaged = new Uint8Array(Buffer.from(`${latin1.slice(0, latin1.lastIndexOf('startxref'))}startxref\n9\n%%EOF\n`, 'latin1'));
         expect(await wasm.run('appendAdmission', {source: new Blob([damaged])})).toEqual({verdict: 'repairable'});
 
-        const scanPdf = new Uint8Array(await readFile(join(process.cwd(), 'native/scan-cleanup/tests/fixtures/source-raster/jpeg-rgb/input.pdf')));
+        const scanPdf = new Uint8Array(
+            await readFile(join(process.cwd(), 'native/scan-cleanup/tests/fixtures/source-raster/jpeg-rgb/input.pdf')),
+        );
         const uncached = await wasm.run('renderScanCleanupRaster', {
             data: scanPdf.slice(),
             request: {
@@ -2721,11 +2603,7 @@ describe('browser page-ops WASM fast path', () => {
         expect(isBrowserPageOpsWasmFailure(uncached)).toBe(false);
         expect(isBrowserPageOpsWasmFailure(cachedFirst)).toBe(false);
         expect(isBrowserPageOpsWasmFailure(cachedSecond)).toBe(false);
-        if (
-            !uncached
-            || isBrowserPageOpsWasmFailure(uncached)
-            || !('width' in uncached.report)
-        ) {
+        if (!uncached || isBrowserPageOpsWasmFailure(uncached) || !('width' in uncached.report)) {
             throw new Error('Expected successful uncached scan-cleanup raster');
         }
         expect(uncached.report.width).toBeGreaterThan(0);
@@ -2737,7 +2615,9 @@ describe('browser page-ops WASM fast path', () => {
     });
 
     it('evicts the cached parsed PDF and discards the WASM instance when a cached raster crosses the high-water memory threshold', async () => {
-        const scanPdf = new Uint8Array(await readFile(join(process.cwd(), 'native/scan-cleanup/tests/fixtures/source-raster/jpeg-rgb/input.pdf')));
+        const scanPdf = new Uint8Array(
+            await readFile(join(process.cwd(), 'native/scan-cleanup/tests/fixtures/source-raster/jpeg-rgb/input.pdf')),
+        );
         const wasm = await loadWasmRunner();
         const {loadPdfPageOpsWasm} = await import('@app/platform/browser/pdfPageEngine');
         const {wasmMemoryHighWaterBytes} = await import('@app/platform/browser/loadWasmWithDeadline');
@@ -2785,7 +2665,9 @@ describe('browser page-ops WASM fast path', () => {
     });
 
     it('evicts the cached parsed PDF and discards the oversized WASM instance when a shared-worker range read throws', async () => {
-        const scanPdf = new Uint8Array(await readFile(join(process.cwd(), 'native/scan-cleanup/tests/fixtures/source-raster/jpeg-rgb/input.pdf')));
+        const scanPdf = new Uint8Array(
+            await readFile(join(process.cwd(), 'native/scan-cleanup/tests/fixtures/source-raster/jpeg-rgb/input.pdf')),
+        );
         const wasm = await loadWasmRunner();
         const {loadPdfPageOpsWasm} = await import('@app/platform/browser/pdfPageEngine');
         const {wasmMemoryHighWaterBytes} = await import('@app/platform/browser/loadWasmWithDeadline');
@@ -2825,5 +2707,4 @@ describe('browser page-ops WASM fast path', () => {
             evictCachedBrowserPageOpsDocument('doc-high-water-throw:rev-1');
         }
     });
-
 });

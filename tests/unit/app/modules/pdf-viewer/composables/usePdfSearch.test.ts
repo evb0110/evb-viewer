@@ -1,32 +1,15 @@
-import { requireEpochMs } from '@contracts/timestamps';
-import { requirePageIndex } from '@contracts/pageNumbers';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {requireEpochMs} from '@contracts/timestamps';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
-import type {
-    IPdfSearchRequestOptions,
-    IPdfSearchResponse,
-    ISearchErrorEnvelope,
-} from '@contracts/search';
-import {
-    ref,
-    type Ref,
-} from 'vue';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type {IPdfSearchRequestOptions, IPdfSearchResponse, ISearchErrorEnvelope} from '@contracts/search';
+import {ref, type Ref} from 'vue';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireRequestId} from '@contracts/shared';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
-import {
-    createPlatformApiFixtureOperation,
-    type IPlatformApiFixtureEventMethod,
-} from '@tests/helpers/createDefaultPlatformApiFixtureMethod';
-import { usePdfSearch } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearch';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
+import {createPlatformApiFixtureOperation, type IPlatformApiFixtureEventMethod} from '@tests/helpers/createDefaultPlatformApiFixtureMethod';
+import {usePdfSearch} from '@app/modules/pdf-viewer/runtime/composables/usePdfSearch';
 
 interface IPdfSearchTestExcerpt {
     after: string;
@@ -79,14 +62,16 @@ const mockSearch = {
     cancel: vi.fn<(requestId?: string) => Promise<{canceled: boolean}>>(),
     resetCache: vi.fn<() => Promise<boolean>>(),
 };
-const platformApi = createElectronPlatformApiFixture({search: {
-    onProgress: mockSearch.onProgress as never,
-    run: mockSearch.run as never,
-    cancel: mockSearch.cancel as never,
-    resetCache: mockSearch.resetCache as never,
-}});
+const platformApi = createElectronPlatformApiFixture({
+    search: {
+        onProgress: mockSearch.onProgress as never,
+        run: mockSearch.run as never,
+        cancel: mockSearch.cancel as never,
+        resetCache: mockSearch.resetCache as never,
+    },
+});
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
-vi.mock('#imports', () => ({ useTypedI18n: () => ({ t: (key: string) => key }) }));
+vi.mock('#imports', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
 
 /** Lets `search()` run past its internal awaits and reach its debounce filter. */
 async function flushToScheduledSearch() {
@@ -97,7 +82,11 @@ async function flushToScheduledSearch() {
 
 type TPdfSearchApi = ReturnType<typeof usePdfSearch>;
 
-async function createPdfSearch(options?: { documentRevisionToken?: Ref<TDocumentRevisionToken | null> }): Promise<Omit<TPdfSearchApi, 'getMatchesForPage'> & {getMatchesForPage: (pageIndex: number) => ReturnType<TPdfSearchApi['getMatchesForPage']>;}> {
+async function createPdfSearch(options?: {
+    documentRevisionToken?: Ref<TDocumentRevisionToken | null>;
+}): Promise<
+    Omit<TPdfSearchApi, 'getMatchesForPage'> & {getMatchesForPage: (pageIndex: number) => ReturnType<TPdfSearchApi['getMatchesForPage']>}
+> {
     const search = usePdfSearch(options);
     return {
         ...search,
@@ -143,7 +132,12 @@ describe('usePdfSearch', () => {
         await cached;
         expect(search.searchProgress.value?.coverage).toEqual(coverage);
         let resolveNext!: (response: IPdfSearchRunResult) => void;
-        mockSearch.run.mockImplementationOnce(() => new Promise(resolve => {resolveNext = resolve;}));
+        mockSearch.run.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    resolveNext = resolve;
+                }),
+        );
         const next = search.search('another', '/tmp/work.pdf', 4);
         await flushToScheduledSearch();
         expect(search.searchProgress.value).toBeUndefined();
@@ -215,13 +209,15 @@ describe('usePdfSearch', () => {
 
     it('replaces the previous submitted query with a single-character search', async () => {
         mockSearch.run.mockResolvedValue({
-            results: [{
-                pageNumber: 1,
-                pageMatchIndex: 0,
-                matchIndex: 0,
-                startOffset: 0,
-                endOffset: 5,
-            }],
+            results: [
+                {
+                    pageNumber: 1,
+                    pageMatchIndex: 0,
+                    matchIndex: 0,
+                    startOffset: 0,
+                    endOffset: 5,
+                },
+            ],
             truncated: false,
         });
         const search = await createPdfSearch();
@@ -248,11 +244,7 @@ describe('usePdfSearch', () => {
 
     it('maps backend matches to result and page match state', async () => {
         const progressUnsubscribe = vi.fn();
-        let progressListener: ((progress: {
-            requestId: string;
-            processed: number;
-            total: number;
-        }) => void) | null = null;
+        let progressListener: ((progress: {requestId: string; processed: number; total: number}) => void) | null = null;
 
         mockSearch.onProgress.mockImplementation((listener) => {
             progressListener = listener;
@@ -307,13 +299,15 @@ describe('usePdfSearch', () => {
         expect(search.totalMatches.value).toBe(2);
         expect(search.currentMatch.value).toBe(1);
         expect(search.currentResultNavigationId.value).toBe(1);
-        expect(search.currentResult.value).toEqual(expect.objectContaining({
-            pageIndex: 1,
-            pageMatchIndex: 1,
-            matchIndex: 11,
-            startOffset: 20,
-            endOffset: 24,
-        }));
+        expect(search.currentResult.value).toEqual(
+            expect.objectContaining({
+                pageIndex: 1,
+                pageMatchIndex: 1,
+                matchIndex: 11,
+                startOffset: 20,
+                endOffset: 24,
+            }),
+        );
         expect(search.isTruncated.value).toBe(true);
         expect(search.searchProgress.value).toBeUndefined();
         expect(progressUnsubscribe).toHaveBeenCalledOnce();
@@ -338,44 +332,48 @@ describe('usePdfSearch', () => {
     });
 
     it('shows streamed matches before the backend finishes the full document search', async () => {
-        let progressListener: ((progress: {
-            requestId: string;
-            processed: number;
-            total: number;
-            results?: Array<{
-                pageNumber: number;
-                pageMatchIndex: number;
-                matchIndex: number;
-                startOffset: number;
-                endOffset: number;
-            }>;
-            truncated?: boolean;
-        }) => void) | null = null;
-        let resolveSearch: (value: {
-            results: unknown[];
-            truncated: boolean;
-        }) => void = () => {};
+        let progressListener:
+            | ((progress: {
+                  requestId: string;
+                  processed: number;
+                  total: number;
+                  results?: Array<{
+                      pageNumber: number;
+                      pageMatchIndex: number;
+                      matchIndex: number;
+                      startOffset: number;
+                      endOffset: number;
+                  }>;
+                  truncated?: boolean;
+              }) => void)
+            | null = null;
+        let resolveSearch: (value: {results: unknown[]; truncated: boolean}) => void = () => {};
 
         mockSearch.onProgress.mockImplementation((listener) => {
             progressListener = listener;
             return vi.fn();
         });
-        mockSearch.run.mockImplementation(async (_pdfPath, _query, options) => new Promise((resolve) => {
-            progressListener?.({
-                requestId: options.requestId,
-                processed: 3,
-                total: 928,
-                results: [{
-                    pageNumber: 3,
-                    pageMatchIndex: 0,
-                    matchIndex: 0,
-                    startOffset: 8,
-                    endOffset: 12,
-                }],
-                truncated: false,
-            });
-            resolveSearch = resolve;
-        }));
+        mockSearch.run.mockImplementation(
+            async (_pdfPath, _query, options) =>
+                new Promise((resolve) => {
+                    progressListener?.({
+                        requestId: options.requestId,
+                        processed: 3,
+                        total: 928,
+                        results: [
+                            {
+                                pageNumber: 3,
+                                pageMatchIndex: 0,
+                                matchIndex: 0,
+                                startOffset: 8,
+                                endOffset: 12,
+                            },
+                        ],
+                        truncated: false,
+                    });
+                    resolveSearch = resolve;
+                }),
+        );
         const search = await createPdfSearch();
 
         const promise = search.search('араб', '/tmp/work.pdf', 928);
@@ -384,11 +382,13 @@ describe('usePdfSearch', () => {
         expect(search.isSearching.value).toBe(true);
         expect(search.hasPartialResults.value).toBe(true);
         expect(search.totalMatches.value).toBe(1);
-        expect(search.currentResult.value).toEqual(expect.objectContaining({
-            pageIndex: 2,
-            startOffset: 8,
-            endOffset: 12,
-        }));
+        expect(search.currentResult.value).toEqual(
+            expect.objectContaining({
+                pageIndex: 2,
+                startOffset: 8,
+                endOffset: 12,
+            }),
+        );
         expect(search.currentResultNavigationId.value).toBe(1);
 
         resolveSearch({
@@ -491,10 +491,7 @@ describe('usePdfSearch', () => {
             requestId,
             processed: 6,
             total: 928,
-            results: [
-                firstResult,
-                secondResult,
-            ],
+            results: [firstResult, secondResult],
             truncated: false,
         });
 
@@ -503,10 +500,7 @@ describe('usePdfSearch', () => {
         expect(search.currentResultNavigationId.value).toBe(1);
 
         resolveSearch({
-            results: [
-                firstResult,
-                secondResult,
-            ],
+            results: [firstResult, secondResult],
             truncated: false,
         });
         await promise;
@@ -519,10 +513,7 @@ describe('usePdfSearch', () => {
         let progressListener: (progress: IPdfSearchTestProgress) => void = () => {
             throw new Error('Progress listener was not registered');
         };
-        let resolveSearch: (value: {
-            results: IPdfSearchBackendMatch[];
-            truncated: boolean;
-        }) => void = () => {};
+        let resolveSearch: (value: {results: IPdfSearchBackendMatch[]; truncated: boolean}) => void = () => {};
         const firstResult: IPdfSearchBackendMatch = {
             pageNumber: 2,
             pageMatchIndex: 0,
@@ -581,24 +572,25 @@ describe('usePdfSearch', () => {
                 matchIndex: 1,
             }),
         ]);
-        expect(search.getMatchesForPage(1)?.matches).toEqual([{
-            pageMatchIndex: 0,
-            matchIndex: 0,
-            start: 10,
-            end: 15,
-        }]);
-        expect(search.getMatchesForPage(4)?.matches).toEqual([{
-            pageMatchIndex: 0,
-            matchIndex: 1,
-            start: 30,
-            end: 35,
-        }]);
+        expect(search.getMatchesForPage(1)?.matches).toEqual([
+            {
+                pageMatchIndex: 0,
+                matchIndex: 0,
+                start: 10,
+                end: 15,
+            },
+        ]);
+        expect(search.getMatchesForPage(4)?.matches).toEqual([
+            {
+                pageMatchIndex: 0,
+                matchIndex: 1,
+                start: 30,
+                end: 35,
+            },
+        ]);
 
         resolveSearch({
-            results: [
-                firstResult,
-                secondResult,
-            ],
+            results: [firstResult, secondResult],
             truncated: false,
         });
         await promise;
@@ -670,35 +662,33 @@ describe('usePdfSearch', () => {
             truncated: false,
         });
 
-        expect(search.currentResult.value).toEqual(expect.objectContaining({
-            pageIndex: 7,
-            matchIndex: 3,
-        }));
+        expect(search.currentResult.value).toEqual(
+            expect.objectContaining({
+                pageIndex: 7,
+                matchIndex: 3,
+            }),
+        );
         expect(search.currentResultNavigationId.value).toBe(1);
 
         progressListener({
             requestId,
             processed: 12,
             total: 928,
-            results: [
-                earlierDiscoveredResult,
-                initiallyVisibleResult,
-            ],
+            results: [earlierDiscoveredResult, initiallyVisibleResult],
             truncated: false,
         });
 
         expect(search.currentResultIndex.value).toBe(1);
-        expect(search.currentResult.value).toEqual(expect.objectContaining({
-            pageIndex: 7,
-            matchIndex: 3,
-        }));
+        expect(search.currentResult.value).toEqual(
+            expect.objectContaining({
+                pageIndex: 7,
+                matchIndex: 3,
+            }),
+        );
         expect(search.currentResultNavigationId.value).toBe(1);
 
         resolveSearch({
-            results: [
-                earlierDiscoveredResult,
-                initiallyVisibleResult,
-            ],
+            results: [earlierDiscoveredResult, initiallyVisibleResult],
             truncated: false,
         });
         await promise;
@@ -712,8 +702,12 @@ describe('usePdfSearch', () => {
         let delayed: ((response: IPdfSearchRunResult) => void) | undefined;
         mockSearch.run.mockImplementation(async (_path, query, options) => {
             expect(query).toBe('alpha');
-            if (delayed) return new Promise<IPdfSearchRunResult>(resolve => { delayed = resolve; });
-            const start = options.resultOffset === 'last' ? 62 : options.resultOffset ?? 0;
+            if (delayed) {
+                return new Promise<IPdfSearchRunResult>((resolve) => {
+                    delayed = resolve;
+                });
+            }
+            const start = options.resultOffset === 'last' ? 62 : (options.resultOffset ?? 0);
             return {
                 results: Array.from({length: Math.min(500, 562 - start)}, (_, index) => {
                     const ordinal = start + index;
@@ -770,13 +764,15 @@ describe('usePdfSearch', () => {
         revision.value = requireDocumentRevisionToken('second-revision');
         search.clearSearch();
         delayed?.({
-            results: [{
-                pageNumber: 80,
-                pageMatchIndex: 0,
-                matchIndex: 561,
-                startOffset: 0,
-                endOffset: 5,
-            }],
+            results: [
+                {
+                    pageNumber: 80,
+                    pageMatchIndex: 0,
+                    matchIndex: 561,
+                    startOffset: 0,
+                    endOffset: 5,
+                },
+            ],
             truncated: false,
         });
         await stale;
@@ -824,10 +820,12 @@ describe('usePdfSearch', () => {
         expect(search.currentResultNavigationId.value).toBe(1);
 
         search.setResultIndex(1);
-        expect(search.currentResult.value).toEqual(expect.objectContaining({
-            pageIndex: 6,
-            matchIndex: 9,
-        }));
+        expect(search.currentResult.value).toEqual(
+            expect.objectContaining({
+                pageIndex: 6,
+                matchIndex: 9,
+            }),
+        );
         expect(search.currentResultNavigationId.value).toBe(2);
 
         search.setResultIndex(1);
@@ -840,10 +838,7 @@ describe('usePdfSearch', () => {
 
     it('cancels active searches on clear and resets backend cache explicitly', async () => {
         let requestId = '';
-        let resolveSearch: (value: {
-            results: unknown[];
-            truncated: boolean;
-        }) => void = () => {};
+        let resolveSearch: (value: {results: unknown[]; truncated: boolean}) => void = () => {};
 
         mockSearch.run.mockImplementation(async (_pdfPath, _query, options) => {
             requestId = options.requestId;
@@ -905,9 +900,12 @@ describe('usePdfSearch', () => {
                 resolveFirstSearch = resolve;
             });
         });
-        mockSearch.cancel.mockImplementation(async () => new Promise<{canceled: boolean}>((resolve) => {
-            resolveCancel = () => resolve({canceled: true});
-        }));
+        mockSearch.cancel.mockImplementation(
+            async () =>
+                new Promise<{canceled: boolean}>((resolve) => {
+                    resolveCancel = () => resolve({canceled: true});
+                }),
+        );
         const search = await createPdfSearch();
 
         const firstSearch = search.search('alpha', '/tmp/work.pdf');
@@ -920,13 +918,15 @@ describe('usePdfSearch', () => {
         });
 
         resolveFirstSearch({
-            results: [{
-                pageNumber: 1,
-                pageMatchIndex: 0,
-                matchIndex: 0,
-                startOffset: 1,
-                endOffset: 6,
-            }],
+            results: [
+                {
+                    pageNumber: 1,
+                    pageMatchIndex: 0,
+                    matchIndex: 0,
+                    startOffset: 1,
+                    endOffset: 6,
+                },
+            ],
             truncated: false,
         });
         await firstSearch;
@@ -953,18 +953,17 @@ describe('usePdfSearch', () => {
                 truncated: false,
             };
         });
-        mockSearch.cancel.mockImplementation(async () => new Promise<{canceled: boolean}>((resolve) => {
-            resolveCancel = () => resolve({canceled: true});
-        }));
+        mockSearch.cancel.mockImplementation(
+            async () =>
+                new Promise<{canceled: boolean}>((resolve) => {
+                    resolveCancel = () => resolve({canceled: true});
+                }),
+        );
         const search = await createPdfSearch();
 
         const firstSearch = search.search('alpha', '/tmp/work.pdf');
         await vi.advanceTimersByTimeAsync(0);
-        expect(mockSearch.run).toHaveBeenCalledWith(
-            '/tmp/work.pdf',
-            'alpha',
-            expect.any(Object),
-        );
+        expect(mockSearch.run).toHaveBeenCalledWith('/tmp/work.pdf', 'alpha', expect.any(Object));
 
         const secondSearch = search.search('beta', '/tmp/work.pdf');
         await vi.waitFor(() => {
@@ -975,11 +974,7 @@ describe('usePdfSearch', () => {
         await vi.advanceTimersByTimeAsync(0);
 
         expect(mockSearch.run).toHaveBeenCalledTimes(2);
-        expect(mockSearch.run).toHaveBeenLastCalledWith(
-            '/tmp/work.pdf',
-            'gamma',
-            expect.any(Object),
-        );
+        expect(mockSearch.run).toHaveBeenLastCalledWith('/tmp/work.pdf', 'gamma', expect.any(Object));
 
         resolveCancel();
         resolveFirstSearch({
@@ -990,11 +985,7 @@ describe('usePdfSearch', () => {
         await expect(firstSearch).resolves.toBe(false);
         await expect(secondSearch).resolves.toBe(false);
         await expect(thirdSearch).resolves.toBe(true);
-        expect(mockSearch.run).not.toHaveBeenCalledWith(
-            '/tmp/work.pdf',
-            'beta',
-            expect.any(Object),
-        );
+        expect(mockSearch.run).not.toHaveBeenCalledWith('/tmp/work.pdf', 'beta', expect.any(Object));
     });
 
     it('surfaces a localized search error when backend search fails', async () => {
@@ -1094,22 +1085,26 @@ describe('usePdfSearch', () => {
             requestId,
             processed: 1,
             total: 1,
-            results: [{
-                pageNumber: 1,
-                pageMatchIndex: 0,
-                matchIndex: 0,
-                startOffset: 0,
-                endOffset: 5,
-            }],
+            results: [
+                {
+                    pageNumber: 1,
+                    pageMatchIndex: 0,
+                    matchIndex: 0,
+                    startOffset: 0,
+                    endOffset: 5,
+                },
+            ],
         });
         resolveSearch({
-            results: [{
-                pageNumber: 1,
-                pageMatchIndex: 0,
-                matchIndex: 0,
-                startOffset: 0,
-                endOffset: 5,
-            }],
+            results: [
+                {
+                    pageNumber: 1,
+                    pageMatchIndex: 0,
+                    matchIndex: 0,
+                    startOffset: 0,
+                    endOffset: 5,
+                },
+            ],
             truncated: false,
         });
 
@@ -1121,10 +1116,7 @@ describe('usePdfSearch', () => {
 
     it('resumes a search a rotation interrupts once the rotated revision is published', async () => {
         const documentRevisionToken = ref<TDocumentRevisionToken | null>(requireDocumentRevisionToken('revision-a'));
-        const matches = [
-            0,
-            1,
-        ].map(matchIndex => ({
+        const matches = [0, 1].map((matchIndex) => ({
             pageNumber: matchIndex + 1,
             pageMatchIndex: 0,
             matchIndex,
@@ -1169,17 +1161,9 @@ describe('usePdfSearch', () => {
         });
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(mockSearch.run.mock.calls.map(([
-            , , options,
-        ]) => options.documentRevision)).toEqual([
-            'revision-a',
-            'revision-b',
-        ]);
+        expect(mockSearch.run.mock.calls.map(([, , options]) => options.documentRevision)).toEqual(['revision-a', 'revision-b']);
         expect(search.isSearching.value).toBe(false);
-        expect(search.results.value.map(result => result.matchIndex)).toEqual([
-            0,
-            1,
-        ]);
+        expect(search.results.value.map((result) => result.matchIndex)).toEqual([0, 1]);
         expect(search.currentResult.value?.matchIndex).toBe(1);
     });
 
@@ -1187,11 +1171,12 @@ describe('usePdfSearch', () => {
         {
             ending: 'canceled',
             revisionWhenRunEnds: 'revision-a',
-            outcome: () => Promise.resolve<IPdfSearchRunResult>({
-                results: [],
-                truncated: false,
-                canceled: true,
-            }),
+            outcome: () =>
+                Promise.resolve<IPdfSearchRunResult>({
+                    results: [],
+                    truncated: false,
+                    canceled: true,
+                }),
         },
         {
             ending: 'failed',
@@ -1201,29 +1186,32 @@ describe('usePdfSearch', () => {
         {
             ending: 'left behind',
             revisionWhenRunEnds: 'revision-b',
-            outcome: () => Promise.resolve<IPdfSearchRunResult>({
-                results: [],
-                truncated: false,
-            }),
+            outcome: () =>
+                Promise.resolve<IPdfSearchRunResult>({
+                    results: [],
+                    truncated: false,
+                }),
         },
-    ])('reruns a search the rotation rewrite $ending once the rotated revision is published', async ({
-        revisionWhenRunEnds, outcome,
-    }) => {
+    ])('reruns a search the rotation rewrite $ending once the rotated revision is published', async ({revisionWhenRunEnds, outcome}) => {
         const documentRevisionToken = ref<TDocumentRevisionToken | null>(requireDocumentRevisionToken('revision-a'));
         const runEnds = Promise.withResolvers<undefined>();
-        mockSearch.run.mockImplementationOnce(async () => {
-            await runEnds.promise;
-            return outcome();
-        }).mockResolvedValueOnce({
-            results: [{
-                pageNumber: 4,
-                pageMatchIndex: 0,
-                matchIndex: 0,
-                startOffset: 0,
-                endOffset: 5,
-            }],
-            truncated: false,
-        });
+        mockSearch.run
+            .mockImplementationOnce(async () => {
+                await runEnds.promise;
+                return outcome();
+            })
+            .mockResolvedValueOnce({
+                results: [
+                    {
+                        pageNumber: 4,
+                        pageMatchIndex: 0,
+                        matchIndex: 0,
+                        startOffset: 0,
+                        endOffset: 5,
+                    },
+                ],
+                truncated: false,
+            });
         const search = await createPdfSearch({documentRevisionToken});
         const searched = search.search('alpha', '/tmp/work.pdf', 4);
         await vi.advanceTimersByTimeAsync(0);
@@ -1240,12 +1228,7 @@ describe('usePdfSearch', () => {
         search.resetSearchCache();
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(mockSearch.run.mock.calls.map(([
-            , , options,
-        ]) => options.documentRevision)).toEqual([
-            'revision-a',
-            'revision-b',
-        ]);
+        expect(mockSearch.run.mock.calls.map(([, , options]) => options.documentRevision)).toEqual(['revision-a', 'revision-b']);
         expect(search.searchError.value).toBeNull();
         expect(search.isSearching.value).toBe(false);
         expect(search.currentResult.value?.pageIndex).toBe(3);
@@ -1261,13 +1244,16 @@ describe('usePdfSearch', () => {
             endOffset: 5,
         });
         const continuation = Promise.withResolvers<IPdfSearchRunResult>();
-        mockSearch.run.mockResolvedValueOnce({
-            results: [match(0)],
-            truncated: true,
-        }).mockReturnValueOnce(continuation.promise).mockResolvedValueOnce({
-            results: [match(1)],
-            truncated: false,
-        });
+        mockSearch.run
+            .mockResolvedValueOnce({
+                results: [match(0)],
+                truncated: true,
+            })
+            .mockReturnValueOnce(continuation.promise)
+            .mockResolvedValueOnce({
+                results: [match(1)],
+                truncated: false,
+            });
         const search = await createPdfSearch({documentRevisionToken});
         await expect(search.search('alpha', '/tmp/work.pdf', 2)).resolves.toBe(true);
         const nextWindow = search.goToResult('next');
@@ -1284,24 +1270,10 @@ describe('usePdfSearch', () => {
         search.resetSearchCache();
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(mockSearch.run.mock.calls.map(([
-            , , options,
-        ]) => [
-            options.documentRevision,
-            options.resultOffset,
-        ])).toEqual([
-            [
-                'revision-a',
-                undefined,
-            ],
-            [
-                'revision-a',
-                1,
-            ],
-            [
-                'revision-b',
-                1,
-            ],
+        expect(mockSearch.run.mock.calls.map(([, , options]) => [options.documentRevision, options.resultOffset])).toEqual([
+            ['revision-a', undefined],
+            ['revision-a', 1],
+            ['revision-b', 1],
         ]);
         expect(search.isSearching.value).toBe(false);
         expect(search.currentResult.value?.matchIndex).toBe(1);
@@ -1335,13 +1307,15 @@ describe('usePdfSearch', () => {
     it('keeps a completed search through rotation without searching again', async () => {
         const documentRevisionToken = ref<TDocumentRevisionToken | null>(requireDocumentRevisionToken('revision-a'));
         mockSearch.run.mockResolvedValueOnce({
-            results: [{
-                pageNumber: 1,
-                pageMatchIndex: 0,
-                matchIndex: 0,
-                startOffset: 0,
-                endOffset: 5,
-            }],
+            results: [
+                {
+                    pageNumber: 1,
+                    pageMatchIndex: 0,
+                    matchIndex: 0,
+                    startOffset: 0,
+                    endOffset: 5,
+                },
+            ],
             truncated: false,
         });
         const search = await createPdfSearch({documentRevisionToken});
@@ -1432,18 +1406,25 @@ describe('usePdfSearch', () => {
     });
 
     it('drives a real search consumer with replay, cancellation, late events and typed failure controls', async () => {
-        const operation = createPlatformApiFixtureOperation<IPdfSearchResponse, [string, string, IPdfSearchRequestOptions?], string>({operationKey: (...args) => String(args[2]?.requestId ?? '')});
+        const operation = createPlatformApiFixtureOperation<IPdfSearchResponse, [string, string, IPdfSearchRequestOptions?], string>({
+            operationKey: (...args) => String(args[2]?.requestId ?? ''),
+        });
         const fixture = createElectronPlatformApiFixture({search: {run: operation.method}});
-        const event = fixture.search.onProgress as typeof fixture.search.onProgress & IPlatformApiFixtureEventMethod<IPdfSearchTestProgress>;
-        mockSearch.onProgress.mockImplementation(listener => fixture.search.onProgress(progress => listener({
-            requestId: String(progress.requestId),
-            processed: progress.processed,
-            total: progress.total,
-            ...(progress.results === undefined ? {} : {results: progress.results.map(result => ({...result}))}),
-            ...(progress.resultsStartIndex === undefined ? {} : {resultsStartIndex: progress.resultsStartIndex}),
-            ...(progress.canceled === undefined ? {} : {canceled: progress.canceled}),
-            ...(progress.truncated === undefined ? {} : {truncated: progress.truncated}),
-        })));
+        const event = fixture.search.onProgress as typeof fixture.search.onProgress &
+            IPlatformApiFixtureEventMethod<IPdfSearchTestProgress>;
+        mockSearch.onProgress.mockImplementation((listener) =>
+            fixture.search.onProgress((progress) =>
+                listener({
+                    requestId: String(progress.requestId),
+                    processed: progress.processed,
+                    total: progress.total,
+                    ...(progress.results === undefined ? {} : {results: progress.results.map((result) => ({...result}))}),
+                    ...(progress.resultsStartIndex === undefined ? {} : {resultsStartIndex: progress.resultsStartIndex}),
+                    ...(progress.canceled === undefined ? {} : {canceled: progress.canceled}),
+                    ...(progress.truncated === undefined ? {} : {truncated: progress.truncated}),
+                }),
+            ),
+        );
         mockSearch.run.mockImplementation(async (pdfPath, query, options) => {
             if (options === undefined) {
                 throw new Error('Expected search request options');
@@ -1488,28 +1469,34 @@ describe('usePdfSearch', () => {
             requestId,
             processed: 928,
             total: 928,
-            results: [{
-                pageNumber: 1,
-                pageMatchIndex: 0,
-                matchIndex: 0,
-                startOffset: 0,
-                endOffset: 5,
-            }],
+            results: [
+                {
+                    pageNumber: 1,
+                    pageMatchIndex: 0,
+                    matchIndex: 0,
+                    startOffset: 0,
+                    endOffset: 5,
+                },
+            ],
         });
         await expect(canceled).resolves.toBe(false);
         expect(search.results.value).toEqual([]);
 
         const failedOperation = createPlatformApiFixtureOperation<IPdfSearchResponse, [string, string, IPdfSearchRequestOptions?]>();
         const failedFixture = createElectronPlatformApiFixture({search: {run: failedOperation.method}});
-        mockSearch.onProgress.mockImplementation(listener => failedFixture.search.onProgress(progress => listener({
-            requestId: String(progress.requestId),
-            processed: progress.processed,
-            total: progress.total,
-            ...(progress.results === undefined ? {} : {results: progress.results.map(result => ({...result}))}),
-            ...(progress.resultsStartIndex === undefined ? {} : {resultsStartIndex: progress.resultsStartIndex}),
-            ...(progress.canceled === undefined ? {} : {canceled: progress.canceled}),
-            ...(progress.truncated === undefined ? {} : {truncated: progress.truncated}),
-        })));
+        mockSearch.onProgress.mockImplementation((listener) =>
+            failedFixture.search.onProgress((progress) =>
+                listener({
+                    requestId: String(progress.requestId),
+                    processed: progress.processed,
+                    total: progress.total,
+                    ...(progress.results === undefined ? {} : {results: progress.results.map((result) => ({...result}))}),
+                    ...(progress.resultsStartIndex === undefined ? {} : {resultsStartIndex: progress.resultsStartIndex}),
+                    ...(progress.canceled === undefined ? {} : {canceled: progress.canceled}),
+                    ...(progress.truncated === undefined ? {} : {truncated: progress.truncated}),
+                }),
+            ),
+        );
         mockSearch.run.mockImplementation(async (pdfPath, query, options) => {
             if (options === undefined) {
                 throw new Error('Expected search request options');
@@ -1547,13 +1534,15 @@ describe('usePdfSearch', () => {
         await expect(abandoned).resolves.toBe(false);
 
         mockSearch.run.mockResolvedValueOnce({
-            results: [{
-                pageNumber: 2,
-                pageMatchIndex: 0,
-                matchIndex: 0,
-                startOffset: 0,
-                endOffset: 5,
-            }],
+            results: [
+                {
+                    pageNumber: 2,
+                    pageMatchIndex: 0,
+                    matchIndex: 0,
+                    startOffset: 0,
+                    endOffset: 5,
+                },
+            ],
             truncated: false,
         });
         const restarted = search.search('alpha', '/tmp/work.pdf', 928);

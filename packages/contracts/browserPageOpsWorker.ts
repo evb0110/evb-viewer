@@ -10,15 +10,8 @@ import type {ICropMargins} from '@contracts/shared';
 import {PAGE_GEOMETRY_SCHEMA} from '@contracts/decodePageGeometry';
 import {PDF_NATIVE_PAGE_GEOMETRY_PAGE_SCHEMA} from '@contracts/documentsPlatformFeatureNativePageSchemas';
 import {decodeBrowserPdfCatalog} from '@contracts/browserPdfCatalog';
-import type {
-    IBrowserPdfCatalog,
-    IBrowserPdfCatalogBookmark,
-    IBrowserPdfCatalogPageLabelRange,
-} from '@contracts/browserPdfCatalog';
-import {
-    isRecord,
-    isSafeWorkerRequestId,
-} from '@contracts/runtimeGuards';
+import type {IBrowserPdfCatalog, IBrowserPdfCatalogBookmark, IBrowserPdfCatalogPageLabelRange} from '@contracts/browserPdfCatalog';
+import {isRecord, isSafeWorkerRequestId} from '@contracts/runtimeGuards';
 import {PDF_OCR_TEXT_VISIBILITY_REPORT_SCHEMA} from '@contracts/pdfOcrTextVisibility';
 import {
     OVERLAY_TEXT_INSTRUCTIONS_SCHEMA,
@@ -35,7 +28,7 @@ const workerRequestIdSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0))
 const positiveIntegerSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(1));
 const nonNegativeIntegerSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
 const finiteNonNegativeSchema = v.pipe(v.number(), v.finite(), v.minValue(0));
-const pdfBytesSchema = v.custom<Uint8Array>(value => value instanceof Uint8Array);
+const pdfBytesSchema = v.custom<Uint8Array>((value) => value instanceof Uint8Array);
 
 interface IBrowserWorkerSuccessEnvelope {
     id: number;
@@ -56,9 +49,12 @@ type TBrowserWorkerResponseEnvelope = IBrowserWorkerSuccessEnvelope | IBrowserWo
 // The worker message is already a structured clone. Validate its envelope
 // without building another representation; the owner decodes data/errors.
 export function isBrowserWorkerResponseEnvelope(value: unknown): value is TBrowserWorkerResponseEnvelope {
-    return isRecord(value) && isSafeWorkerRequestId(value.id)
-        && ((value.ok === true && typeof value.type === 'string' && 'data' in value)
-            || (value.ok === false && typeof value.error === 'string'));
+    return (
+        isRecord(value) &&
+        isSafeWorkerRequestId(value.id) &&
+        ((value.ok === true && typeof value.type === 'string' && 'data' in value) ||
+            (value.ok === false && typeof value.error === 'string'))
+    );
 }
 
 export const EVICT_BROWSER_PAGE_OPS_DOCUMENT_MESSAGE_TYPE = 'evb:evict-page-ops-document';
@@ -67,13 +63,15 @@ export const EVICT_BROWSER_PAGE_OPS_DOCUMENT_MESSAGE_TYPE = 'evb:evict-page-ops-
 export const OCR_WORD_GEOMETRY_SCHEMA = v.object({
     rasterWidthPx: v.pipe(v.number(), v.finite(), v.gtValue(0)),
     rasterHeightPx: v.pipe(v.number(), v.finite(), v.gtValue(0)),
-    words: v.array(v.object({
-        text: v.string(),
-        x: finiteNonNegativeSchema,
-        y: finiteNonNegativeSchema,
-        width: v.pipe(v.number(), v.finite(), v.gtValue(0)),
-        height: v.pipe(v.number(), v.finite(), v.gtValue(0)),
-    })),
+    words: v.array(
+        v.object({
+            text: v.string(),
+            x: finiteNonNegativeSchema,
+            y: finiteNonNegativeSchema,
+            width: v.pipe(v.number(), v.finite(), v.gtValue(0)),
+            height: v.pipe(v.number(), v.finite(), v.gtValue(0)),
+        }),
+    ),
 });
 export type TOcrWordGeometry = v.InferOutput<typeof OCR_WORD_GEOMETRY_SCHEMA>;
 
@@ -83,38 +81,50 @@ export type TOcrWordGeometry = v.InferOutput<typeof OCR_WORD_GEOMETRY_SCHEMA>;
  * reading made to Tesseract's words, and, when preprocessing moved the pixels
  * Tesseract read, the matrix mapping them back to the rendered raster.
  */
-const OCR_TEXT_LAYER_INSTRUCTIONS_SCHEMA = v.object({pages: v.pipe(v.array(v.object({
-    pageNumber: positiveIntegerSchema,
-    source: nonNegativeIntegerSchema,
-    wordGeometry: v.optional(OCR_WORD_GEOMETRY_SCHEMA),
-    preprocessInverse: v.optional(v.object({
-        rasterWidthPx: v.pipe(v.number(), v.finite(), v.gtValue(0)),
-        rasterHeightPx: v.pipe(v.number(), v.finite(), v.gtValue(0)),
-        matrix: v.pipe(v.array(v.pipe(v.array(v.pipe(v.number(), v.finite())), v.length(3))), v.length(3)),
-    })),
-    normalizeGreekMicroSign: v.optional(v.boolean()),
-    wordEdits: v.optional(v.array(v.object({
-        word: nonNegativeIntegerSchema,
-        from: v.string(),
-        to: v.string(),
-    }))),
-})), v.minLength(1))});
+const OCR_TEXT_LAYER_INSTRUCTIONS_SCHEMA = v.object({
+    pages: v.pipe(
+        v.array(
+            v.object({
+                pageNumber: positiveIntegerSchema,
+                source: nonNegativeIntegerSchema,
+                wordGeometry: v.optional(OCR_WORD_GEOMETRY_SCHEMA),
+                preprocessInverse: v.optional(
+                    v.object({
+                        rasterWidthPx: v.pipe(v.number(), v.finite(), v.gtValue(0)),
+                        rasterHeightPx: v.pipe(v.number(), v.finite(), v.gtValue(0)),
+                        matrix: v.pipe(v.array(v.pipe(v.array(v.pipe(v.number(), v.finite())), v.length(3))), v.length(3)),
+                    }),
+                ),
+                normalizeGreekMicroSign: v.optional(v.boolean()),
+                wordEdits: v.optional(
+                    v.array(
+                        v.object({
+                            word: nonNegativeIntegerSchema,
+                            from: v.string(),
+                            to: v.string(),
+                        }),
+                    ),
+                ),
+            }),
+        ),
+        v.minLength(1),
+    ),
+});
 export type IOcrTextLayerInstructions = v.InferOutput<typeof OCR_TEXT_LAYER_INSTRUCTIONS_SCHEMA>;
 
 /** A Scan Cleanup source raster, requested as desktop asks `pdftoppm` for one. */
 export const SCAN_CLEANUP_RASTER_REQUEST_SCHEMA = v.strictObject({
     pageNumber: positiveIntegerSchema,
     dpi: v.pipe(v.number(), v.finite(), v.minValue(1)),
-    renderBox: v.picklist([
-        'cropBox',
-        'mediaBox',
-    ]),
-    slice: v.optional(v.strictObject({
-        x: nonNegativeIntegerSchema,
-        y: nonNegativeIntegerSchema,
-        width: nonNegativeIntegerSchema,
-        height: nonNegativeIntegerSchema,
-    })),
+    renderBox: v.picklist(['cropBox', 'mediaBox']),
+    slice: v.optional(
+        v.strictObject({
+            x: nonNegativeIntegerSchema,
+            y: nonNegativeIntegerSchema,
+            width: nonNegativeIntegerSchema,
+            height: nonNegativeIntegerSchema,
+        }),
+    ),
     maxPixels: positiveIntegerSchema,
 });
 
@@ -123,16 +133,16 @@ const SCAN_CLEANUP_RASTER_REPORT_SCHEMA = v.union([
     v.strictObject({
         width: positiveIntegerSchema,
         height: positiveIntegerSchema,
-        compatibility: v.picklist([
-            'exact',
-            'near',
-        ]),
+        compatibility: v.picklist(['exact', 'near']),
     }),
     v.strictObject({unsupported: v.string()}),
 ]);
 
 const workerRequestPayloadSchemas = {
-    textBoxAppearance: v.pipe(v.unknown(), v.transform(value => normalizePdfNativeTextBoxAppearanceRequest(value))),
+    textBoxAppearance: v.pipe(
+        v.unknown(),
+        v.transform((value) => normalizePdfNativeTextBoxAppearanceRequest(value)),
+    ),
     /**
      * A page-structure edit the engine reads from `sources` by range and writes to the new file at the store
      * path `output`, or returns as bytes when `output` is null (a document the browser keeps in memory).
@@ -142,11 +152,7 @@ const workerRequestPayloadSchemas = {
     pageStructure: v.object({
         edit: v.variant('kind', [
             v.object({
-                kind: v.picklist([
-                    'delete',
-                    'extract',
-                    'reorder',
-                ]),
+                kind: v.picklist(['delete', 'extract', 'reorder']),
                 pages: v.pipe(v.array(positiveIntegerSchema), v.minLength(1)),
             }),
             v.object({
@@ -175,16 +181,8 @@ const workerRequestPayloadSchemas = {
     printLayout: v.object({
         data: pdfBytesSchema,
         pageNumbers: v.array(positiveIntegerSchema),
-        viewMode: v.picklist([
-            'single',
-            'facing',
-            'facing-first-single',
-        ]),
-        orientation: v.picklist([
-            'auto',
-            'portrait',
-            'landscape',
-        ]),
+        viewMode: v.picklist(['single', 'facing', 'facing-first-single']),
+        orientation: v.picklist(['auto', 'portrait', 'landscape']),
     }),
     ocrTextVisibility: v.object({
         source: v.instance(Blob),
@@ -203,7 +201,7 @@ const workerRequestPayloadSchemas = {
             cacheKey: v.optional(v.pipe(v.string(), v.minLength(1))),
             request: SCAN_CLEANUP_RASTER_REQUEST_SCHEMA,
         }),
-        v.check(value => value.source !== undefined || value.data !== undefined),
+        v.check((value) => value.source !== undefined || value.data !== undefined),
     ),
     splitPages: v.object({
         data: pdfBytesSchema,
@@ -316,7 +314,11 @@ const workerRequestSchema = v.union([
 
 const pageMutationResultSchema = v.object({
     data: pdfBytesSchema,
-    pageCount: v.pipe(v.number(), v.check((value: number) => Number.isInteger(value)), v.minValue(1)),
+    pageCount: v.pipe(
+        v.number(),
+        v.check((value: number) => Number.isInteger(value)),
+        v.minValue(1),
+    ),
 });
 const annotationParseResultSchema = v.object({data: pdfBytesSchema});
 // The whole rewritten PDF and the report its CLI command prints.
@@ -326,10 +328,11 @@ const reportedPdfResultSchema = v.object({
 });
 // `data` is the revision the writer appends to the request's document, empty
 // when the pass changed nothing; `report` is what its CLI command prints.
-const reportedIncrementResultSchema = <TReport extends v.GenericSchema>(report: TReport) => v.object({
-    ...pageMutationResultSchema.entries,
-    report,
-});
+const reportedIncrementResultSchema = <TReport extends v.GenericSchema>(report: TReport) =>
+    v.object({
+        ...pageMutationResultSchema.entries,
+        report,
+    });
 const conformanceFactsSchema = v.object({
     isSigned: v.boolean(),
     isEncrypted: v.boolean(),
@@ -340,9 +343,9 @@ const conformanceFactsSchema = v.object({
 // The shared decoder enforces recursive bookmark depth and aggregate item budgets.
 const catalogResultSchema = v.pipe(
     v.unknown(),
-    v.transform(value => decodeBrowserPdfCatalog(value)),
-    v.check(value => value !== null),
-    v.transform(value => value as IBrowserPdfCatalog),
+    v.transform((value) => decodeBrowserPdfCatalog(value)),
+    v.check((value) => value !== null),
+    v.transform((value) => value as IBrowserPdfCatalog),
 );
 
 const pageSizesTableSchema = v.pipe(
@@ -350,8 +353,8 @@ const pageSizesTableSchema = v.pipe(
         pageCount: positiveIntegerSchema,
         pages: v.array(PDF_NATIVE_PAGE_GEOMETRY_PAGE_SCHEMA),
     }),
-    v.check(value => value.pages.length === value.pageCount),
-    v.check(value => value.pages.every((page, index) => page.pageNumber === index + 1)),
+    v.check((value) => value.pages.length === value.pageCount),
+    v.check((value) => value.pages.every((page, index) => page.pageNumber === index + 1)),
 );
 
 export const BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA = v.object({
@@ -360,33 +363,30 @@ export const BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA = v.object({
 });
 export type IBrowserPageOpsWasmFailure = v.InferOutput<typeof BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA>;
 export function isBrowserPageOpsWasmFailure(value: unknown): value is IBrowserPageOpsWasmFailure {
-    return isRecord(value) && value.status === 'failed'
-        && v.safeParse(BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA, value, {abortEarly: true}).success;
+    return (
+        isRecord(value) && value.status === 'failed' && v.safeParse(BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA, value, {abortEarly: true}).success
+    );
 }
 
 const workerResultSchemas = {
     textBoxAppearance: v.union([
         v.pipe(
             v.object({
-                data: v.pipe(pdfBytesSchema, v.check(value => value.byteLength > 0
-                && value.byteLength <= PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS.outputBytes)),
+                data: v.pipe(
+                    pdfBytesSchema,
+                    v.check((value) => value.byteLength > 0 && value.byteLength <= PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS.outputBytes),
+                ),
                 textBoxes: v.unknown(),
             }),
-            v.transform(value => ({
+            v.transform((value) => ({
                 ...normalizePdfNativeTextBoxAppearanceMetadata({textBoxes: value.textBoxes}),
                 data: value.data,
             })),
         ),
         BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
     ]),
-    decrypt: v.union([
-        pageMutationResultSchema,
-        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
-    ]),
-    printLayout: v.union([
-        pageMutationResultSchema,
-        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
-    ]),
+    decrypt: v.union([pageMutationResultSchema, BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA]),
+    printLayout: v.union([pageMutationResultSchema, BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA]),
     // `written`: the output's page count and length, and its bytes when the request named no file.
     pageStructure: v.union([
         v.object({
@@ -399,21 +399,12 @@ const workerResultSchemas = {
         BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
     ]),
     getPageGeometry: PAGE_GEOMETRY_SCHEMA,
-    readPageSizes: v.union([
-        pageSizesTableSchema,
-        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
-    ]),
-    appendAdmission: v.union([
-        v.object({verdict: v.picklist(BROWSER_APPEND_ADMISSION_VERDICTS)}),
-        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
-    ]),
+    readPageSizes: v.union([pageSizesTableSchema, BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA]),
+    appendAdmission: v.union([v.object({verdict: v.picklist(BROWSER_APPEND_ADMISSION_VERDICTS)}), BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA]),
     parseAnnotations: annotationParseResultSchema,
     readCatalog: catalogResultSchema,
     conformance: conformanceFactsSchema,
-    ocrTextVisibility: v.union([
-        PDF_OCR_TEXT_VISIBILITY_REPORT_SCHEMA,
-        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
-    ]),
+    ocrTextVisibility: v.union([PDF_OCR_TEXT_VISIBILITY_REPORT_SCHEMA, BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA]),
     // Each record is the desktop page-size sidecar's; its reader decodes it.
     inspectScanCleanupPdf: v.union([
         v.object({
@@ -430,22 +421,10 @@ const workerResultSchemas = {
         }),
         BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
     ]),
-    splitPages: v.union([
-        reportedPdfResultSchema,
-        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
-    ]),
-    overlayText: v.union([
-        reportedPdfResultSchema,
-        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
-    ]),
-    recompressImages: v.union([
-        reportedIncrementResultSchema(RECOMPRESS_IMAGES_REPORT_SCHEMA),
-        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
-    ]),
-    replacePageImages: v.union([
-        reportedIncrementResultSchema(REPLACE_PAGE_IMAGES_REPORT_SCHEMA),
-        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
-    ]),
+    splitPages: v.union([reportedPdfResultSchema, BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA]),
+    overlayText: v.union([reportedPdfResultSchema, BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA]),
+    recompressImages: v.union([reportedIncrementResultSchema(RECOMPRESS_IMAGES_REPORT_SCHEMA), BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA]),
+    replacePageImages: v.union([reportedIncrementResultSchema(REPLACE_PAGE_IMAGES_REPORT_SCHEMA), BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA]),
 };
 
 const workerSuccessResponseSchema = v.union([
@@ -581,9 +560,7 @@ type IBrowserPdfConformanceFacts = v.InferOutput<typeof conformanceFactsSchema>;
 type TBrowserPageOpsWorkerResponse = v.InferOutput<typeof workerResponseSchema>;
 
 export function getBrowserPageOpsWorkerRequestId(value: unknown) {
-    return isRecord(value) && isSafeWorkerRequestId(value.id)
-        ? value.id
-        : null;
+    return isRecord(value) && isSafeWorkerRequestId(value.id) ? value.id : null;
 }
 
 export function parseBrowserPageOpsWorkerRequest(value: unknown): TBrowserPageOpsWorkerRequest | null {
@@ -596,9 +573,7 @@ export function parseBrowserPageOpsWorkerRequest(value: unknown): TBrowserPageOp
     }
 }
 
-export {
-    workerResultSchemas as BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS,
-};
+export {workerResultSchemas as BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS};
 
 export type {
     IBrowserPageOpsWorkerRequest,

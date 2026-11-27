@@ -2,15 +2,14 @@ import type {TDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {IPdfNativeAnnotationIdentityBinding} from '@contracts/electronApiDocuments';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
-import type {
-    IPdfViewerSaveTransactionDescriptors,
-    INativePdfMutationProjection,
-} from '@app/modules/pdf-viewer/public';
-import { NativePdfSaveRequiredError } from '@app/modules/pdf-viewer/public';
+import type {IPdfViewerSaveTransactionDescriptors, INativePdfMutationProjection} from '@app/modules/pdf-viewer/public';
+import {NativePdfSaveRequiredError} from '@app/modules/pdf-viewer/public';
 import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
 import {toPdfDateString} from '@app/utils/pdfDate';
 
-export interface INativePdfSaveTransactionOptions extends IPdfViewerSaveTransactionDescriptors {forceWriterSave?: boolean;}
+export interface INativePdfSaveTransactionOptions extends IPdfViewerSaveTransactionDescriptors {
+    forceWriterSave?: boolean;
+}
 
 function createCapabilityFailure(detail: string): NativePdfSaveRequiredError {
     return new NativePdfSaveRequiredError({
@@ -41,10 +40,7 @@ export async function consumeNativePdfMutationProjection(
     options: IConsumeNativePdfMutationProjectionOptions,
 ): Promise<TDocumentRef | null> {
     const files = getDocumentFilesCapability();
-    if (
-        typeof files.releaseManagedTempFileHandle !== 'function'
-        || typeof files.applyPdfNativeMutationsToWorkingCopy !== 'function'
-    ) {
+    if (typeof files.releaseManagedTempFileHandle !== 'function' || typeof files.applyPdfNativeMutationsToWorkingCopy !== 'function') {
         throw createCapabilityFailure('Native PDF mutation staging is unavailable');
     }
     if (options.expectedDocumentRevisionToken === null || options.expectedDocumentRevisionToken === undefined) {
@@ -85,10 +81,7 @@ export async function consumeNativePdfMutationProjection(
             if (typeof cloneConsumer !== 'function') {
                 throw createCapabilityFailure('Native split snapshot staging is unavailable');
             }
-            const clonePath = await cloneConsumer(
-                stagedOutput,
-                options.originalPath ?? undefined,
-            );
+            const clonePath = await cloneConsumer(stagedOutput, options.originalPath ?? undefined);
             stagedLeaseConsumed = true;
             return clonePath;
         }
@@ -96,11 +89,9 @@ export async function consumeNativePdfMutationProjection(
         if (typeof replaceConsumer !== 'function') {
             throw createCapabilityFailure('Native page-mutation staging is unavailable');
         }
-        const replaced = await replaceConsumer(
-            options.workingPath,
-            stagedOutput,
-            {expectedDocumentRevisionToken: options.expectedDocumentRevisionToken},
-        );
+        const replaced = await replaceConsumer(options.workingPath, stagedOutput, {
+            expectedDocumentRevisionToken: options.expectedDocumentRevisionToken,
+        });
         stagedLeaseConsumed = true;
         if (!replaced) {
             throw new NativePdfSaveRequiredError({

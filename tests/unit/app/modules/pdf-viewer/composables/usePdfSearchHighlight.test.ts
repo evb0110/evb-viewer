@@ -2,21 +2,10 @@ import * as visualMatchEngine from '@app/modules/pdf-viewer/engine/search/buildV
 import {setBrowserLogSink} from '@app/utils/browserLogger';
 // @vitest-environment happy-dom
 
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type {
-    IPdfPageMatches,
-    IPdfSearchMatch,
-} from '@app/types/pdfUi';
-import {
-    markVisualMatchesWithCurrent,
-    reconcileVisualMatches,
-} from '@app/modules/pdf-viewer/engine/search/buildVisualMatchesWithCurrent';
-import { usePdfSearchHighlight } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearchHighlight';
+import {describe, expect, it, vi} from 'vitest';
+import type {IPdfPageMatches, IPdfSearchMatch} from '@app/types/pdfUi';
+import {markVisualMatchesWithCurrent, reconcileVisualMatches} from '@app/modules/pdf-viewer/engine/search/buildVisualMatchesWithCurrent';
+import {usePdfSearchHighlight} from '@app/modules/pdf-viewer/runtime/composables/usePdfSearchHighlight';
 import {
     assembleTextLayerSearchText,
     clearTextLayerTextMapping,
@@ -26,23 +15,20 @@ import {
     highlightTextRunInPdfjsStyle,
     registerTextLayerTextMapping,
 } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
-import { requirePageIndex } from '@contracts/pageNumbers';
-import type { IAssembledSearchablePageText } from '@contracts/search';
-import { STORAGE_KEYS } from '@app/constants/storageKeys';
-import {
-    assembleSearchablePageText, findPdfSearchMatches,
-} from '@pdf-core';
-import { matchPdfSearchPageWindow } from '@pdf-core/pdfSearchCore';
-import { restorePdfjsRtlItemTexts } from '@pdf-core/pdfjsTextItems';
-import { matchBrowserSearchPageWindowInWorker } from '@app/platform/browser-api/public';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import type {IAssembledSearchablePageText} from '@contracts/search';
+import {STORAGE_KEYS} from '@app/constants/storageKeys';
+import {assembleSearchablePageText, findPdfSearchMatches} from '@pdf-core';
+import {matchPdfSearchPageWindow} from '@pdf-core/pdfSearchCore';
+import {restorePdfjsRtlItemTexts} from '@pdf-core/pdfjsTextItems';
+import {matchBrowserSearchPageWindowInWorker} from '@app/platform/browser-api/public';
 
-vi.mock('@app/platform/browser-api/public', () => ({matchBrowserSearchPageWindowInWorker: vi.fn(async (...[
-    text,
-    query,
-    options,
-    maxMatches,
-    resultOffset,
-]: Parameters<typeof matchPdfSearchPageWindow>) => matchPdfSearchPageWindow(text, query, options, maxMatches, resultOffset))}));
+vi.mock('@app/platform/browser-api/public', () => ({
+    matchBrowserSearchPageWindowInWorker: vi.fn(
+        async (...[text, query, options, maxMatches, resultOffset]: Parameters<typeof matchPdfSearchPageWindow>) =>
+            matchPdfSearchPageWindow(text, query, options, maxMatches, resultOffset),
+    ),
+}));
 
 async function reconcileVisualMatchesWithCurrent(
     pageMatches: IPdfPageMatches,
@@ -50,18 +36,19 @@ async function reconcileVisualMatchesWithCurrent(
     layerText: string,
     assembledLayerText?: IAssembledSearchablePageText,
 ) {
-    return markVisualMatchesWithCurrent(await reconcileVisualMatches(pageMatches, layerText, assembledLayerText), pageMatches, currentMatch);
+    return markVisualMatchesWithCurrent(
+        await reconcileVisualMatches(pageMatches, layerText, assembledLayerText),
+        pageMatches,
+        currentMatch,
+    );
 }
 
 describe('usePdfSearchHighlight', () => {
     it('highlights pointed RTL text when the backend omits generated word separators', async () => {
         const raw = 'ַהְק';
         const layer = document.createElement('div');
-        const items = [
-            'ַה',
-            'ְק',
-        ];
-        const spans = items.map(text => {
+        const items = ['ַה', 'ְק'];
+        const spans = items.map((text) => {
             const span = document.createElement('span');
             span.textContent = text;
             span.dir = 'rtl';
@@ -79,20 +66,24 @@ describe('usePdfSearchHighlight', () => {
             pageIndex: requirePageIndex(0),
             pageText: 'הַקְ',
             searchQuery: 'הַקְ',
-            matches: [{
-                matchIndex: 0,
-                start: 0,
-                end: 4,
-            }],
+            matches: [
+                {
+                    matchIndex: 0,
+                    start: 0,
+                    end: 4,
+                },
+            ],
         };
 
         const ranges = await reconcileVisualMatchesWithCurrent(pageMatches, null, raw, assembled);
 
-        expect(ranges).toEqual([{
-            start: 0,
-            end: 4,
-            isCurrent: false,
-        }]);
+        expect(ranges).toEqual([
+            {
+                start: 0,
+                end: 4,
+                isCurrent: false,
+            },
+        ]);
         expect(raw.slice(ranges[0]!.start, ranges[0]!.end)).toBe(raw);
     });
 
@@ -108,13 +99,17 @@ describe('usePdfSearchHighlight', () => {
                 end: 11 + (index + 500) * 6,
             })),
         };
-        const result = await reconcileVisualMatchesWithCurrent(pageMatches, {
-            pageIndex: requirePageIndex(0),
-            pageMatchIndex: 999,
-            matchIndex: 999,
-            startOffset: 6000,
-            endOffset: 6005,
-        }, 'head ' + 'alpha '.repeat(50_000) + 'tail');
+        const result = await reconcileVisualMatchesWithCurrent(
+            pageMatches,
+            {
+                pageIndex: requirePageIndex(0),
+                pageMatchIndex: 999,
+                matchIndex: 999,
+                startOffset: 6000,
+                endOffset: 6005,
+            },
+            'head ' + 'alpha '.repeat(50_000) + 'tail',
+        );
         expect(result).toHaveLength(500);
         expect(result[0]).toEqual({
             start: 3005,
@@ -126,7 +121,7 @@ describe('usePdfSearchHighlight', () => {
             end: 6004,
             isCurrent: true,
         });
-        expect(result.filter(match => match.isCurrent)).toHaveLength(1);
+        expect(result.filter((match) => match.isCurrent)).toHaveLength(1);
     });
 
     it('keeps backend identity instead of re-finding matches in the rendered layer', async () => {
@@ -181,20 +176,24 @@ describe('usePdfSearchHighlight', () => {
             pageIndex: requirePageIndex(0),
             pageText: '',
             searchQuery: 'alpha',
-            matches: [{
-                matchIndex: 0,
-                start: 0,
-                end: 5,
-            }],
+            matches: [
+                {
+                    matchIndex: 0,
+                    start: 0,
+                    end: 5,
+                },
+            ],
         };
 
         const result = await reconcileVisualMatchesWithCurrent(pageMatches, null, 'alpha beta alpha');
 
-        expect(result).toEqual([{
-            start: 0,
-            end: 5,
-            isCurrent: false,
-        }]);
+        expect(result).toEqual([
+            {
+                start: 0,
+                end: 5,
+                isCurrent: false,
+            },
+        ]);
     });
 
     it('reconciles backend ranges with the rendered layer before selecting the current occurrence', async () => {
@@ -249,11 +248,13 @@ describe('usePdfSearchHighlight', () => {
             pageIndex: requirePageIndex(0),
             pageText: '',
             searchQuery: 'Lezgian',
-            matches: [{
-                matchIndex: 0,
-                start: 100,
-                end: 107,
-            }],
+            matches: [
+                {
+                    matchIndex: 0,
+                    start: 100,
+                    end: 107,
+                },
+            ],
         };
         const currentMatch: IPdfSearchMatch = {
             pageIndex: requirePageIndex(0),
@@ -262,21 +263,15 @@ describe('usePdfSearchHighlight', () => {
             startOffset: 100,
             endOffset: 107,
         };
-        const assembledLayerText = assembleSearchablePageText([
-            {text: 'prefix'},
-            {text: 'Lezgian'},
-        ]);
+        const assembledLayerText = assembleSearchablePageText([{text: 'prefix'}, {text: 'Lezgian'}]);
 
-        expect(await reconcileVisualMatchesWithCurrent(
-            pageMatches,
-            currentMatch,
-            'prefixLezgian',
-            assembledLayerText,
-        )).toEqual([{
-            start: 6,
-            end: 13,
-            isCurrent: true,
-        }]);
+        expect(await reconcileVisualMatchesWithCurrent(pageMatches, currentMatch, 'prefixLezgian', assembledLayerText)).toEqual([
+            {
+                start: 6,
+                end: 13,
+                isCurrent: true,
+            },
+        ]);
     });
 
     it('rejects in-bounds backend offsets that point at different rendered text', async () => {
@@ -284,27 +279,23 @@ describe('usePdfSearchHighlight', () => {
             pageIndex: requirePageIndex(0),
             pageText: '',
             searchQuery: 'Lezgian',
-            matches: [{
-                matchIndex: 0,
-                start: 0,
-                end: 7,
-            }],
+            matches: [
+                {
+                    matchIndex: 0,
+                    start: 0,
+                    end: 7,
+                },
+            ],
         };
-        const assembledLayerText = assembleSearchablePageText([
-            {text: 'prefix'},
-            {text: 'Lezgian'},
-        ]);
+        const assembledLayerText = assembleSearchablePageText([{text: 'prefix'}, {text: 'Lezgian'}]);
 
-        expect(await reconcileVisualMatchesWithCurrent(
-            pageMatches,
-            null,
-            'prefixLezgian',
-            assembledLayerText,
-        )).toEqual([{
-            start: 6,
-            end: 13,
-            isCurrent: false,
-        }]);
+        expect(await reconcileVisualMatchesWithCurrent(pageMatches, null, 'prefixLezgian', assembledLayerText)).toEqual([
+            {
+                start: 6,
+                end: 13,
+                isCurrent: false,
+            },
+        ]);
     });
 
     it('keeps each ordinal when a drifted native range coincides with another ligature', async () => {
@@ -313,35 +304,34 @@ describe('usePdfSearchHighlight', () => {
             pageIndex: requirePageIndex(0),
             pageText: '',
             searchQuery: 'office',
-            matches: [
-                0,
-                10,
-                20,
-            ].map((start, matchIndex) => ({
+            matches: [0, 10, 20].map((start, matchIndex) => ({
                 matchIndex,
                 start,
                 end: start + 4,
             })),
         };
         const sourceMatches = findPdfSearchMatches(layerText, 'office');
-        for (const [
-            pageMatchIndex,
-            source,
-        ] of sourceMatches.entries()) {
+        for (const [pageMatchIndex, source] of sourceMatches.entries()) {
             const current = pageMatches.matches[pageMatchIndex]!;
-            const ranges = await reconcileVisualMatchesWithCurrent(pageMatches, {
-                pageIndex: requirePageIndex(0),
-                pageMatchIndex,
-                matchIndex: current.matchIndex,
-                startOffset: current.start,
-                endOffset: current.end,
-            }, layerText);
+            const ranges = await reconcileVisualMatchesWithCurrent(
+                pageMatches,
+                {
+                    pageIndex: requirePageIndex(0),
+                    pageMatchIndex,
+                    matchIndex: current.matchIndex,
+                    startOffset: current.start,
+                    endOffset: current.end,
+                },
+                layerText,
+            );
             expect(ranges).toHaveLength(3);
-            expect(ranges.filter(range => range.isCurrent)).toEqual([{
-                start: source.startOffset,
-                end: source.endOffset,
-                isCurrent: true,
-            }]);
+            expect(ranges.filter((range) => range.isCurrent)).toEqual([
+                {
+                    start: source.startOffset,
+                    end: source.endOffset,
+                    isCurrent: true,
+                },
+            ]);
         }
     });
 
@@ -371,11 +361,7 @@ describe('usePdfSearchHighlight', () => {
             endOffset: 14,
         };
 
-        expect(await reconcileVisualMatchesWithCurrent(
-            pageMatches,
-            currentMatch,
-            'needle prefix needle extra',
-        )).toEqual([
+        expect(await reconcileVisualMatchesWithCurrent(pageMatches, currentMatch, 'needle prefix needle extra')).toEqual([
             {
                 start: 0,
                 end: 6,
@@ -415,11 +401,7 @@ describe('usePdfSearchHighlight', () => {
             endOffset: 17,
         };
 
-        expect(await reconcileVisualMatchesWithCurrent(
-            pageMatches,
-            currentMatch,
-            'alpha beta alpha',
-        )).toEqual([
+        expect(await reconcileVisualMatchesWithCurrent(pageMatches, currentMatch, 'alpha beta alpha')).toEqual([
             {
                 start: 0,
                 end: 5,
@@ -452,11 +434,7 @@ describe('usePdfSearchHighlight', () => {
             ],
         };
 
-        expect(await reconcileVisualMatchesWithCurrent(
-            pageMatches,
-            null,
-            'alpha beta alpha',
-        )).toEqual([
+        expect(await reconcileVisualMatchesWithCurrent(pageMatches, null, 'alpha beta alpha')).toEqual([
             {
                 start: 0,
                 end: 5,
@@ -476,38 +454,38 @@ describe('usePdfSearchHighlight', () => {
             pageIndex: requirePageIndex(0),
             pageText: segment,
             searchQuery: 'alpha',
-            matches: [{
-                matchIndex: 0,
-                start: 0,
-                end: 5,
-            }],
+            matches: [
+                {
+                    matchIndex: 0,
+                    start: 0,
+                    end: 5,
+                },
+            ],
         };
 
-        expect(await reconcileVisualMatchesWithCurrent(pageMatches, null, segment.repeat(2))).toEqual([{
-            start: 0,
-            end: 5,
-            isCurrent: false,
-        }]);
+        expect(await reconcileVisualMatchesWithCurrent(pageMatches, null, segment.repeat(2))).toEqual([
+            {
+                start: 0,
+                end: 5,
+                isCurrent: false,
+            },
+        ]);
     });
 });
 
 describe('pdfSearchHighlightDom text-layer mapping', () => {
-    it.each([
-        'dom',
-        'css',
-    ])('retains every repeated ligature identity in %s paint without changing selection', async mode => {
+    it.each(['dom', 'css'])('retains every repeated ligature identity in %s paint without changing selection', async (mode) => {
         const registry = new Map<string, Set<Range>>();
         vi.stubGlobal('CSS', {highlights: registry});
         vi.stubGlobal('Highlight', class extends Set<Range> {});
         window.localStorage.setItem(STORAGE_KEYS.HIGHLIGHT_MODE, mode);
         const layer = document.createElement('div');
-        const items = [
-            'ﬃ',
-            ' ',
-            'ﬃ',
-        ];
-        const spans = items.map(text => {
-            const span = document.createElement('span'); span.textContent = text; layer.append(span); return span;
+        const items = ['ﬃ', ' ', 'ﬃ'];
+        const spans = items.map((text) => {
+            const span = document.createElement('span');
+            span.textContent = text;
+            layer.append(span);
+            return span;
         });
         registerTextLayerTextMapping(layer, {
             textDivs: spans,
@@ -528,36 +506,29 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
         const highlight = usePdfSearchHighlight();
         try {
             const visual = await reconcileVisualMatches(pageMatches, 'ﬃ ﬃ');
-            expect(visual.map(match => match.pageMatchIndex)).toEqual([
-                0,
-                1,
-                2,
-                3,
-            ]);
-            const select = (index: number) => highlight.highlightPage(layer, pageMatches, {
-                pageIndex: pageMatches.pageIndex,
-                matchIndex: 40 + index,
-                pageMatchIndex: index,
-                startOffset: matches[index]!.start,
-                endOffset: matches[index]!.end,
-            });
+            expect(visual.map((match) => match.pageMatchIndex)).toEqual([0, 1, 2, 3]);
+            const select = (index: number) =>
+                highlight.highlightPage(layer, pageMatches, {
+                    pageIndex: pageMatches.pageIndex,
+                    matchIndex: 40 + index,
+                    pageMatchIndex: index,
+                    startOffset: matches[index]!.start,
+                    endOffset: matches[index]!.end,
+                });
             select(0);
-            if (mode === 'dom') await expect.poll(() => spans[0]!.querySelector('.pdf-search-highlight--current')?.textContent).toBe('ﬃ');
-            else await expect.poll(() => highlight.getCurrentMatchRanges(layer).length).toBeGreaterThan(0);
-            const selection = document.createRange(); selection.selectNodeContents(layer);
-            for (const index of [
-                0,
-                1,
-                2,
-                3,
-                2,
-                1,
-                0,
-            ]) {
+            if (mode === 'dom') {
+                await expect.poll(() => spans[0]!.querySelector('.pdf-search-highlight--current')?.textContent).toBe('ﬃ');
+            } else {
+                await expect.poll(() => highlight.getCurrentMatchRanges(layer).length).toBeGreaterThan(0);
+            }
+            const selection = document.createRange();
+            selection.selectNodeContents(layer);
+            for (const index of [0, 1, 2, 3, 2, 1, 0]) {
                 select(index);
                 const span = spans[index < 2 ? 0 : 2]!;
-                if (mode === 'dom') await expect.poll(() => span.querySelector('.pdf-search-highlight--current')?.textContent).toBe('ﬃ');
-                else {
+                if (mode === 'dom') {
+                    await expect.poll(() => span.querySelector('.pdf-search-highlight--current')?.textContent).toBe('ﬃ');
+                } else {
                     const ranges = highlight.getCurrentMatchRanges(layer);
                     expect(ranges.length).toBeGreaterThan(0);
                     for (const range of ranges) {
@@ -568,16 +539,17 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
                 }
                 expect(selection.toString()).toBe('ﬃ ﬃ');
                 expect(layer.textContent).toBe('ﬃ ﬃ');
-                if (mode === 'dom') expect(spans[index < 2 ? 2 : 0]!.querySelector('.pdf-search-highlight--current')).toBeNull();
+                if (mode === 'dom') {
+                    expect(spans[index < 2 ? 2 : 0]!.querySelector('.pdf-search-highlight--current')).toBeNull();
+                }
             }
         } finally {
-            highlight.clearHighlights(layer); window.localStorage.removeItem(STORAGE_KEYS.HIGHLIGHT_MODE); vi.unstubAllGlobals();
+            highlight.clearHighlights(layer);
+            window.localStorage.removeItem(STORAGE_KEYS.HIGHLIGHT_MODE);
+            vi.unstubAllGlobals();
         }
     });
-    it.each([
-        false,
-        true,
-    ])('keeps selected text intact while next and previous change the current mark (drift: %s)', async (drift) => {
+    it.each([false, true])('keeps selected text intact while next and previous change the current mark (drift: %s)', async (drift) => {
         const layer = document.createElement('div');
         const span = document.createElement('span');
         span.textContent = 'needle needle needle';
@@ -590,11 +562,7 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
             pageIndex: requirePageIndex(0),
             pageText: drift ? '' : span.textContent,
             searchQuery: 'needle',
-            matches: [
-                0,
-                7,
-                14,
-            ].map((start, matchIndex) => ({
+            matches: [0, 7, 14].map((start, matchIndex) => ({
                 start: start + (drift ? 100 : 0),
                 end: start + 6 + (drift ? 100 : 0),
                 matchIndex,
@@ -602,26 +570,26 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
             })),
         };
         const highlight = usePdfSearchHighlight();
-        const select = (index: number) => highlight.highlightPage(layer, pageMatches, {
-            pageIndex: pageMatches.pageIndex,
-            matchIndex: index,
-            pageMatchIndex: index,
-            startOffset: pageMatches.matches[index]!.start,
-            endOffset: pageMatches.matches[index]!.end,
-        });
+        const select = (index: number) =>
+            highlight.highlightPage(layer, pageMatches, {
+                pageIndex: pageMatches.pageIndex,
+                matchIndex: index,
+                pageMatchIndex: index,
+                startOffset: pageMatches.matches[index]!.start,
+                endOffset: pageMatches.matches[index]!.end,
+            });
         select(0);
         await expect.poll(() => layer.querySelectorAll('.pdf-search-highlight').length).toBe(3);
         const marks = [...layer.querySelectorAll('.pdf-search-highlight')];
         const selection = document.createRange();
         selection.selectNodeContents(marks[0]!);
-        for (const index of [
-            1,
-            2,
-            1,
-            0,
-        ]) {
+        for (const index of [1, 2, 1, 0]) {
             select(index);
-            await expect.poll(() => layer.querySelector('.pdf-search-highlight--current') === layer.querySelectorAll('.pdf-search-highlight')[index]).toBe(true);
+            await expect
+                .poll(
+                    () => layer.querySelector('.pdf-search-highlight--current') === layer.querySelectorAll('.pdf-search-highlight')[index],
+                )
+                .toBe(true);
             expect(layer.querySelectorAll('.pdf-search-highlight--current')).toHaveLength(1);
             expect(selection.toString()).toBe('needle');
             expect(layer.textContent).toBe('needle needle needle');
@@ -648,19 +616,9 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
                     end: 13,
                 },
             ],
-            steps: [
-                1,
-                0,
-                1,
-            ],
-            paintedText: [
-                'needle',
-                'needle',
-            ],
-            paintedStarts: [
-                0,
-                7,
-            ],
+            steps: [1, 0, 1],
+            paintedText: ['needle', 'needle'],
+            paintedStarts: [0, 7],
         },
         {
             text: 'ﬃﬃ',
@@ -684,100 +642,77 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
                     end: 2,
                 },
             ],
-            steps: [
-                2,
-                0,
-                2,
-            ],
-            paintedText: [
-                'ﬃ',
-                'ﬃ',
-                'ﬃﬃ',
-                'ﬃ',
-            ],
-            paintedStarts: [
-                0,
-                0,
-                0,
-                1,
-            ],
+            steps: [2, 0, 2],
+            paintedText: ['ﬃ', 'ﬃ', 'ﬃﬃ', 'ﬃ'],
+            paintedStarts: [0, 0, 0, 1],
         },
-    ])('moves CSS current paint for $text while keeping the other view', ({
-        text, normalized, query, offsets, steps, paintedText, paintedStarts,
-    }) => {
-        const registry = new Map<string, Set<Range>>();
-        vi.stubGlobal('CSS', {highlights: registry});
-        vi.stubGlobal('Highlight', class extends Set<Range> {});
-        window.localStorage.setItem(STORAGE_KEYS.HIGHLIGHT_MODE, 'css');
-        const pageMatches: IPdfPageMatches = {
-            pageIndex: requirePageIndex(0),
-            pageText: normalized,
-            searchQuery: query,
-            searchOptions: {useRegex: true},
-            matches: offsets.map((range, matchIndex) => ({
-                ...range,
-                matchIndex,
-            })),
-        };
-        const views = [
-            usePdfSearchHighlight(),
-            usePdfSearchHighlight(),
-        ];
-        const layers = views.map(() => {
-            const layer = document.createElement('div');
-            const span = document.createElement('span');
-            span.textContent = text;
-            layer.append(span);
-            registerTextLayerTextMapping(layer, {
-                textDivs: [span],
-                textContentItemsStr: [text],
+    ])(
+        'moves CSS current paint for $text while keeping the other view',
+        ({text, normalized, query, offsets, steps, paintedText, paintedStarts}) => {
+            const registry = new Map<string, Set<Range>>();
+            vi.stubGlobal('CSS', {highlights: registry});
+            vi.stubGlobal('Highlight', class extends Set<Range> {});
+            window.localStorage.setItem(STORAGE_KEYS.HIGHLIGHT_MODE, 'css');
+            const pageMatches: IPdfPageMatches = {
+                pageIndex: requirePageIndex(0),
+                pageText: normalized,
+                searchQuery: query,
+                searchOptions: {useRegex: true},
+                matches: offsets.map((range, matchIndex) => ({
+                    ...range,
+                    matchIndex,
+                })),
+            };
+            const views = [usePdfSearchHighlight(), usePdfSearchHighlight()];
+            const layers = views.map(() => {
+                const layer = document.createElement('div');
+                const span = document.createElement('span');
+                span.textContent = text;
+                layer.append(span);
+                registerTextLayerTextMapping(layer, {
+                    textDivs: [span],
+                    textContentItemsStr: [text],
+                });
+                return layer;
             });
-            return layer;
-        });
-        const current = (index: number): IPdfSearchMatch => ({
-            pageIndex: pageMatches.pageIndex,
-            matchIndex: index,
-            pageMatchIndex: index,
-            startOffset: offsets[index]!.start,
-            endOffset: offsets[index]!.end,
-        });
-        try {
-            views.forEach((view, index) => view.highlightPage(layers[index]!, pageMatches, current(0)));
-            const otherRange = views[1]!.getCurrentMatchRanges(layers[1]!)[0]!;
-            for (const index of steps) {
-                views[0]!.highlightPage(layers[0]!, pageMatches, current(index));
-                const ranges = views[0]!.getCurrentMatchRanges(layers[0]!);
-                expect(ranges[0]!.toString()).toBe(paintedText[index]);
-                expect(ranges[0]!.startOffset).toBe(paintedStarts[index]);
-                const currentRanges = [
-                    ...ranges,
-                    ...views[1]!.getCurrentMatchRanges(layers[1]!),
-                ];
-                expect(registry.get('pdf-search-current-match')?.size).toBe(currentRanges.length);
-                expect(registry.get('pdf-search-current-match')?.has(ranges[0]!)).toBe(true);
-                expect(registry.get('pdf-search-current-match')?.has(otherRange)).toBe(true);
-                expect((registry.get('pdf-search-match')?.size ?? 0) + currentRanges.length).toBe(offsets.length * 2);
+            const current = (index: number): IPdfSearchMatch => ({
+                pageIndex: pageMatches.pageIndex,
+                matchIndex: index,
+                pageMatchIndex: index,
+                startOffset: offsets[index]!.start,
+                endOffset: offsets[index]!.end,
+            });
+            try {
+                views.forEach((view, index) => view.highlightPage(layers[index]!, pageMatches, current(0)));
+                const otherRange = views[1]!.getCurrentMatchRanges(layers[1]!)[0]!;
+                for (const index of steps) {
+                    views[0]!.highlightPage(layers[0]!, pageMatches, current(index));
+                    const ranges = views[0]!.getCurrentMatchRanges(layers[0]!);
+                    expect(ranges[0]!.toString()).toBe(paintedText[index]);
+                    expect(ranges[0]!.startOffset).toBe(paintedStarts[index]);
+                    const currentRanges = [...ranges, ...views[1]!.getCurrentMatchRanges(layers[1]!)];
+                    expect(registry.get('pdf-search-current-match')?.size).toBe(currentRanges.length);
+                    expect(registry.get('pdf-search-current-match')?.has(ranges[0]!)).toBe(true);
+                    expect(registry.get('pdf-search-current-match')?.has(otherRange)).toBe(true);
+                    expect((registry.get('pdf-search-match')?.size ?? 0) + currentRanges.length).toBe(offsets.length * 2);
+                }
+                views[1]!.clearHighlights(layers[1]!);
+                expect(registry.get('pdf-search-current-match')?.size).toBe(views[0]!.getCurrentMatchRanges(layers[0]!).length);
+                expect(layers[0]!.textContent).toBe(text);
+                views[0]!.clearHighlights(layers[0]!);
+                expect(registry.has('pdf-search-current-match')).toBe(false);
+                expect(registry.has('pdf-search-match')).toBe(false);
+            } finally {
+                window.localStorage.removeItem(STORAGE_KEYS.HIGHLIGHT_MODE);
+                vi.unstubAllGlobals();
             }
-            views[1]!.clearHighlights(layers[1]!);
-            expect(registry.get('pdf-search-current-match')?.size).toBe(views[0]!.getCurrentMatchRanges(layers[0]!).length);
-            expect(layers[0]!.textContent).toBe(text);
-            views[0]!.clearHighlights(layers[0]!);
-            expect(registry.has('pdf-search-current-match')).toBe(false);
-            expect(registry.has('pdf-search-match')).toBe(false);
-        } finally {
-            window.localStorage.removeItem(STORAGE_KEYS.HIGHLIGHT_MODE);
-            vi.unstubAllGlobals();
-        }
-    });
+        },
+    );
 
     it('paints a fragmented occurrence from a later result window', async () => {
         const layer = document.createElement('div');
-        const items = [
-            'needle',
-            '\n',
-            ...'needle',
-        ];
-        const spans = items.map(text => {
+        const items = ['needle', '\n', ...'needle'];
+        const spans = items.map((text) => {
             const span = document.createElement('span');
             span.textContent = text;
             layer.append(span);
@@ -788,48 +723,46 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
             textContentItemsStr: items,
         });
         const highlight = usePdfSearchHighlight();
-        highlight.highlightPage(layer, {
-            pageIndex: requirePageIndex(0),
-            pageText: '',
-            searchQuery: 'needle',
-            searchOptions: {
-                useRegex: true,
-                matchCase: false,
-                wholeWord: false,
+        highlight.highlightPage(
+            layer,
+            {
+                pageIndex: requirePageIndex(0),
+                pageText: '',
+                searchQuery: 'needle',
+                searchOptions: {
+                    useRegex: true,
+                    matchCase: false,
+                    wholeWord: false,
+                },
+                matches: [
+                    {
+                        start: 7,
+                        end: 13,
+                        matchIndex: 1,
+                        pageMatchIndex: 1,
+                    },
+                ],
             },
-            matches: [{
-                start: 7,
-                end: 13,
+            {
+                pageIndex: requirePageIndex(0),
+                startOffset: 7,
+                endOffset: 13,
                 matchIndex: 1,
                 pageMatchIndex: 1,
-            }],
-        }, {
-            pageIndex: requirePageIndex(0),
-            startOffset: 7,
-            endOffset: 13,
-            matchIndex: 1,
-            pageMatchIndex: 1,
-        });
-        await expect.poll(() => [...layer.querySelectorAll('.pdf-search-highlight--current')]
-            .map(element => element.textContent).join('')).toBe('needle');
+            },
+        );
+        await expect
+            .poll(() => [...layer.querySelectorAll('.pdf-search-highlight--current')].map((element) => element.textContent).join(''))
+            .toBe('needle');
         expect(spans[0]?.querySelector('.pdf-search-highlight')).toBeNull();
         expect(layer.textContent).toBe('needle\nneedle');
         highlight.clearHighlights(layer);
     });
 
-    it.each([
-        false,
-        true,
-    ])('selects the fragmented second occurrence despite full ordinal coverage (regex: %s)', async (useRegex) => {
+    it.each([false, true])('selects the fragmented second occurrence despite full ordinal coverage (regex: %s)', async (useRegex) => {
         const layer = document.createElement('div');
-        const items = [
-            'needle',
-            '\n',
-            ...'needle',
-            '\n',
-            'needle',
-        ];
-        const spans = items.map(text => {
+        const items = ['needle', '\n', ...'needle', '\n', 'needle'];
+        const spans = items.map((text) => {
             const span = document.createElement('span');
             span.textContent = text;
             layer.append(span);
@@ -840,29 +773,42 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
             textContentItemsStr: items,
         });
         const highlight = usePdfSearchHighlight();
-        highlight.highlightPage(layer, {
-            pageIndex: requirePageIndex(0),
-            pageText: '',
-            searchQuery: 'needle',
-            searchOptions: {
-                useRegex,
-                matchCase: false,
-                wholeWord: false,
+        highlight.highlightPage(
+            layer,
+            {
+                pageIndex: requirePageIndex(0),
+                pageText: '',
+                searchQuery: 'needle',
+                searchOptions: {
+                    useRegex,
+                    matchCase: false,
+                    wholeWord: false,
+                },
+                matches: [
+                    {
+                        start: 7,
+                        end: 13,
+                        matchIndex: 1,
+                        pageMatchIndex: 1,
+                    },
+                ],
             },
-            matches: [{
-                start: 7,
-                end: 13,
+            {
+                pageIndex: requirePageIndex(0),
+                startOffset: 7,
+                endOffset: 13,
                 matchIndex: 1,
                 pageMatchIndex: 1,
-            }],
-        }, {
-            pageIndex: requirePageIndex(0),
-            startOffset: 7,
-            endOffset: 13,
-            matchIndex: 1,
-            pageMatchIndex: 1,
-        });
-        await expect.poll(() => spans.slice(2, 8).map(span => span.querySelector('.pdf-search-highlight--current')?.textContent ?? '').join('')).toBe('needle');
+            },
+        );
+        await expect
+            .poll(() =>
+                spans
+                    .slice(2, 8)
+                    .map((span) => span.querySelector('.pdf-search-highlight--current')?.textContent ?? '')
+                    .join(''),
+            )
+            .toBe('needle');
         expect(spans.at(-1)?.querySelector('.pdf-search-highlight')).toBeNull();
         expect(layer.textContent).toBe(items.join(''));
         highlight.clearHighlights(layer);
@@ -905,68 +851,80 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
             currentOrdinal: 1,
             expected: 'ana',
         },
-    ])('preserves selectable text and current priority for overlapping ranges ($text, ordinal $currentOrdinal)', async ({
-        text, query, currentOrdinal, expected,
-    }) => {
-        const layer = document.createElement('div');
-        const span = document.createElement('span');
-        span.textContent = text;
-        layer.append(span);
-        registerTextLayerTextMapping(layer, {
-            textDivs: [span],
-            textContentItemsStr: [text],
-        });
-        const ranges = text === 'banana' ? [
-            {
-                start: 1,
-                end: 4,
-            },
-            {
-                start: 3,
-                end: 6,
-            },
-        ]
-            : matchPdfSearchPageWindow(text, query, {
-                useRegex: true,
-                matchCase: false,
-                wholeWord: false,
-            }, 10, 0).matches
-                .map(match => ({
-                    start: match.startOffset,
-                    end: match.endOffset,
-                }));
-        const selected = ranges[currentOrdinal]!;
-        const highlight = usePdfSearchHighlight();
-        const result = highlight.highlightPage(layer, {
-            pageIndex: requirePageIndex(0),
-            pageText: text,
-            searchQuery: query,
-            searchOptions: {
-                useRegex: true,
-                matchCase: false,
-                wholeWord: false,
-            },
-            matches: ranges.map((range, index) => ({
-                ...range,
-                pageMatchIndex: index,
-                matchIndex: index,
-            })),
-        }, {
-            pageIndex: requirePageIndex(0),
-            startOffset: selected.start,
-            endOffset: selected.end,
-            pageMatchIndex: currentOrdinal,
-            matchIndex: currentOrdinal,
-        });
-        expect(layer.textContent).toBe(text);
-        expect(result.currentMatchElements.map(element => element.textContent).join('')).toBe(expected);
-        await expect.poll(() => result.currentMatchElements.map(element => element.textContent).join('')).toBe(expected);
-        const selection = document.createRange();
-        selection.selectNodeContents(span);
-        expect(selection.toString()).toBe(text);
-        highlight.clearHighlights(layer);
-        expect(layer.textContent).toBe(text);
-    });
+    ])(
+        'preserves selectable text and current priority for overlapping ranges ($text, ordinal $currentOrdinal)',
+        async ({text, query, currentOrdinal, expected}) => {
+            const layer = document.createElement('div');
+            const span = document.createElement('span');
+            span.textContent = text;
+            layer.append(span);
+            registerTextLayerTextMapping(layer, {
+                textDivs: [span],
+                textContentItemsStr: [text],
+            });
+            const ranges =
+                text === 'banana'
+                    ? [
+                          {
+                              start: 1,
+                              end: 4,
+                          },
+                          {
+                              start: 3,
+                              end: 6,
+                          },
+                      ]
+                    : matchPdfSearchPageWindow(
+                          text,
+                          query,
+                          {
+                              useRegex: true,
+                              matchCase: false,
+                              wholeWord: false,
+                          },
+                          10,
+                          0,
+                      ).matches.map((match) => ({
+                          start: match.startOffset,
+                          end: match.endOffset,
+                      }));
+            const selected = ranges[currentOrdinal]!;
+            const highlight = usePdfSearchHighlight();
+            const result = highlight.highlightPage(
+                layer,
+                {
+                    pageIndex: requirePageIndex(0),
+                    pageText: text,
+                    searchQuery: query,
+                    searchOptions: {
+                        useRegex: true,
+                        matchCase: false,
+                        wholeWord: false,
+                    },
+                    matches: ranges.map((range, index) => ({
+                        ...range,
+                        pageMatchIndex: index,
+                        matchIndex: index,
+                    })),
+                },
+                {
+                    pageIndex: requirePageIndex(0),
+                    startOffset: selected.start,
+                    endOffset: selected.end,
+                    pageMatchIndex: currentOrdinal,
+                    matchIndex: currentOrdinal,
+                },
+            );
+            expect(layer.textContent).toBe(text);
+            expect(result.currentMatchElements.map((element) => element.textContent).join('')).toBe(expected);
+            await expect.poll(() => result.currentMatchElements.map((element) => element.textContent).join('')).toBe(expected);
+            const selection = document.createRange();
+            selection.selectNodeContents(span);
+            expect(selection.toString()).toBe(text);
+            highlight.clearHighlights(layer);
+            expect(layer.textContent).toBe(text);
+        },
+    );
 
     it('reconciles a literal highlight when matching workers are unavailable', async () => {
         vi.mocked(matchBrowserSearchPageWindowInWorker).mockRejectedValueOnce(new Error('Worker unavailable'));
@@ -979,36 +937,43 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
             textContentItemsStr: ['prefix needle'],
         });
         const highlight = usePdfSearchHighlight();
-        highlight.highlightPage(layer, {
-            pageIndex: requirePageIndex(0),
-            pageText: '',
-            searchQuery: 'needle',
-            searchOptions: {
-                useRegex: false,
-                matchCase: false,
-                wholeWord: false,
+        highlight.highlightPage(
+            layer,
+            {
+                pageIndex: requirePageIndex(0),
+                pageText: '',
+                searchQuery: 'needle',
+                searchOptions: {
+                    useRegex: false,
+                    matchCase: false,
+                    wholeWord: false,
+                },
+                matches: [
+                    {
+                        start: 0,
+                        end: 6,
+                        matchIndex: 0,
+                        pageMatchIndex: 0,
+                    },
+                ],
             },
-            matches: [{
-                start: 0,
-                end: 6,
+            {
+                pageIndex: requirePageIndex(0),
+                startOffset: 0,
+                endOffset: 6,
                 matchIndex: 0,
                 pageMatchIndex: 0,
-            }],
-        }, {
-            pageIndex: requirePageIndex(0),
-            startOffset: 0,
-            endOffset: 6,
-            matchIndex: 0,
-            pageMatchIndex: 0,
-        });
-        await expect.poll(() => [...layer.querySelectorAll('.pdf-search-highlight--current')]
-            .map(element => element.textContent).join('')).toBe('needle');
+            },
+        );
+        await expect
+            .poll(() => [...layer.querySelectorAll('.pdf-search-highlight--current')].map((element) => element.textContent).join(''))
+            .toBe('needle');
         expect(layer.textContent).toBe('prefix needle');
         highlight.clearHighlights(layer);
         vi.mocked(matchBrowserSearchPageWindowInWorker).mockReset();
-        vi.mocked(matchBrowserSearchPageWindowInWorker).mockImplementation(async (
-            text, query, options, maxMatches, resultOffset,
-        ) => matchPdfSearchPageWindow(text, query, options, maxMatches, resultOffset));
+        vi.mocked(matchBrowserSearchPageWindowInWorker).mockImplementation(async (text, query, options, maxMatches, resultOffset) =>
+            matchPdfSearchPageWindow(text, query, options, maxMatches, resultOffset),
+        );
     });
 
     it('leaves unverified backend coordinates unpainted after regex reconciliation fails', async () => {
@@ -1021,32 +986,35 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
             textDivs: [span],
             textContentItemsStr: ['prefix needle'],
         });
-        const result = usePdfSearchHighlight().highlightPage(layer, {
-            pageIndex: requirePageIndex(0),
-            pageText: '',
-            searchQuery: 'needle',
-            searchOptions: {
-                useRegex: true,
-                matchCase: false,
-                wholeWord: false,
+        const result = usePdfSearchHighlight().highlightPage(
+            layer,
+            {
+                pageIndex: requirePageIndex(0),
+                pageText: '',
+                searchQuery: 'needle',
+                searchOptions: {
+                    useRegex: true,
+                    matchCase: false,
+                    wholeWord: false,
+                },
+                matches: [
+                    {
+                        start: 0,
+                        end: 6,
+                        matchIndex: 0,
+                        pageMatchIndex: 0,
+                    },
+                ],
             },
-            matches: [{
-                start: 0,
-                end: 6,
-                matchIndex: 0,
-                pageMatchIndex: 0,
-            }],
-        }, null);
+            null,
+        );
         expect(result.elements).toEqual([]);
-        await new Promise(resolve => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
         expect(layer.querySelector('.pdf-search-highlight')).toBeNull();
         expect(layer.textContent).toBe('prefix needle');
     });
 
-    it.each([
-        1,
-        2,
-    ])('paints authoritative regex ranges without matching the failure tail (%i snippets)', (count) => {
+    it.each([1, 2])('paints authoritative regex ranges without matching the failure tail (%i snippets)', (count) => {
         const textLayer = document.createElement('div');
         const span = document.createElement('span');
         const text = 'needle '.repeat(count) + 'a'.repeat(250_000) + '!';
@@ -1061,23 +1029,31 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
             matchCase: false,
             wholeWord: false,
         };
-        const result = usePdfSearchHighlight().highlightPage(textLayer, {
-            pageIndex: requirePageIndex(0),
-            pageText: text,
-            searchQuery: 'needle|a+.a+$',
-            searchOptions,
-            matches: [{
-                start: 0,
-                end: 6,
-                matchIndex: 0,
-                pageMatchIndex: 0,
-            }],
-        }, null);
-        expect(result.elements.map(element => element.textContent)).toEqual(['needle']);
-        expect(createTextLayerRangeForSearchMatch(textLayer, {
-            startOffset: 0,
-            endOffset: 6,
-        })?.toString()).toBe('needle');
+        const result = usePdfSearchHighlight().highlightPage(
+            textLayer,
+            {
+                pageIndex: requirePageIndex(0),
+                pageText: text,
+                searchQuery: 'needle|a+.a+$',
+                searchOptions,
+                matches: [
+                    {
+                        start: 0,
+                        end: 6,
+                        matchIndex: 0,
+                        pageMatchIndex: 0,
+                    },
+                ],
+            },
+            null,
+        );
+        expect(result.elements.map((element) => element.textContent)).toEqual(['needle']);
+        expect(
+            createTextLayerRangeForSearchMatch(textLayer, {
+                startOffset: 0,
+                endOffset: 6,
+            })?.toString(),
+        ).toBe('needle');
         const occurrence = createTextLayerRangeForSearchOccurrence(textLayer, {
             text: 'needle',
             searchQuery: 'needle|a+.a+$',
@@ -1091,9 +1067,7 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
 
     it('keeps the new painted selection when an older drift reconciliation completes', async () => {
         const completion = Promise.withResolvers<undefined>();
-        vi.mocked(matchBrowserSearchPageWindowInWorker).mockImplementationOnce(async (
-            text, query, options, maxMatches, resultOffset,
-        ) => {
+        vi.mocked(matchBrowserSearchPageWindowInWorker).mockImplementationOnce(async (text, query, options, maxMatches, resultOffset) => {
             await completion.promise;
             return matchPdfSearchPageWindow(text, query, options, maxMatches, resultOffset);
         });
@@ -1106,35 +1080,47 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
             textContentItemsStr: ['alpha beta'],
         });
         const highlight = usePdfSearchHighlight();
-        highlight.highlightPage(layer, {
-            pageIndex: requirePageIndex(0),
-            pageText: '',
-            searchQuery: 'alpha',
-            searchOptions: {
-                useRegex: true,
-                matchCase: false,
-                wholeWord: false,
+        highlight.highlightPage(
+            layer,
+            {
+                pageIndex: requirePageIndex(0),
+                pageText: '',
+                searchQuery: 'alpha',
+                searchOptions: {
+                    useRegex: true,
+                    matchCase: false,
+                    wholeWord: false,
+                },
+                matches: [
+                    {
+                        matchIndex: 0,
+                        start: 100,
+                        end: 105,
+                    },
+                ],
             },
-            matches: [{
-                matchIndex: 0,
-                start: 100,
-                end: 105,
-            }],
-        }, null);
-        highlight.highlightPage(layer, {
-            pageIndex: requirePageIndex(0),
-            pageText: 'alpha beta',
-            searchQuery: 'beta',
-            matches: [{
-                matchIndex: 0,
-                start: 6,
-                end: 10,
-            }],
-        }, null);
+            null,
+        );
+        highlight.highlightPage(
+            layer,
+            {
+                pageIndex: requirePageIndex(0),
+                pageText: 'alpha beta',
+                searchQuery: 'beta',
+                matches: [
+                    {
+                        matchIndex: 0,
+                        start: 6,
+                        end: 10,
+                    },
+                ],
+            },
+            null,
+        );
         await expect.poll(() => layer.querySelector('.pdf-search-highlight')?.textContent).toBe('beta');
         completion.resolve(undefined);
-        await new Promise(resolve => setTimeout(resolve, 0));
-        expect([...layer.querySelectorAll('.pdf-search-highlight')].map(element => element.textContent)).toEqual(['beta']);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect([...layer.querySelectorAll('.pdf-search-highlight')].map((element) => element.textContent)).toEqual(['beta']);
         expect(layer.textContent).toBe('alpha beta');
         highlight.clearHighlights(layer);
         expect(layer.querySelector('.pdf-search-highlight')).toBeNull();
@@ -1151,30 +1137,30 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
         markedContent.append(prefixSpan, matchSpan);
         textLayer.append(markedContent);
         registerTextLayerTextMapping(textLayer, {
-            textDivs: [
-                prefixSpan,
-                matchSpan,
-            ],
-            textContentItemsStr: [
-                'prefix',
-                'Lezgian',
-            ],
+            textDivs: [prefixSpan, matchSpan],
+            textContentItemsStr: ['prefix', 'Lezgian'],
         });
         const index = getCachedTextLayerIndex(textLayer);
         expect(index.runs).toHaveLength(2);
-        expect(index.runs.every(run => run.kind === 'span' && run.textNode !== null)).toBe(true);
+        expect(index.runs.every((run) => run.kind === 'span' && run.textNode !== null)).toBe(true);
 
         const highlight = usePdfSearchHighlight();
-        highlight.highlightPage(textLayer, {
-            pageIndex: requirePageIndex(0),
-            pageText: '',
-            searchQuery: 'Lezgian',
-            matches: [{
-                matchIndex: 0,
-                start: 6,
-                end: 13,
-            }],
-        }, null);
+        highlight.highlightPage(
+            textLayer,
+            {
+                pageIndex: requirePageIndex(0),
+                pageText: '',
+                searchQuery: 'Lezgian',
+                matches: [
+                    {
+                        matchIndex: 0,
+                        start: 6,
+                        end: 13,
+                    },
+                ],
+            },
+            null,
+        );
 
         expect(markedContent.children).toHaveLength(2);
         expect(markedContent.firstElementChild).toBe(prefixSpan);
@@ -1214,24 +1200,20 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
         textLayer.append(first, document.createElement('br'), second);
 
         registerTextLayerTextMapping(textLayer, {
-            textDivs: [
-                first,
-                second,
-            ],
-            textContentItemsStr: [
-                'first',
-                'second',
-            ],
+            textDivs: [first, second],
+            textContentItemsStr: ['first', 'second'],
         });
 
         const index = getCachedTextLayerIndex(textLayer);
 
         expect(index.text).toBe('first\nsecond');
-        expect(index.runs.map(run => ({
-            kind: run.kind,
-            startOffset: run.startOffset,
-            endOffset: run.endOffset,
-        }))).toEqual([
+        expect(
+            index.runs.map((run) => ({
+                kind: run.kind,
+                startOffset: run.startOffset,
+                endOffset: run.endOffset,
+            })),
+        ).toEqual([
             {
                 kind: 'span',
                 startOffset: 0,
@@ -1267,11 +1249,13 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
                 startOffset: 0,
                 endOffset: 9,
             },
-            [{
-                start: 0,
-                end: 5,
-                isCurrent: true,
-            }],
+            [
+                {
+                    start: 0,
+                    end: 5,
+                    isCurrent: true,
+                },
+            ],
             'pdf-search-highlight',
             'pdf-search-highlight--current',
         );
@@ -1300,11 +1284,13 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
         }
         highlightTextRunInPdfjsStyle(
             initialRun,
-            [{
-                start: 7,
-                end: 13,
-                isCurrent: true,
-            }],
+            [
+                {
+                    start: 7,
+                    end: 13,
+                    isCurrent: true,
+                },
+            ],
             'pdf-search-highlight',
             'pdf-search-highlight--current',
         );
@@ -1320,16 +1306,9 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
         clearTextLayerTextMapping(textLayer);
     });
 
-    it.each([
-        'اللغة العربية',
-        'fragmented words',
-    ])('highlights and navigates whole and fragmented occurrences for %s', async (text) => {
+    it.each(['اللغة العربية', 'fragmented words'])('highlights and navigates whole and fragmented occurrences for %s', async (text) => {
         const textLayer = document.createElement('div');
-        const items = [
-            text,
-            '\n',
-            ...Array.from(text),
-        ];
+        const items = [text, '\n', ...Array.from(text)];
         const pageText = items.join('');
         const spans = items.map((character) => {
             const span = document.createElement('span');
@@ -1365,13 +1344,15 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
             startOffset: text.length + 1,
             endOffset: pageText.length,
         });
-        await expect.poll(() => result.currentMatchElements.map(element => element.textContent).join('')).toBe(text);
-        expect(createTextLayerRangeForSearchOccurrence(textLayer, {
-            text,
-            searchQuery: text,
-            pageMatchIndex: 1,
-            expectedPageMatchCount: 2,
-        })?.toString()).toBe(text);
+        await expect.poll(() => result.currentMatchElements.map((element) => element.textContent).join('')).toBe(text);
+        expect(
+            createTextLayerRangeForSearchOccurrence(textLayer, {
+                text,
+                searchQuery: text,
+                pageMatchIndex: 1,
+                expectedPageMatchCount: 2,
+            })?.toString(),
+        ).toBe(text);
         expect(textLayer.textContent).toBe(pageText);
     });
 
@@ -1382,10 +1363,7 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
         textLayer.append(span);
         const matches = findPdfSearchMatches(span.textContent, 'office');
         expect(matches).toHaveLength(4);
-        for (const [
-            pageMatchIndex,
-            match,
-        ] of matches.entries()) {
+        for (const [pageMatchIndex, match] of matches.entries()) {
             const range = createTextLayerRangeForSearchOccurrence(textLayer, {
                 text: 'oﬃce',
                 searchQuery: 'office',
@@ -1396,32 +1374,29 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
             expect(range?.startOffset).toBe(match.startOffset);
             expect(range?.endOffset).toBe(match.endOffset);
         }
-        expect(createTextLayerRangeForSearchOccurrence(textLayer, {
-            text: 'oﬃce',
-            searchQuery: 'office',
-            pageMatchIndex: 1,
-            expectedPageMatchCount: 3,
-        })).toBeNull();
-        for (const query of [
-            'office',
-            'oﬃce',
-        ]) {
-            expect(createTextLayerRangeForSearchOccurrence(textLayer, {
-                text: query,
-                searchQuery: query,
-                pageMatchIndex: 3,
-                expectedPageMatchCount: 4,
-            })?.toString()).toBe('oﬃce');
+        expect(
+            createTextLayerRangeForSearchOccurrence(textLayer, {
+                text: 'oﬃce',
+                searchQuery: 'office',
+                pageMatchIndex: 1,
+                expectedPageMatchCount: 3,
+            }),
+        ).toBeNull();
+        for (const query of ['office', 'oﬃce']) {
+            expect(
+                createTextLayerRangeForSearchOccurrence(textLayer, {
+                    text: query,
+                    searchQuery: query,
+                    pageMatchIndex: 3,
+                    expectedPageMatchCount: 4,
+                })?.toString(),
+            ).toBe('oﬃce');
         }
     });
 
     it('preserves word-separated occurrences when contiguous text contains fewer matches', () => {
         const textLayer = document.createElement('div');
-        const words = [
-            'foo ',
-            'bar',
-            'foo',
-        ];
+        const words = ['foo ', 'bar', 'foo'];
         const spans = words.map((text) => {
             const span = document.createElement('span');
             span.textContent = text;
@@ -1451,16 +1426,15 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
             ],
         };
         const result = usePdfSearchHighlight().highlightPage(textLayer, pageMatches, null);
-        expect(result.elements.map(element => element.textContent)).toEqual([
-            'foo',
-            'foo',
-        ]);
-        expect(createTextLayerRangeForSearchOccurrence(textLayer, {
-            text: 'foo',
-            searchOptions: {wholeWord: true},
-            pageMatchIndex: 1,
-            expectedPageMatchCount: 2,
-        })?.toString()).toBe('foo');
+        expect(result.elements.map((element) => element.textContent)).toEqual(['foo', 'foo']);
+        expect(
+            createTextLayerRangeForSearchOccurrence(textLayer, {
+                text: 'foo',
+                searchOptions: {wholeWord: true},
+                pageMatchIndex: 1,
+                expectedPageMatchCount: 2,
+            })?.toString(),
+        ).toBe('foo');
     });
 
     it('keeps real spaces between unmirrored glyphs and line breaks after mirrored ones', () => {
@@ -1468,43 +1442,30 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
         const upright = (text: string, x: number, dir: string) => ({
             text,
             dir,
-            transform: [
-                10,
-                0,
-                0,
-                10,
-                x,
-                0,
-            ],
+            transform: [10, 0, 0, 10, x, 0],
             width: 6,
         });
-        expect(restorePdfjsRtlItemTexts([
-            upright('َل', 0, 'rtl'),
-            upright(' ', 6, 'ltr'),
-            upright('َس', 9, 'rtl'),
-        ]).join('')).toBe('لَ سَ');
-        expect(restorePdfjsRtlItemTexts([
-            upright('á', 0, 'ltr'),
-            upright(' ', 6, 'ltr'),
-            upright('b́', 9, 'ltr'),
-        ]).join('')).toBe('á b́');
+        expect(restorePdfjsRtlItemTexts([upright('َل', 0, 'rtl'), upright(' ', 6, 'ltr'), upright('َس', 9, 'rtl')]).join('')).toBe('لَ سَ');
+        expect(restorePdfjsRtlItemTexts([upright('á', 0, 'ltr'), upright(' ', 6, 'ltr'), upright('b́', 9, 'ltr')]).join('')).toBe('á b́');
         // A line break after a mirrored pointed glyph is a line break, not a mark's advance.
-        expect(restorePdfjsRtlItemTexts([
-            {
-                text: 'ַה',
-                dir: 'rtl',
-                mirrored: true,
-            },
-            {
-                text: '\n',
-                dir: 'ltr',
-            },
-            {
-                text: 'ק',
-                dir: 'rtl',
-                mirrored: true,
-            },
-        ]).join('')).toBe('הַ\nק');
+        expect(
+            restorePdfjsRtlItemTexts([
+                {
+                    text: 'ַה',
+                    dir: 'rtl',
+                    mirrored: true,
+                },
+                {
+                    text: '\n',
+                    dir: 'ltr',
+                },
+                {
+                    text: 'ק',
+                    dir: 'rtl',
+                    mirrored: true,
+                },
+            ]).join(''),
+        ).toBe('הַ\nק');
     });
 
     it('highlights right-to-left OCR words whose glyphs PDF.js reverses and splits', async () => {
@@ -1527,50 +1488,45 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
             return textLayer;
         };
         const paintedText = async (textLayer: HTMLElement, searchQuery: string, expected: string) => {
-            usePdfSearchHighlight().highlightPage(textLayer, {
-                pageIndex: requirePageIndex(0),
-                pageText: '',
-                searchQuery,
-                matches: [{
-                    matchIndex: 0,
-                    start: 13,
-                    end: 18,
-                }],
-            }, null);
-            await expect.poll(() => [...textLayer.querySelectorAll('.pdf-search-highlight')]
-                .map(element => element.textContent).join('')).toBe(expected);
-            expect(createTextLayerRangeForSearchOccurrence(textLayer, {
-                text: searchQuery,
-                pageMatchIndex: 0,
-            })?.toString()).toBe(expected);
+            usePdfSearchHighlight().highlightPage(
+                textLayer,
+                {
+                    pageIndex: requirePageIndex(0),
+                    pageText: '',
+                    searchQuery,
+                    matches: [
+                        {
+                            matchIndex: 0,
+                            start: 13,
+                            end: 18,
+                        },
+                    ],
+                },
+                null,
+            );
+            await expect
+                .poll(() => [...textLayer.querySelectorAll('.pdf-search-highlight')].map((element) => element.textContent).join(''))
+                .toBe(expected);
+            expect(
+                createTextLayerRangeForSearchOccurrence(textLayer, {
+                    text: searchQuery,
+                    pageMatchIndex: 0,
+                })?.toString(),
+            ).toBe(expected);
         };
-        const arabic = [
-            ...'السلام',
-            ' ',
-            ...'عليكم',
-            'ا ',
-            ...'للغة',
-        ];
-        const hebrew = [
-            '\u05B7\u05D4',
-            ' ',
-            '\u05B0\u05E7',
-            ' ',
-            '\u05B0\u05D3',
-            ' ',
-            '\u05B8\u05E9',
-            ' ',
-            '\u05D4',
-        ];
+        const arabic = [...'السلام', ' ', ...'عليكم', 'ا ', ...'للغة'];
+        const hebrew = ['\u05B7\u05D4', ' ', '\u05B0\u05E7', ' ', '\u05B0\u05D3', ' ', '\u05B8\u05E9', ' ', '\u05D4'];
 
         await paintedText(renderLayer(arabic, '-0.38'), 'اللغة', 'ا للغة');
         await paintedText(renderLayer(hebrew, '-0.4'), 'הַקְדְשָה', hebrew.join(''));
         // A visual-order writer draws unmirrored glyphs, and PDF.js's reversal
         // is right for them: their text is read as PDF.js gives it.
-        expect(createTextLayerRangeForSearchOccurrence(renderLayer(arabic, '0.38'), {
-            text: 'اللغة',
-            pageMatchIndex: 0,
-        })).toBeNull();
+        expect(
+            createTextLayerRangeForSearchOccurrence(renderLayer(arabic, '0.38'), {
+                text: 'اللغة',
+                pageMatchIndex: 0,
+            }),
+        ).toBeNull();
     });
 
     it('marks multi-div highlights with pdf.js begin and end segment classes', () => {
@@ -1620,17 +1576,30 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
 
 it('#1608 retains the cause of a failed search highlight pass', async () => {
     const retained: string[] = [];
-    setBrowserLogSink(entry => {if (entry.level === 'warn' || entry.level === 'error') retained.push(JSON.stringify(entry));});
+    setBrowserLogSink((entry) => {
+        if (entry.level === 'warn' || entry.level === 'error') {
+            retained.push(JSON.stringify(entry));
+        }
+    });
     const reconcile = vi.spyOn(visualMatchEngine, 'reconcileVisualMatches').mockRejectedValue(new Error('Search text worker unavailable'));
     const layer = document.createElement('div');
     layer.innerHTML = '<span>unrelated rendered text</span>';
     try {
-        usePdfSearchHighlight().highlightPage(layer, {
-            pageIndex: requirePageIndex(0), pageText: '', searchQuery: 'needle',
-            matches: [{matchIndex: 0, start: 100, end: 106}],
-        }, null);
+        usePdfSearchHighlight().highlightPage(
+            layer,
+            {
+                pageIndex: requirePageIndex(0),
+                pageText: '',
+                searchQuery: 'needle',
+                matches: [{matchIndex: 0, start: 100, end: 106}],
+            },
+            null,
+        );
         await Promise.resolve();
         await Promise.resolve();
         expect(retained.join(' ')).toContain('Search text worker unavailable');
-    } finally {reconcile.mockRestore(); setBrowserLogSink(() => {});}
+    } finally {
+        reconcile.mockRestore();
+        setBrowserLogSink(() => {});
+    }
 });

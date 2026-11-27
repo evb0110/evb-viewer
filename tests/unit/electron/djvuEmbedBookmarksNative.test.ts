@@ -1,39 +1,34 @@
 import {join} from 'node:path';
 import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
 const mocks = vi.hoisted(() => {
     const copyFile = vi.fn(async () => undefined);
     const mkdtemp = vi.fn(async () => '/tmp/pdf-page-ops-bookmarks-native');
-    const readFile = vi.fn(async () => new Uint8Array([
-        1,
-        2,
-        3,
-    ]));
+    const readFile = vi.fn(async () => new Uint8Array([1, 2, 3]));
     const rm = vi.fn(async () => undefined);
     const stat = vi.fn(async () => ({size: 321}));
     const writeFile = vi.fn(async () => undefined);
     const load = vi.fn(async () => ({save: vi.fn(async () => new Uint8Array([9]))}));
-    const runNativeToolCommand = vi.fn(async (_command: string, _args: string[], options?: {
-        cancelGroup?: string;
-        commandLabel?: string;
-        signal?: AbortSignal;
-    }) => ({
-        stdout: options?.commandLabel === 'qpdf(djvu-bookmark-page-count)' ? '3\n' : '',
-        stderr: '',
-        success: true,
-        exitCode: 0,
-    }));
+    const runNativeToolCommand = vi.fn(
+        async (
+            _command: string,
+            _args: string[],
+            options?: {
+                cancelGroup?: string;
+                commandLabel?: string;
+                signal?: AbortSignal;
+            },
+        ) => ({
+            stdout: options?.commandLabel === 'qpdf(djvu-bookmark-page-count)' ? '3\n' : '',
+            stderr: '',
+            success: true,
+            exitCode: 0,
+        }),
+    );
     const resolveNativePageOpsPath = vi.fn((): string | null => '/native/evb-pdf-page-ops');
     const getPdfNativeToolPaths = vi.fn(() => ({qpdf: '/native/qpdf'}));
     const debug = vi.fn();
@@ -64,18 +59,18 @@ vi.mock('fs/promises', () => ({
     }),
     copyFile: mocks.copyFile,
     mkdtemp: mocks.mkdtemp,
-    readFile: (path: string, ...args: unknown[]) => path.endsWith('.evb-scratch-record')
-        ? Promise.reject(Object.assign(new Error('no scratch record'), {code: 'ENOENT'}))
-        : path.endsWith('.evb-managed-scratch.json')
-            ? Promise.resolve(JSON.stringify({
-                createdAt: 0,
-                pid: process.pid,
-                prefix: 'pdf-page-ops-',
-            }))
-            : Reflect.apply(mocks.readFile, undefined, [
-                path,
-                ...args,
-            ]),
+    readFile: (path: string, ...args: unknown[]) =>
+        path.endsWith('.evb-scratch-record')
+            ? Promise.reject(Object.assign(new Error('no scratch record'), {code: 'ENOENT'}))
+            : path.endsWith('.evb-managed-scratch.json')
+              ? Promise.resolve(
+                    JSON.stringify({
+                        createdAt: 0,
+                        pid: process.pid,
+                        prefix: 'pdf-page-ops-',
+                    }),
+                )
+              : Reflect.apply(mocks.readFile, undefined, [path, ...args]),
     rm: mocks.rm,
     stat: mocks.stat,
     writeFile: mocks.writeFile,
@@ -85,11 +80,14 @@ vi.mock('pdf-lib', () => ({PDFDocument: {load: mocks.load}}));
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runNativeToolCommand}));
 vi.mock('@electron/native-tools/qpdfWasmWorkerClient', () => ({
-    runDesktopQpdfWasm: (args: string[], options?: {
-        cancelGroup?: string;
-        commandLabel?: string;
-        signal?: AbortSignal;
-    }) => mocks.runNativeToolCommand('/native/qpdf', args, options),
+    runDesktopQpdfWasm: (
+        args: string[],
+        options?: {
+            cancelGroup?: string;
+            commandLabel?: string;
+            signal?: AbortSignal;
+        },
+    ) => mocks.runNativeToolCommand('/native/qpdf', args, options),
 }));
 
 vi.mock('@electron/features/page-ops/public/nativePageOpsPath', () => ({resolveNativePageOpsPath: mocks.resolveNativePageOpsPath}));
@@ -99,40 +97,50 @@ vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
     getPdfNativeToolPaths: mocks.getPdfNativeToolPaths,
 }));
 
-vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
-    debug: mocks.debug,
-    warn: vi.fn(),
-    error: vi.fn(),
-    info: vi.fn(),
-})}));
+vi.mock('@electron/utils/createLogger', () => ({
+    createLogger: () => ({
+        debug: mocks.debug,
+        warn: vi.fn(),
+        error: vi.fn(),
+        info: vi.fn(),
+    }),
+}));
 
-const { embedBookmarksIntoPdfFile } = await import('@electron/features/djvu/main/embedBookmarksIntoPdfFile');
+const {embedBookmarksIntoPdfFile} = await import('@electron/features/djvu/main/embedBookmarksIntoPdfFile');
 
-const bookmarks: IPdfBookmarkEntry[] = [{
-    title: 'Chapter 1',
-    pageIndex: requirePageIndex(0),
-    namedDest: null,
-    bold: false,
-    italic: false,
-    color: null,
-    items: [],
-}];
+const bookmarks: IPdfBookmarkEntry[] = [
+    {
+        title: 'Chapter 1',
+        pageIndex: requirePageIndex(0),
+        namedDest: null,
+        bold: false,
+        italic: false,
+        color: null,
+        items: [],
+    },
+];
 
 describe('embedBookmarksIntoPdfFile native path', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.resolveNativePageOpsPath.mockReturnValue('/native/evb-pdf-page-ops');
         mocks.getPdfNativeToolPaths.mockReturnValue({qpdf: '/native/qpdf'});
-        mocks.runNativeToolCommand.mockImplementation(async (_command: string, _args: string[], options?: {
-            cancelGroup?: string;
-            commandLabel?: string;
-            signal?: AbortSignal;
-        }) => ({
-            stdout: options?.commandLabel === 'qpdf(djvu-bookmark-page-count)' ? '3\n' : '',
-            stderr: '',
-            success: true,
-            exitCode: 0,
-        }));
+        mocks.runNativeToolCommand.mockImplementation(
+            async (
+                _command: string,
+                _args: string[],
+                options?: {
+                    cancelGroup?: string;
+                    commandLabel?: string;
+                    signal?: AbortSignal;
+                },
+            ) => ({
+                stdout: options?.commandLabel === 'qpdf(djvu-bookmark-page-count)' ? '3\n' : '',
+                stderr: '',
+                success: true,
+                exitCode: 0,
+            }),
+        );
         mocks.stat.mockResolvedValue({size: 321});
     });
 
@@ -155,16 +163,10 @@ describe('embedBookmarksIntoPdfFile native path', () => {
         expect(size).toBe(321);
         expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
             '/native/qpdf',
-            [
-                '--show-npages',
-                '/tmp/input.pdf',
-            ],
+            ['--show-npages', '/tmp/input.pdf'],
             expect.objectContaining({
                 commandLabel: 'qpdf(djvu-bookmark-page-count)',
-                allowedExitCodes: [
-                    0,
-                    3,
-                ],
+                allowedExitCodes: [0, 3],
             }),
         );
         expect(mocks.copyFile).toHaveBeenNthCalledWith(1, '/tmp/input.pdf', join('/tmp/pdf-page-ops-bookmarks-native', 'input.pdf'));
@@ -230,8 +232,9 @@ describe('embedBookmarksIntoPdfFile native path', () => {
             }))
             .mockRejectedValueOnce(new Error('native failed'));
 
-        const error = await embedBookmarksIntoPdfFile('/tmp/input.pdf', '/tmp/output.pdf', bookmarks)
-            .catch((caughtError: unknown) => caughtError);
+        const error = await embedBookmarksIntoPdfFile('/tmp/input.pdf', '/tmp/output.pdf', bookmarks).catch(
+            (caughtError: unknown) => caughtError,
+        );
 
         expect(error).toMatchObject({
             code: 'native-failure',
@@ -247,13 +250,11 @@ describe('embedBookmarksIntoPdfFile native path', () => {
     it('returns a typed capability error when the native page tool is missing', async () => {
         mocks.resolveNativePageOpsPath.mockReturnValue(null);
 
-        await expect(embedBookmarksIntoPdfFile('/tmp/input.pdf', '/tmp/output.pdf', bookmarks))
-            .rejects
-            .toMatchObject({
-                code: 'native-unavailable',
-                name: 'PdfCombineCapabilityError',
-                operation: 'djvu-bookmarks',
-            });
+        await expect(embedBookmarksIntoPdfFile('/tmp/input.pdf', '/tmp/output.pdf', bookmarks)).rejects.toMatchObject({
+            code: 'native-unavailable',
+            name: 'PdfCombineCapabilityError',
+            operation: 'djvu-bookmarks',
+        });
 
         expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
         expect(mocks.readFile).not.toHaveBeenCalled();

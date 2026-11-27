@@ -1,4 +1,4 @@
-import type { BrowserWindow } from 'electron';
+import type {BrowserWindow} from 'electron';
 
 type TAppWindowRegistryListener = () => void;
 
@@ -19,7 +19,7 @@ export function onAppWindowRegistryChange(listener: TAppWindowRegistryListener) 
     };
 }
 
-export function registerAppWindow(window: BrowserWindow, options: { setAsMain?: boolean } = {}) {
+export function registerAppWindow(window: BrowserWindow, options: {setAsMain?: boolean} = {}) {
     const previous = appWindows.get(window.id);
     appWindows.set(window.id, window);
 
@@ -85,7 +85,7 @@ export function getWindowByIdFromRegistry(windowId: number) {
 
 export function getAllRegisteredAppWindows() {
     const pruned = syncWindowRegistry();
-    const windows = Array.from(appWindows.values()).filter(window => !window.isDestroyed());
+    const windows = Array.from(appWindows.values()).filter((window) => !window.isDestroyed());
     if (pruned) {
         notifyRegistryListeners();
     }

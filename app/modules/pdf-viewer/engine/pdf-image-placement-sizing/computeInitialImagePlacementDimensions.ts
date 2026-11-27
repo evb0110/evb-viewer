@@ -1,4 +1,4 @@
-import type { IImagePlacementDimensions } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/pdfImagePlacementSizingTypes';
+import type {IImagePlacementDimensions} from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/pdfImagePlacementSizingTypes';
 
 interface IComputeInitialImagePlacementDimensionsOptions {
     pageWidthPx: number;
@@ -13,18 +13,8 @@ const INITIAL_IMAGE_MIN_PAGE_FRACTION = 0.12;
 export function computeInitialImagePlacementDimensions(
     options: IComputeInitialImagePlacementDimensionsOptions,
 ): IImagePlacementDimensions | null {
-    const {
-        pageWidthPx,
-        pageHeightPx,
-        imageCssWidth,
-        imageCssHeight,
-    } = options;
-    if (
-        pageWidthPx <= 0
-        || pageHeightPx <= 0
-        || imageCssWidth <= 0
-        || imageCssHeight <= 0
-    ) {
+    const {pageWidthPx, pageHeightPx, imageCssWidth, imageCssHeight} = options;
+    if (pageWidthPx <= 0 || pageHeightPx <= 0 || imageCssWidth <= 0 || imageCssHeight <= 0) {
         return null;
     }
 
@@ -33,11 +23,7 @@ export function computeInitialImagePlacementDimensions(
     const minCssWidth = Math.min(pageWidthPx * INITIAL_IMAGE_MIN_PAGE_FRACTION, maxCssWidth);
     const minCssHeight = Math.min(pageHeightPx * INITIAL_IMAGE_MIN_PAGE_FRACTION, maxCssHeight);
 
-    const fitScale = Math.min(
-        1,
-        maxCssWidth / imageCssWidth,
-        maxCssHeight / imageCssHeight,
-    );
+    const fitScale = Math.min(1, maxCssWidth / imageCssWidth, maxCssHeight / imageCssHeight);
     let targetCssWidth = imageCssWidth * fitScale;
     let targetCssHeight = imageCssHeight * fitScale;
 
@@ -45,10 +31,7 @@ export function computeInitialImagePlacementDimensions(
         targetCssWidth < minCssWidth ? minCssWidth / targetCssWidth : 1,
         targetCssHeight < minCssHeight ? minCssHeight / targetCssHeight : 1,
     );
-    const maxScaleFactor = Math.min(
-        maxCssWidth / targetCssWidth,
-        maxCssHeight / targetCssHeight,
-    );
+    const maxScaleFactor = Math.min(maxCssWidth / targetCssWidth, maxCssHeight / targetCssHeight);
     if (minScaleFactor > 1 && maxScaleFactor >= 1) {
         const scaleUpFactor = Math.min(minScaleFactor, maxScaleFactor);
         targetCssWidth *= scaleUpFactor;

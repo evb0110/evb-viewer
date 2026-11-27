@@ -5,7 +5,12 @@
         :data-phase="activity.phase"
         :data-step="activity.step"
     >
-        <span class="sr-only" role="status" aria-live="polite">{{ announcedSentence }}</span>
+        <span
+            class="sr-only"
+            role="status"
+            aria-live="polite"
+            >{{ announcedSentence }}</span
+        >
         <UPopover
             v-model:open="detailsOpen"
             portal="body"
@@ -27,9 +32,17 @@
                         :class="{'is-notice': notice}"
                         aria-hidden="true"
                     />
-                    <span class="scan-cleanup-activity-detail" :class="{'is-notice': notice}">{{ notice || detailText }}</span>
+                    <span
+                        class="scan-cleanup-activity-detail"
+                        :class="{'is-notice': notice}"
+                        >{{ notice || detailText }}</span
+                    >
                     <template v-if="countText">
-                        <span class="scan-cleanup-activity-dot" aria-hidden="true">·</span>
+                        <span
+                            class="scan-cleanup-activity-dot"
+                            aria-hidden="true"
+                            >·</span
+                        >
                         <!-- The label carries the current count alone; the text also
                              holds the reserved widest count. -->
                         <ScanCleanupStableWidthText
@@ -56,7 +69,10 @@
                 />
             </button>
             <template #content>
-                <section class="scan-cleanup-activity-details" :aria-label="t('scanCleanup.activity.title')">
+                <section
+                    class="scan-cleanup-activity-details"
+                    :aria-label="t('scanCleanup.activity.title')"
+                >
                     <header class="scan-cleanup-activity-details-header">
                         <strong>{{ t('scanCleanup.activity.title') }}</strong>
                         <span v-if="totalElapsedText">{{ totalElapsedText }}</span>
@@ -69,7 +85,11 @@
                     >
                         <h3 class="scan-cleanup-activity-phase-heading">
                             <span>{{ t(`scanCleanup.progressPhases.${group.phase}`) }}</span>
-                            <span v-if="group.note" class="scan-cleanup-activity-phase-note">{{ group.note }}</span>
+                            <span
+                                v-if="group.note"
+                                class="scan-cleanup-activity-phase-note"
+                                >{{ group.note }}</span
+                            >
                         </h3>
                         <ol class="scan-cleanup-activity-steps">
                             <li
@@ -132,10 +152,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-    useIntervalFn,
-    useNow,
-} from '@vueuse/core';
+import {useIntervalFn, useNow} from '@vueuse/core';
 import ScanCleanupStableWidthText from '@app/modules/scan-cleanup/components/ScanCleanupStableWidthText.vue';
 import type {IScanCleanupActivityTimeline} from '@app/modules/scan-cleanup/composables/useScanCleanupActivityTimeline';
 import {
@@ -150,10 +167,7 @@ import {
     SCAN_CLEANUP_ACTIVITY_PHASES,
     type TScanCleanupActivityStepState,
 } from '@app/modules/scan-cleanup/runtime/resolveScanCleanupActivity';
-import {
-    SCAN_CLEANUP_RUN_METER_CLASS,
-    SCAN_CLEANUP_TOOLBAR_COUNT_CLASS,
-} from '@contracts/scan-cleanup/toolbarSelectors';
+import {SCAN_CLEANUP_RUN_METER_CLASS, SCAN_CLEANUP_TOOLBAR_COUNT_CLASS} from '@contracts/scan-cleanup/toolbarSelectors';
 
 const {
     activity,
@@ -167,7 +181,7 @@ const {
 }>();
 const {t} = useTypedI18n();
 const detailsOpen = ref(false);
-const now = useNow({scheduler: callback => useIntervalFn(callback, 1000)});
+const now = useNow({scheduler: (callback) => useIntervalFn(callback, 1000)});
 
 const STEP_ICONS: Record<TScanCleanupActivityStepState, string> = {
     done: 'i-ph-check-circle',
@@ -176,19 +190,20 @@ const STEP_ICONS: Record<TScanCleanupActivityStepState, string> = {
 };
 
 const detailText = computed(() => t(`scanCleanup.activity.detail.${activity.detail}`));
-const countText = computed(() => activity.count === null
-    ? ''
-    : formatScanCleanupActivityCount(activity.count, t));
-const countWidestText = computed(() => activity.count === null || activity.count.total === undefined
-    ? countText.value
-    : formatScanCleanupActivityCount({
-        completed: activity.count.total,
-        total: activity.count.total,
-    }, t));
+const countText = computed(() => (activity.count === null ? '' : formatScanCleanupActivityCount(activity.count, t)));
+const countWidestText = computed(() =>
+    activity.count === null || activity.count.total === undefined
+        ? countText.value
+        : formatScanCleanupActivityCount(
+              {
+                  completed: activity.count.total,
+                  total: activity.count.total,
+              },
+              t,
+          ),
+);
 function elapsedSince(startedAtMs: number | undefined, endedAtMs?: number) {
-    return startedAtMs === undefined
-        ? ''
-        : formatScanCleanupDuration((endedAtMs ?? now.value.getTime()) - startedAtMs);
+    return startedAtMs === undefined ? '' : formatScanCleanupDuration((endedAtMs ?? now.value.getTime()) - startedAtMs);
 }
 // How long the current step has been running, so the meter moves every second
 // even between progress reports (I4), followed by the job's own estimate for
@@ -204,22 +219,18 @@ const timeText = computed(() => {
 const timeWidestText = computed(() => resolveScanCleanupTimeWidestText(t));
 // What assistive tech announces: phase, step and count. The clock is left out
 // so a ticking time does not produce an announcement every second.
-const announcedSentence = computed(() => [
-    t(`scanCleanup.progressPhases.${activity.phase}`),
-    notice || formatScanCleanupActivityStatus(activity, t),
-].join('. '));
-const statusSentence = computed(() => [
-    announcedSentence.value,
-    timeText.value,
-].filter(Boolean).join('. '));
-const totalElapsedText = computed(() => timeline === null
-    ? ''
-    : t('scanCleanup.activity.totalElapsed', {time: elapsedSince(timeline.startedAtMs)}));
+const announcedSentence = computed(() =>
+    [t(`scanCleanup.progressPhases.${activity.phase}`), notice || formatScanCleanupActivityStatus(activity, t)].join('. '),
+);
+const statusSentence = computed(() => [announcedSentence.value, timeText.value].filter(Boolean).join('. '));
+const totalElapsedText = computed(() =>
+    timeline === null ? '' : t('scanCleanup.activity.totalElapsed', {time: elapsedSince(timeline.startedAtMs)}),
+);
 
 const segments = computed(() => {
     const currentIndex = SCAN_CLEANUP_ACTIVITY_PHASES.indexOf(activity.phase);
     return SCAN_CLEANUP_ACTIVITY_PHASES.map((phase, index) => {
-        const state = index < currentIndex ? 'done' as const : index === currentIndex ? 'active' as const : 'waiting' as const;
+        const state = index < currentIndex ? ('done' as const) : index === currentIndex ? ('active' as const) : ('waiting' as const);
         const current = state === 'active';
         return {
             phase,
@@ -228,27 +239,32 @@ const segments = computed(() => {
             // Every page has a verdict and the document-wide pass is running.
             settling: current && activity.step === 'compare',
             fillWidth: `${String(state === 'done' ? 100 : Math.round((activity.fraction ?? 0) * 1000) / 10)}%`,
-            bufferWidth: current && activity.bufferFraction > (activity.fraction ?? 0)
-                ? `${String(Math.round(activity.bufferFraction * 1000) / 10)}%`
-                : '',
+            bufferWidth:
+                current && activity.bufferFraction > (activity.fraction ?? 0)
+                    ? `${String(Math.round(activity.bufferFraction * 1000) / 10)}%`
+                    : '',
         };
     });
 });
 
-const stepGroups = computed(() => SCAN_CLEANUP_ACTIVITY_PHASES.map(phase => ({
-    phase,
-    // Before Clean up is pressed, the run's phases are what happens next, not
-    // work that has stalled.
-    note: phase !== 'analyze' && !activity.run ? t('scanCleanup.activity.runStartsLater') : '',
-    steps: activity.steps.filter(step => step.phase === phase).map(step => {
-        const timing = timeline?.steps[step.id];
-        return {
-            ...step,
-            countText: step.count === undefined ? '' : formatScanCleanupActivityCount(step.count, t),
-            timeText: step.state === 'waiting' ? '' : elapsedSince(timing?.startedAtMs, timing?.endedAtMs),
-        };
-    }),
-})));
+const stepGroups = computed(() =>
+    SCAN_CLEANUP_ACTIVITY_PHASES.map((phase) => ({
+        phase,
+        // Before Clean up is pressed, the run's phases are what happens next, not
+        // work that has stalled.
+        note: phase !== 'analyze' && !activity.run ? t('scanCleanup.activity.runStartsLater') : '',
+        steps: activity.steps
+            .filter((step) => step.phase === phase)
+            .map((step) => {
+                const timing = timeline?.steps[step.id];
+                return {
+                    ...step,
+                    countText: step.count === undefined ? '' : formatScanCleanupActivityCount(step.count, t),
+                    timeText: step.state === 'waiting' ? '' : elapsedSince(timing?.startedAtMs, timing?.endedAtMs),
+                };
+            }),
+    })),
+);
 </script>
 
 <style scoped>

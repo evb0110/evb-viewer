@@ -1,17 +1,8 @@
-import {
-    mkdtempSync,
-    readFileSync,
-    rmSync,
-    writeFileSync,
-} from 'node:fs';
+import {mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createCanvas} from '@napi-rs/canvas';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {loadGrayscaleImage} from '@scripts/diagnostics/load-grayscale-image.mjs';
 
 describe('diagnostic grayscale image loader', () => {
@@ -31,11 +22,7 @@ describe('diagnostic grayscale image loader', () => {
 
             expect(bitmap.width).toBe(3);
             expect(bitmap.height).toBe(1);
-            expect([...bitmap.data]).toEqual([
-                0,
-                182,
-                255,
-            ]);
+            expect([...bitmap.data]).toEqual([0, 182, 255]);
             expect(readFileSync(imagePath).length).toBeGreaterThan(0);
         } finally {
             rmSync(directory, {

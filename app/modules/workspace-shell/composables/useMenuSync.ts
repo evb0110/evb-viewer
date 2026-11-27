@@ -1,14 +1,11 @@
-import { isEqual } from 'es-toolkit/predicate';
-import { guardAsync } from '@app/utils/asyncGuard';
-import type {
-    IUseWorkspaceShellStateOptions,
-    IWorkspaceShellState,
-} from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
-import { useWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
-import { getDocumentMenuCapability } from '@app/utils/platformDocuments';
-import type { IApplicationMenuDocumentState } from '@contracts/electronApiDocuments';
-import type { Ref } from 'vue';
-import type { ITabContextAvailability } from '@app/types/tabContextMenu';
+import {isEqual} from 'es-toolkit/predicate';
+import {guardAsync} from '@app/utils/asyncGuard';
+import type {IUseWorkspaceShellStateOptions, IWorkspaceShellState} from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
+import {useWorkspaceShellState} from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
+import {getDocumentMenuCapability} from '@app/utils/platformDocuments';
+import type {IApplicationMenuDocumentState} from '@contracts/electronApiDocuments';
+import type {Ref} from 'vue';
+import type {ITabContextAvailability} from '@app/types/tabContextMenu';
 
 interface IMenuSyncShellContext {
     canCloseTab: boolean;
@@ -44,11 +41,8 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
         const isHistoryBusy = toolbar?.isHistoryBusy === true;
         const isDocumentBusy = !documentInteractive || isAnySaving || isHistoryBusy;
         const supportsPdfMutation = capabilities?.pdfMutationActions === true;
-        const canMutatePages = supportsPdfMutation
-            && !isDocumentBusy
-            && toolbar?.isPageOperationInProgress !== true;
-        const isActualSizeActive = toolbar?.zoomMode === 'custom'
-            && Math.abs(toolbar.effectiveZoom - 1) < 0.0001;
+        const canMutatePages = supportsPdfMutation && !isDocumentBusy && toolbar?.isPageOperationInProgress !== true;
+        const isActualSizeActive = toolbar?.zoomMode === 'custom' && Math.abs(toolbar.effectiveZoom - 1) < 0.0001;
         const state: IApplicationMenuDocumentState = {
             hasDocument,
             interactive: documentInteractive,
@@ -60,26 +54,16 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
             supportsOptimizePdf: capabilities?.optimizePdf === true,
             canOptimizePdf: shellState.activeWorkspaceCanOptimizePdf.value && !isDocumentBusy,
             supportsPrint: capabilities?.print === true,
-            canPrint: shellState.activeWorkspaceCanPrint.value
-                && !isDocumentBusy
-                && toolbar?.isPreparingPrint !== true,
+            canPrint: shellState.activeWorkspaceCanPrint.value && !isDocumentBusy && toolbar?.isPreparingPrint !== true,
             supportsExportDocx: capabilities?.pdfDocument === true,
-            canExportDocx: (documentInteractive
-                && toolbar?.canExportDocx === true
-                && !isAnySaving
-                && !isHistoryBusy)
-                || toolbar?.isExportingDocx === true,
+            canExportDocx:
+                (documentInteractive && toolbar?.canExportDocx === true && !isAnySaving && !isHistoryBusy) ||
+                toolbar?.isExportingDocx === true,
             isExportingDocx: toolbar?.isExportingDocx === true,
             supportsRasterExport: hasDocument,
             canExportRaster: documentInteractive && !isAnySaving && !isHistoryBusy,
-            canUndo: documentInteractive
-                && toolbar?.canUndo === true
-                && !isAnySaving
-                && !isHistoryBusy,
-            canRedo: documentInteractive
-                && toolbar?.canRedo === true
-                && !isAnySaving
-                && !isHistoryBusy,
+            canUndo: documentInteractive && toolbar?.canUndo === true && !isAnySaving && !isHistoryBusy,
+            canRedo: documentInteractive && toolbar?.canRedo === true && !isAnySaving && !isHistoryBusy,
             supportsPdfMutation,
             canMutatePages,
             selectedPageCount: toolbar?.selectedPageCount ?? 0,
@@ -136,13 +120,10 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
 
 export const useAppShellMenuSync = (deps: IUseAppShellMenuSyncDeps) => {
     const menuContext = computed<IMenuSyncShellContext>(() => {
-        const availability = deps.activePaneId.value
-            ? deps.tabContextAvailabilityByPane.value[deps.activePaneId.value]
-            : undefined;
+        const availability = deps.activePaneId.value ? deps.tabContextAvailabilityByPane.value[deps.activePaneId.value] : undefined;
         return {
             canCloseTab: availability?.canClose === true,
-            canCreatePane: availability?.splitEmpty.right === true
-                || availability?.splitEmpty.down === true,
+            canCreatePane: availability?.splitEmpty.right === true || availability?.splitEmpty.down === true,
             canTransferActiveTab: availability?.canMoveToWindow === true,
             canToggleAssistant: deps.assistantPanelEnabled.value,
         };

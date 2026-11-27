@@ -1,27 +1,16 @@
-const {
-    execFileSync,
-    spawnSync,
-} = require('child_process');
+const {execFileSync, spawnSync} = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
 const {manifest: RELEASE_TARGET_MANIFEST} = require('./release/generated-release-targets.cjs');
-const HARDENED_RUNTIME_ENTITLEMENTS = path.resolve(
-    __dirname,
-    '..',
-    ...RELEASE_TARGET_MANIFEST.signing.entitlementsPathSegments,
-);
+const HARDENED_RUNTIME_ENTITLEMENTS = path.resolve(__dirname, '..', ...RELEASE_TARGET_MANIFEST.signing.entitlementsPathSegments);
 
 function hasDeveloperIdCredentials() {
     return Boolean(process.env.CSC_LINK && process.env.CSC_KEY_PASSWORD);
 }
 
 function hasNotaryCredentials() {
-    return Boolean(
-        process.env.APPLE_API_KEY
-        && process.env.APPLE_API_KEY_ID
-        && process.env.APPLE_API_ISSUER,
-    );
+    return Boolean(process.env.APPLE_API_KEY && process.env.APPLE_API_KEY_ID && process.env.APPLE_API_ISSUER);
 }
 
 // Notarize + staple must run AFTER all re-signing above, otherwise the ticket is
@@ -41,37 +30,31 @@ function notarizeAndStapleApp(appPath, identity) {
 
     const zipPath = `${appPath}.notarize.zip`;
     console.log('[afterSign] Zipping app for notarization submission.');
-    execFileSync('ditto', [
-        '-c',
-        '-k',
-        '--keepParent',
-        appPath,
-        zipPath,
-    ], { stdio: 'inherit' });
+    execFileSync('ditto', ['-c', '-k', '--keepParent', appPath, zipPath], {stdio: 'inherit'});
 
     try {
         console.log('[afterSign] Submitting to Apple notary service (waits for the result).');
-        execFileSync('xcrun', [
-            'notarytool',
-            'submit',
-            zipPath,
-            '--key',
-            process.env.APPLE_API_KEY,
-            '--key-id',
-            process.env.APPLE_API_KEY_ID,
-            '--issuer',
-            process.env.APPLE_API_ISSUER,
-            '--wait',
-        ], { stdio: 'inherit' });
+        execFileSync(
+            'xcrun',
+            [
+                'notarytool',
+                'submit',
+                zipPath,
+                '--key',
+                process.env.APPLE_API_KEY,
+                '--key-id',
+                process.env.APPLE_API_KEY_ID,
+                '--issuer',
+                process.env.APPLE_API_ISSUER,
+                '--wait',
+            ],
+            {stdio: 'inherit'},
+        );
 
         console.log('[afterSign] Stapling notarization ticket to the app.');
-        execFileSync('xcrun', [
-            'stapler',
-            'staple',
-            appPath,
-        ], { stdio: 'inherit' });
+        execFileSync('xcrun', ['stapler', 'staple', appPath], {stdio: 'inherit'});
     } finally {
-        fs.rmSync(zipPath, { force: true });
+        fs.rmSync(zipPath, {force: true});
     }
 }
 
@@ -89,7 +72,7 @@ function walkFiles(rootDir) {
             continue;
         }
 
-        for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
+        for (const entry of fs.readdirSync(currentDir, {withFileTypes: true})) {
             const entryPath = path.join(currentDir, entry.name);
             if (entry.isDirectory()) {
                 pending.push(entryPath);
@@ -120,7 +103,7 @@ function walkDirectories(rootDir) {
         }
 
         directories.push(currentDir);
-        for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
+        for (const entry of fs.readdirSync(currentDir, {withFileTypes: true})) {
             if (entry.isDirectory()) {
                 pending.push(path.join(currentDir, entry.name));
             }
@@ -147,17 +130,9 @@ function isMacSharedLibrary(filePath) {
 }
 
 function readCodesignMetadata(targetPath) {
-    const result = spawnSync('codesign', [
-        '-dv',
-        '--verbose=4',
-        targetPath,
-    ], {
+    const result = spawnSync('codesign', ['-dv', '--verbose=4', targetPath], {
         encoding: 'utf8',
-        stdio: [
-            'ignore',
-            'pipe',
-            'pipe',
-        ],
+        stdio: ['ignore', 'pipe', 'pipe'],
     });
 
     return `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
@@ -193,31 +168,22 @@ function signTarget(targetPath, identity, options = {}) {
     }
 
     if (options.entitlements) {
-        args.push(
-            '--entitlements',
-            options.entitlements,
-        );
+        args.push('--entitlements', options.entitlements);
     }
 
-    args.push(
-        '--sign',
-        identity,
-    );
+    args.push('--sign', identity);
 
     if (identity === '-') {
         args.push('--timestamp=none');
     } else {
         args.push('--timestamp');
         if (options.runtime === true) {
-            args.push(
-                '--options',
-                'runtime',
-            );
+            args.push('--options', 'runtime');
         }
     }
 
     args.push(targetPath);
-    execFileSync('codesign', args, { stdio: 'inherit' });
+    execFileSync('codesign', args, {stdio: 'inherit'});
 }
 
 function signOptionsForCodeFile(filePath, identity) {
@@ -265,20 +231,20 @@ function resignEmbeddedAppCode(appPath, identity) {
         .sort((leftPath, rightPath) => rightPath.length - leftPath.length);
 
     for (const bundlePath of nestedBundles) {
-        const options = identity === '-'
-            ? {}
-            : {
-                preserveMetadata: 'entitlements,requirements,flags,runtime',
-                runtime: true,
-            };
+        const options =
+            identity === '-'
+                ? {}
+                : {
+                      preserveMetadata: 'entitlements,requirements,flags,runtime',
+                      runtime: true,
+                  };
         signTarget(bundlePath, identity, options);
     }
 }
 
 function resignBundledNativeToolPayloads(appPath, identity) {
     const nativeToolsDir = path.join(appPath, 'Contents', 'MacOS', 'native-tools');
-    const toolRoots = RELEASE_TARGET_MANIFEST.signing.executableRoots
-        .map(rootSegments => path.join(nativeToolsDir, ...rootSegments));
+    const toolRoots = RELEASE_TARGET_MANIFEST.signing.executableRoots.map((rootSegments) => path.join(nativeToolsDir, ...rootSegments));
 
     const sharedLibraries = [];
     const executables = [];
@@ -286,8 +252,7 @@ function resignBundledNativeToolPayloads(appPath, identity) {
 
     for (const toolRoot of toolRoots) {
         nestedBundles.push(
-            ...walkDirectories(toolRoot)
-                .filter((directoryPath) => directoryPath.endsWith('.framework') || directoryPath.endsWith('.app')),
+            ...walkDirectories(toolRoot).filter((directoryPath) => directoryPath.endsWith('.framework') || directoryPath.endsWith('.app')),
         );
 
         for (const filePath of walkFiles(toolRoot)) {
@@ -313,12 +278,13 @@ function resignBundledNativeToolPayloads(appPath, identity) {
     }
 
     for (const bundlePath of nestedBundles.sort((leftPath, rightPath) => rightPath.length - leftPath.length)) {
-        const options = identity === '-'
-            ? {}
-            : {
-                preserveMetadata: 'entitlements,requirements,flags,runtime',
-                runtime: true,
-            };
+        const options =
+            identity === '-'
+                ? {}
+                : {
+                      preserveMetadata: 'entitlements,requirements,flags,runtime',
+                      runtime: true,
+                  };
         signTarget(bundlePath, identity, options);
     }
 }
@@ -351,24 +317,19 @@ exports.default = async function afterSign(context) {
     // by the time the afterSign hook runs. Re-sign them explicitly before the
     // app root so the final bundle seal does not fail.
     resignEmbeddedAppCode(appPath, identity);
-    const appSignOptions = identity === '-'
-        ? {}
-        : {
-            preserveMetadata: 'entitlements,requirements,flags,runtime',
-            runtime: true,
-        };
+    const appSignOptions =
+        identity === '-'
+            ? {}
+            : {
+                  preserveMetadata: 'entitlements,requirements,flags,runtime',
+                  runtime: true,
+              };
     // Ad-hoc re-signing must not preserve hardened-runtime metadata from the
     // original Electron bundle. On newer macOS releases that leaves an
     // apparently valid bundle that still crashes at launch while dyld loads
     // Electron Framework with library-validation/Team-ID errors.
     signTarget(appPath, identity, appSignOptions);
-    execFileSync('codesign', [
-        '--verify',
-        '--deep',
-        '--strict',
-        '--verbose=2',
-        appPath,
-    ], { stdio: 'inherit' });
+    execFileSync('codesign', ['--verify', '--deep', '--strict', '--verbose=2', appPath], {stdio: 'inherit'});
 
     // Final step: notarize the fully re-signed bundle and staple the ticket, so the
     // shipped app (and the DMG/ZIP built from it) passes Gatekeeper offline.

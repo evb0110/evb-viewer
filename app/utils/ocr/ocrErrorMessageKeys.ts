@@ -1,5 +1,5 @@
-import type { TTranslationKey } from '@i18n-app';
-import type { TOcrErrorCode } from '@contracts/electronApiOcr';
+import type {TTranslationKey} from '@i18n-app';
+import type {TOcrErrorCode} from '@contracts/electronApiOcr';
 
 export const ocrErrorMessageKeys = [
     'errors.file.invalid',

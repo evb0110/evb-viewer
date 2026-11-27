@@ -76,12 +76,12 @@ async function main() {
     try {
         document = await openDocument(store, 'interrupted-save');
     } catch (error) {
-        if (error.code !== 'ENOENT') throw error;
+        if (error.code !== 'ENOENT') {throw error;}
     }
     if (!document) {
         document = await createDocument(store, {ext: 'pdf', id: 'interrupted-save', destination: destinationPath});
         const changed = await document.mutate(null, {kind: 'rewrite', source: sourcePath, drafts: 'clear'});
-        if (changed.status !== 'committed') throw new Error(`Mutation failed: ${changed.status}`);
+        if (changed.status !== 'committed') {throw new Error(`Mutation failed: ${changed.status}`);}
     }
     // Validation runs directly in main through the pooled evb-qpdf.wasm worker.
     // Hold that validation worker at the publication stage barrier, after the
@@ -131,7 +131,7 @@ parentPort.on('message', (message) => {
                     new Promise(resolve => setTimeout(resolve, 2_000)),
                 ]);
             }
-            if (!error) throw new Error('Validation completed despite the dispatch barrier');
+            if (!error) {throw new Error('Validation completed despite the dispatch barrier');}
             throw error;
         } finally {
             workerThreads.Worker = OriginalWorker;
@@ -160,7 +160,7 @@ parentPort.on('message', (message) => {
         await writeFile(resultPath, JSON.stringify({ok: false, utilityExited, error: String(error)}));
         return;
     }
-    if (result.status !== 'saved') throw new Error(`Save failed: ${result.status}`);
+    if (result.status !== 'saved') {throw new Error(`Save failed: ${result.status}`);}
     await document.close();
     await writeFile(resultPath, JSON.stringify({ok: true}));
 }

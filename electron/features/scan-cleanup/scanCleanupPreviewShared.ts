@@ -1,16 +1,6 @@
 import {isAbortError} from '@contracts/isAbortError';
 import {narrowScanCleanupPreviewRequestToPage} from '@contracts/scan-cleanup/narrowScanCleanupPreviewRequestToPage';
-import type {
-    copyFile,
-    mkdir,
-    mkdtemp,
-    open,
-    rename,
-    rm,
-    stat,
-    writeFile,
-} from 'fs/promises';
-
+import type {copyFile, mkdir, mkdtemp, open, rename, rm, stat, writeFile} from 'fs/promises';
 
 import type {
     IScanCleanupPreviewMetadata,
@@ -24,16 +14,11 @@ import type {
     IScanCleanupErrorEnvelope,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 
-import type { TNativeScanCleanupPreviewOutputArtifactMetadataV3 } from '@contracts/scan-cleanup/nativeArtifactCodecs';
-
+import type {TNativeScanCleanupPreviewOutputArtifactMetadataV3} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 
 import {scanCleanupLayoutSignature} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
-import type { getPdfPageCount } from '@electron/pdf/pdfPageCount';
-import type {
-    createPdfPageSizeStore,
-    IPdfPageSize,
-    IPdfPageSizeStore,
-} from '@electron/pdf/pdfPageSizes';
+import type {getPdfPageCount} from '@electron/pdf/pdfPageCount';
+import type {createPdfPageSizeStore, IPdfPageSize, IPdfPageSizeStore} from '@electron/pdf/pdfPageSizes';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 
 import type {
@@ -45,21 +30,12 @@ import {
     scanCleanupPageNeedsMatchedResample,
 } from '@evb/scan-cleanup/core/policy/scanCleanupPreviewPolicy';
 
-import type { atomicReplace } from '@electron/utils/atomicReplace';
-import type {
-    renderPdfPageToPng,
-    renderPdfPageToPpm,
-    TElectronRenderPdfPage,
-    TWorkerLog,
-} from '@electron/features/ocr/publicNative';
+import type {atomicReplace} from '@electron/utils/atomicReplace';
+import type {renderPdfPageToPng, renderPdfPageToPpm, TElectronRenderPdfPage, TWorkerLog} from '@electron/features/ocr/publicNative';
 import type {createScanCleanupRasterBatchRenderer} from '@electron/features/scan-cleanup/createScanCleanupRasterBatchRenderer';
 import type {runScanCleanupSidecar} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 
 import type {IScanCleanupRasterAdmissionPolicy} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
-
-
-
-
 
 import type {
     IDetectedPageRaster,
@@ -67,21 +43,10 @@ import type {
     IScanCleanupDetectionResultStore,
     IScanCleanupPageRasterSource,
 } from '@evb/scan-cleanup/core/types';
-import {
-    chainJobBrokerRunContext,
-    type IJobBrokerRunContext,
-    type TTerminationProofSink,
-} from '@electron/resources/jobBroker';
+import {chainJobBrokerRunContext, type IJobBrokerRunContext, type TTerminationProofSink} from '@electron/resources/jobBroker';
 
-
-import type {
-    IMainJobScratch,
-    IMainJobSender,
-    TMainJobSnapshot,
-} from '@electron/operation-lifecycle/createMainJobRegistry';
-import {
-    type ensureWorkingCopyMaterialized,
-} from '@electron/file-access/documentStore';
+import type {IMainJobScratch, IMainJobSender, TMainJobSnapshot} from '@electron/operation-lifecycle/createMainJobRegistry';
+import {type ensureWorkingCopyMaterialized} from '@electron/file-access/documentStore';
 export const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 export const BASE_ANALYSIS_CACHE_PAGE_LIMIT = 32;
 // Canonical cleaned previews are retained only so detail tiles can replay the
@@ -115,12 +80,8 @@ export function previewIdentityKey(request: Omit<IScanCleanupPreviewRequest, 'de
         pagePlanEvidence: request.pagePlanEvidence ?? null,
         sourcePageMetadata: request.sourcePageMetadata ?? null,
         placementAnchors: request.placementAnchors ?? null,
-        layoutDetectionComplete: request.options.matchPageSize
-            ? request.layoutDetectionComplete === true
-            : false,
-        layouts: request.options.matchPageSize
-            ? scanCleanupLayoutSignature(request.layoutByPage ?? {})
-            : '',
+        layoutDetectionComplete: request.options.matchPageSize ? request.layoutDetectionComplete === true : false,
+        layouts: request.options.matchPageSize ? scanCleanupLayoutSignature(request.layoutByPage ?? {}) : '',
     });
 }
 
@@ -149,13 +110,15 @@ export interface IRetainedDocument {
     // rasters would otherwise sit on the shared sheet at two resolutions, so a
     // preview that promises lossless needs the same answer the run will reach.
     rasterPageSource: Promise<IScanCleanupPageRasterSource> | null;
-    rasterPageSourceReader?: ((
-        pageNumber: number,
-        caller?: {
-            brokerRun?: IJobBrokerRunContext;
-            signal: AbortSignal;
-        },
-    ) => Promise<IDetectedPageRaster | undefined>) | null;
+    rasterPageSourceReader?:
+        | ((
+              pageNumber: number,
+              caller?: {
+                  brokerRun?: IJobBrokerRunContext;
+                  signal: AbortSignal;
+              },
+          ) => Promise<IDetectedPageRaster | undefined>)
+        | null;
     rasterPageSourceStore: IPdfPageSizeStore | null;
     // Every preview needs the document's preview DPI and whether all of its
     // pages carry raster metadata. Both are revision facts: one geometry pass
@@ -216,25 +179,10 @@ export interface IScanCleanupRasterRetention {
     ): Promise<IScanCleanupPageRasterSource>;
     rasterScratchPath(document: IRetainedDocument, pageNumber: number, dpi: number): Promise<string>;
     stagedRasterPath(document: IRetainedDocument, pageNumber: number, dpi: number): Promise<string>;
-    releaseRaster(
-        document: IRetainedDocument,
-        pageNumber: number,
-        dpi: number,
-        claimId?: string,
-        view?: 'mediabox',
-    ): Promise<void>;
-    evictRaster(
-        document: IRetainedDocument,
-        pageNumber: number,
-        dpi: number,
-        claimId?: string,
-    ): Promise<void>;
+    releaseRaster(document: IRetainedDocument, pageNumber: number, dpi: number, claimId?: string, view?: 'mediabox'): Promise<void>;
+    evictRaster(document: IRetainedDocument, pageNumber: number, dpi: number, claimId?: string): Promise<void>;
     claimRaster(document: IRetainedDocument, pageNumber: number, dpi: number, claimId: string, view?: 'mediabox'): boolean;
-    retainedPaths(
-        document: IRetainedDocument,
-        pageNumbers: readonly number[],
-        dpi: number,
-    ): Promise<Map<number, IRetainedRawRaster>>;
+    retainedPaths(document: IRetainedDocument, pageNumbers: readonly number[], dpi: number): Promise<Map<number, IRetainedRawRaster>>;
     read(
         document: IRetainedDocument,
         pageNumber: number,
@@ -242,7 +190,7 @@ export interface IScanCleanupRasterRetention {
         view?: 'mediabox',
     ): Promise<{
         bytes: Uint8Array;
-        raster: IRetainedRawRaster
+        raster: IRetainedRawRaster;
     } | null>;
     readPath(document: IRetainedDocument, pageNumber: number, dpi: number, view?: 'mediabox'): Promise<IRetainedRawRaster | null>;
     materializeRawRaster(
@@ -265,10 +213,7 @@ export interface IScanCleanupRasterRetention {
         pageSize?: IPdfPageSize,
         claimId?: string,
     ): Promise<IRetainedRawRaster>;
-    retain(
-        rendered: Omit<IRetainedRawRaster, 'path'> & {scratchPath: string},
-        claimId?: string,
-    ): Promise<IRetainedRawRaster>;
+    retain(rendered: Omit<IRetainedRawRaster, 'path'> & {scratchPath: string}, claimId?: string): Promise<IRetainedRawRaster>;
     remove(path: string): void;
     release(document: IRetainedDocument, claimId?: string): Promise<void>;
     invalidate(sourcePdfPath: string, documentRevision: string, claimId?: string): void;
@@ -276,7 +221,8 @@ export interface IScanCleanupRasterRetention {
     dispose(): Promise<void>;
 }
 
-export interface IScanCleanupRenderingRetention extends Pick<IScanCleanupRasterRetention,
+export interface IScanCleanupRenderingRetention extends Pick<
+    IScanCleanupRasterRetention,
     | 'openDocument'
     | 'pageCount'
     | 'pageSizeStore'
@@ -286,7 +232,8 @@ export interface IScanCleanupRenderingRetention extends Pick<IScanCleanupRasterR
     | 'materializeRawRasterPath'
     | 'claimRaster'
     | 'releaseRaster'
-    | 'release'> {}
+    | 'release'
+> {}
 
 export interface IRawPreview extends IRetainedRawRaster {
     bytes: Uint8Array;
@@ -331,7 +278,6 @@ export interface IPreviewEntry {
     tail: Promise<TScanCleanupPreviewWireResult>;
 }
 
-
 /** Facts about every page of one document revision that each preview needs. */
 
 export interface IBoundedPreviewGeometry {
@@ -355,32 +301,25 @@ export async function hasBoundedMatchedRasterResample(input: {
     rasterSource: IScanCleanupPageRasterSource;
 }) {
     let resampleRequired = false;
-    await input.pageSizeStore.forEachChunk(async chunk => {
+    await input.pageSizeStore.forEachChunk(async (chunk) => {
         if (resampleRequired) {
             return;
         }
-        for (
-            let offset = 0;
-            offset < chunk.pages.length;
-            offset += RASTER_PAGE_SOURCE_PROBE_BATCH_PAGES
-        ) {
+        for (let offset = 0; offset < chunk.pages.length; offset += RASTER_PAGE_SOURCE_PROBE_BATCH_PAGES) {
             const pages = chunk.pages.slice(offset, offset + RASTER_PAGE_SOURCE_PROBE_BATCH_PAGES);
             const rasters = input.rasterSource.detected
-                ? await Promise.all(
-                    pages.map(page => Promise.resolve(input.rasterSource.getPageRaster(page.pageNumber))),
-                )
+                ? await Promise.all(pages.map((page) => Promise.resolve(input.rasterSource.getPageRaster(page.pageNumber))))
                 : pages.map(() => undefined);
-            for (const [
-                index,
-                page,
-            ] of pages.entries()) {
-                if (scanCleanupPageNeedsMatchedResample({
-                    page,
-                    carriesRaster: !input.rasterSource.detected || rasters[index] !== undefined,
-                    canvas: input.canvas,
-                    options: input.options,
-                    layoutByPage: input.layoutByPage,
-                })) {
+            for (const [index, page] of pages.entries()) {
+                if (
+                    scanCleanupPageNeedsMatchedResample({
+                        page,
+                        carriesRaster: !input.rasterSource.detected || rasters[index] !== undefined,
+                        canvas: input.canvas,
+                        options: input.options,
+                        layoutByPage: input.layoutByPage,
+                    })
+                ) {
                     resampleRequired = true;
                     return;
                 }
@@ -400,7 +339,9 @@ export interface IDetectionResult {
 
 export type TDetectionError = IScanCleanupErrorEnvelope;
 export type TDetectionSnapshot = TMainJobSnapshot<TScanCleanupDetectionJobState, IDetectionResult, TDetectionError>;
-export interface IScanCleanupDetectionSubscriber extends IMainJobSender {id: number;}
+export interface IScanCleanupDetectionSubscriber extends IMainJobSender {
+    id: number;
+}
 
 export type TPreviewVisibility = 'visible' | 'detail' | 'prefetch';
 export interface IScanCleanupReadFile {
@@ -417,10 +358,12 @@ export interface IScanCleanupFileSystem {
     readdir: (
         path: string,
         options: {withFileTypes: true},
-    ) => Promise<ReadonlyArray<{
-        isFile: () => boolean;
-        name: string;
-    }>>;
+    ) => Promise<
+        ReadonlyArray<{
+            isFile: () => boolean;
+            name: string;
+        }>
+    >;
     rename: typeof rename;
     rm: typeof rm;
     stat: typeof stat;
@@ -434,9 +377,7 @@ export interface IScanCleanupPreviewDependencies {
     stat?: typeof stat;
     open?: typeof open;
     getAvailableScratchBytes?: (directory: string) => Promise<number | null>;
-    resolveRasterAdmissionPolicy: (
-        options?: IScanCleanupOptions,
-    ) => IScanCleanupRasterAdmissionPolicy;
+    resolveRasterAdmissionPolicy: (options?: IScanCleanupOptions) => IScanCleanupRasterAdmissionPolicy;
     getPageCount: typeof getPdfPageCount;
     /** Native-backed bounded geometry reader used by production detection. */
     getPageSizeStore: (
@@ -502,54 +443,100 @@ export interface IScanCleanupPreviewDependencies {
     fileSystem?: IScanCleanupFileSystem;
 }
 
-export type IScanCleanupRasterDependencies = Pick<IScanCleanupPreviewDependencies,
-    | 'getPageCount' | 'getPageSizeStore' | 'publishRaster' | 'readFile'
-    | 'stat' | 'open'
-    | 'renderPage' | 'resolvePageOpsBinary'
-    | 'getTempDir' | 'getPdftoppmBinary' | 'detectSourceDpi' | 'getAvailableScratchBytes'
-    | 'detectRasterPages' | 'isRasterDetectionAvailable' | 'getSourceStatIdentity' | 'fileSystem'>;
-
-export type IScanCleanupDetectionOwnerDependencies = Pick<IScanCleanupPreviewDependencies,
-    | 'runWithDetectionLease' | 'getPdftoppmBinary' | 'fileSystem' | 'resolveRasterAdmissionPolicy'
-    | 'getTempDir' | 'renderPage' | 'renderPagePpm' | 'renderPageBatch' | 'getAvailableScratchBytes'
-    | 'resolveBinary' | 'runSidecar' | 'materializeWorkingCopy' | 'materializeRequest'>;
-
-export type IScanCleanupDetectionRetentionView = Pick<IScanCleanupRasterRetention,
-    | 'openDocument' | 'pageCount' | 'pageSizeStore' | 'rasterPageSource'
-    | 'retainedPaths' | 'claimRaster' | 'rasterScratchPath' | 'stagedRasterPath'
-    | 'retain' | 'evictRaster' | 'release' | 'invalidateSender'>;
-
-export type IScanCleanupPreviewOwnerRetention = IScanCleanupRenderingRetention & Pick<
-    IScanCleanupRasterRetention,
-    'invalidate' | 'invalidateSender'
+export type IScanCleanupRasterDependencies = Pick<
+    IScanCleanupPreviewDependencies,
+    | 'getPageCount'
+    | 'getPageSizeStore'
+    | 'publishRaster'
+    | 'readFile'
+    | 'stat'
+    | 'open'
+    | 'renderPage'
+    | 'resolvePageOpsBinary'
+    | 'getTempDir'
+    | 'getPdftoppmBinary'
+    | 'detectSourceDpi'
+    | 'getAvailableScratchBytes'
+    | 'detectRasterPages'
+    | 'isRasterDetectionAvailable'
+    | 'getSourceStatIdentity'
+    | 'fileSystem'
 >;
 
-export type IScanCleanupRenderingDependencies = Pick<IScanCleanupPreviewDependencies,
-    | 'runWithPreviewLease' | 'prefetchLeaseTimeoutMs' | 'extractMrcLayers' | 'mainJobScratch'
+export type IScanCleanupDetectionOwnerDependencies = Pick<
+    IScanCleanupPreviewDependencies,
+    | 'runWithDetectionLease'
+    | 'getPdftoppmBinary'
+    | 'fileSystem'
     | 'resolveRasterAdmissionPolicy'
-    | 'getPageSizeStore' | 'getTempDir' | 'resolveBinary' | 'runSidecar'
-    | 'getPdftoppmBinary' | 'renderPage' | 'renderPagePpm' | 'getPageCount'
-    | 'publishRaster' | 'resolvePageOpsBinary'
-    | 'detectSourceDpi' | 'detectRasterPages'
-    | 'isRasterDetectionAvailable' | 'getSourceStatIdentity' | 'materializeWorkingCopy' | 'materializeRequest' | 'readFile'
-    | 'stat' | 'getAvailableScratchBytes' | 'fileSystem'> & {nativeAllowedPathRoot?: string;};
+    | 'getTempDir'
+    | 'renderPage'
+    | 'renderPagePpm'
+    | 'renderPageBatch'
+    | 'getAvailableScratchBytes'
+    | 'resolveBinary'
+    | 'runSidecar'
+    | 'materializeWorkingCopy'
+    | 'materializeRequest'
+>;
+
+export type IScanCleanupDetectionRetentionView = Pick<
+    IScanCleanupRasterRetention,
+    | 'openDocument'
+    | 'pageCount'
+    | 'pageSizeStore'
+    | 'rasterPageSource'
+    | 'retainedPaths'
+    | 'claimRaster'
+    | 'rasterScratchPath'
+    | 'stagedRasterPath'
+    | 'retain'
+    | 'evictRaster'
+    | 'release'
+    | 'invalidateSender'
+>;
+
+export type IScanCleanupPreviewOwnerRetention = IScanCleanupRenderingRetention &
+    Pick<IScanCleanupRasterRetention, 'invalidate' | 'invalidateSender'>;
+
+export type IScanCleanupRenderingDependencies = Pick<
+    IScanCleanupPreviewDependencies,
+    | 'runWithPreviewLease'
+    | 'prefetchLeaseTimeoutMs'
+    | 'extractMrcLayers'
+    | 'mainJobScratch'
+    | 'resolveRasterAdmissionPolicy'
+    | 'getPageSizeStore'
+    | 'getTempDir'
+    | 'resolveBinary'
+    | 'runSidecar'
+    | 'getPdftoppmBinary'
+    | 'renderPage'
+    | 'renderPagePpm'
+    | 'getPageCount'
+    | 'publishRaster'
+    | 'resolvePageOpsBinary'
+    | 'detectSourceDpi'
+    | 'detectRasterPages'
+    | 'isRasterDetectionAvailable'
+    | 'getSourceStatIdentity'
+    | 'materializeWorkingCopy'
+    | 'materializeRequest'
+    | 'readFile'
+    | 'stat'
+    | 'getAvailableScratchBytes'
+    | 'fileSystem'
+> & {nativeAllowedPathRoot?: string};
 
 function mergeBoundBrokerRun(
     outer: IJobBrokerRunContext,
     innerBrokerRun: IJobBrokerRunContext | undefined,
     innerProof?: TTerminationProofSink,
 ): IJobBrokerRunContext {
-    if (
-        innerBrokerRun !== undefined
-        && innerBrokerRun.broker === outer.broker
-        && innerBrokerRun.lease === outer.lease
-    ) {
+    if (innerBrokerRun !== undefined && innerBrokerRun.broker === outer.broker && innerBrokerRun.lease === outer.lease) {
         return chainJobBrokerRunContext(innerBrokerRun, innerProof);
     }
-    return chainJobBrokerRunContext(
-        chainJobBrokerRunContext(outer, innerBrokerRun?.onTerminationProof),
-        innerProof,
-    );
+    return chainJobBrokerRunContext(chainJobBrokerRunContext(outer, innerBrokerRun?.onTerminationProof), innerProof);
 }
 
 /**
@@ -558,51 +545,46 @@ function mergeBoundBrokerRun(
  * than competing for the broker's single leaf escape slot.
  */
 export function bindScanCleanupTerminationProof<
-    TDeps extends Pick<
-        IScanCleanupPreviewDependencies,
-        'getTempDir' | 'renderPage' | 'renderPagePpm' | 'runSidecar'
-    > & Partial<Pick<
-        IScanCleanupPreviewDependencies,
-        'extractMrcLayers' | 'nativeAllowedPathRoot' | 'renderPageBatch'
-    >>,
->(
-    dependencies: TDeps,
-    brokerRun: IJobBrokerRunContext | undefined,
-): TDeps {
+    TDeps extends Pick<IScanCleanupPreviewDependencies, 'getTempDir' | 'renderPage' | 'renderPagePpm' | 'runSidecar'> &
+        Partial<Pick<IScanCleanupPreviewDependencies, 'extractMrcLayers' | 'nativeAllowedPathRoot' | 'renderPageBatch'>>,
+>(dependencies: TDeps, brokerRun: IJobBrokerRunContext | undefined): TDeps {
     if (brokerRun === undefined) {
         return dependencies;
     }
-    const wrapRenderPage = (render: TElectronRenderPdfPage): TElectronRenderPdfPage => (
-        paths,
-        log,
-        pageNumber,
-        sourcePdfPath,
-        outputPath,
-        dpi,
-        popplerEnv,
-        signal,
-        crop,
-        limits,
-        renderBox,
-        annotations,
-        innerProof,
-        innerBrokerRun,
-    ) => render(
-        paths,
-        log,
-        pageNumber,
-        sourcePdfPath,
-        outputPath,
-        dpi,
-        popplerEnv,
-        signal,
-        crop,
-        limits,
-        renderBox,
-        annotations,
-        innerProof,
-        mergeBoundBrokerRun(brokerRun, innerBrokerRun),
-    );
+    const wrapRenderPage =
+        (render: TElectronRenderPdfPage): TElectronRenderPdfPage =>
+        (
+            paths,
+            log,
+            pageNumber,
+            sourcePdfPath,
+            outputPath,
+            dpi,
+            popplerEnv,
+            signal,
+            crop,
+            limits,
+            renderBox,
+            annotations,
+            innerProof,
+            innerBrokerRun,
+        ) =>
+            render(
+                paths,
+                log,
+                pageNumber,
+                sourcePdfPath,
+                outputPath,
+                dpi,
+                popplerEnv,
+                signal,
+                crop,
+                limits,
+                renderBox,
+                annotations,
+                innerProof,
+                mergeBoundBrokerRun(brokerRun, innerBrokerRun),
+            );
     return {
         ...dependencies,
         renderPage: wrapRenderPage(dependencies.renderPage),
@@ -610,57 +592,43 @@ export function bindScanCleanupTerminationProof<
         ...(dependencies.renderPageBatch === undefined
             ? {}
             : {
-                renderPageBatch: input => {
-                    const {
-                        onTerminationProof: innerProof,
-                        brokerRun: innerBrokerRun,
-                        ...restInput
-                    } = input;
-                    return dependencies.renderPageBatch!({
-                        ...restInput,
-                        brokerRun: mergeBoundBrokerRun(brokerRun, innerBrokerRun, innerProof),
-                    });
-                },
-            }),
+                  renderPageBatch: (input) => {
+                      const {onTerminationProof: innerProof, brokerRun: innerBrokerRun, ...restInput} = input;
+                      return dependencies.renderPageBatch!({
+                          ...restInput,
+                          brokerRun: mergeBoundBrokerRun(brokerRun, innerBrokerRun, innerProof),
+                      });
+                  },
+              }),
         ...(dependencies.extractMrcLayers === undefined
             ? {}
             : {
-                extractMrcLayers: (
-                    sourcePdfPath,
-                    pageNumber,
-                    selectionMaskOutputPath,
-                    backgroundOutputPath,
-                    signal,
-                    log,
-                    innerBrokerRun,
-                ) => dependencies.extractMrcLayers!(
-                    sourcePdfPath,
-                    pageNumber,
-                    selectionMaskOutputPath,
-                    backgroundOutputPath,
-                    signal,
-                    log,
-                    mergeBoundBrokerRun(brokerRun, innerBrokerRun),
-                ),
-            }),
+                  extractMrcLayers: (
+                      sourcePdfPath,
+                      pageNumber,
+                      selectionMaskOutputPath,
+                      backgroundOutputPath,
+                      signal,
+                      log,
+                      innerBrokerRun,
+                  ) =>
+                      dependencies.extractMrcLayers!(
+                          sourcePdfPath,
+                          pageNumber,
+                          selectionMaskOutputPath,
+                          backgroundOutputPath,
+                          signal,
+                          log,
+                          mergeBoundBrokerRun(brokerRun, innerBrokerRun),
+                      ),
+              }),
         runSidecar: (binaryPath, manifestPath, signal, log, onProgress, options) => {
-            const {
-                onTerminationProof: innerProof,
-                brokerRun: innerBrokerRun,
-                ...restOptions
-            } = options ?? {};
-            return dependencies.runSidecar(
-                binaryPath,
-                manifestPath,
-                signal,
-                log,
-                onProgress,
-                {
-                    allowedPathRoot: dependencies.nativeAllowedPathRoot ?? dependencies.getTempDir(),
-                    ...restOptions,
-                    brokerRun: mergeBoundBrokerRun(brokerRun, innerBrokerRun, innerProof),
-                },
-            );
+            const {onTerminationProof: innerProof, brokerRun: innerBrokerRun, ...restOptions} = options ?? {};
+            return dependencies.runSidecar(binaryPath, manifestPath, signal, log, onProgress, {
+                allowedPathRoot: dependencies.nativeAllowedPathRoot ?? dependencies.getTempDir(),
+                ...restOptions,
+                brokerRun: mergeBoundBrokerRun(brokerRun, innerBrokerRun, innerProof),
+            });
         },
     };
 }
@@ -670,8 +638,7 @@ export function bindScanCleanupTerminationProof<
 // rejecting it: a rejected invoke is logged by Electron as a handler error and
 // would bury the failures worth reading.
 export function isPreviewCancellation(error: unknown) {
-    return isAbortError(error)
-        || (error instanceof Error && (error as {code?: unknown}).code === 'WORKING_COPY_MATERIALIZATION_CANCELLED');
+    return isAbortError(error) || (error instanceof Error && (error as {code?: unknown}).code === 'WORKING_COPY_MATERIALIZATION_CANCELLED');
 }
 
 // Detection and preview render the same page at the same DPI with the same

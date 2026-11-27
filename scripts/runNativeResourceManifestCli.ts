@@ -1,12 +1,12 @@
-import { getErrorMessage } from '@contracts/getErrorMessage';
+import {getErrorMessage} from '@contracts/getErrorMessage';
 import path from 'node:path';
-import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import {createRequire} from 'node:module';
+import {fileURLToPath} from 'node:url';
 
 const requireScript = createRequire(import.meta.url);
-const {renderPackagedEntries} = requireScript(
-    './release/generated-release-targets.cjs',
-) as {renderPackagedEntries: (tag: string) => string};
+const {renderPackagedEntries} = requireScript('./release/generated-release-targets.cjs') as {
+    renderPackagedEntries: (tag: string) => string;
+};
 
 function usage() {
     return [
@@ -32,8 +32,7 @@ export function runNativeResourceManifestCli(argv: readonly string[]) {
     throw new Error(usage());
 }
 
-const isDirectCliRun = process.argv[1]
-    && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+const isDirectCliRun = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 if (isDirectCliRun) {
     try {

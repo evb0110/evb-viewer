@@ -1,23 +1,20 @@
-import { getErrorMessage } from '@app/utils/error';
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
-import { uniq } from 'es-toolkit/array';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { until } from '@vueuse/core';
-import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
-import type { IEditorPaneState } from '@contracts/editorPanes';
-import { parseTabId } from '@contracts/windowTabs';
-import type { ITab } from '@app/types/tabs';
-import type { TDirtyCloseDecision } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
-import type { IWorkspaceRestoreTrackerLike } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
+import {getErrorMessage} from '@app/utils/error';
+import type {ComputedRef, Ref} from 'vue';
+import {uniq} from 'es-toolkit/array';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {until} from '@vueuse/core';
+import {hasWorkspaceViewerDocumentCapabilities} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
+import type {IEditorPaneState} from '@contracts/editorPanes';
+import {parseTabId} from '@contracts/windowTabs';
+import type {ITab} from '@app/types/tabs';
+import type {TDirtyCloseDecision} from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
+import type {IWorkspaceRestoreTrackerLike} from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import {
     snapshotOccupiesTab,
     type IWorkspaceDocumentController,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { rememberReadingView } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
-import type { TChangeWorkspaceLayout } from '@app/modules/workspace-shell/composables/workspaceLayoutChange';
+import {rememberReadingView} from '@app/modules/workspace-shell/document-sessions/recentReadingView';
+import type {TChangeWorkspaceLayout} from '@app/modules/workspace-shell/composables/workspaceLayoutChange';
 
 interface IUseAppShellTabLifecycleOptions {
     panes: Ref<IEditorPaneState[]>;
@@ -79,9 +76,7 @@ interface IUseAppShellTabLifecycleResult {
     handleCloseTab: (paneId: string, tabId: string) => Promise<void>;
 }
 
-export const useAppShellTabLifecycle = (
-    options: IUseAppShellTabLifecycleOptions,
-): IUseAppShellTabLifecycleResult => {
+export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions): IUseAppShellTabLifecycleResult => {
     const {
         panes,
         tabs,
@@ -98,8 +93,8 @@ export const useAppShellTabLifecycle = (
         requestDirtyTabCloseConfirmation,
     } = options;
 
-    const { reportRuntimeError } = useRuntimeErrorReports();
-    const { t } = useTypedI18n();
+    const {reportRuntimeError} = useRuntimeErrorReports();
+    const {t} = useTypedI18n();
     const toast = useToast();
     const activeTabTransitions: Ref<number> = ref(0);
     const pendingCloseTransitions = new Map<string, Promise<unknown>>();
@@ -113,17 +108,16 @@ export const useAppShellTabLifecycle = (
             context: context ?? null,
             error: serializeTransitionError(error),
         };
-        const failure = BrowserLogger.error('toolbar-transition', 'Tab transition failed', details, {code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED'});
+        const failure = BrowserLogger.error('toolbar-transition', 'Tab transition failed', details, {
+            code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED',
+        });
         reportRuntimeError({
             failure,
             title: t('errors.runtime.title'),
         });
     }
 
-    function enqueueTabTransition<T>(
-        task: () => Promise<T>,
-        context?: ITabTransitionReportContext,
-    ): Promise<T> {
+    function enqueueTabTransition<T>(task: () => Promise<T>, context?: ITabTransitionReportContext): Promise<T> {
         const chained = tabTransitionQueue.then(async () => {
             activeTabTransitions.value += 1;
             try {
@@ -166,7 +160,7 @@ export const useAppShellTabLifecycle = (
     }
 
     function getDocumentSession(tabId: string | null | undefined) {
-        return tabId ? documentSessionsByTabId.value[tabId] ?? null : null;
+        return tabId ? (documentSessionsByTabId.value[tabId] ?? null) : null;
     }
 
     function tabOccupied(tabId: string) {
@@ -178,12 +172,16 @@ export const useAppShellTabLifecycle = (
         const session = getDocumentSession(tabId);
         const view = session?.getView(tabId);
         const toolbarSnapshot = view?.mountedWorkspace.value ? view.toolbarSnapshot.value : null;
-        return session?.operationLease.isBusy.value === true || Boolean(toolbarSnapshot && (
-            toolbarSnapshot.isAnySaving
-            || toolbarSnapshot.isHistoryBusy
-            || toolbarSnapshot.isExportingDocx
-            || toolbarSnapshot.isPageOperationInProgress === true
-        ));
+        return (
+            session?.operationLease.isBusy.value === true ||
+            Boolean(
+                toolbarSnapshot &&
+                (toolbarSnapshot.isAnySaving ||
+                    toolbarSnapshot.isHistoryBusy ||
+                    toolbarSnapshot.isExportingDocx ||
+                    toolbarSnapshot.isPageOperationInProgress === true),
+            )
+        );
     }
 
     function notifyTabBusy(tabId: string) {
@@ -213,7 +211,9 @@ export const useAppShellTabLifecycle = (
     // transition queue for other tabs. It decides nothing: Close's own lease
     // turn reads the document's state.
     async function waitForTabOperationsToSettle(tabId: string) {
-        if (!hasTabBusyOperation(tabId)) return;
+        if (!hasTabBusyOperation(tabId)) {
+            return;
+        }
         notifyTabBusy(tabId);
         try {
             await until(() => hasTabBusyOperation(tabId)).toBe(false);
@@ -224,8 +224,9 @@ export const useAppShellTabLifecycle = (
 
     function tabHasCloseableDocument(tabId: string | null | undefined) {
         const view = tabId ? getDocumentSession(tabId)?.getView(tabId) : null;
-        return Boolean(view?.mountedWorkspace.value)
-            && hasWorkspaceViewerDocumentCapabilities(view?.toolbarSnapshot.value.viewerCapabilities);
+        return (
+            Boolean(view?.mountedWorkspace.value) && hasWorkspaceViewerDocumentCapabilities(view?.toolbarSnapshot.value.viewerCapabilities)
+        );
     }
 
     function isSingletonPlaceholderCloseBlocked(paneId: string, tabId: string) {
@@ -272,7 +273,7 @@ export const useAppShellTabLifecycle = (
     }
 
     function pickBestTabCandidate(tabIds: Array<string | null | undefined>) {
-        const uniqueTabIds = uniq(tabIds.flatMap(tabId => tabId ? [tabId] : []));
+        const uniqueTabIds = uniq(tabIds.flatMap((tabId) => (tabId ? [tabId] : [])));
 
         let bestTabId: string | null = null;
         let bestScore = -1;
@@ -303,22 +304,19 @@ export const useAppShellTabLifecycle = (
         return pickBestTabCandidate([
             sourcePane.tabIds[closingTabIndex + 1],
             sourcePane.tabIds[closingTabIndex - 1],
-            ...sourcePane.tabIds.filter(candidate => candidate !== parsedTabId),
+            ...sourcePane.tabIds.filter((candidate) => candidate !== parsedTabId),
         ]);
     }
 
     function pickCrossPaneCloseReplacement(sourcePaneId: string) {
-        let bestTarget: (ICloseHandoffTarget & { score: number }) | null = null;
+        let bestTarget: (ICloseHandoffTarget & {score: number}) | null = null;
 
         for (const candidatePane of panes.value) {
             if (candidatePane.paneId === sourcePaneId || candidatePane.tabIds.length === 0) {
                 continue;
             }
 
-            const candidateTabId = pickBestTabCandidate([
-                candidatePane.activeTabId,
-                ...candidatePane.tabIds,
-            ]);
+            const candidateTabId = pickBestTabCandidate([candidatePane.activeTabId, ...candidatePane.tabIds]);
             if (!candidateTabId) {
                 continue;
             }
@@ -335,9 +333,9 @@ export const useAppShellTabLifecycle = (
 
         return bestTarget
             ? {
-                paneId: bestTarget.paneId,
-                tabId: bestTarget.tabId,
-            }
+                  paneId: bestTarget.paneId,
+                  tabId: bestTarget.tabId,
+              }
             : null;
     }
 
@@ -388,13 +386,22 @@ export const useAppShellTabLifecycle = (
      * a closed document stays as the required empty-tab slot: it keeps its
      * mounted workspace, so Start stays actionable in the close commit.
      */
-    async function commitTabClose(paneId: string, tabId: string, handoff: ICloseHandoffTarget | null, keepsFinalTab: boolean, fence: TLayoutFence) {
+    async function commitTabClose(
+        paneId: string,
+        tabId: string,
+        handoff: ICloseHandoffTarget | null,
+        keepsFinalTab: boolean,
+        fence: TLayoutFence,
+    ) {
         const pane = getPaneByTabId(tabId) ?? getPaneById(paneId);
-        const closesTab = pane !== null && !(keepsFinalTab && panes.value.length === 1 && pane.tabIds.length === 1 && pane.tabIds[0] === tabId);
+        const closesTab =
+            pane !== null && !(keepsFinalTab && panes.value.length === 1 && pane.tabIds.length === 1 && pane.tabIds[0] === tabId);
         if (pane && closesTab && panes.value.length > 1 && pane.tabIds.length === 1) {
             await fence();
         }
-        if (pane && closesTab) closeTabInState(pane.paneId, tabId);
+        if (pane && closesTab) {
+            closeTabInState(pane.paneId, tabId);
+        }
         cleanupEmptyPanes();
         activateCloseHandoff(handoff);
     }
@@ -405,8 +412,7 @@ export const useAppShellTabLifecycle = (
         }
 
         const targetTab = getTabById(closeHandoffTarget.tabId);
-        const targetPane = getPaneById(closeHandoffTarget.paneId)
-            ?? getPaneByTabId(closeHandoffTarget.tabId);
+        const targetPane = getPaneById(closeHandoffTarget.paneId) ?? getPaneByTabId(closeHandoffTarget.tabId);
         const targetTabId = parseTabId(targetTab?.id);
         if (!targetTab || targetTabId === null || !targetPane || !targetPane.tabIds.includes(targetTabId)) {
             return;
@@ -418,11 +424,16 @@ export const useAppShellTabLifecycle = (
     async function closeWorkspaceDocument(tabId: string, endRelease: TEndRelease) {
         const controller = getDocumentSession(tabId);
         // A Save or Cancel keeps the document, which publishes the revision its Close ended again first.
-        return Boolean(controller && await controller.close({decide: async () => {
-            const decision = await requestDirtyTabCloseConfirmation(tabId);
-            endRelease?.(decision !== 'discard');
-            return decision;
-        }}));
+        return Boolean(
+            controller &&
+            (await controller.close({
+                decide: async () => {
+                    const decision = await requestDirtyTabCloseConfirmation(tabId);
+                    endRelease?.(decision !== 'discard');
+                    return decision;
+                },
+            })),
+        );
     }
 
     async function closeTabDuringTransition(paneId: string, tabId: string, fence: TLayoutFence, endRelease: TEndRelease = null) {
@@ -454,7 +465,7 @@ export const useAppShellTabLifecycle = (
         }
 
         const closesDocumentInTab = closesDocument && tabOccupied(tabId);
-        if (closesDocumentInTab && !await closeWorkspaceDocument(tabId, endRelease)) {
+        if (closesDocumentInTab && !(await closeWorkspaceDocument(tabId, endRelease))) {
             return;
         }
         await commitTabClose(paneId, tabId, closeHandoffTarget, closesDocumentInTab, fence);
@@ -477,17 +488,18 @@ export const useAppShellTabLifecycle = (
         const endRelease = closing && closing.views.value.size < 2 ? closing.releaseJobs() : null;
         // A close that collapses a split ends once the views are placed, after
         // its tab transition, so the views see the fence fall with it.
-        const transition = options.changeWorkspaceLayout(async (fence) => {
-            if (endRelease) await waitForTabOperationsToSettle(tabId);
-            await enqueueTabTransition(
-                () => closeTabDuringTransition(paneId, tabId, fence, endRelease),
-                {
+        const transition = options
+            .changeWorkspaceLayout(async (fence) => {
+                if (endRelease) {
+                    await waitForTabOperationsToSettle(tabId);
+                }
+                await enqueueTabTransition(() => closeTabDuringTransition(paneId, tabId, fence, endRelease), {
                     action: 'close-tab',
                     paneId,
                     tabId,
-                },
-            );
-        }).finally(() => endRelease?.(true));
+                });
+            })
+            .finally(() => endRelease?.(true));
         pendingCloseTransitions.set(tabId, transition);
         try {
             await transition;

@@ -1,9 +1,6 @@
-import type { TWheelDirection } from '@app/modules/document-viewer/single-page-wheel/singlePageWheelTypes';
-import { createWheelGestureStream } from '@app/modules/document-viewer/input/createWheelGestureStream';
-import {
-    WHEEL_DELTA_LINE_MODE,
-    WHEEL_DELTA_PAGE_MODE,
-} from '@app/modules/document-viewer/input/documentWheelInteraction';
+import type {TWheelDirection} from '@app/modules/document-viewer/single-page-wheel/singlePageWheelTypes';
+import {createWheelGestureStream} from '@app/modules/document-viewer/input/createWheelGestureStream';
+import {WHEEL_DELTA_LINE_MODE, WHEEL_DELTA_PAGE_MODE} from '@app/modules/document-viewer/input/documentWheelInteraction';
 
 const SAME_DIRECTION_FLIP_COOLDOWN_MS = 180;
 const SAME_DIRECTION_RENEWED_FLIP_INTERVAL_MS = 260;
@@ -41,11 +38,11 @@ function isInSameDirectionFlipCooldown(
 ) {
     const sinceLastFlipMs = eventTimeMs - lastFlipAtMs;
     return (
-        lastFlipAtMs > 0
-        && lastFlipDirection === direction
-        && !hasInteriorScrollSinceLastFlip
-        && sinceLastFlipMs >= 0
-        && sinceLastFlipMs < SAME_DIRECTION_FLIP_COOLDOWN_MS
+        lastFlipAtMs > 0 &&
+        lastFlipDirection === direction &&
+        !hasInteriorScrollSinceLastFlip &&
+        sinceLastFlipMs >= 0 &&
+        sinceLastFlipMs < SAME_DIRECTION_FLIP_COOLDOWN_MS
     );
 }
 
@@ -71,9 +68,7 @@ export function createWheelFlipGate(options: IWheelFlipGateOptions = {}) {
             deltaX: 0,
             deltaY,
             cancelable: packet.cancelable ?? true,
-            hostSequenceOpen: packet.hostSequenceOpen
-                ?? options.isHostSequenceOpen?.()
-                ?? options.isWheelSequenceOpen?.(),
+            hostSequenceOpen: packet.hostSequenceOpen ?? options.isHostSequenceOpen?.() ?? options.isWheelSequenceOpen?.(),
         });
         lastObservedPacket = packet;
         if (observation.gestureId !== lastFlippedGestureId) {
@@ -95,10 +90,7 @@ export function createWheelFlipGate(options: IWheelFlipGateOptions = {}) {
         return lastFlippedGestureId !== null && observation.gestureId === lastFlippedGestureId;
     }
 
-    function shouldBlockFlip(
-        direction: TWheelDirection,
-        packet: IWheelFlipGatePacket,
-    ) {
+    function shouldBlockFlip(direction: TWheelDirection, packet: IWheelFlipGatePacket) {
         const nowMs = packet.timeStamp;
         const deltaMagnitude = Math.abs(packet.deltaY);
         const previousVerticalDeltaMagnitude = lastVerticalDeltaMagnitude;
@@ -110,12 +102,11 @@ export function createWheelFlipGate(options: IWheelFlipGateOptions = {}) {
             lastFlipDirection,
             interiorScrollSinceLastFlip,
         );
-        const isSameFlippedGesture = (
-            lastFlippedGestureId !== null
-            && observation.gestureId === lastFlippedGestureId
-            && lastFlipDirection === direction
-            && !interiorScrollSinceLastFlip
-        );
+        const isSameFlippedGesture =
+            lastFlippedGestureId !== null &&
+            observation.gestureId === lastFlippedGestureId &&
+            lastFlipDirection === direction &&
+            !interiorScrollSinceLastFlip;
 
         if (isSameFlippedGesture) {
             gesturePeakDeltaMagnitude = Math.max(gesturePeakDeltaMagnitude, deltaMagnitude);
@@ -150,20 +141,17 @@ export function createWheelFlipGate(options: IWheelFlipGateOptions = {}) {
         const renewedDeltaFloor = isDiscreteWheelDeltaMode(packet.deltaMode)
             ? peakFloor
             : Math.max(SAME_DIRECTION_RENEWED_DELTA_MIN_PX, peakFloor);
-        const isStrengthening = previousVerticalDeltaMagnitude <= 0
-            || deltaMagnitude > previousVerticalDeltaMagnitude;
-        const isSteadyAtPeak = deltaMagnitude >= previousVerticalDeltaMagnitude
-            && deltaMagnitude >= gesturePeakDeltaMagnitude;
-        const isRenewedImpulse = deltaMagnitude > 0
-            && deltaMagnitude >= renewedDeltaFloor
-            && (isStrengthening || isSteadyAtPeak);
+        const isStrengthening = previousVerticalDeltaMagnitude <= 0 || deltaMagnitude > previousVerticalDeltaMagnitude;
+        const isSteadyAtPeak = deltaMagnitude >= previousVerticalDeltaMagnitude && deltaMagnitude >= gesturePeakDeltaMagnitude;
+        const isRenewedImpulse = deltaMagnitude > 0 && deltaMagnitude >= renewedDeltaFloor && (isStrengthening || isSteadyAtPeak);
         return !isRenewedImpulse;
     }
 
     function recordFlip(direction: TWheelDirection, packet: IWheelFlipGatePacket) {
-        const observation = lastObservedPacket === packet && wheelGestures.hasPackets()
-            ? { gestureId: wheelGestures.getGestureId() }
-            : observeVerticalGesture(packet);
+        const observation =
+            lastObservedPacket === packet && wheelGestures.hasPackets()
+                ? {gestureId: wheelGestures.getGestureId()}
+                : observeVerticalGesture(packet);
         const deltaMagnitude = Math.abs(packet.deltaY);
         lastFlippedGestureId = observation.gestureId;
         lastFlipAtMs = packet.timeStamp;

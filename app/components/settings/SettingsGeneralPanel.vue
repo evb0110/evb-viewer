@@ -75,11 +75,7 @@
 </template>
 
 <script setup lang="ts">
-import type {
-    ISettingsData,
-    TAppTheme,
-    TUiScalePreference,
-} from '@contracts/shared';
+import type {ISettingsData, TAppTheme, TUiScalePreference} from '@contracts/shared';
 
 interface ILocaleItem {
     value: string;
@@ -108,17 +104,17 @@ const emit = defineEmits<{
     'update:author-name': [value: string];
     'update:suppress-unencrypted-save-notice': [value: boolean];
     'update:theme': [value: TAppTheme];
-    'update:locale': [value: string | { value: string }];
+    'update:locale': [value: string | {value: string}];
     'update:ui-scale': [value: TUiScalePreference];
 }>();
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 
 const settingsFormFieldUi = {
     label: 'settings-field-label',
     help: 'settings-field-hint mt-1',
 };
-const settingsControlUi = { label: 'settings-control-label' };
+const settingsControlUi = {label: 'settings-control-label'};
 const settingsRadioGroupUi = {
     fieldset: 'w-full',
     legend: 'settings-field-label',
@@ -126,11 +122,8 @@ const settingsRadioGroupUi = {
     wrapper: 'settings-radio-wrapper',
     label: 'settings-radio-label',
 } as const;
-const localeSelectContent = [
-    'settings-locale-select-content',
-    'w-auto min-w-(--reka-combobox-trigger-width)',
-].join(' ');
-const localeSelectUi = { content: localeSelectContent };
+const localeSelectContent = ['settings-locale-select-content', 'w-auto min-w-(--reka-combobox-trigger-width)'].join(' ');
+const localeSelectUi = {content: localeSelectContent};
 const themeOptions = computed<IThemeOption[]>(() => [
     {
         value: 'light',
@@ -177,7 +170,6 @@ function updateTheme(value: TAppTheme) {
 function updateUiScale(value: TUiScalePreference) {
     emit('update:ui-scale', value);
 }
-
 </script>
 
 <style lang="scss" scoped>

@@ -2,7 +2,7 @@
     <UModal
         v-model:open="open"
         :title="dialogTitle"
-        :ui="{ footer: 'justify-end gap-2' }"
+        :ui="{footer: 'justify-end gap-2'}"
     >
         <template #description>
             <span class="sr-only">
@@ -51,20 +51,17 @@
 </template>
 
 <script setup lang="ts">
-import { whenever } from '@vueuse/core';
-import { parsePageRangeInput } from '@app/modules/document-viewer/public';
-import { createPageSelectionFromRange } from '@app/utils/pdfPageSelection';
+import {whenever} from '@vueuse/core';
+import {parsePageRangeInput} from '@app/modules/document-viewer/public';
+import {createPageSelectionFromRange} from '@app/utils/pdfPageSelection';
 import PdfPageScopeRadioGroup from '@app/modules/pdf-viewer/components/PdfPageScopeRadioGroup.vue';
-import {
-    usePdfPageScopeSelection,
-    type TPdfPageScope,
-} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
-import type { TPageSelection } from '@pdf-core/pdfPageSelection';
-import { pageSelectionCount } from '@pdf-core/pdfPageSelection';
+import {usePdfPageScopeSelection, type TPdfPageScope} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
+import type {TPageSelection} from '@pdf-core/pdfPageSelection';
+import {pageSelectionCount} from '@pdf-core/pdfPageSelection';
 
 type TExportMode = 'images' | 'multipage-tiff';
 
-const open = defineModel<boolean>('open', { required: true });
+const open = defineModel<boolean>('open', {required: true});
 
 const {
     currentPage,
@@ -80,43 +77,26 @@ const {
     selectedPageSelection?: TPageSelection | null | undefined;
 }>();
 
-const emit = defineEmits<{submit: [payload: { pageSelection?: TPageSelection }];}>();
+const emit = defineEmits<{submit: [payload: {pageSelection?: TPageSelection}]}>();
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 
 const summaryId = useId();
 
-const dialogTitle = computed(() => (
-    mode === 'images'
-        ? t('dialogs.exportImages')
-        : t('dialogs.exportMultiPageTiff')
-));
+const dialogTitle = computed(() => (mode === 'images' ? t('dialogs.exportImages') : t('dialogs.exportMultiPageTiff')));
 
-const dialogActionLabel = computed(() => (
-    mode === 'images'
-        ? t('export.exportImagesAction')
-        : t('export.exportTiffAction')
-));
+const dialogActionLabel = computed(() => (mode === 'images' ? t('export.exportImagesAction') : t('export.exportTiffAction')));
 
-const rangeSelection = computed(() => createPageSelectionFromRange(
-    parsePageRangeInput(rangeInput.value, totalPages),
-    totalPages,
-));
+const rangeSelection = computed(() => createPageSelectionFromRange(parsePageRangeInput(rangeInput.value, totalPages), totalPages));
 
-const {
-    scope,
-    rangeInput,
-    rangeTouched,
-    normalizedSelectedPageSelection,
-    resetScopeForOpen,
-    resolveScopedPageSelection,
-} = usePdfPageScopeSelection({
-    totalPages: () => totalPages,
-    currentPage: () => currentPage,
-    selectedPages: () => selectedPages,
-    selectedPageSelection: () => selectedPageSelection ?? null,
-    resolveRangeSelection: () => rangeSelection.value,
-});
+const {scope, rangeInput, rangeTouched, normalizedSelectedPageSelection, resetScopeForOpen, resolveScopedPageSelection} =
+    usePdfPageScopeSelection({
+        totalPages: () => totalPages,
+        currentPage: () => currentPage,
+        selectedPages: () => selectedPages,
+        selectedPageSelection: () => selectedPageSelection ?? null,
+        resolveRangeSelection: () => rangeSelection.value,
+    });
 
 const scopeOptions = computed(() => {
     const options: Array<{
@@ -125,18 +105,18 @@ const scopeOptions = computed(() => {
     }> = [
         {
             value: 'all',
-            label: t('export.scopeAll', { count: totalPages }),
+            label: t('export.scopeAll', {count: totalPages}),
         },
         {
             value: 'current',
-            label: t('export.scopeCurrent', { page: currentPage }),
+            label: t('export.scopeCurrent', {page: currentPage}),
         },
     ];
 
     if (pageSelectionCount(normalizedSelectedPageSelection.value) > 0) {
         options.push({
             value: 'selected',
-            label: t('export.scopeSelected', { count: pageSelectionCount(normalizedSelectedPageSelection.value) }),
+            label: t('export.scopeSelected', {count: pageSelectionCount(normalizedSelectedPageSelection.value)}),
         });
     }
 
@@ -149,27 +129,24 @@ const scopeOptions = computed(() => {
     return options;
 });
 
-const rangeError = computed(() => (
-    scope.value === 'range'
-    && rangeTouched.value
-    && rangeInput.value.trim().length > 0
-    && rangeSelection.value === null
+const rangeError = computed(() =>
+    scope.value === 'range' && rangeTouched.value && rangeInput.value.trim().length > 0 && rangeSelection.value === null
         ? t('export.invalidRange')
-        : null
-));
+        : null,
+);
 
 const exportSummary = computed(() => {
     if (scope.value === 'all') {
-        return t('export.summaryAll', { count: totalPages });
+        return t('export.summaryAll', {count: totalPages});
     }
     if (scope.value === 'current') {
-        return t('export.summaryCurrent', { page: currentPage });
+        return t('export.summaryCurrent', {page: currentPage});
     }
     if (scope.value === 'selected') {
-        return t('export.summarySelected', { count: pageSelectionCount(normalizedSelectedPageSelection.value) });
+        return t('export.summarySelected', {count: pageSelectionCount(normalizedSelectedPageSelection.value)});
     }
     if (rangeSelection.value) {
-        return t('export.summaryRange', { count: pageSelectionCount(rangeSelection.value) });
+        return t('export.summaryRange', {count: pageSelectionCount(rangeSelection.value)});
     }
     return t('export.summaryRangeHint');
 });
@@ -190,7 +167,7 @@ function handleSubmit() {
         return;
     }
 
-    emit('submit', {...(pageSelection !== undefined ? { pageSelection } : {})});
+    emit('submit', {...(pageSelection !== undefined ? {pageSelection} : {})});
     open.value = false;
 }
 

@@ -1,4 +1,4 @@
-import type { Page } from 'puppeteer-core';
+import type {Page} from 'puppeteer-core';
 
 export interface IRendererFrame {
     data: string;
@@ -13,7 +13,7 @@ export async function startRendererFrameStream(
     options: {
         quality: number;
         maxWidth?: number;
-        maxHeight?: number
+        maxHeight?: number;
     },
 ) {
     const client = await page.createCDPSession();
@@ -48,7 +48,11 @@ export async function startRendererFrameStream(
             accepting = false;
             await client.send('Page.stopScreencast').catch(() => {});
             client.off('Page.screencastFrame', handleFrame);
-            try { await pending; } finally { await client.detach().catch(() => {}); }
+            try {
+                await pending;
+            } finally {
+                await client.detach().catch(() => {});
+            }
         },
     };
 }

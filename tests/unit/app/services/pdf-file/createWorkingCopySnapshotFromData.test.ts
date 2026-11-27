@@ -1,27 +1,19 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { requireDocumentRevisionToken } from '@contracts/documentRevision';
-import { requireDocumentRef } from '@contracts/documentRef';
-import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
-import { requireEpochMs } from '@contracts/timestamps';
-import { createWorkingCopySnapshotFromData } from '@app/services/pdf-file/createWorkingCopySnapshotFromData';
-import type {
-    IDocumentsFileIoCapability,
-    IDocumentsWorkingCopyCapability,
-} from '@contracts/electronApiDocuments';
+import {describe, expect, it, vi} from 'vitest';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES} from '@contracts/electronApiDocuments';
+import {requireEpochMs} from '@contracts/timestamps';
+import {createWorkingCopySnapshotFromData} from '@app/services/pdf-file/createWorkingCopySnapshotFromData';
+import type {IDocumentsFileIoCapability, IDocumentsWorkingCopyCapability} from '@contracts/electronApiDocuments';
 
 function createHarness() {
     const workingCopies = {
         cleanupFile: vi.fn<IDocumentsWorkingCopyCapability['cleanupFile']>(async () => undefined),
-        createWorkingCopyFromData: vi.fn<IDocumentsWorkingCopyCapability['createWorkingCopyFromData']>(
-            async () => requireDocumentRef('/tmp/direct.pdf'),
+        createWorkingCopyFromData: vi.fn<IDocumentsWorkingCopyCapability['createWorkingCopyFromData']>(async () =>
+            requireDocumentRef('/tmp/direct.pdf'),
         ),
-        createWorkingCopyFromPath: vi.fn<IDocumentsWorkingCopyCapability['createWorkingCopyFromPath']>(
-            async () => requireDocumentRef('/tmp/staged.pdf'),
+        createWorkingCopyFromPath: vi.fn<IDocumentsWorkingCopyCapability['createWorkingCopyFromPath']>(async () =>
+            requireDocumentRef('/tmp/staged.pdf'),
         ),
     };
     const files = {
@@ -49,24 +41,18 @@ function createHarness() {
 describe('createWorkingCopySnapshotFromData', () => {
     it('uses direct staging for small in-memory snapshots without a source path', async () => {
         const harness = createHarness();
-        const data = new Uint8Array([
-            1,
-            2,
-            3,
-        ]);
+        const data = new Uint8Array([1, 2, 3]);
 
-        await expect(createWorkingCopySnapshotFromData({
-            data,
-            fileName: 'snapshot.pdf',
-            files: harness.files,
-            workingCopies: harness.workingCopies,
-        })).resolves.toBe('/tmp/direct.pdf');
+        await expect(
+            createWorkingCopySnapshotFromData({
+                data,
+                fileName: 'snapshot.pdf',
+                files: harness.files,
+                workingCopies: harness.workingCopies,
+            }),
+        ).resolves.toBe('/tmp/direct.pdf');
 
-        expect(harness.workingCopies.createWorkingCopyFromData).toHaveBeenCalledWith(
-            'snapshot.pdf',
-            data,
-            undefined,
-        );
+        expect(harness.workingCopies.createWorkingCopyFromData).toHaveBeenCalledWith('snapshot.pdf', data, undefined);
         expect(harness.workingCopies.createWorkingCopyFromPath).not.toHaveBeenCalled();
     });
 
@@ -74,13 +60,15 @@ describe('createWorkingCopySnapshotFromData', () => {
         const harness = createHarness();
         const data = new Uint8Array(IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES);
 
-        await expect(createWorkingCopySnapshotFromData({
-            data,
-            fileName: 'snapshot.pdf',
-            sourcePath: requireDocumentRef('/tmp/source.pdf'),
-            files: harness.files,
-            workingCopies: harness.workingCopies,
-        })).resolves.toBe('/tmp/direct.pdf');
+        await expect(
+            createWorkingCopySnapshotFromData({
+                data,
+                fileName: 'snapshot.pdf',
+                sourcePath: requireDocumentRef('/tmp/source.pdf'),
+                files: harness.files,
+                workingCopies: harness.workingCopies,
+            }),
+        ).resolves.toBe('/tmp/direct.pdf');
 
         expect(harness.workingCopies.createWorkingCopyFromData).toHaveBeenCalledTimes(1);
         const directArgs = harness.workingCopies.createWorkingCopyFromData.mock.calls[0]!;
@@ -94,20 +82,19 @@ describe('createWorkingCopySnapshotFromData', () => {
         const harness = createHarness();
         const data = new Uint8Array(IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES + 1);
 
-        await expect(createWorkingCopySnapshotFromData({
-            data,
-            fileName: 'snapshot.pdf',
-            sourcePath: requireDocumentRef('/tmp/source.pdf'),
-            originalPath: requireDocumentRef('/tmp/original.pdf'),
-            files: harness.files,
-            workingCopies: harness.workingCopies,
-        })).resolves.toBe('/tmp/staged.pdf');
+        await expect(
+            createWorkingCopySnapshotFromData({
+                data,
+                fileName: 'snapshot.pdf',
+                sourcePath: requireDocumentRef('/tmp/source.pdf'),
+                originalPath: requireDocumentRef('/tmp/original.pdf'),
+                files: harness.files,
+                workingCopies: harness.workingCopies,
+            }),
+        ).resolves.toBe('/tmp/staged.pdf');
 
         expect(harness.workingCopies.createWorkingCopyFromData).not.toHaveBeenCalled();
-        expect(harness.workingCopies.createWorkingCopyFromPath).toHaveBeenCalledWith(
-            '/tmp/source.pdf',
-            '/tmp/original.pdf',
-        );
+        expect(harness.workingCopies.createWorkingCopyFromPath).toHaveBeenCalledWith('/tmp/source.pdf', '/tmp/original.pdf');
         expect(harness.files.savePdfData).toHaveBeenCalledTimes(1);
         const saveArgs = harness.files.savePdfData.mock.calls[0]!;
         expect(saveArgs[0]).toBe('/tmp/staged.pdf');
@@ -127,25 +114,29 @@ describe('createWorkingCopySnapshotFromData', () => {
             warnings: [],
         });
 
-        await expect(createWorkingCopySnapshotFromData({
-            data: new Uint8Array(IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES + 1),
-            fileName: 'snapshot.pdf',
-            sourcePath: requireDocumentRef('/tmp/source.pdf'),
-            files: harness.files,
-            workingCopies: harness.workingCopies,
-        })).rejects.toThrow('invalid snapshot');
+        await expect(
+            createWorkingCopySnapshotFromData({
+                data: new Uint8Array(IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES + 1),
+                fileName: 'snapshot.pdf',
+                sourcePath: requireDocumentRef('/tmp/source.pdf'),
+                files: harness.files,
+                workingCopies: harness.workingCopies,
+            }),
+        ).rejects.toThrow('invalid snapshot');
         expect(harness.workingCopies.cleanupFile).toHaveBeenCalledWith('/tmp/staged.pdf');
     });
 
     it('rejects large in-memory staging without a source path', async () => {
         const harness = createHarness();
 
-        await expect(createWorkingCopySnapshotFromData({
-            data: new Uint8Array(IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES + 1),
-            fileName: 'snapshot.pdf',
-            files: harness.files,
-            workingCopies: harness.workingCopies,
-        })).rejects.toThrow('Large PDF snapshot staging requires a working source path');
+        await expect(
+            createWorkingCopySnapshotFromData({
+                data: new Uint8Array(IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES + 1),
+                fileName: 'snapshot.pdf',
+                files: harness.files,
+                workingCopies: harness.workingCopies,
+            }),
+        ).rejects.toThrow('Large PDF snapshot staging requires a working source path');
 
         expect(harness.workingCopies.createWorkingCopyFromData).not.toHaveBeenCalled();
         expect(harness.workingCopies.createWorkingCopyFromPath).not.toHaveBeenCalled();

@@ -1,9 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {
     buildPageLayoutMetrics,
     getLayoutContentHeight,
@@ -16,29 +11,30 @@ import {
     projectPdfPageMetricForView,
     PDF_PAGE_METRICS_DENSE_LIMIT,
 } from '@app/modules/document-viewer/public';
-import { isSparsePageMetricCollection } from '@app/modules/document-viewer/layout/normalizePageMetrics';
-import { getLeadingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getLeadingSpacerHeightForPage';
-import { getTrailingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getTrailingSpacerHeightForPage';
-import { resolveDocumentBaseMetric } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveDocumentBaseMetric';
-import type { IPdfPageMetric } from '@app/types/pdfUi';
+import {isSparsePageMetricCollection} from '@app/modules/document-viewer/layout/normalizePageMetrics';
+import {getLeadingSpacerHeightForPage} from '@app/modules/pdf-viewer/engine/pdf-page-layout/getLeadingSpacerHeightForPage';
+import {getTrailingSpacerHeightForPage} from '@app/modules/pdf-viewer/engine/pdf-page-layout/getTrailingSpacerHeightForPage';
+import {resolveDocumentBaseMetric} from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveDocumentBaseMetric';
+import type {IPdfPageMetric} from '@app/types/pdfUi';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
 describe('pdfPageLayout', () => {
     it('reuses immutable base topology across scale-only changes', () => {
         const pageMetrics = Array.from({length: 10_000}, (_, index) => ({
-            width: 300 + index % 3,
-            height: 500 + index % 5,
+            width: 300 + (index % 3),
+            height: 500 + (index % 5),
         }));
-        const createLayout = (scale: number, pageMetricsVersion = 1) => buildPageLayoutMetrics({
-            pageMetrics,
-            pageMetricsVersion,
-            totalPages: pageMetrics.length,
-            viewMode: 'facing',
-            scale,
-            gap: 17,
-            paddingTop: 19,
-            paddingBottom: 23,
-        });
+        const createLayout = (scale: number, pageMetricsVersion = 1) =>
+            buildPageLayoutMetrics({
+                pageMetrics,
+                pageMetricsVersion,
+                totalPages: pageMetrics.length,
+                viewMode: 'facing',
+                scale,
+                gap: 17,
+                paddingTop: 19,
+                paddingBottom: 23,
+            });
 
         const first = createLayout(1);
         const scaled = createLayout(1.375);
@@ -47,13 +43,7 @@ describe('pdfPageLayout', () => {
         expect(revised?.base).not.toBe(first?.base);
         expect(Object.isFrozen(first?.base)).toBe(true);
         expect(Object.isFrozen(first?.base.pageHeights)).toBe(true);
-        expect(Object.keys(scaled ?? {}).sort()).toEqual([
-            'base',
-            'gap',
-            'paddingBottom',
-            'paddingTop',
-            'scale',
-        ]);
+        expect(Object.keys(scaled ?? {}).sort()).toEqual(['base', 'gap', 'paddingBottom', 'paddingTop', 'scale']);
         expect(scaled?.gap).toBe(17);
         expect(scaled?.paddingTop).toBe(19);
         expect(scaled?.paddingBottom).toBe(23);
@@ -85,14 +75,10 @@ describe('pdfPageLayout', () => {
 
         expect(layout).not.toBeNull();
         expect(layout && layout.base.pageHeights.map((_height, index) => getLayoutPageTop(layout, requirePageIndex(index)))).toEqual([
-            20,
-            240,
-            660,
+            20, 240, 660,
         ]);
         expect(layout && layout.base.pageHeights.map((_height, index) => getLayoutPageHeight(layout, requirePageIndex(index)))).toEqual([
-            200,
-            400,
-            240,
+            200, 400, 240,
         ]);
     });
 
@@ -130,34 +116,12 @@ describe('pdfPageLayout', () => {
 
         expect(layout).not.toBeNull();
         expect(layout && layout.base.pageHeights.map((_height, index) => getLayoutPageTop(layout, requirePageIndex(index)))).toEqual([
-            20,
-            20,
-            180,
-            180,
-            360,
+            20, 20, 180, 180, 360,
         ]);
-        expect(layout?.base.pageRowIndices).toEqual([
-            0,
-            0,
-            1,
-            1,
-            2,
-        ]);
-        expect(layout?.base.rowStartPages).toEqual([
-            1,
-            3,
-            5,
-        ]);
-        expect(layout?.base.rowEndPages).toEqual([
-            2,
-            4,
-            5,
-        ]);
-        expect(layout && layout.base.rowHeights.map((_height, index) => getLayoutRowHeight(layout, index))).toEqual([
-            140,
-            160,
-            110,
-        ]);
+        expect(layout?.base.pageRowIndices).toEqual([0, 0, 1, 1, 2]);
+        expect(layout?.base.rowStartPages).toEqual([1, 3, 5]);
+        expect(layout?.base.rowEndPages).toEqual([2, 4, 5]);
+        expect(layout && layout.base.rowHeights.map((_height, index) => getLayoutRowHeight(layout, index))).toEqual([140, 160, 110]);
         expect(layout && getLayoutContentHeight(layout)).toBe(490);
         expect(getLeadingSpacerHeightForPage(layout!, 3)).toBe(140);
         expect(getTrailingSpacerHeightForPage(layout!, 2)).toBe(290);
@@ -198,12 +162,14 @@ describe('pdfPageLayout', () => {
             height: 520,
         };
 
-        expect(normalizePageMetrics({
-            pageMetrics: sparseMetrics,
-            totalPages: 5,
-            fallbackWidth: 1200,
-            fallbackHeight: 1600,
-        })).toEqual([
+        expect(
+            normalizePageMetrics({
+                pageMetrics: sparseMetrics,
+                totalPages: 5,
+                fallbackWidth: 1200,
+                fallbackHeight: 1600,
+            }),
+        ).toEqual([
             {
                 width: 300,
                 height: 500,
@@ -258,19 +224,23 @@ describe('pdfPageLayout', () => {
 
     it('uses projected dimensions for dense and sparse normalized layout metrics', () => {
         const dense = normalizePageMetrics({
-            pageMetrics: [{
-                width: 600,
-                height: 800,
-            }],
+            pageMetrics: [
+                {
+                    width: 600,
+                    height: 800,
+                },
+            ],
             totalPages: 1,
             fallbackWidth: 600,
             fallbackHeight: 800,
             viewRotation: 90,
         });
-        expect(dense).toEqual([{
-            width: 800,
-            height: 600,
-        }]);
+        expect(dense).toEqual([
+            {
+                width: 800,
+                height: 600,
+            },
+        ]);
 
         const sparseMetrics: IPdfPageMetric[] = [];
         sparseMetrics[0] = {
@@ -324,7 +294,7 @@ describe('pdfPageLayout', () => {
             expect(snapshot.length).toBe(totalPages);
             expect(snapshot[0]).toEqual(pageMetrics[0]);
             expect(snapshot[totalPages - 1]).toEqual(pageMetrics[totalPages - 1]);
-            expect(Object.keys(snapshot).filter(key => /^\d+$/.test(key))).toHaveLength(2);
+            expect(Object.keys(snapshot).filter((key) => /^\d+$/.test(key))).toHaveLength(2);
         } finally {
             iteratorSpy.mockRestore();
         }
@@ -378,10 +348,7 @@ describe('pdfPageLayout', () => {
         });
         expect(normalized[1]).toBe(firstEstimate);
         expect(getPageMetricMaximum(normalized, 'height')).toBe(1600);
-        expect((normalized as typeof normalized & {knownIndices: readonly number[];}).knownIndices).toEqual([
-            0,
-            totalPages - 1,
-        ]);
+        expect((normalized as typeof normalized & {knownIndices: readonly number[]}).knownIndices).toEqual([0, totalPages - 1]);
     });
 
     it('keeps the dense boundary explicit and switches to sparse layout above it', () => {
@@ -428,7 +395,7 @@ describe('pdfPageLayout', () => {
 
             expect(arrayFromSpy).not.toHaveBeenCalled();
             expect(layout?.base.isSparse).toBe(true);
-            expect(Object.keys(layout?.base.pageWidths ?? []).filter(key => /^\d+$/.test(key))).toHaveLength(0);
+            expect(Object.keys(layout?.base.pageWidths ?? []).filter((key) => /^\d+$/.test(key))).toHaveLength(0);
         } finally {
             arrayFromSpy.mockRestore();
         }
@@ -453,7 +420,7 @@ describe('pdfPageLayout', () => {
         expect(normalized.length).toBe(totalPages);
         expect(normalized[0]?.width).toBe(300);
         expect(normalized[0]?.height).toBe(500);
-        expect(Object.keys(normalized).filter(key => /^\d+$/u.test(key))).toEqual([]);
+        expect(Object.keys(normalized).filter((key) => /^\d+$/u.test(key))).toEqual([]);
     });
 
     it('keeps sparse metric range sums aligned at nearest-page boundaries', () => {
@@ -480,43 +447,16 @@ describe('pdfPageLayout', () => {
         if (!isSparsePageMetricCollection(normalized)) {
             throw new Error('Failed to create sparse page metrics');
         }
-        for (const dimension of [
-            'width',
-            'height',
-        ] as const) {
-            for (const [
-                start,
-                end,
-            ] of [
-                    [
-                        0,
-                        0,
-                    ],
-                    [
-                        0,
-                        10,
-                    ],
-                    [
-                        3,
-                        11,
-                    ],
-                    [
-                        50_000,
-                        50_010,
-                    ],
-                    [
-                        99_990,
-                        totalPages,
-                    ],
-                    [
-                        -10,
-                        4,
-                    ],
-                    [
-                        totalPages,
-                        0,
-                    ],
-                ]) {
+        for (const dimension of ['width', 'height'] as const) {
+            for (const [start, end] of [
+                [0, 0],
+                [0, 10],
+                [3, 11],
+                [50_000, 50_010],
+                [99_990, totalPages],
+                [-10, 4],
+                [totalPages, 0],
+            ]) {
                 const boundedStart = Math.max(0, start!);
                 const boundedEnd = Math.max(boundedStart, Math.min(totalPages, end!));
                 let sum = 0;
@@ -528,15 +468,9 @@ describe('pdfPageLayout', () => {
         }
     });
 
-    it.each([
-        'facing',
-        'facing-first-single',
-    ] as const)('keeps sparse %s row prefixes aligned across mixed boundary rows', (viewMode) => {
+    it.each(['facing', 'facing-first-single'] as const)('keeps sparse %s row prefixes aligned across mixed boundary rows', (viewMode) => {
         const totalPages = PDF_PAGE_METRICS_DENSE_LIMIT + 1;
-        for (const nextKnownIndex of [
-            5,
-            7,
-        ]) {
+        for (const nextKnownIndex of [5, 7]) {
             const source: IPdfPageMetric[] = [];
             source[0] = {
                 width: 600,
@@ -561,16 +495,12 @@ describe('pdfPageLayout', () => {
                 paddingTop: 12,
                 paddingBottom: 16,
             });
-            if (!layout) throw new Error('Failed to create sparse facing layout');
+            if (!layout) {
+                throw new Error('Failed to create sparse facing layout');
+            }
 
             const expectedTops = new Map<number, number>();
-            const queryPages = new Set([
-                totalPages - 1,
-                1_024,
-                512,
-                0,
-                4,
-            ]);
+            const queryPages = new Set([totalPages - 1, 1_024, 512, 0, 4]);
             let top = 12;
             for (let start = 0; start < totalPages;) {
                 const end = Math.min(totalPages, start + (viewMode === 'facing-first-single' && start === 0 ? 1 : 2));
@@ -578,7 +508,9 @@ describe('pdfPageLayout', () => {
                 for (let page = start; page < end; page += 1) {
                     // Direct nearest-page distances, independent of layout run boundaries.
                     height = Math.max(height, page <= Math.abs(page - nextKnownIndex) ? 1_000 : 500);
-                    if (queryPages.has(page)) expectedTops.set(page, top);
+                    if (queryPages.has(page)) {
+                        expectedTops.set(page, top);
+                    }
                 }
                 top += height * 1.25 + 20;
                 start = end;
@@ -592,14 +524,10 @@ describe('pdfPageLayout', () => {
         }
     });
 
-    it.each([
-        'single',
-        'facing',
-        'facing-first-single',
-    ] as const)('keeps exact mixed page positions in a large %s layout', (viewMode) => {
+    it.each(['single', 'facing', 'facing-first-single'] as const)('keeps exact mixed page positions in a large %s layout', (viewMode) => {
         const totalPages = PDF_PAGE_METRICS_DENSE_LIMIT + 1_601;
         const source = Array.from({length: totalPages}, (_, index) => ({
-            width: 600 + index % 5,
+            width: 600 + (index % 5),
             height: 800 + (index % 7) * 20,
         }));
         const normalized = normalizePageMetrics({
@@ -623,10 +551,11 @@ describe('pdfPageLayout', () => {
 
         let top = 12;
         for (let index = 0; index < source.length;) {
-            const end = viewMode === 'single' || viewMode === 'facing-first-single' && index === 0
-                ? index + 1
-                : Math.min(source.length, index + 2);
-            const rowHeight = Math.max(...source.slice(index, end).map(metric => metric.height)) * 1.25;
+            const end =
+                viewMode === 'single' || (viewMode === 'facing-first-single' && index === 0)
+                    ? index + 1
+                    : Math.min(source.length, index + 2);
+            const rowHeight = Math.max(...source.slice(index, end).map((metric) => metric.height)) * 1.25;
             if (index < 4 || index % 997 < 2 || end === source.length) {
                 for (let page = index; page < end; page += 1) {
                     expect(getLayoutPageTop(layout, requirePageIndex(page))).toBe(top);
@@ -694,7 +623,7 @@ describe('pdfPageLayout', () => {
         expect(layout?.base.rowHeightPrefixSums[0]).toBe(500);
         expect(layout?.base.rowHeightPrefixSums[1]).toBe(1_000);
         expect(layout?.base.rowHeightPrefixSums[30]).toBe(18_500);
-        expect(Object.keys(layout?.base.pageWidths ?? []).filter(key => /^\d+$/.test(key))).toHaveLength(0);
+        expect(Object.keys(layout?.base.pageWidths ?? []).filter((key) => /^\d+$/.test(key))).toHaveLength(0);
     });
 
     it('keeps exact prefix corrections after distant chunks are evicted', () => {

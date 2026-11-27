@@ -1,7 +1,4 @@
-import {
-    onRendererDiagnosticNotice,
-    type IRendererDiagnosticNotice,
-} from '@app/utils/rendererDiagnosticNotices';
+import {onRendererDiagnosticNotice, type IRendererDiagnosticNotice} from '@app/utils/rendererDiagnosticNotices';
 
 const MAX_RETAINED_NOTICES = 50;
 

@@ -1,4 +1,4 @@
-import type { TImagePlacementResizeHandle } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/pdfImagePlacementSizingTypes';
+import type {TImagePlacementResizeHandle} from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/pdfImagePlacementSizingTypes';
 
 const IMAGE_PLACEMENT_HANDLE_ANGLES: Record<TImagePlacementResizeHandle, number> = {
     n: -90,
@@ -11,12 +11,9 @@ const IMAGE_PLACEMENT_HANDLE_ANGLES: Record<TImagePlacementResizeHandle, number>
     nw: 225,
 };
 
-export function getImagePlacementResizeCursor(
-    handle: TImagePlacementResizeHandle,
-    rotationDegrees: number,
-) {
+export function getImagePlacementResizeCursor(handle: TImagePlacementResizeHandle, rotationDegrees: number) {
     const handleAngle = IMAGE_PLACEMENT_HANDLE_ANGLES[handle];
-    const normalizedAngle = ((handleAngle + rotationDegrees) % 360 + 360) % 360;
+    const normalizedAngle = (((handleAngle + rotationDegrees) % 360) + 360) % 360;
     const snappedAngle = (Math.round(normalizedAngle / 45) * 45) % 360;
 
     switch (snappedAngle) {

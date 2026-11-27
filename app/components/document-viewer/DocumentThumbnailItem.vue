@@ -73,9 +73,7 @@ const {
 }
 
 .document-thumbnail-item.is-current {
-    --document-thumbnail-page-shadow:
-        0 0 0 2px var(--ui-text),
-        var(--app-document-page-shadow);
+    --document-thumbnail-page-shadow: 0 0 0 2px var(--ui-text), var(--app-document-page-shadow);
 }
 
 .document-thumbnail-item.is-disabled {
@@ -89,9 +87,7 @@ const {
 
 .document-thumbnail-item.is-selected {
     --document-thumbnail-action-opacity: 1;
-    --document-thumbnail-page-shadow:
-        0 0 0 2px var(--ui-primary),
-        var(--app-document-page-shadow);
+    --document-thumbnail-page-shadow: 0 0 0 2px var(--ui-primary), var(--app-document-page-shadow);
 
     background: color-mix(in oklab, var(--ui-bg) 65%, var(--ui-primary) 12%);
 }
@@ -129,5 +125,7 @@ const {
     color: var(--ui-text);
 }
 
-.document-thumbnail-item.is-current .document-thumbnail-item__label { font-weight: 600; }
+.document-thumbnail-item.is-current .document-thumbnail-item__label {
+    font-weight: 600;
+}
 </style>

@@ -1,34 +1,16 @@
-import type {
-    ComputedRef,
-    Ref,
-    ShallowRef,
-} from 'vue';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type {
-    IDocumentRevisionInfo,
-    TDocumentRevisionToken,
-} from '@contracts/documentRevision';
-import type { IFailurePresentation } from '@app/composables/useFailureToast';
-import type { TPdfSource } from '@app/types/pdfUi';
-import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfile';
-import type {
-    IPdfConformanceProfile,
-    TPdfSaveMode,
-} from '@app/types/pdfContracts';
-import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import type {
-    IPdfSourceJob, TPdfSourceJobIntent,
-} from '@app/modules/pdf-viewer/public';
-import { getDocumentRefBaseName } from '@app/utils/documentRef';
+import type {ComputedRef, Ref, ShallowRef} from 'vue';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {IDocumentRevisionInfo, TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {IFailurePresentation} from '@app/composables/useFailureToast';
+import type {TPdfSource} from '@app/types/pdfUi';
+import type {TPdfRasterDisplayProfile} from '@app/types/pdfRasterDisplayProfile';
+import type {IPdfConformanceProfile, TPdfSaveMode} from '@app/types/pdfContracts';
+import type {IWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import type {IPdfSourceJob, TPdfSourceJobIntent} from '@app/modules/pdf-viewer/public';
+import {getDocumentRefBaseName} from '@app/utils/documentRef';
 
 export type TPdfConformanceAnalysisState =
-    | 'none'
-    | 'waiting-initial-visual'
-    | 'waiting-idle'
-    | 'analyzing'
-    | 'ready'
-    | 'failed'
-    | 'on-demand-only';
+    'none' | 'waiting-initial-visual' | 'waiting-idle' | 'analyzing' | 'ready' | 'failed' | 'on-demand-only';
 
 /** The record the file session reads and writes: its document controller's. */
 export type TDocumentFileRecord = Pick<IWorkspaceDocumentController, 'file' | 'commitFile' | 'snapshot' | 'setOpeningLabel'>;
@@ -75,9 +57,7 @@ export function createDocumentSessionState(deps: {
     document: TDocumentFileRecord;
     admitPdfSource: (intent: TPdfSourceJobIntent) => IPdfSourceJob;
 }): IDocumentSessionState {
-    const {
-        file, commitFile,
-    } = deps.document;
+    const {file, commitFile} = deps.document;
     const originalPath = computed({
         get: () => file.value.originalPath,
         set: (path: TDocumentRef | null) => commitFile({originalPath: path}),
@@ -88,10 +68,11 @@ export function createDocumentSessionState(deps: {
     });
     const documentRevisionInfo = computed({
         get: () => file.value.revisionInfo,
-        set: (revisionInfo: IDocumentRevisionInfo | null) => commitFile({
-            revisionInfo,
-            revisionToken: revisionInfo?.token ?? null,
-        }),
+        set: (revisionInfo: IDocumentRevisionInfo | null) =>
+            commitFile({
+                revisionInfo,
+                revisionToken: revisionInfo?.token ?? null,
+            }),
     });
     const documentRevisionToken = computed({
         get: () => file.value.revisionToken,
@@ -150,7 +131,7 @@ export function createDocumentSessionState(deps: {
         fileName: computed(() => getDocumentRefBaseName(originalPath.value) ?? getDocumentRefBaseName(workingCopyPath.value)),
         isDirty,
         isElectron: computed(() => deps.isDesktopRuntime.value),
-        isActiveWorkingCopy: path => workingCopyPath.value === path,
+        isActiveWorkingCopy: (path) => workingCopyPath.value === path,
         lastSaveMode,
         originalPath,
         pdfConformanceAnalysisState,

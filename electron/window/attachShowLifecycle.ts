@@ -1,11 +1,8 @@
-import type { ILogger } from '@electron/utils/createLogger';
-import type { BrowserWindow } from 'electron';
-import type { TRendererStartupFailure } from '@contracts/windowTabsPlatformFeature';
-import {
-    deleteWindowStartup,
-    subscribeWindowStartupPhase,
-} from '@electron/window/rendererReady';
-import { unregisterAppWindow } from '@electron/window/registry';
+import type {ILogger} from '@electron/utils/createLogger';
+import type {BrowserWindow} from 'electron';
+import type {TRendererStartupFailure} from '@contracts/windowTabsPlatformFeature';
+import {deleteWindowStartup, subscribeWindowStartupPhase} from '@electron/window/rendererReady';
+import {unregisterAppWindow} from '@electron/window/registry';
 
 interface IAttachShowLifecycleOptions {
     blockShowUntilRendererReady?: boolean;
@@ -23,10 +20,7 @@ const SHOW_DEBOUNCE_MS = 0;
  * for it), or at once when its startup fails, which it then presents. A focus
  * request before then takes the same path; the reveal focuses the window.
  */
-export function attachShowLifecycle(
-    window: BrowserWindow,
-    options: IAttachShowLifecycleOptions,
-) {
+export function attachShowLifecycle(window: BrowserWindow, options: IAttachShowLifecycleOptions) {
     const windowId = window.id;
     const windowWebContents = window.webContents;
     let hasShownWindow = false;
@@ -64,12 +58,7 @@ export function attachShowLifecycle(
         pendingShowTimeout = setTimeout(reveal, SHOW_DEBOUNCE_MS);
     };
 
-    const onStartNavigation = (
-        _event: unknown,
-        url: string,
-        isInPlace: boolean,
-        isMainFrame: boolean,
-    ) => {
+    const onStartNavigation = (_event: unknown, url: string, isInPlace: boolean, isMainFrame: boolean) => {
         // A same-document navigation keeps the loaded document and its phase.
         if (!isMainFrame || isInPlace || isStartupPlaceholderUrl(url)) {
             return;

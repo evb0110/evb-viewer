@@ -1,24 +1,9 @@
 import * as v from 'valibot';
-import {
-    isRecord,
-    isSafeWorkerRequestId,
-} from '@contracts/runtimeGuards';
-import {
-    NATIVE_ERROR_ENVELOPE_SCHEMA,
-    type INativeErrorEnvelope,
-} from '@contracts/nativeErrors';
-import {
-    createBrowserPdfRasterTilesSchema,
-    type IBrowserPdfRasterTiles,
-} from '@contracts/browserPdfRaster';
-import {
-    SCAN_CLEANUP_MAX_BILEVEL_PIXELS,
-    SCAN_CLEANUP_MAX_DIMENSION_PX,
-} from '@contracts/scan-cleanup/inputLimits';
-import {
-    SCAN_CLEANUP_SUB_PAGE_STAGES,
-    type TScanCleanupSubPageStage,
-} from '@contracts/scan-cleanup/nativeProtocolV3';
+import {isRecord, isSafeWorkerRequestId} from '@contracts/runtimeGuards';
+import {NATIVE_ERROR_ENVELOPE_SCHEMA, type INativeErrorEnvelope} from '@contracts/nativeErrors';
+import {createBrowserPdfRasterTilesSchema, type IBrowserPdfRasterTiles} from '@contracts/browserPdfRaster';
+import {SCAN_CLEANUP_MAX_BILEVEL_PIXELS, SCAN_CLEANUP_MAX_DIMENSION_PX} from '@contracts/scan-cleanup/inputLimits';
+import {SCAN_CLEANUP_SUB_PAGE_STAGES, type TScanCleanupSubPageStage} from '@contracts/scan-cleanup/nativeProtocolV3';
 import type {
     IScanCleanupWasmAnalyzeRequest,
     IScanCleanupWasmAnalyzeResult,
@@ -41,13 +26,13 @@ import type {
 /** An engine call's outcome: its result, or the engine's native error envelope. */
 export type TScanCleanupWasmOutcome<TResult> =
     | {
-        status: 'succeeded';
-        result: TResult;
-    }
+          status: 'succeeded';
+          result: TResult;
+      }
     | {
-        status: 'failed';
-        error: INativeErrorEnvelope;
-    };
+          status: 'failed';
+          error: INativeErrorEnvelope;
+      };
 
 export interface IBrowserScanCleanupWorkerRequestMap {
     /** Reads painted tiles back into one binary PPM. */
@@ -85,12 +70,12 @@ export type TBrowserScanCleanupWorkerRequest = {
         id: number;
         type: K;
         payload: IBrowserScanCleanupWorkerRequestMap[K];
-    }
+    };
 }[TBrowserScanCleanupWorkerRequestType];
 
 /** Tiles of a page the engine can take: the bilevel pipeline's pixel ceiling. */
 const rasterTilesSchema = createBrowserPdfRasterTilesSchema(SCAN_CLEANUP_MAX_BILEVEL_PIXELS, SCAN_CLEANUP_MAX_DIMENSION_PX);
-const bytesSchema = v.custom<Uint8Array>(value => value instanceof Uint8Array && value.byteLength > 0);
+const bytesSchema = v.custom<Uint8Array>((value) => value instanceof Uint8Array && value.byteLength > 0);
 
 /**
  * The worker's request envelope. The raster requests are checked here; an
@@ -98,19 +83,21 @@ const bytesSchema = v.custom<Uint8Array>(value => value instanceof Uint8Array &&
  * which refuses a malformed frame with its native error envelope.
  */
 export function parseBrowserScanCleanupWorkerRequest(value: unknown): TBrowserScanCleanupWorkerRequest | null {
-    if (!isRecord(value) || !isSafeWorkerRequestId(value.id) || !isRecord(value.payload)
-        || !(BROWSER_SCAN_CLEANUP_WORKER_REQUEST_TYPES as readonly unknown[]).includes(value.type)) {
+    if (
+        !isRecord(value) ||
+        !isSafeWorkerRequestId(value.id) ||
+        !isRecord(value.payload) ||
+        !(BROWSER_SCAN_CLEANUP_WORKER_REQUEST_TYPES as readonly unknown[]).includes(value.type)
+    ) {
         return null;
     }
     if (value.type === 'assemble-raster') {
         return v.safeParse(rasterTilesSchema, value.payload.image, {abortEarly: true}).success
-            ? value as TBrowserScanCleanupWorkerRequest
+            ? (value as TBrowserScanCleanupWorkerRequest)
             : null;
     }
     if (value.type === 'encode-png') {
-        return v.safeParse(bytesSchema, value.payload.ppm, {abortEarly: true}).success
-            ? value as TBrowserScanCleanupWorkerRequest
-            : null;
+        return v.safeParse(bytesSchema, value.payload.ppm, {abortEarly: true}).success ? (value as TBrowserScanCleanupWorkerRequest) : null;
     }
     return value as TBrowserScanCleanupWorkerRequest;
 }
@@ -145,16 +132,16 @@ export interface IBrowserScanCleanupWorkerProgressEvent {
 
 export function parseBrowserScanCleanupWorkerProgressEvent(value: unknown): IBrowserScanCleanupWorkerProgressEvent | null {
     if (
-        !isRecord(value)
-        || !isSafeWorkerRequestId(value.id)
-        || value.type !== 'progress'
-        || !(SCAN_CLEANUP_SUB_PAGE_STAGES as readonly unknown[]).includes(value.stage)
-        || typeof value.completed !== 'number'
-        || !Number.isSafeInteger(value.completed)
-        || value.completed < 0
-        || typeof value.total !== 'number'
-        || !Number.isSafeInteger(value.total)
-        || value.total < 0
+        !isRecord(value) ||
+        !isSafeWorkerRequestId(value.id) ||
+        value.type !== 'progress' ||
+        !(SCAN_CLEANUP_SUB_PAGE_STAGES as readonly unknown[]).includes(value.stage) ||
+        typeof value.completed !== 'number' ||
+        !Number.isSafeInteger(value.completed) ||
+        value.completed < 0 ||
+        typeof value.total !== 'number' ||
+        !Number.isSafeInteger(value.total) ||
+        value.total < 0
     ) {
         return null;
     }
@@ -171,7 +158,11 @@ export function isBrowserScanCleanupWorkerResult<K extends TBrowserScanCleanupWo
     type: K,
     value: unknown,
 ): value is IBrowserScanCleanupWorkerResultMap[K] {
-    if (type === 'assemble-raster') return isRecord(value) && value.ppm instanceof Uint8Array;
-    if (type === 'encode-png') return isRecord(value) && value.png instanceof Uint8Array;
+    if (type === 'assemble-raster') {
+        return isRecord(value) && value.ppm instanceof Uint8Array;
+    }
+    if (type === 'encode-png') {
+        return isRecord(value) && value.png instanceof Uint8Array;
+    }
     return v.safeParse(outcomeSchema, value, {abortEarly: true}).success;
 }

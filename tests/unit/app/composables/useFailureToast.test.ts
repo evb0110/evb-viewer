@@ -1,22 +1,7 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    onTestFinished,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    ref,
-    type VNode,
-} from 'vue';
+import {afterEach, beforeEach, describe, expect, it, onTestFinished, vi} from 'vitest';
+import {createApp, defineComponent, h, nextTick, ref, type VNode} from 'vue';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {requireEpochMs} from '@contracts/timestamps';
 
@@ -48,7 +33,7 @@ function renderDescription(toast: IPresentedToast) {
     const host = document.createElement('div');
     const app = createApp({render: toast.description});
     app.mount(host);
-    const text = [...host.querySelectorAll('span > span')].map(line => line.textContent);
+    const text = [...host.querySelectorAll('span > span')].map((line) => line.textContent);
     app.unmount();
     return text;
 }
@@ -79,10 +64,7 @@ describe('useFailureToast', () => {
     });
 
     it('presents one short Error ID and keeps the full receipt local to copy', async () => {
-        const {
-            formatFailurePresentationCopy,
-            useFailureToast,
-        } = await loadFailureToast();
+        const {formatFailurePresentationCopy, useFailureToast} = await loadFailureToast();
         const {presentFailureToast} = useFailureToast();
         const failure = createFailure();
         const presentation = {
@@ -98,24 +80,16 @@ describe('useFailureToast', () => {
             color: 'error',
             title: 'Renderer failure',
         });
-        expect(renderDescription(toast)).toEqual([
-            'The document could not be opened.',
-            'errors.runtime.errorId: 01234567',
-        ]);
-        expect(formatFailurePresentationCopy(presentation)).toBe([
-            `Error ID: ${failure.eventId}`,
-            'Renderer failure',
-            'The document could not be opened.',
-        ].join('\n'));
+        expect(renderDescription(toast)).toEqual(['The document could not be opened.', 'errors.runtime.errorId: 01234567']);
+        expect(formatFailurePresentationCopy(presentation)).toBe(
+            [`Error ID: ${failure.eventId}`, 'Renderer failure', 'The document could not be opened.'].join('\n'),
+        );
     });
 
     it('copies the full ID and local details without capturing', async () => {
         const writeText = vi.fn().mockResolvedValue(undefined);
         vi.stubGlobal('navigator', {clipboard: {writeText}});
-        const {
-            copyFailurePresentation,
-            useFailureToast,
-        } = await loadFailureToast();
+        const {copyFailurePresentation, useFailureToast} = await loadFailureToast();
         const failure = createFailure();
         const presentation = {
             failure,
@@ -124,21 +98,16 @@ describe('useFailureToast', () => {
         };
 
         expect(await copyFailurePresentation(presentation)).toBe(true);
-        expect(writeText).toHaveBeenCalledWith([
-            `Error ID: ${failure.eventId}`,
-            'Renderer failure',
-            'The document could not be opened.',
-        ].join('\n'));
+        expect(writeText).toHaveBeenCalledWith(
+            [`Error ID: ${failure.eventId}`, 'Renderer failure', 'The document could not be opened.'].join('\n'),
+        );
         expect('copyFailurePresentation' in useFailureToast()).toBe(false);
     });
 
     it('keeps technical details in Copy details instead of the short toast text', async () => {
         const writeText = vi.fn().mockResolvedValue(undefined);
         vi.stubGlobal('navigator', {clipboard: {writeText}});
-        const {
-            formatFailurePresentationCopy,
-            useFailureToast,
-        } = await loadFailureToast();
+        const {formatFailurePresentationCopy, useFailureToast} = await loadFailureToast();
         const presentation = {
             failure: createFailure(),
             title: 'Failed to open file',
@@ -155,13 +124,15 @@ describe('useFailureToast', () => {
         expect(formatFailurePresentationCopy(presentation)).toContain(presentation.technicalDetails);
     });
 
-    it('puts the caller\'s actions first and always keeps Copy details', async () => {
+    it("puts the caller's actions first and always keeps Copy details", async () => {
         const {useFailureToast} = await loadFailureToast();
         const {presentFailureToast} = useFailureToast();
-        const actions = [{
-            label: 'Details',
-            onClick: vi.fn(),
-        }];
+        const actions = [
+            {
+                label: 'Details',
+                onClick: vi.fn(),
+            },
+        ];
 
         presentFailureToast({
             failure: createFailure(),
@@ -169,16 +140,10 @@ describe('useFailureToast', () => {
             actions,
         });
 
-        expect(presentedToast().actions.map(action => action.label)).toEqual([
-            'Details',
-            'errors.runtime.copy',
-        ]);
+        expect(presentedToast().actions.map((action) => action.label)).toEqual(['Details', 'errors.runtime.copy']);
     });
 
-    it.each([
-        false,
-        true,
-    ])('says Copied without changing its lifetime (persistent=%s)', async (persistent) => {
+    it.each([false, true])('says Copied without changing its lifetime (persistent=%s)', async (persistent) => {
         vi.stubGlobal('navigator', {clipboard: {writeText: vi.fn().mockResolvedValue(undefined)}});
         const {useFailureToast} = await loadFailureToast();
 
@@ -258,13 +223,17 @@ describe('useFailureToast', () => {
         const revision = ref(0);
         const host = document.createElement('div');
         document.body.append(host);
-        const app = createApp(defineComponent({setup: () => {
-            useFailureToast().presentFailureToast({
-                failure,
-                title: 'Renderer failure',
-            });
-            return () => h('span', revision.value);
-        }}));
+        const app = createApp(
+            defineComponent({
+                setup: () => {
+                    useFailureToast().presentFailureToast({
+                        failure,
+                        title: 'Renderer failure',
+                    });
+                    return () => h('span', revision.value);
+                },
+            }),
+        );
 
         app.mount(host);
         onTestFinished(() => {
@@ -278,42 +247,43 @@ describe('useFailureToast', () => {
     });
 
     it('rejects malformed failure presentations and filters blank detail lines', async () => {
-        const {
-            getNonEmptyDetails,
-            isFailurePresentation,
-        } = await loadFailureToast();
+        const {getNonEmptyDetails, isFailurePresentation} = await loadFailureToast();
         const failure = createFailure();
 
-        expect(isFailurePresentation({
-            failure,
-            title: 'Valid failure',
-            description: 'Reason',
-        })).toBe(true);
-        expect(isFailurePresentation({
-            failure,
-            title: 'Valid failure without description',
-        })).toBe(true);
-        expect(isFailurePresentation({ failure: 123 })).toBe(false);
-        expect(isFailurePresentation({
-            failure,
-            title: 42,
-        })).toBe(false);
-        expect(isFailurePresentation({
-            failure,
-            title: 'Bad description',
-            description: 99,
-        })).toBe(false);
-        expect(isFailurePresentation({
-            failure: { eventId: '' },
-            title: 'Incomplete receipt',
-        })).toBe(false);
+        expect(
+            isFailurePresentation({
+                failure,
+                title: 'Valid failure',
+                description: 'Reason',
+            }),
+        ).toBe(true);
+        expect(
+            isFailurePresentation({
+                failure,
+                title: 'Valid failure without description',
+            }),
+        ).toBe(true);
+        expect(isFailurePresentation({failure: 123})).toBe(false);
+        expect(
+            isFailurePresentation({
+                failure,
+                title: 42,
+            }),
+        ).toBe(false);
+        expect(
+            isFailurePresentation({
+                failure,
+                title: 'Bad description',
+                description: 99,
+            }),
+        ).toBe(false);
+        expect(
+            isFailurePresentation({
+                failure: {eventId: ''},
+                title: 'Incomplete receipt',
+            }),
+        ).toBe(false);
 
-        expect(getNonEmptyDetails([
-            undefined,
-            '   ',
-            'First line',
-            '',
-            'Second line',
-        ])).toBe('First line\nSecond line');
+        expect(getNonEmptyDetails([undefined, '   ', 'First line', '', 'Second line'])).toBe('First line\nSecond line');
     });
 });

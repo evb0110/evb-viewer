@@ -1,9 +1,9 @@
-import type { IAnnotationMarkerRect } from '@app/types/annotations';
-import type { TPageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
-import { getPageRectBounds } from '@app/modules/pdf-viewer/engine/annotation-geometry/getPageRectBounds';
-import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
-import { normalizePageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizePageRotation';
-import { toPdfPointInPageBounds } from '@app/modules/pdf-viewer/engine/annotation-geometry/toPdfPointFromMarkerPoint';
+import type {IAnnotationMarkerRect} from '@app/types/annotations';
+import type {TPageRotation} from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
+import {getPageRectBounds} from '@app/modules/pdf-viewer/engine/annotation-geometry/getPageRectBounds';
+import {normalizeMarkerRect} from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
+import {normalizePageRotation} from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizePageRotation';
+import {toPdfPointInPageBounds} from '@app/modules/pdf-viewer/engine/annotation-geometry/toPdfPointFromMarkerPoint';
 
 export function toPdfRectFromMarkerRect(
     markerRect: IAnnotationMarkerRect | null | undefined,
@@ -15,13 +15,12 @@ export function toPdfRectFromMarkerRect(
     // unrotated bounds can cross a page edge while all visible corners fit.
     // Native admission validates the transformed rectangle before writing.
     const normalized = options.preserveUnrotatedBounds
-        ? markerRect && [
-            markerRect.left,
-            markerRect.top,
-            markerRect.width,
-            markerRect.height,
-        ].every(Number.isFinite)
-            && markerRect.width > 0 && markerRect.height > 0 ? markerRect : null
+        ? markerRect &&
+          [markerRect.left, markerRect.top, markerRect.width, markerRect.height].every(Number.isFinite) &&
+          markerRect.width > 0 &&
+          markerRect.height > 0
+            ? markerRect
+            : null
         : normalizeMarkerRect(markerRect);
     if (!normalized) {
         return null;
@@ -37,39 +36,19 @@ export function toPdfRectFromMarkerRect(
     const markerBottom = normalized.top + normalized.height;
 
     const cornerPoints = [];
-    for (const [
-        x,
-        y,
-    ] of [
-            [
-                normalized.left,
-                normalized.top,
-            ],
-            [
-                markerRight,
-                normalized.top,
-            ],
-            [
-                normalized.left,
-                markerBottom,
-            ],
-            [
-                markerRight,
-                markerBottom,
-            ],
-        ] as const) {
+    for (const [x, y] of [
+        [normalized.left, normalized.top],
+        [markerRight, normalized.top],
+        [normalized.left, markerBottom],
+        [markerRight, markerBottom],
+    ] as const) {
         cornerPoints.push(toPdfPointInPageBounds(x, y, bounds, normalizedRotation));
     }
 
-    const minX = Math.min(...cornerPoints.map(point => point.x));
-    const minY = Math.min(...cornerPoints.map(point => point.y));
-    const maxX = Math.max(...cornerPoints.map(point => point.x));
-    const maxY = Math.max(...cornerPoints.map(point => point.y));
+    const minX = Math.min(...cornerPoints.map((point) => point.x));
+    const minY = Math.min(...cornerPoints.map((point) => point.y));
+    const maxX = Math.max(...cornerPoints.map((point) => point.x));
+    const maxY = Math.max(...cornerPoints.map((point) => point.y));
 
-    return [
-        minX,
-        minY,
-        maxX,
-        maxY,
-    ];
+    return [minX, minY, maxX, maxY];
 }

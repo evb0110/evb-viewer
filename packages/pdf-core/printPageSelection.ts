@@ -1,13 +1,7 @@
-import { uniq } from 'es-toolkit/array';
-import { range } from 'es-toolkit/math';
-import type {
-    TPdfViewMode,
-    TPrintOrientation,
-} from '@contracts/shared';
-import {
-    parsePageNumber,
-    requirePageNumber,
-} from '@contracts/pageNumbers';
+import {uniq} from 'es-toolkit/array';
+import {range} from 'es-toolkit/math';
+import type {TPdfViewMode, TPrintOrientation} from '@contracts/shared';
+import {parsePageNumber, requirePageNumber} from '@contracts/pageNumbers';
 
 interface IPrintablePageMetric {
     width: number;
@@ -33,20 +27,14 @@ const STANDARD_SINGLE_PAGE_PRINT_SHEETS = [
     },
 ] as const;
 
-export function normalizePrintPageNumbers(
-    pageNumbers: number[] | undefined,
-    totalPages: number,
-) {
-    const normalizedTotalPages = Number.isFinite(totalPages) && totalPages > 0
-        ? Math.floor(totalPages)
-        : 0;
+export function normalizePrintPageNumbers(pageNumbers: number[] | undefined, totalPages: number) {
+    const normalizedTotalPages = Number.isFinite(totalPages) && totalPages > 0 ? Math.floor(totalPages) : 0;
     if (normalizedTotalPages <= 0) {
         return [];
     }
 
     if (!pageNumbers || pageNumbers.length === 0) {
-        return range(1, normalizedTotalPages + 1)
-            .map(pageNumber => requirePageNumber(pageNumber, normalizedTotalPages));
+        return range(1, normalizedTotalPages + 1).map((pageNumber) => requirePageNumber(pageNumber, normalizedTotalPages));
     }
 
     return uniq(pageNumbers)
@@ -69,27 +57,16 @@ function fitsStandardSheet(width: number, height: number) {
         const sheetHeight = isLandscape ? sheet.width : sheet.height;
         const fitScale = Math.min(sheetWidth / Math.max(1, width), sheetHeight / Math.max(1, height));
         const aspectDelta = Math.abs(sheet.height / sheet.width - pageAspect);
-        if (
-            fitScale > bestFitScale + 0.0001
-            || (Math.abs(fitScale - bestFitScale) <= 0.0001 && aspectDelta < bestAspectDelta)
-        ) {
+        if (fitScale > bestFitScale + 0.0001 || (Math.abs(fitScale - bestFitScale) <= 0.0001 && aspectDelta < bestAspectDelta)) {
             bestFitScale = fitScale;
             bestAspectDelta = aspectDelta;
         }
     }
-    return bestFitScale >= SAFE_DIRECT_PRINT_FIT_SCALE_THRESHOLD
-        && bestAspectDelta <= SAFE_DIRECT_PRINT_ASPECT_DELTA_THRESHOLD;
+    return bestFitScale >= SAFE_DIRECT_PRINT_FIT_SCALE_THRESHOLD && bestAspectDelta <= SAFE_DIRECT_PRINT_ASPECT_DELTA_THRESHOLD;
 }
 
-export function shouldPrintPageMetricsDirectly(
-    pageMetrics: readonly IPrintablePageMetric[],
-    options: IPrintLayoutOptions,
-) {
-    if (
-        options.viewMode !== 'single'
-        || options.orientation !== 'auto'
-        || (options.pageNumbers && options.pageNumbers.length > 0)
-    ) {
+export function shouldPrintPageMetricsDirectly(pageMetrics: readonly IPrintablePageMetric[], options: IPrintLayoutOptions) {
+    if (options.viewMode !== 'single' || options.orientation !== 'auto' || (options.pageNumbers && options.pageNumbers.length > 0)) {
         return false;
     }
 
@@ -97,5 +74,5 @@ export function shouldPrintPageMetricsDirectly(
         return null;
     }
 
-    return pageMetrics.every(metric => fitsStandardSheet(metric.width, metric.height));
+    return pageMetrics.every((metric) => fitsStandardSheet(metric.width, metric.height));
 }

@@ -5,22 +5,16 @@ import {
     getLayoutPhysicalScrollSegment,
     resolveLayoutPhysicalScrollOrigin,
 } from '@app/modules/document-viewer/layout/pdfPageLayoutMetrics';
-import { useWindowDevicePixelRatio } from '@app/composables/useWindowDevicePixelRatio';
+import {useWindowDevicePixelRatio} from '@app/composables/useWindowDevicePixelRatio';
 import {useTypedI18n} from '@app/composables/useTypedI18n';
-import {
-    useResizeObserver,
-    useTimeoutFn,
-} from '@vueuse/core';
-import { DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS } from '@app/constants/timeouts';
-import { clamp } from 'es-toolkit/math';
-import { isAbortError } from '@contracts/isAbortError';
-import type { IPdfSemanticAnchor } from '@contracts/recentReadingView';
-import type { IZoomStateAccess } from '@contracts/shared';
-import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
-import {
-    createDocumentWheelZoomHandler,
-    type IDocumentWheelInteraction,
-} from '@app/modules/document-viewer/input/documentWheelInteraction';
+import {useResizeObserver, useTimeoutFn} from '@vueuse/core';
+import {DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS} from '@app/constants/timeouts';
+import {clamp} from 'es-toolkit/math';
+import {isAbortError} from '@contracts/isAbortError';
+import type {IPdfSemanticAnchor} from '@contracts/recentReadingView';
+import type {IZoomStateAccess} from '@contracts/shared';
+import type {IDocumentViewerExpose} from '@app/modules/pdf-viewer/public';
+import {createDocumentWheelZoomHandler, type IDocumentWheelInteraction} from '@app/modules/document-viewer/input/documentWheelInteraction';
 import {
     createLazyIndexedCollection,
     isLazyIndexedCollection,
@@ -31,7 +25,7 @@ import {
     resolveDocumentZoomAnchorScroll,
     type IDocumentZoomPageLayout,
 } from '@app/modules/document-viewer/zoomAnchor';
-import { createDocumentViewportWritePort } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
+import {createDocumentViewportWritePort} from '@app/modules/document-viewer/runtime/documentViewportWritePort';
 import {
     resolveDocumentContinuousScrollWindow,
     resolveDocumentVisiblePageForIndicator,
@@ -41,26 +35,23 @@ import {
     resolveDocumentPageDisplayScale,
     type IDocumentPageDisplayLayout,
 } from '@app/modules/document-viewer/layout/resolveDocumentPageDisplayLayout';
-import { shouldProjectDocumentViewportScroll } from '@app/modules/document-viewer/runtime/shouldProjectDocumentViewportScroll';
-import { useDocumentViewportLayoutLifecycle } from '@app/modules/document-viewer/lifecycle/useDocumentViewportLayoutLifecycle';
-import { useDocumentWheelZoomSessionBoundaries } from '@app/modules/document-viewer/input/useDocumentWheelZoomSessionBoundaries';
-import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/documentPageGutterPx';
-import { readArrivedViewportClientSize } from '@app/modules/document-viewer/layout/resolveDocumentPageSourceOpeningFrame';
-import { injectDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
-import { clampDocumentManualZoom } from '@app/modules/document-viewer/zoomPolicy';
-import type {
-    IDocumentPageMetrics,
-    IDocumentPageSource,
-} from '@app/modules/document-viewer/source/documentPageSource';
+import {shouldProjectDocumentViewportScroll} from '@app/modules/document-viewer/runtime/shouldProjectDocumentViewportScroll';
+import {useDocumentViewportLayoutLifecycle} from '@app/modules/document-viewer/lifecycle/useDocumentViewportLayoutLifecycle';
+import {useDocumentWheelZoomSessionBoundaries} from '@app/modules/document-viewer/input/useDocumentWheelZoomSessionBoundaries';
+import {DOCUMENT_PAGE_GUTTER_PX} from '@app/modules/document-viewer/layout/documentPageGutterPx';
+import {readArrivedViewportClientSize} from '@app/modules/document-viewer/layout/resolveDocumentPageSourceOpeningFrame';
+import {injectDocumentViewerRuntime} from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+import {clampDocumentManualZoom} from '@app/modules/document-viewer/zoomPolicy';
+import type {IDocumentPageMetrics, IDocumentPageSource} from '@app/modules/document-viewer/source/documentPageSource';
 import {
     createPageNavigationRequest,
     type IDocumentNavigationRequest,
     type IDocumentNavigationTicket,
 } from '@app/modules/document-viewer/navigation/documentNavigationRequest';
-import type { IDocumentViewportSessionState } from '@app/modules/document-viewer/runtime/documentOpenSurfaceReducer';
-import { workspaceSurfaceBudgetController } from '@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController';
-import type { TMemoryPressureLevel } from '@app/utils/viewerResidencyPolicy';
-import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
+import type {IDocumentViewportSessionState} from '@app/modules/document-viewer/runtime/documentOpenSurfaceReducer';
+import {workspaceSurfaceBudgetController} from '@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController';
+import type {TMemoryPressureLevel} from '@app/utils/viewerResidencyPolicy';
+import {createRafCoalescedCallback} from '@app/utils/createRafCoalescedCallback';
 import {
     createColdOpenProvisionalDocumentPageMetrics,
     createProvisionalDocumentPageMetrics,
@@ -68,16 +59,16 @@ import {
     loadInitialDocumentPageMetric,
     type TDocumentPageMetricsCollection,
 } from '@app/modules/document-viewer/page-source-renderer/loadPrioritizedDocumentPageMetrics';
-import { resolveDocumentPageSourceRenderDemand } from '@app/modules/document-viewer/page-source-renderer/resolveDocumentPageSourceRenderDemand';
-import { resolveDocumentPageSourceRenderQueue } from '@app/modules/document-viewer/page-source-renderer/resolveDocumentPageSourceRenderQueue';
+import {resolveDocumentPageSourceRenderDemand} from '@app/modules/document-viewer/page-source-renderer/resolveDocumentPageSourceRenderDemand';
+import {resolveDocumentPageSourceRenderQueue} from '@app/modules/document-viewer/page-source-renderer/resolveDocumentPageSourceRenderQueue';
 import {
     createDocumentPageSourcePresentation,
     resolveDocumentPageSourceRenderWidthPx,
 } from '@app/modules/document-viewer/page-source-renderer/documentPageSourcePresentation';
-import { createPageSourcePagedWheelNavigation } from '@app/modules/document-viewer/page-source-renderer/createPageSourcePagedWheelNavigation';
-import { createDocumentPageMetricPublication } from '@app/modules/document-viewer/page-source-renderer/createDocumentPageMetricPublication';
-import { getPerformanceProfile } from '@app/utils/performanceProfile';
-import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/resolveOpenPathSecondaryPerformancePolicy';
+import {createPageSourcePagedWheelNavigation} from '@app/modules/document-viewer/page-source-renderer/createPageSourcePagedWheelNavigation';
+import {createDocumentPageMetricPublication} from '@app/modules/document-viewer/page-source-renderer/createDocumentPageMetricPublication';
+import {getPerformanceProfile} from '@app/utils/performanceProfile';
+import {resolveOpenPathSecondaryPerformancePolicy} from '@app/utils/resolveOpenPathSecondaryPerformancePolicy';
 import {
     createDocumentPageSourceLifecycle,
     createDocumentPageSourceOpenJob,
@@ -95,13 +86,17 @@ const DOCUMENT_SOURCE_CONTINUOUS_MAX_RESIDENT_PAGES = DOCUMENT_SOURCE_MAX_MOUNTE
 const DOCUMENT_SOURCE_RENDER_CONCURRENCY = 2;
 const DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE = 256;
 const DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS = 32;
-export { DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS };
+export {DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS};
 
 type TDocumentPageSourceCollection<T> = T[] | ILazyIndexedCollection<T>;
 
-interface IDocumentPageDisplayLayoutCollection extends ILazyIndexedCollection<IDocumentPageDisplayLayout> {readonly sumHeightRange?: (start: number, end: number) => number;}
+interface IDocumentPageDisplayLayoutCollection extends ILazyIndexedCollection<IDocumentPageDisplayLayout> {
+    readonly sumHeightRange?: (start: number, end: number) => number;
+}
 
-interface IDocumentPageHeightCollection extends ILazyIndexedCollection<number> {readonly sumRange?: (start: number, end: number) => number;}
+interface IDocumentPageHeightCollection extends ILazyIndexedCollection<number> {
+    readonly sumRange?: (start: number, end: number) => number;
+}
 
 function resolveDocumentPageDisplayLayout(
     metric: IDocumentPageMetrics,
@@ -142,7 +137,7 @@ export function resolveDocumentPageDisplayLayoutsBounded(
             availableHeight,
             availableWidth,
             manualZoom,
-            pageSizes: metrics.map(metric => ({
+            pageSizes: metrics.map((metric) => ({
                 height: metric.heightPoints,
                 width: metric.widthPoints,
             })),
@@ -163,7 +158,9 @@ export function resolveDocumentPageDisplayLayoutsBounded(
                 exactCount += 1;
                 widest = Math.max(widest, metric.widthPoints);
             });
-            if (exactCount < metrics.length) widest = Math.max(widest, metrics.fallbackMetric.widthPoints);
+            if (exactCount < metrics.length) {
+                widest = Math.max(widest, metrics.fallbackMetric.widthPoints);
+            }
         } else {
             for (let index = 0; index < metrics.length; index += 1) {
                 widest = Math.max(widest, (metrics.get(index) ?? metrics.fallbackMetric).widthPoints);
@@ -174,21 +171,29 @@ export function resolveDocumentPageDisplayLayoutsBounded(
     const displayLayouts = createLazyIndexedCollection({
         cacheValues: false,
         chunkSize: DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE,
-        getValue: index => resolveDocumentPageDisplayLayout(
-            metrics.get(index) ?? metrics.fallbackMetric,
-            availableHeight,
-            availableWidth,
-            manualZoom,
-            zoomMode,
-            fitWidthPageWidth,
-        ),
+        getValue: (index) =>
+            resolveDocumentPageDisplayLayout(
+                metrics.get(index) ?? metrics.fallbackMetric,
+                availableHeight,
+                availableWidth,
+                manualZoom,
+                zoomMode,
+                fitWidthPageWidth,
+            ),
         length: metrics.length,
         maxCachedChunks: DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS,
     });
     if (!sparseMetrics) {
         return displayLayouts as ILazyIndexedCollection<IDocumentPageDisplayLayout>;
     }
-    const fallbackLayout = resolveDocumentPageDisplayLayout(metrics.fallbackMetric, availableHeight, availableWidth, manualZoom, zoomMode, fitWidthPageWidth);
+    const fallbackLayout = resolveDocumentPageDisplayLayout(
+        metrics.fallbackMetric,
+        availableHeight,
+        availableWidth,
+        manualZoom,
+        zoomMode,
+        fitWidthPageWidth,
+    );
     let correctionRevision = -1;
     let correctionIndices: number[] = [];
     let correctionPrefixes: number[] = [];
@@ -204,7 +209,14 @@ export function resolveDocumentPageDisplayLayoutsBounded(
             if (!metric) {
                 continue;
             }
-            const exactLayout = resolveDocumentPageDisplayLayout(metric, availableHeight, availableWidth, manualZoom, zoomMode, fitWidthPageWidth);
+            const exactLayout = resolveDocumentPageDisplayLayout(
+                metric,
+                availableHeight,
+                availableWidth,
+                manualZoom,
+                zoomMode,
+                fitWidthPageWidth,
+            );
             correctionIndices.push(index);
             correctionPrefixes.push((correctionPrefixes.at(-1) ?? 0) + exactLayout.height - fallbackLayout.height);
         }
@@ -234,9 +246,7 @@ export function resolveDocumentPageDisplayLayoutsBounded(
                 return 0;
             }
             ensureHeightCorrections();
-            return (rangeEnd - rangeStart) * fallbackLayout.height
-                + sumCorrectionsBefore(rangeEnd)
-                - sumCorrectionsBefore(rangeStart);
+            return (rangeEnd - rangeStart) * fallbackLayout.height + sumCorrectionsBefore(rangeEnd) - sumCorrectionsBefore(rangeStart);
         },
     });
     return displayLayouts as IDocumentPageDisplayLayoutCollection;
@@ -249,17 +259,15 @@ function mapDocumentPageSourceCollectionBounded<T, U>(
         return createLazyIndexedCollection({
             cacheValues: true,
             chunkSize: DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE,
-            getValue: index => mapValue(collection.get(index) as T, index),
+            getValue: (index) => mapValue(collection.get(index) as T, index),
             length: collection.length,
             maxCachedChunks: DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS,
         });
     }
     return collection.map((value, index) => mapValue(value, index));
 }
-export function resolveDocumentPageHeightsBounded(
-    displayLayouts: TDocumentPageSourceCollection<IDocumentPageDisplayLayout>,
-) {
-    const heights = mapDocumentPageSourceCollectionBounded(displayLayouts, layout => layout.height);
+export function resolveDocumentPageHeightsBounded(displayLayouts: TDocumentPageSourceCollection<IDocumentPageDisplayLayout>) {
+    const heights = mapDocumentPageSourceCollectionBounded(displayLayouts, (layout) => layout.height);
     const sumHeightRange = (displayLayouts as IDocumentPageDisplayLayoutCollection).sumHeightRange;
     if (sumHeightRange && isLazyIndexedCollection(heights)) {
         Object.defineProperty(heights, 'sumRange', {
@@ -276,9 +284,7 @@ export function resolveDocumentPageLayoutsBounded(
     continuousScroll: boolean,
 ) {
     return mapDocumentPageSourceCollectionBounded(displayLayouts, (layout, index) => ({
-        top: continuousScroll
-            ? pageTops[index] ?? DOCUMENT_PAGE_GUTTER_PX
-            : DOCUMENT_PAGE_GUTTER_PX,
+        top: continuousScroll ? (pageTops[index] ?? DOCUMENT_PAGE_GUTTER_PX) : DOCUMENT_PAGE_GUTTER_PX,
         width: layout.width,
         height: layout.height,
     }));
@@ -287,22 +293,16 @@ export function resolveDocumentPageZoomAnchorLayoutsBounded(
     pageLayouts: TDocumentPageSourceCollection<IDocumentZoomPageLayout>,
     resolvePageLeft: (pageWidth: number) => number,
 ) {
-    return mapDocumentPageSourceCollectionBounded(pageLayouts, layout => ({
+    return mapDocumentPageSourceCollectionBounded(pageLayouts, (layout) => ({
         ...layout,
         left: resolvePageLeft(layout.width),
     }));
 }
-export function shouldRetainInactiveDocumentPageSourceLease(
-    retainWarmLease: boolean,
-    pressureLevel: TMemoryPressureLevel,
-) {
+export function shouldRetainInactiveDocumentPageSourceLease(retainWarmLease: boolean, pressureLevel: TMemoryPressureLevel) {
     return retainWarmLease && pressureLevel === 'none';
 }
 export function resolveDocumentPageSourceReadyEdgeSemanticPage(
-    viewportSession: Pick<
-        IDocumentViewportSessionState,
-        'lifecycle' | 'requestedPage' | 'committedPage' | 'observedPage'
-    >,
+    viewportSession: Pick<IDocumentViewportSessionState, 'lifecycle' | 'requestedPage' | 'committedPage' | 'observedPage'>,
 ) {
     if (viewportSession.lifecycle !== 'ready' || viewportSession.observedPage !== null) {
         return null;
@@ -330,9 +330,7 @@ export const useDocumentPageSourceRuntime = (options: {
     const currentPage = computed(() => chassisAuthority?.currentPage.value ?? 1);
     const openSurfaceRenderOwner = chassisAuthority?.openSurface.claimRenderOwner();
     const viewportWritePort = chassisAuthority?.viewportWritePort ?? createDocumentViewportWritePort();
-    const renderSession = chassisAuthority?.renderCoordinator.createSession(
-        `page-source-feature:${String(++nextSourcePageSlotOwnerId)}`,
-    );
+    const renderSession = chassisAuthority?.renderCoordinator.createSession(`page-source-feature:${String(++nextSourcePageSlotOwnerId)}`);
     const openingPageFrameOwnerId = `page-source:${String(nextSourcePageSlotOwnerId)}`;
     const pageSlots = renderSession?.pageSlots;
     const surfaceBudget = chassisAuthority?.surfaceBudget ?? workspaceSurfaceBudgetController;
@@ -351,7 +349,9 @@ export const useDocumentPageSourceRuntime = (options: {
     let lastProjectedNavigationSignal: AbortSignal | null = null;
     function measureViewport() {
         const container = viewerContainer.value;
-        if (!container || container.clientWidth <= 0 || container.clientHeight <= 0) return;
+        if (!container || container.clientWidth <= 0 || container.clientHeight <= 0) {
+            return;
+        }
         // A hidden tab has no measurable viewport. Retain its last layout so
         // fit mode cannot collapse the document and clamp its scroll offset.
         containerWidth.value = container.clientWidth;
@@ -359,42 +359,39 @@ export const useDocumentPageSourceRuntime = (options: {
         viewportScrollTop.value = physicalScroll.origin.value + container.scrollTop;
     }
     useResizeObserver(viewerContainer, measureViewport);
-    const pageDisplayLayouts = computed(() => resolveDocumentPageDisplayLayoutsBounded(
-        pageMetrics.value,
-        Math.max(1, containerHeight.value - DOCUMENT_PAGE_GUTTER_PX * 2),
-        Math.max(1, containerWidth.value - DOCUMENT_PAGE_GUTTER_PX * 2),
-        clampDocumentManualZoom(props.value.zoom),
-        props.value.zoomMode,
-        props.value.continuousScroll,
-    ));
-    const effectiveZoom = computed(() => (
-        pageDisplayLayouts.value[currentPage.value - 1]?.scale
-        ?? clampDocumentManualZoom(props.value.zoom)
-    ));
-    const handleWheelZoom = createDocumentWheelZoomHandler(
-        effectiveZoom,
-        options.readZoom,
-        {
-            beforeZoom: (interaction, packetAt, startsNewSession) => layoutLifecycle.capturePointerAnchor(
-                interaction.event,
-                packetAt,
-                startsNewSession,
-            ),
-            onNonZoom: () => layoutLifecycle.cancelPendingRestore(),
-            readSessionKey: () => transitions.loadGeneration.value,
-        },
+    const pageDisplayLayouts = computed(() =>
+        resolveDocumentPageDisplayLayoutsBounded(
+            pageMetrics.value,
+            Math.max(1, containerHeight.value - DOCUMENT_PAGE_GUTTER_PX * 2),
+            Math.max(1, containerWidth.value - DOCUMENT_PAGE_GUTTER_PX * 2),
+            clampDocumentManualZoom(props.value.zoom),
+            props.value.zoomMode,
+            props.value.continuousScroll,
+        ),
     );
+    const effectiveZoom = computed(
+        () => pageDisplayLayouts.value[currentPage.value - 1]?.scale ?? clampDocumentManualZoom(props.value.zoom),
+    );
+    const handleWheelZoom = createDocumentWheelZoomHandler(effectiveZoom, options.readZoom, {
+        beforeZoom: (interaction, packetAt, startsNewSession) =>
+            layoutLifecycle.capturePointerAnchor(interaction.event, packetAt, startsNewSession),
+        onNonZoom: () => layoutLifecycle.cancelPendingRestore(),
+        readSessionKey: () => transitions.loadGeneration.value,
+    });
     const cancelWheelInteraction = useDocumentWheelZoomSessionBoundaries({
         isInteractionActive: computed(() => props.value.isInteractionActive),
-        reset: () => { handleWheelZoom.reset(); layoutLifecycle.cancelPendingRestore(); },
+        reset: () => {
+            handleWheelZoom.reset();
+            layoutLifecycle.cancelPendingRestore();
+        },
     });
     const pageHeights = computed(() => resolveDocumentPageHeightsBounded(pageDisplayLayouts.value));
     const scrollLayout = computed(() => buildDocumentPageSourceScrollLayout(pageHeights.value));
     const pageTops = computed(() => scrollLayout.value.pageTops);
     const totalHeight = computed(() => Math.max(containerHeight.value, getLayoutContentHeight(scrollLayout.value.layout)));
-    const physicalSegment = computed(() => props.value.continuousScroll
-        ? getLayoutPhysicalScrollSegment(scrollLayout.value.layout, physicalScroll.origin.value)
-        : null);
+    const physicalSegment = computed(() =>
+        props.value.continuousScroll ? getLayoutPhysicalScrollSegment(scrollLayout.value.layout, physicalScroll.origin.value) : null,
+    );
     function readLogicalViewport(container: HTMLElement) {
         return {
             clientWidth: container.clientWidth,
@@ -422,94 +419,85 @@ export const useDocumentPageSourceRuntime = (options: {
             },
         });
     }
-    const pageLayouts = computed(() => resolveDocumentPageLayoutsBounded(
-        pageDisplayLayouts.value,
-        pageTops.value,
-        props.value.continuousScroll,
-    ));
+    const pageLayouts = computed(() =>
+        resolveDocumentPageLayoutsBounded(pageDisplayLayouts.value, pageTops.value, props.value.continuousScroll),
+    );
     const mountedPages = computed(() => {
-        const pageCount = source.value?.pageCount
-            ?? chassisAuthority?.openSurface.snapshot.value.openingPageGeometry?.pageCount
-            ?? pageMetrics.value.length;
+        const pageCount =
+            source.value?.pageCount ??
+            chassisAuthority?.openSurface.snapshot.value.openingPageGeometry?.pageCount ??
+            pageMetrics.value.length;
         const viewportPages = props.value.continuousScroll
-            ? resolveDocumentContinuousScrollWindow({
-                currentPage: currentPage.value,
-                geometry: {
-                    pageHeights: pageHeights.value,
-                    pageTops: pageTops.value,
-                    totalHeight: totalHeight.value,
-                },
-                pageGapPx: DOCUMENT_PAGE_GUTTER_PX,
-                pageHeights: pageHeights.value,
-                renderMarginPages: DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS,
-                scrollTop: viewportScrollTop.value,
-                totalPages: pageCount,
-                viewportHeight: containerHeight.value,
-                overscanViewports: 1,
-            })?.pageNumbers ?? []
+            ? (resolveDocumentContinuousScrollWindow({
+                  currentPage: currentPage.value,
+                  geometry: {
+                      pageHeights: pageHeights.value,
+                      pageTops: pageTops.value,
+                      totalHeight: totalHeight.value,
+                  },
+                  pageGapPx: DOCUMENT_PAGE_GUTTER_PX,
+                  pageHeights: pageHeights.value,
+                  renderMarginPages: DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS,
+                  scrollTop: viewportScrollTop.value,
+                  totalPages: pageCount,
+                  viewportHeight: containerHeight.value,
+                  overscanViewports: 1,
+              })?.pageNumbers ?? [])
             : [];
-        const pages = renderSession?.resolveMountedPages({
-            currentPage: navigationTargetPage.value ?? currentPage.value,
-            destinationPage: navigationTargetPage.value
-                ?? ([
-                    'opening',
-                    'transitioning',
-                ].includes(chassisAuthority?.openSurface.viewportSession.value.lifecycle ?? '')
-                    ? chassisAuthority?.openSurface.snapshot.value.openingPageFrame?.pageNumber
-                    : undefined),
-            maxPages: DOCUMENT_SOURCE_MAX_MOUNTED_PAGES,
-            pageCount,
-            radius: props.value.continuousScroll ? DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS : 3,
-            viewportPages,
-        }) ?? [];
+        const pages =
+            renderSession?.resolveMountedPages({
+                currentPage: navigationTargetPage.value ?? currentPage.value,
+                destinationPage:
+                    navigationTargetPage.value ??
+                    (['opening', 'transitioning'].includes(chassisAuthority?.openSurface.viewportSession.value.lifecycle ?? '')
+                        ? chassisAuthority?.openSurface.snapshot.value.openingPageFrame?.pageNumber
+                        : undefined),
+                maxPages: DOCUMENT_SOURCE_MAX_MOUNTED_PAGES,
+                pageCount,
+                radius: props.value.continuousScroll ? DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS : 3,
+                viewportPages,
+            }) ?? [];
         const segment = physicalSegment.value;
-        return segment ? pages.filter(page => page >= segment.firstPage && page <= segment.lastPage) : pages;
+        return segment ? pages.filter((page) => page >= segment.firstPage && page <= segment.lastPage) : pages;
     });
-    const renderDemand = computed(() => resolveDocumentPageSourceRenderDemand({
-        bufferRadius: props.value.continuousScroll && effectiveZoom.value < 1
-            ? DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS
-            : rasterBufferProfile.pdfBufferPages,
-        continuousScroll: props.value.continuousScroll,
-        currentPage: navigationTargetPage.value ?? currentPage.value,
-        estimatePagePixels: (pageNumber) => {
-            const layout = pageLayouts.value[pageNumber - 1];
-            return layout ? layout.width * layout.height * pixelRatio.value ** 2 : 1;
-        },
-        maxBufferPixels: rasterBufferProfile.maxBufferCanvasPixels,
-        maximumResidentPages: props.value.continuousScroll && effectiveZoom.value < 1
-            ? DOCUMENT_SOURCE_CONTINUOUS_MAX_RESIDENT_PAGES
-            : DOCUMENT_SOURCE_MAX_RESIDENT_PAGES,
-        minimumBufferPages: props.value.continuousScroll && effectiveZoom.value < 1
-            ? DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS
-            : 2,
-        preferredDirection: viewportScrollDirection.value,
-        mountedPages: mountedPages.value,
-        pageCount: source.value?.pageCount ?? pageMetrics.value.length,
-        pageHeights: pageHeights.value,
-        pageTops: pageTops.value,
-        scrollTop: viewportScrollTop.value,
-        viewportHeight: containerHeight.value,
+    const renderDemand = computed(() =>
+        resolveDocumentPageSourceRenderDemand({
+            bufferRadius:
+                props.value.continuousScroll && effectiveZoom.value < 1
+                    ? DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS
+                    : rasterBufferProfile.pdfBufferPages,
+            continuousScroll: props.value.continuousScroll,
+            currentPage: navigationTargetPage.value ?? currentPage.value,
+            estimatePagePixels: (pageNumber) => {
+                const layout = pageLayouts.value[pageNumber - 1];
+                return layout ? layout.width * layout.height * pixelRatio.value ** 2 : 1;
+            },
+            maxBufferPixels: rasterBufferProfile.maxBufferCanvasPixels,
+            maximumResidentPages:
+                props.value.continuousScroll && effectiveZoom.value < 1
+                    ? DOCUMENT_SOURCE_CONTINUOUS_MAX_RESIDENT_PAGES
+                    : DOCUMENT_SOURCE_MAX_RESIDENT_PAGES,
+            minimumBufferPages: props.value.continuousScroll && effectiveZoom.value < 1 ? DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS : 2,
+            preferredDirection: viewportScrollDirection.value,
+            mountedPages: mountedPages.value,
+            pageCount: source.value?.pageCount ?? pageMetrics.value.length,
+            pageHeights: pageHeights.value,
+            pageTops: pageTops.value,
+            scrollTop: viewportScrollTop.value,
+            viewportHeight: containerHeight.value,
+        }),
+    );
+    const surfaceStyle = computed(() => ({
+        height: props.value.continuousScroll ? `${Math.max(1, physicalSegment.value?.height ?? totalHeight.value)}px` : '100%',
     }));
-    const surfaceStyle = computed(() => ({height: props.value.continuousScroll ? `${Math.max(1, physicalSegment.value?.height ?? totalHeight.value)}px` : '100%'}));
     function resolvePageLeft(pageWidth: number) {
         return resolveDocumentPageLeft(containerWidth.value, pageWidth);
     }
-    const zoomAnchorPageLayouts = computed(() => resolveDocumentPageZoomAnchorLayoutsBounded(
-        pageLayouts.value,
-        resolvePageLeft,
-    ));
+    const zoomAnchorPageLayouts = computed(() => resolveDocumentPageZoomAnchorLayoutsBounded(pageLayouts.value, resolvePageLeft));
     let modeTransitionPreferredPageIndex: number | null = null;
     watch(
-        () => [
-            props.value.continuousScroll,
-            currentPage.value,
-            props.value.documentRevisionToken ?? props.value.src,
-        ] as const,
-        ([
-            continuousScroll,
-            _currentPage,
-            sourceIdentity,
-        ], previous) => {
+        () => [props.value.continuousScroll, currentPage.value, props.value.documentRevisionToken ?? props.value.src] as const,
+        ([continuousScroll, _currentPage, sourceIdentity], previous) => {
             if (!previous) {
                 return;
             }
@@ -518,9 +506,7 @@ export const useDocumentPageSourceRuntime = (options: {
                 return;
             }
             if (continuousScroll !== previous[0]) {
-                modeTransitionPreferredPageIndex = continuousScroll
-                    ? Math.max(0, previous[1] - 1)
-                    : null;
+                modeTransitionPreferredPageIndex = continuousScroll ? Math.max(0, previous[1] - 1) : null;
             }
         },
         {flush: 'sync'},
@@ -533,13 +519,13 @@ export const useDocumentPageSourceRuntime = (options: {
         return {
             width: `${String(layout.width)}px`,
             height: `${String(layout.height)}px`,
-            top: `${String(props.value.continuousScroll
-                ? (pageTops.value[pageNumber - 1] ?? DOCUMENT_PAGE_GUTTER_PX) - physicalScroll.origin.value
-                : DOCUMENT_PAGE_GUTTER_PX)}px`,
+            top: `${String(
+                props.value.continuousScroll
+                    ? (pageTops.value[pageNumber - 1] ?? DOCUMENT_PAGE_GUTTER_PX) - physicalScroll.origin.value
+                    : DOCUMENT_PAGE_GUTTER_PX,
+            )}px`,
             left: `${String(resolvePageLeft(layout.width))}px`,
-            display: !props.value.continuousScroll && pageNumber !== currentPage.value
-                ? 'none'
-                : undefined,
+            display: !props.value.continuousScroll && pageNumber !== currentPage.value ? 'none' : undefined,
         };
     }
     function getChassisOpeningShellTarget(pageNumber: number) {
@@ -553,13 +539,13 @@ export const useDocumentPageSourceRuntime = (options: {
             return null;
         }
         const target = authority.openingPageElement.value;
-        return frame.generation === snapshot.generation
-            && frame.pageNumber === pageNumber
-            && frame.pageNumber === authority.openSurface.viewportSession.value.requestedPage
-            && target?.isConnected
-            && target.dataset.pageNumber === String(pageNumber)
-            && target.dataset.openSurfaceGeneration === String(snapshot.generation)
-            && target.dataset.openSurfaceFrameOwner === frame.ownerId
+        return frame.generation === snapshot.generation &&
+            frame.pageNumber === pageNumber &&
+            frame.pageNumber === authority.openSurface.viewportSession.value.requestedPage &&
+            target?.isConnected &&
+            target.dataset.pageNumber === String(pageNumber) &&
+            target.dataset.openSurfaceGeneration === String(snapshot.generation) &&
+            target.dataset.openSurfaceFrameOwner === frame.ownerId
             ? target
             : null;
     }
@@ -572,21 +558,15 @@ export const useDocumentPageSourceRuntime = (options: {
     }
     let chassisOpeningSlotPage: number | null = null;
     watch(
-        () => [
-            chassisAuthority?.openingPageElement.value ?? null,
-            chassisAuthority?.openSurface.snapshot.value.openingPageFrame?.pageNumber ?? null,
-            chassisAuthority?.openSurface.snapshot.value.generation ?? null,
-        ] as const,
-        ([
-            _target,
-            pageNumber,
-            _generation,
-        ]) => {
+        () =>
+            [
+                chassisAuthority?.openingPageElement.value ?? null,
+                chassisAuthority?.openSurface.snapshot.value.openingPageFrame?.pageNumber ?? null,
+                chassisAuthority?.openSurface.snapshot.value.generation ?? null,
+            ] as const,
+        ([_target, pageNumber, _generation]) => {
             const ownedTarget = pageNumber === null ? null : getChassisOpeningShellTarget(pageNumber);
-            if (
-                chassisOpeningSlotPage !== null
-                && (!ownedTarget || chassisOpeningSlotPage !== pageNumber)
-            ) {
+            if (chassisOpeningSlotPage !== null && (!ownedTarget || chassisOpeningSlotPage !== pageNumber)) {
                 pageSlots?.markUnmounted(chassisOpeningSlotPage);
                 chassisOpeningSlotPage = null;
             }
@@ -603,10 +583,11 @@ export const useDocumentPageSourceRuntime = (options: {
     );
     const metricPublication = createDocumentPageMetricPublication({
         readMetrics: () => pageMetrics.value,
-        commitMetrics: metrics => layoutLifecycle.preserveLayoutMutation(() => {
-            pageMetrics.value = metrics;
-            triggerRef(pageMetrics);
-        }),
+        commitMetrics: (metrics) =>
+            layoutLifecycle.preserveLayoutMutation(() => {
+                pageMetrics.value = metrics;
+                triggerRef(pageMetrics);
+            }),
         onPublished: () => scheduleRender.schedule(),
     });
     function ensureExactPageMetric(
@@ -626,12 +607,7 @@ export const useDocumentPageSourceRuntime = (options: {
         }
         const metricLoad = loadInitialDocumentPageMetric(activeSource, pageNumber, signal)
             .then((metric) => {
-                if (
-                    isCurrent()
-                    && source.value === activeSource
-                    && pageNumber >= 1
-                    && pageNumber <= activeSource.pageCount
-                ) {
+                if (isCurrent() && source.value === activeSource && pageNumber >= 1 && pageNumber <= activeSource.pageCount) {
                     metricPublication.enqueue(pageNumber, metric);
                     exactPageMetricNumbers.add(pageNumber);
                 }
@@ -666,10 +642,8 @@ export const useDocumentPageSourceRuntime = (options: {
         readFence: transitions.readFence,
         readIsActive: () => props.value.isActive,
         readOpenJob: () => openJob,
-        readMetric: pageNumber => pageMetrics.value[pageNumber - 1],
-        readPageScale: pageNumber => (
-            pageDisplayLayouts.value[pageNumber - 1]?.scale ?? effectiveZoom.value
-        ),
+        readMetric: (pageNumber) => pageMetrics.value[pageNumber - 1],
+        readPageScale: (pageNumber) => pageDisplayLayouts.value[pageNumber - 1]?.scale ?? effectiveZoom.value,
         readPixelRatio: () => pixelRatio.value,
         readRenderDemand: () => renderDemand.value,
         readSource: () => source.value,
@@ -686,10 +660,7 @@ export const useDocumentPageSourceRuntime = (options: {
         await nextTick();
         const renderQueue = resolveDocumentPageSourceRenderQueue({
             bufferPages: renderDemand.value.bufferPages,
-            concurrency: Math.max(
-                DOCUMENT_SOURCE_RENDER_CONCURRENCY,
-                renderDemand.value.visiblePages.length,
-            ),
+            concurrency: Math.max(DOCUMENT_SOURCE_RENDER_CONCURRENCY, renderDemand.value.visiblePages.length),
             currentPage: navigationTargetPage.value ?? currentPage.value,
             guardRadius: DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS,
             inFlightPages: [...presentation.renderControllers.keys()],
@@ -697,21 +668,28 @@ export const useDocumentPageSourceRuntime = (options: {
             needsRender: (pageNumber) => {
                 const state = presentation.pageStates.get(pageNumber);
                 const metric = pageMetrics.value[pageNumber - 1];
-                return !state?.lease || !state.ready || !metric || state.widthPx !== resolveDocumentPageSourceRenderWidthPx(
-                    metric,
-                    pageDisplayLayouts.value[pageNumber - 1]?.scale ?? effectiveZoom.value,
-                    pixelRatio.value,
+                return (
+                    !state?.lease ||
+                    !state.ready ||
+                    !metric ||
+                    state.widthPx !==
+                        resolveDocumentPageSourceRenderWidthPx(
+                            metric,
+                            pageDisplayLayouts.value[pageNumber - 1]?.scale ?? effectiveZoom.value,
+                            pixelRatio.value,
+                        )
                 );
             },
             preferredDirection: viewportScrollDirection.value,
             residentPages: renderDemand.value.residentPages,
             visiblePages: renderDemand.value.visiblePages,
         });
-        renderQueue.pagesToAbort.forEach(pageNumber => presentation.renderControllers.get(pageNumber)?.abort());
+        renderQueue.pagesToAbort.forEach((pageNumber) => presentation.renderControllers.get(pageNumber)?.abort());
         await Promise.all(renderQueue.pagesToRender.map(renderPage));
     }
     const scheduleRender = createRafCoalescedCallback(() => void renderMountedPages());
-    const captureLayoutRestoreEpoch = () => `${String(chassisAuthority?.openSurface.snapshot.value.generation ?? null)}:${String(viewportWritePort.getInteractionEpoch())}`;
+    const captureLayoutRestoreEpoch = () =>
+        `${String(chassisAuthority?.openSurface.snapshot.value.generation ?? null)}:${String(viewportWritePort.getInteractionEpoch())}`;
     const layoutLifecycle = useDocumentViewportLayoutLifecycle({
         viewerContainer,
         pageLayouts: zoomAnchorPageLayouts,
@@ -720,51 +698,56 @@ export const useDocumentPageSourceRuntime = (options: {
             const preferredPageIndex = modeTransitionPreferredPageIndex;
             modeTransitionPreferredPageIndex = null;
             // A single-page view shows one page: a navigation's target before its ready edge names it.
-            return preferredPageIndex ?? (props.value.continuousScroll
-                ? null
-                : Math.max(0, (navigationTargetPage.value ?? currentPage.value) - 1));
+            return (
+                preferredPageIndex ??
+                (props.value.continuousScroll ? null : Math.max(0, (navigationTargetPage.value ?? currentPage.value) - 1))
+            );
         },
         isResizing: computed(() => props.value.isResizing),
         captureRestoreEpoch: captureLayoutRestoreEpoch,
         // A tab being shown is active one flush before it has a box. That box
         // reads offset 0, so it can neither tell nor take the reader's point.
-        canRestore: epoch => epoch === captureLayoutRestoreEpoch()
-            && (viewerContainer.value?.clientHeight ?? 0) > 0
-            && (!chassisAuthority || (
-                props.value.isActive
-                && shouldProjectDocumentViewportScroll(
-                    chassisAuthority.openSurface.snapshot.value,
-                    chassisAuthority.openSurface.viewportSession.value,
-                )
-            )),
+        canRestore: (epoch) =>
+            epoch === captureLayoutRestoreEpoch() &&
+            (viewerContainer.value?.clientHeight ?? 0) > 0 &&
+            (!chassisAuthority ||
+                (props.value.isActive &&
+                    shouldProjectDocumentViewportScroll(
+                        chassisAuthority.openSurface.snapshot.value,
+                        chassisAuthority.openSurface.viewportSession.value,
+                    ))),
         applyRestoredScroll: (restored, onApplied) => {
             const container = viewerContainer.value;
-            return container !== null && applyLogicalScroll(container, {
-                intent: viewportWritePort.beginIntent(
-                    `page-source-zoom-anchor:${String(transitions.loadGeneration.value)}`,
-                ),
-                reason: 'zoom-anchor-restoration',
-                ...restored,
-                left: props.value.continuousScroll && props.value.zoomMode === 'fit-width'
-                    ? container.scrollLeft
-                    : restored.left,
-            }, onApplied);
+            return (
+                container !== null &&
+                applyLogicalScroll(
+                    container,
+                    {
+                        intent: viewportWritePort.beginIntent(`page-source-zoom-anchor:${String(transitions.loadGeneration.value)}`),
+                        reason: 'zoom-anchor-restoration',
+                        ...restored,
+                        left: props.value.continuousScroll && props.value.zoomMode === 'fit-width' ? container.scrollLeft : restored.left,
+                    },
+                    onApplied,
+                )
+            );
         },
         onResizeSettled: () => scheduleRender.schedule(),
     });
     function handleScroll(event?: Event) {
-        if (!viewerContainer.value || viewerContainer.value.clientWidth <= 0
-            || viewerContainer.value.clientHeight <= 0
-            || props.value.isResizing || layoutLifecycle.isResizeTransitionActive.value) {
+        if (
+            !viewerContainer.value ||
+            viewerContainer.value.clientWidth <= 0 ||
+            viewerContainer.value.clientHeight <= 0 ||
+            props.value.isResizing ||
+            layoutLifecycle.isResizeTransitionActive.value
+        ) {
             return;
         }
         // Widening the window clamps the offset and reports that scroll before
         // ResizeObserver reports the resize. Measure the resize first, so the
         // layout lifecycle keeps the reader's point rather than the clamped one.
-        if (
-            viewerContainer.value.clientWidth !== containerWidth.value
-            || viewerContainer.value.clientHeight !== containerHeight.value
-        ) {
+        if (viewerContainer.value.clientWidth !== containerWidth.value || viewerContainer.value.clientHeight !== containerHeight.value) {
             measureViewport();
             return;
         }
@@ -779,10 +762,7 @@ export const useDocumentPageSourceRuntime = (options: {
         if (consumedAuthorityScroll) {
             // The echo of an authored write: its placement already committed the point.
             const viewportSession = chassisAuthority?.openSurface.viewportSession.value;
-            if (
-                viewportSession
-                && viewportSession.requestedPage !== currentPage.value
-            ) {
+            if (viewportSession && viewportSession.requestedPage !== currentPage.value) {
                 // The scroll event can be delivered after the authored offset
                 // lands but before the shared navigation ready edge publishes
                 // its semantic page. Do not derive a center page from that
@@ -790,9 +770,10 @@ export const useDocumentPageSourceRuntime = (options: {
                 // while the viewport is still settling.
                 return;
             }
-            const hasStableCommittedPage = viewportSession?.lifecycle === 'ready'
-                && viewportSession.requestedPage === viewportSession.committedPage
-                && viewportSession.requestedPage === currentPage.value;
+            const hasStableCommittedPage =
+                viewportSession?.lifecycle === 'ready' &&
+                viewportSession.requestedPage === viewportSession.committedPage &&
+                viewportSession.requestedPage === currentPage.value;
             if (!hasStableCommittedPage) {
                 syncCurrentPageFromViewport();
             }
@@ -821,34 +802,38 @@ export const useDocumentPageSourceRuntime = (options: {
             });
         }
         layoutLifecycle.commitReadingPoint();
-        if (resolveLayoutPhysicalScrollOrigin(scrollLayout.value.layout, nextScrollTop,
-            viewerContainer.value.clientHeight, physicalScroll.origin.value) !== physicalScroll.origin.value) {
-            applyLogicalScroll(viewerContainer.value, {
-                intent: viewportWritePort.beginIntent('page-source-scroll-segment'),
-                reason: 'page-source-scroll-segment',
-                top: nextScrollTop,
-            }, syncCurrentPageFromViewport);
+        if (
+            resolveLayoutPhysicalScrollOrigin(
+                scrollLayout.value.layout,
+                nextScrollTop,
+                viewerContainer.value.clientHeight,
+                physicalScroll.origin.value,
+            ) !== physicalScroll.origin.value
+        ) {
+            applyLogicalScroll(
+                viewerContainer.value,
+                {
+                    intent: viewportWritePort.beginIntent('page-source-scroll-segment'),
+                    reason: 'page-source-scroll-segment',
+                    top: nextScrollTop,
+                },
+                syncCurrentPageFromViewport,
+            );
             return;
         }
         syncCurrentPageFromViewport();
     }
-    function syncCurrentPageFromViewport(
-        forceProjection = false,
-    ) {
+    function syncCurrentPageFromViewport(forceProjection = false) {
         const container = viewerContainer.value;
-        if (!container || container.clientWidth <= 0 || container.clientHeight <= 0
-            || !props.value.continuousScroll) {
+        if (!container || container.clientWidth <= 0 || container.clientHeight <= 0 || !props.value.continuousScroll) {
             return;
         }
         const viewportSession = chassisAuthority?.openSurface.viewportSession.value;
         if (
-            viewportSession?.lifecycle === 'ready'
-            && viewportSession.requestedPage === viewportSession.committedPage
-            && (
-                viewportSession.observedPage === null
-                || viewportSession.observedPage === viewportSession.requestedPage
-            )
-            && viewportSession.requestedPage !== currentPage.value
+            viewportSession?.lifecycle === 'ready' &&
+            viewportSession.requestedPage === viewportSession.committedPage &&
+            (viewportSession.observedPage === null || viewportSession.observedPage === viewportSession.requestedPage) &&
+            viewportSession.requestedPage !== currentPage.value
         ) {
             // A command may have committed its authored offset before the
             // surface names its page here. Preserve that shared semantic
@@ -856,9 +841,10 @@ export const useDocumentPageSourceRuntime = (options: {
             // user-centered page.
             return;
         }
-        const totalPages = source.value?.pageCount
-            ?? chassisAuthority?.openSurface.snapshot.value.openingPageGeometry?.pageCount
-            ?? pageMetrics.value.length;
+        const totalPages =
+            source.value?.pageCount ??
+            chassisAuthority?.openSurface.snapshot.value.openingPageGeometry?.pageCount ??
+            pageMetrics.value.length;
         const visiblePage = resolveDocumentVisiblePageForIndicator({
             currentPage: currentPage.value,
             pageLayouts: zoomAnchorPageLayouts.value,
@@ -886,14 +872,9 @@ export const useDocumentPageSourceRuntime = (options: {
             // A navigation scroll can arrive before the target render commits.
             // The navigation fence correctly rejects that early page projection,
             // so reconcile once the viewport session reaches its ready boundary.
-            if (
-                viewportSession[0] === 'ready'
-                && previousViewportSession?.[0] !== 'ready'
-            ) {
+            if (viewportSession[0] === 'ready' && previousViewportSession?.[0] !== 'ready') {
                 const semanticPage = chassisAuthority
-                    ? resolveDocumentPageSourceReadyEdgeSemanticPage(
-                        chassisAuthority.openSurface.viewportSession.value,
-                    )
+                    ? resolveDocumentPageSourceReadyEdgeSemanticPage(chassisAuthority.openSurface.viewportSession.value)
                     : null;
                 // The target render and viewport have just crossed their
                 // ready fence. Its physical offset may still reflect
@@ -913,18 +894,24 @@ export const useDocumentPageSourceRuntime = (options: {
         if (handleWheelZoom(interaction) || interaction.intent === 'platform-scroll') {
             return;
         }
-        const target = pagedWheelNavigation.handle(interaction.event, {
-            container: viewerContainer.value,
-            continuousScroll: props.value.continuousScroll,
-            currentPage: currentPage.value,
-            pageCount: source.value?.pageCount ?? 0,
-            pageHeights: pageHeights.value,
-            viewMode: props.value.viewMode,
-        }, interaction.deltaPx);
-        if (target !== null) scrollToPage(target, {
-            navigationSource: 'wheel',
-            alignPageBottom: interaction.deltaPx < 0,
-        });
+        const target = pagedWheelNavigation.handle(
+            interaction.event,
+            {
+                container: viewerContainer.value,
+                continuousScroll: props.value.continuousScroll,
+                currentPage: currentPage.value,
+                pageCount: source.value?.pageCount ?? 0,
+                pageHeights: pageHeights.value,
+                viewMode: props.value.viewMode,
+            },
+            interaction.deltaPx,
+        );
+        if (target !== null) {
+            scrollToPage(target, {
+                navigationSource: 'wheel',
+                alignPageBottom: interaction.deltaPx < 0,
+            });
+        }
     }
     function scrollToPage(
         pageNumber: number,
@@ -944,13 +931,13 @@ export const useDocumentPageSourceRuntime = (options: {
         if (ticket) {
             lastProjectedNavigationSignal = ticket.signal;
         }
-        const requestedTargetPage = ticket?.request.target && 'page' in ticket.request.target
-            ? ticket.request.target.page
-            : normalized;
+        const requestedTargetPage = ticket?.request.target && 'page' in ticket.request.target ? ticket.request.target.page : normalized;
         const targetPage = Math.max(1, Math.min(source.value?.pageCount ?? normalized, Math.trunc(requestedTargetPage)));
-        physicalScroll.place(props.value.continuousScroll ? scrollLayout.value.layout : null,
+        physicalScroll.place(
+            props.value.continuousScroll ? scrollLayout.value.layout : null,
             Math.max(0, (pageTops.value[targetPage - 1] ?? DOCUMENT_PAGE_GUTTER_PX) - DOCUMENT_PAGE_GUTTER_PX),
-            containerHeight.value);
+            containerHeight.value,
+        );
         const readyState = presentation.pageStates.get(normalized);
         const intent = chassisAuthority?.viewportWritePort.beginIntent(
             `page-source-navigation:${String(targetPage)}:${String(transitions.loadGeneration.value)}`,
@@ -959,28 +946,24 @@ export const useDocumentPageSourceRuntime = (options: {
         const signal = openJob?.abort.signal;
         const metricFence = transitions.readFence();
         if (activeSource && signal && !exactPageMetricNumbers.has(targetPage)) {
-            void ensureExactPageMetric(
-                activeSource,
-                metricFence.loadGeneration,
-                targetPage,
-                signal,
-                () => transitions.isCurrent(metricFence),
-            ).then(() => scheduleRender.schedule()).catch((error: unknown) => {
-                if (
-                    transitions.isCurrent(metricFence)
-                    && props.value.isActive
-                    && source.value === activeSource
-                    && !signal.aborted
-                    && !isAbortError(error)
-                ) {
-                    const message = presentation.commitTerminalError(targetPage, error);
-                    if (targetPage === currentPage.value) {
-                        emit('loadError', error instanceof Error
-                            ? error
-                            : presentation.createFailureError(targetPage, message));
+            void ensureExactPageMetric(activeSource, metricFence.loadGeneration, targetPage, signal, () =>
+                transitions.isCurrent(metricFence),
+            )
+                .then(() => scheduleRender.schedule())
+                .catch((error: unknown) => {
+                    if (
+                        transitions.isCurrent(metricFence) &&
+                        props.value.isActive &&
+                        source.value === activeSource &&
+                        !signal.aborted &&
+                        !isAbortError(error)
+                    ) {
+                        const message = presentation.commitTerminalError(targetPage, error);
+                        if (targetPage === currentPage.value) {
+                            emit('loadError', error instanceof Error ? error : presentation.createFailureError(targetPage, message));
+                        }
                     }
-                }
-            });
+                });
         }
         void nextTick(() => {
             if (viewerContainer.value) {
@@ -993,33 +976,46 @@ export const useDocumentPageSourceRuntime = (options: {
                 const anchor = ticket?.request.target.kind === 'page' ? ticket.request.target.anchor : null;
                 const container = viewerContainer.value;
                 const arrived = readArrivedViewportClientSize(container);
-                const restored = anchor ? resolveDocumentZoomAnchorScroll({
-                    clientWidth: arrived.width,
-                    clientHeight: arrived.height,
-                    scrollLeft: container.scrollLeft,
-                    scrollTop: physicalScroll.origin.value + container.scrollTop,
-                }, zoomAnchorPageLayouts.value, {
-                    pageIndex: targetPage - 1,
-                    xRatio: anchor.pageXFraction,
-                    yRatio: anchor.pageYFraction,
-                    viewportXRatio: anchor.viewportXFraction,
-                    viewportYRatio: anchor.viewportYFraction,
-                }) : null;
+                const restored = anchor
+                    ? resolveDocumentZoomAnchorScroll(
+                          {
+                              clientWidth: arrived.width,
+                              clientHeight: arrived.height,
+                              scrollLeft: container.scrollLeft,
+                              scrollTop: physicalScroll.origin.value + container.scrollTop,
+                          },
+                          zoomAnchorPageLayouts.value,
+                          {
+                              pageIndex: targetPage - 1,
+                              xRatio: anchor.pageXFraction,
+                              yRatio: anchor.pageYFraction,
+                              viewportXRatio: anchor.viewportXFraction,
+                              viewportYRatio: anchor.viewportYFraction,
+                          },
+                      )
+                    : null;
                 // Navigation wins over a queued restore: it commits the point the restore places.
-                applyLogicalScroll(viewerContainer.value, {
-                    intent,
-                    reason: 'source-neutral-page-navigation',
-                    ...(restored ? {left: restored.left} : {}),
-                    top: restored?.top ?? (props.value.continuousScroll
-                        ? Math.max(
-                            0,
-                            (pageTops.value[targetPage - 1] ?? DOCUMENT_PAGE_GUTTER_PX)
-                                - DOCUMENT_PAGE_GUTTER_PX,
-                        )
-                        : options.alignPageBottom
-                            ? Math.max(0, (pageHeights.value[targetPage - 1] ?? 0) + DOCUMENT_PAGE_GUTTER_PX * 2 - viewerContainer.value.clientHeight)
-                            : 0),
-                }, layoutLifecycle.commitReadingPoint);
+                applyLogicalScroll(
+                    viewerContainer.value,
+                    {
+                        intent,
+                        reason: 'source-neutral-page-navigation',
+                        ...(restored ? {left: restored.left} : {}),
+                        top:
+                            restored?.top ??
+                            (props.value.continuousScroll
+                                ? Math.max(0, (pageTops.value[targetPage - 1] ?? DOCUMENT_PAGE_GUTTER_PX) - DOCUMENT_PAGE_GUTTER_PX)
+                                : options.alignPageBottom
+                                  ? Math.max(
+                                        0,
+                                        (pageHeights.value[targetPage - 1] ?? 0) +
+                                            DOCUMENT_PAGE_GUTTER_PX * 2 -
+                                            viewerContainer.value.clientHeight,
+                                    )
+                                  : 0),
+                    },
+                    layoutLifecycle.commitReadingPoint,
+                );
             }
             // Place the physical viewport before publishing an already-painted
             // target. Otherwise the ready callback can report arrival first,
@@ -1031,23 +1027,16 @@ export const useDocumentPageSourceRuntime = (options: {
         });
     }
     watch(
-        () => [
-            chassisAuthority?.openSurface.navigationTicket.value ?? null,
-            source.value,
-            pageMetrics.value,
-            viewerContainer.value,
-        ] as const,
-        ([
-            ticket,
-            activeSource,
-            metrics,
-            container,
-        ]) => {
+        () =>
+            [chassisAuthority?.openSurface.navigationTicket.value ?? null, source.value, pageMetrics.value, viewerContainer.value] as const,
+        ([ticket, activeSource, metrics, container]) => {
             if (
-                !ticket
-                || !activeSource || metrics.length !== activeSource.pageCount || !container
-                || lastProjectedNavigationSignal === ticket.signal
-                || !('page' in ticket.request.target)
+                !ticket ||
+                !activeSource ||
+                metrics.length !== activeSource.pageCount ||
+                !container ||
+                lastProjectedNavigationSignal === ticket.signal ||
+                !('page' in ticket.request.target)
             ) {
                 return;
             }
@@ -1058,10 +1047,7 @@ export const useDocumentPageSourceRuntime = (options: {
             immediate: true,
         },
     );
-    const {
-        start: scheduleInactiveLeaseRelease,
-        stop: cancelInactiveLeaseRelease,
-    } = useTimeoutFn(
+    const {start: scheduleInactiveLeaseRelease, stop: cancelInactiveLeaseRelease} = useTimeoutFn(
         (retainedPageNumber: number, retainedLease: unknown) => {
             if (!props.value.isActive && presentation.pageStates.get(retainedPageNumber)?.lease === retainedLease) {
                 presentation.releasePage(retainedPageNumber);
@@ -1073,8 +1059,7 @@ export const useDocumentPageSourceRuntime = (options: {
     function releaseInactivePageStates() {
         cancelInactiveLeaseRelease();
         const retainCurrentPage = shouldRetainInactiveDocumentPageSourceLease(
-            resolveOpenPathSecondaryPerformancePolicy(rasterBufferProfile)
-                .inactiveDjvuLeasePolicy === 'warm-grace',
+            resolveOpenPathSecondaryPerformancePolicy(rasterBufferProfile).inactiveDjvuLeasePolicy === 'warm-grace',
             surfaceBudget.getSnapshot().pressureLevel,
         );
         const retainedPageNumber = retainCurrentPage ? currentPage.value : null;
@@ -1126,11 +1111,7 @@ export const useDocumentPageSourceRuntime = (options: {
         source.value = null;
         physicalScroll.place(null, 0, 0);
         if (!seedOpeningPageMetrics()) {
-            pageMetrics.value = documentRef
-                ? createColdOpenProvisionalDocumentPageMetrics(Math.max(1, Math.trunc(
-                    currentPage.value,
-                )))
-                : [];
+            pageMetrics.value = documentRef ? createColdOpenProvisionalDocumentPageMetrics(Math.max(1, Math.trunc(currentPage.value))) : [];
         }
         isLoading.value = Boolean(documentRef);
         if (!documentRef) {
@@ -1147,7 +1128,7 @@ export const useDocumentPageSourceRuntime = (options: {
             ensureExactPageMetric,
             layoutLifecycle,
             loadController: job.abort,
-            markExactPageMetric: pageNumber => exactPageMetricNumbers.add(pageNumber),
+            markExactPageMetric: (pageNumber) => exactPageMetricNumbers.add(pageNumber),
             measureViewport,
             openingPageFrameOwnerId,
             publishPageMetrics: (metrics) => {
@@ -1156,14 +1137,9 @@ export const useDocumentPageSourceRuntime = (options: {
             readCurrentPage: () => currentPage.value,
             getPriorityPages: () => {
                 const demand = renderDemand.value;
-                return [...new Set([
-                    ...demand.visiblePages,
-                    ...demand.bufferPages,
-                    ...demand.residentPages,
-                    currentPage.value,
-                ])];
+                return [...new Set([...demand.visiblePages, ...demand.bufferPages, ...demand.residentPages, currentPage.value])];
             },
-            readPageMetric: pageNumber => pageMetrics.value[pageNumber - 1],
+            readPageMetric: (pageNumber) => pageMetrics.value[pageNumber - 1],
             readPolicy: () => ({
                 continuousScroll: props.value.continuousScroll,
                 zoom: props.value.zoom,
@@ -1193,7 +1169,7 @@ export const useDocumentPageSourceRuntime = (options: {
     function applySuspendTransition() {
         layoutLifecycle.suspend();
         scheduleRender.cancel();
-        presentation.renderControllers.forEach(controller => controller.abort());
+        presentation.renderControllers.forEach((controller) => controller.abort());
         presentation.renderControllers.clear();
         releaseInactivePageStates();
     }
@@ -1211,9 +1187,15 @@ export const useDocumentPageSourceRuntime = (options: {
         });
     }
     // Opening geometry the host commits before this source is acquired seeds the cold page metrics.
-    watch(() => chassisAuthority?.openSurface.snapshot.value.openingPageGeometry ?? null, (geometry) => {
-        if (geometry && !source.value) seedOpeningPageMetrics();
-    }, {immediate: true});
+    watch(
+        () => chassisAuthority?.openSurface.snapshot.value.openingPageGeometry ?? null,
+        (geometry) => {
+            if (geometry && !source.value) {
+                seedOpeningPageMetrics();
+            }
+        },
+        {immediate: true},
+    );
     transitions.channel.subscribe((transition) => {
         switch (transition.kind) {
             case 'open':
@@ -1239,25 +1221,20 @@ export const useDocumentPageSourceRuntime = (options: {
         }
         scheduleRender.schedule();
     }
-    watch(
-        [
-            () => renderDemand.value.residentPages,
-            pixelRatio,
-        ],
-        ([pages]) => retainOnlyPageStates(pages),
-    );
+    watch([() => renderDemand.value.residentPages, pixelRatio], ([pages]) => retainOnlyPageStates(pages));
     onMounted(() => {
         viewerContainer.value = chassisAuthority?.viewportElement.value ?? null;
         measureViewport();
-        releaseViewportFeature = chassisAuthority?.bindViewportFeature({
-            getClass: () => 'document-viewer-viewport document-source-viewer app-scrollbar',
-            getStyle: () => ({}),
-            events: {
-                mousedown: cancelWheelInteraction,
-                scroll: event => handleScroll(event),
-            },
-            wheel: handleWheel,
-        }) ?? null;
+        releaseViewportFeature =
+            chassisAuthority?.bindViewportFeature({
+                getClass: () => 'document-viewer-viewport document-source-viewer app-scrollbar',
+                getStyle: () => ({}),
+                events: {
+                    mousedown: cancelWheelInteraction,
+                    scroll: (event) => handleScroll(event),
+                },
+                wheel: handleWheel,
+            }) ?? null;
     });
     onBeforeUnmount(() => {
         transitions.dispose();
@@ -1301,21 +1278,25 @@ export const useDocumentPageSourceRuntime = (options: {
             // the layout watcher then queues its restore in the next flush. An
             // unchanged, hidden or closed view has no restore to wait for.
             whenLayoutPlaced: async () => {
-                if (!props.value.isActive) return;
+                if (!props.value.isActive) {
+                    return;
+                }
                 measureViewport();
                 await nextTick();
                 await layoutLifecycle.whenRestored();
             },
             captureReadingAnchor: (): IPdfSemanticAnchor | null => {
                 const anchor = layoutLifecycle.readReadingPoint();
-                return anchor ? {
-                    page: anchor.pageIndex + 1,
-                    pageXFraction: clamp(anchor.xRatio, 0, 1),
-                    pageYFraction: clamp(anchor.yRatio, 0, 1),
-                    viewportXFraction: anchor.viewportXRatio ?? 0.5,
-                    viewportYFraction: anchor.viewportYRatio ?? 0.5,
-                    affinity: 'center',
-                } : null;
+                return anchor
+                    ? {
+                          page: anchor.pageIndex + 1,
+                          pageXFraction: clamp(anchor.xRatio, 0, 1),
+                          pageYFraction: clamp(anchor.yRatio, 0, 1),
+                          viewportXFraction: anchor.viewportXRatio ?? 0.5,
+                          viewportYFraction: anchor.viewportYRatio ?? 0.5,
+                          affinity: 'center',
+                      }
+                    : null;
             },
         } satisfies IDocumentViewerExpose & {isDocumentLoading: () => boolean},
     };

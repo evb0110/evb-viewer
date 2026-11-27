@@ -1,16 +1,18 @@
-import type { WebContents } from 'electron';
-import { sep } from 'path';
-import { createLogger } from '@electron/utils/createLogger';
-import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
-import { normalizeExistingPath } from '@electron/utils/normalizeExistingPath';
-import { isReservedTempPath } from '@electron/utils/pathValidator';
+import type {WebContents} from 'electron';
+import {sep} from 'path';
+import {createLogger} from '@electron/utils/createLogger';
+import {onSenderLifetimeEnd} from '@electron/utils/onSenderLifetimeEnd';
+import {normalizeExistingPath} from '@electron/utils/normalizeExistingPath';
+import {isReservedTempPath} from '@electron/utils/pathValidator';
 import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
-import type { TBrand } from '@contracts/brand';
+import type {TBrand} from '@contracts/brand';
 
 export type TOpenPath = TBrand<string, 'OpenPath'>;
 
 const logger = createLogger('open-path-capabilities');
-interface IOpenPathGrant { expiresAtMs: number; }
+interface IOpenPathGrant {
+    expiresAtMs: number;
+}
 
 const allowedOpenPathsByOwner = new Map<number, Map<string, IOpenPathGrant>>();
 const allowedRevealPathsByOwner = new Map<number, Map<string, IOpenPathGrant>>();
@@ -18,18 +20,9 @@ const ownerCleanupRegistered = new Set<number>();
 export const MAX_ALLOWED_OPEN_PATHS = 2_048;
 export const OPEN_PATH_CAPABILITY_TTL_MS = 24 * 60 * 60 * 1000;
 
-function pruneAllowedPathMap(
-    allowedPathsByOwner: Map<number, Map<string, IOpenPathGrant>>,
-    now: number,
-) {
-    for (const [
-        ownerId,
-        allowedOpenPaths,
-    ] of allowedPathsByOwner.entries()) {
-        for (const [
-            filePath,
-            grant,
-        ] of allowedOpenPaths.entries()) {
+function pruneAllowedPathMap(allowedPathsByOwner: Map<number, Map<string, IOpenPathGrant>>, now: number) {
+    for (const [ownerId, allowedOpenPaths] of allowedPathsByOwner.entries()) {
+        for (const [filePath, grant] of allowedOpenPaths.entries()) {
             if (grant.expiresAtMs <= now) {
                 allowedOpenPaths.delete(filePath);
             }
@@ -54,10 +47,7 @@ function pruneAllowedPaths(now = Date.now()) {
     pruneAllowedPathMap(allowedRevealPathsByOwner, now);
 }
 
-function getAllowedPaths(
-    allowedPathsByOwner: Map<number, Map<string, IOpenPathGrant>>,
-    ownerId: number,
-) {
+function getAllowedPaths(allowedPathsByOwner: Map<number, Map<string, IOpenPathGrant>>, ownerId: number) {
     let allowedOpenPaths = allowedPathsByOwner.get(ownerId);
     if (!allowedOpenPaths) {
         allowedOpenPaths = new Map<string, IOpenPathGrant>();
@@ -95,16 +85,18 @@ function registerOwnerCleanup(owner: number | WebContents, ownerId: number) {
     }
 
     ownerCleanupRegistered.add(ownerId);
-    const stop = onSenderLifetimeEnd(owner, () => {
-        stop();
-        removeAllowedPathsForOwner(ownerId);
-    }, {navigation: true});
+    const stop = onSenderLifetimeEnd(
+        owner,
+        () => {
+            stop();
+            removeAllowedPathsForOwner(ownerId);
+        },
+        {navigation: true},
+    );
 }
 
 function isDestroyedOwner(owner: number | WebContents) {
-    return typeof owner !== 'number'
-        && typeof owner.isDestroyed === 'function'
-        && owner.isDestroyed();
+    return typeof owner !== 'number' && typeof owner.isDestroyed === 'function' && owner.isDestroyed();
 }
 
 function isReservedOpenPath(rawPath: string, normalizedPath: string) {
@@ -124,7 +116,7 @@ function allowPathsForWebContents(
         }
         return normalizedPath as TOpenPath;
     });
-    if (normalizedPaths.every(normalizedPath => normalizedPath === null)) {
+    if (normalizedPaths.every((normalizedPath) => normalizedPath === null)) {
         return normalizedPaths;
     }
 
@@ -147,9 +139,9 @@ function allowPathsForWebContents(
     pruneAllowedPaths();
     // A batch larger than the owner's cap loses its oldest grants to the
     // prune; report only the paths that are still granted.
-    return normalizedPaths.map(normalizedPath => (
-        normalizedPath !== null && allowedOpenPaths.has(normalizePathForLookup(normalizedPath)) ? normalizedPath : null
-    ));
+    return normalizedPaths.map((normalizedPath) =>
+        normalizedPath !== null && allowedOpenPaths.has(normalizePathForLookup(normalizedPath)) ? normalizedPath : null,
+    );
 }
 
 export function allowOpenPath(filePath: string, owner?: number | WebContents) {
@@ -168,11 +160,7 @@ export function allowRevealPaths(filePaths: readonly string[], owner?: number | 
     return allowPathsForWebContents(allowedRevealPathsByOwner, owner ?? 0, filePaths);
 }
 
-function isAllowedPath(
-    allowedPathsByOwner: Map<number, Map<string, IOpenPathGrant>>,
-    filePath: string,
-    owner?: number | WebContents,
-) {
+function isAllowedPath(allowedPathsByOwner: Map<number, Map<string, IOpenPathGrant>>, filePath: string, owner?: number | WebContents) {
     const normalizedPath = normalizeExistingPath(filePath);
     if (!normalizedPath || isReservedOpenPath(filePath, normalizedPath)) {
         return false;
@@ -234,11 +222,8 @@ export function requireRevealPath(rawPath: string, owner?: number | WebContents)
     }
 
     if (
-        isReservedOpenPath(rawPath, normalizedPath)
-        || (
-            !isAllowedPath(allowedRevealPathsByOwner, normalizedPath, owner)
-            && !isAllowedPath(allowedOpenPathsByOwner, normalizedPath, owner)
-        )
+        isReservedOpenPath(rawPath, normalizedPath) ||
+        (!isAllowedPath(allowedRevealPathsByOwner, normalizedPath, owner) && !isAllowedPath(allowedOpenPathsByOwner, normalizedPath, owner))
     ) {
         throw new Error(`Path not allowed: ${rawPath}`);
     }
@@ -270,8 +255,6 @@ export function removeAllowedRevealPath(filePath: string) {
 
 export function logRejectedOpenPath(filePath: string) {
     const normalizedPath = normalizeExistingPath(filePath);
-    const displayPath = normalizedPath
-        ? normalizedPath.split(sep).slice(-3).join(sep)
-        : '<invalid>';
+    const displayPath = normalizedPath ? normalizedPath.split(sep).slice(-3).join(sep) : '<invalid>';
     logger.warn(`Rejected renderer direct-open request without a main-issued capability: ${displayPath}`);
 }

@@ -1,15 +1,12 @@
 import type {IAnnotationCreationFailureReport} from '@app/modules/pdf-viewer/public';
-import type { TTranslateFn } from '@i18n-app';
+import type {TTranslateFn} from '@i18n-app';
 import type {IPdfPersistFailure} from '@app/types/pdfUi';
 import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
 import {findSerializableErrorEnvelope} from '@contracts/serializableError';
-import {
-    getFailureReceipt,
-    type FailureReceipt,
-} from '@contracts/diagnostics/failureReceipt';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { getErrorMessage } from '@app/utils/error';
-import { isPdfjsAssetVersionMismatch } from '@app/utils/isPdfjsAssetVersionMismatch';
+import {getFailureReceipt, type FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getErrorMessage} from '@app/utils/error';
+import {isPdfjsAssetVersionMismatch} from '@app/utils/isPdfjsAssetVersionMismatch';
 import {
     classifyDocumentOpenError,
     describeBrowserEngineLimit,
@@ -56,13 +53,12 @@ export type TWorkspaceSaveFailureReason =
  * anyone: the localized reason, the failure's one receipt and its raw cause
  * for Copy details. The document session presents it once.
  */
-export function describeDocumentOpenFailure(
-    error: unknown,
-    t: TTranslateFn,
-): IFailurePresentation & {description: string} {
+export function describeDocumentOpenFailure(error: unknown, t: TTranslateFn): IFailurePresentation & {description: string} {
     const technicalDetails = getErrorMessage(error).trim();
     return {
-        failure: getFailureReceipt(error) ?? BrowserLogger.error('workspace', 'Document failed to open', error, {code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED'}),
+        failure:
+            getFailureReceipt(error) ??
+            BrowserLogger.error('workspace', 'Document failed to open', error, {code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED'}),
         title: t('errors.file.open'),
         description: isPdfjsAssetVersionMismatch(technicalDetails)
             ? t('errors.file.pdfjsAssetMismatch')
@@ -72,9 +68,9 @@ export function describeDocumentOpenFailure(
 }
 
 export const useWorkspaceFailureSurface = () => {
-    const { t } = useTypedI18n();
+    const {t} = useTypedI18n();
     const toast = useToast();
-    const { presentFailureToast } = useFailureToast();
+    const {presentFailureToast} = useFailureToast();
     const saveFailurePresentation = shallowRef<IFailurePresentation | null>(null);
 
     // Only the operation reported last per domain, so a long session of failed
@@ -96,18 +92,34 @@ export const useWorkspaceFailureSurface = () => {
                 ? t('errors.file.originalSavedOtherKept', {path: persistence.keptFilePath})
                 : t('errors.save.originalChanged');
         }
-        if (persistence?.reason === 'source-unavailable') return t('errors.save.openedVersionUnavailable');
+        if (persistence?.reason === 'source-unavailable') {
+            return t('errors.save.openedVersionUnavailable');
+        }
         const message = persistence?.message ?? '';
         if (HELD_OR_DENIED_MESSAGE.test(message)) {
-            return t(/EBUSY/iu.test(message) ? 'errors.save.fileBusy' : /The PDF is read-only or locked/u.test(message) ? 'errors.save.fileReadOnly' : 'errors.save.permissionDenied');
+            return t(
+                /EBUSY/iu.test(message)
+                    ? 'errors.save.fileBusy'
+                    : /The PDF is read-only or locked/u.test(message)
+                      ? 'errors.save.fileReadOnly'
+                      : 'errors.save.permissionDenied',
+            );
         }
-        if (/The original file cannot be read:/u.test(message)) return t('errors.save.originalUnreadable');
+        if (/The original file cannot be read:/u.test(message)) {
+            return t('errors.save.originalUnreadable');
+        }
         if (/ENOSPC|EDQUOT|no space left|not enough space|disk (?:is )?full|os error (?:28|112)/iu.test(message)) {
             return t('errors.save.diskFull');
         }
-        const identityLimit = persistence?.channel === 'native'
-            ? /(?:\.(?:stableKey|annotationId|id)|\.deleted(?:AnnotationIds|StableKeys)\[\d+\]) must (?:contain at most|be a string with at most) (\d+) UTF-8 bytes/u.exec(message)?.[1] : undefined;
-        if (identityLimit) return t('errors.save.annotationIdentityTooLong', {limit: identityLimit});
+        const identityLimit =
+            persistence?.channel === 'native'
+                ? /(?:\.(?:stableKey|annotationId|id)|\.deleted(?:AnnotationIds|StableKeys)\[\d+\]) must (?:contain at most|be a string with at most) (\d+) UTF-8 bytes/u.exec(
+                      message,
+                  )?.[1]
+                : undefined;
+        if (identityLimit) {
+            return t('errors.save.annotationIdentityTooLong', {limit: identityLimit});
+        }
         const nativeError = findSerializableErrorEnvelope(persistence?.cause, NATIVE_ERROR_ENVELOPE_SCHEMA);
         if (nativeError?.code === 'corrupt-xref' || nativeError?.code === 'invalid-request') {
             return t('errors.save.validation');
@@ -141,32 +153,46 @@ export const useWorkspaceFailureSurface = () => {
         const toldByReason = diagnostics?.cause !== undefined && describeBrowserEngineLimit(diagnostics.cause, t) !== null;
         const description = toldByReason
             ? describeSaveFailure(reason, diagnostics)
-            : detail ?? priorPresentation?.description ?? describeSaveFailure(reason, diagnostics);
-        const receipt = priorPresentation?.failure ?? (isFailurePresentation(existingReceipt) ? undefined : existingReceipt) ?? getFailureReceipt(diagnostics?.cause) ?? BrowserLogger.error(
-            'workspace',
-            'Workspace save failed',
-            {
-                operationId,
-                reason,
-                detail: description,
-                ...(diagnostics === undefined ? {} : {diagnostics}),
-            },
-            {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
-        );
+            : (detail ?? priorPresentation?.description ?? describeSaveFailure(reason, diagnostics));
+        const receipt =
+            priorPresentation?.failure ??
+            (isFailurePresentation(existingReceipt) ? undefined : existingReceipt) ??
+            getFailureReceipt(diagnostics?.cause) ??
+            BrowserLogger.error(
+                'workspace',
+                'Workspace save failed',
+                {
+                    operationId,
+                    reason,
+                    detail: description,
+                    ...(diagnostics === undefined ? {} : {diagnostics}),
+                },
+                {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
+            );
         const presentation: IFailurePresentation = {
             ...priorPresentation,
             failure: receipt,
             title: t('errors.file.save'),
             description,
-            ...(saveAs && (diagnostics?.reason === 'original-changed' || HELD_OR_DENIED_MESSAGE.test(diagnostics?.message ?? '')) ? {actions: [{
-                label: t('toolbar.saveAs'),
-                onClick: saveAs,
-            }]} : {}),
-            ...(diagnostics ? {technicalDetails: getNonEmptyDetails([
-                diagnostics.message,
-                diagnostics.validation?.errors.join('\n'),
-                diagnostics.cause === undefined ? undefined : getErrorMessage(diagnostics.cause),
-            ])} : {}),
+            ...(saveAs && (diagnostics?.reason === 'original-changed' || HELD_OR_DENIED_MESSAGE.test(diagnostics?.message ?? ''))
+                ? {
+                      actions: [
+                          {
+                              label: t('toolbar.saveAs'),
+                              onClick: saveAs,
+                          },
+                      ],
+                  }
+                : {}),
+            ...(diagnostics
+                ? {
+                      technicalDetails: getNonEmptyDetails([
+                          diagnostics.message,
+                          diagnostics.validation?.errors.join('\n'),
+                          diagnostics.cause === undefined ? undefined : getErrorMessage(diagnostics.cause),
+                      ]),
+                  }
+                : {}),
         };
         lastReportedOperationIds.set('save', operationId);
         // A lost target is told once; only a failure of the current document is kept.
@@ -183,15 +209,15 @@ export const useWorkspaceFailureSurface = () => {
      * its existing operation and receipt still own the feedback.
      */
     function reportAnnotationFailure(failure: IAnnotationCreationFailureReport) {
-        if (failure.reason === 'no-selection'
-            || failure.reason === 'selection-not-in-text-layer'
-            || failure.reason === 'editor-unavailable') {
+        if (
+            failure.reason === 'no-selection' ||
+            failure.reason === 'selection-not-in-text-layer' ||
+            failure.reason === 'editor-unavailable'
+        ) {
             BrowserLogger.debug('annotations', 'Annotation creation failure is not user-visible', failure);
             return false;
         }
-        const description = failure.reason === 'selection-spans-pages'
-            ? t('errors.annotation.selectionSpansPages')
-            : undefined;
+        const description = failure.reason === 'selection-spans-pages' ? t('errors.annotation.selectionSpansPages') : undefined;
         if (lastReportedOperationIds.get('annotation') === failure.operationId) {
             return false;
         }
@@ -219,19 +245,29 @@ export const useWorkspaceFailureSurface = () => {
         retry?: () => void;
         previous?: IFailurePresentation;
     }): IFailurePresentation {
-        const reason = (input.cause === undefined ? input.message ?? '' : getErrorMessage(input.cause)).trim() || t('errors.annotation.noteUpdateRejected');
+        const reason =
+            (input.cause === undefined ? (input.message ?? '') : getErrorMessage(input.cause)).trim() ||
+            t('errors.annotation.noteUpdateRejected');
         const presentation: IFailurePresentation = {
-            failure: getFailureReceipt(input.cause) ?? input.previous?.failure ?? BrowserLogger.error(
-                'annotations', 'Annotation note operation failed', input.cause ?? reason,
-                {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
-            ),
+            failure:
+                getFailureReceipt(input.cause) ??
+                input.previous?.failure ??
+                BrowserLogger.error('annotations', 'Annotation note operation failed', input.cause ?? reason, {
+                    code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                }),
             title: (input.message ?? '').trim() || t('errors.annotation.updateNote'),
             description: t('errors.annotation.noteDraftRetained', {reason}),
             technicalDetails: reason,
-            ...(input.retry ? {actions: [{
-                label: t('common.retry'),
-                onClick: input.retry,
-            }]} : {}),
+            ...(input.retry
+                ? {
+                      actions: [
+                          {
+                              label: t('common.retry'),
+                              onClick: input.retry,
+                          },
+                      ],
+                  }
+                : {}),
         };
         presentFailureToast(presentation);
         return presentation;
@@ -245,15 +281,19 @@ export const useWorkspaceFailureSurface = () => {
         }
         return {
             ...presentation,
-            actions: [{
-                label: t('errors.file.pdfjsAssetRepairAction'),
-                onClick: () => {
-                    void copyTextToClipboard('pnpm install --frozen-lockfile').then(copied => toast.add({
-                        color: copied ? 'success' : 'error',
-                        title: t(copied ? 'errors.file.pdfjsAssetRepairCopied' : 'errors.file.pdfjsAssetRepairCopyFailed'),
-                    }));
+            actions: [
+                {
+                    label: t('errors.file.pdfjsAssetRepairAction'),
+                    onClick: () => {
+                        void copyTextToClipboard('pnpm install --frozen-lockfile').then((copied) =>
+                            toast.add({
+                                color: copied ? 'success' : 'error',
+                                title: t(copied ? 'errors.file.pdfjsAssetRepairCopied' : 'errors.file.pdfjsAssetRepairCopyFailed'),
+                            }),
+                        );
+                    },
                 },
-            }],
+            ],
         };
     }
 

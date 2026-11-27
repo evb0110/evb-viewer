@@ -1,28 +1,13 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    computed,
-    effectScope,
-    nextTick,
-    ref,
-} from 'vue';
-import type { Ref } from 'vue';
-import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
-import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
-import { useWorkspaceViewerShellState } from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
-import { useWorkspaceViewerDefaults } from '@app/modules/workspace-shell/composables/useWorkspaceViewerDefaults';
-import type { TPdfSource } from '@app/types/pdfUi';
-import type {
-    ISettingsData,
-    TPdfViewRotation,
-} from '@contracts/shared';
-import {
-    DEFAULT_SETTINGS,
-    sanitizeSettings,
-} from '@contracts/settings';
+import {describe, expect, it} from 'vitest';
+import {computed, effectScope, nextTick, ref} from 'vue';
+import type {Ref} from 'vue';
+import {DEFAULT_ANNOTATION_SETTINGS} from '@app/constants/annotationDefaults';
+import {createDocumentOpenSurfaceSession} from '@app/modules/document-viewer/public';
+import {useWorkspaceViewerShellState} from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
+import {useWorkspaceViewerDefaults} from '@app/modules/workspace-shell/composables/useWorkspaceViewerDefaults';
+import type {TPdfSource} from '@app/types/pdfUi';
+import type {ISettingsData, TPdfViewRotation} from '@contracts/shared';
+import {DEFAULT_SETTINGS, sanitizeSettings} from '@contracts/settings';
 
 function createDefaultsSetup(
     settings: Partial<ISettingsData> = {},
@@ -32,10 +17,12 @@ function createDefaultsSetup(
     } = {},
 ) {
     const scope = effectScope();
-    const appSettings = ref<ISettingsData>(sanitizeSettings({
-        ...DEFAULT_SETTINGS,
-        ...settings,
-    }));
+    const appSettings = ref<ISettingsData>(
+        sanitizeSettings({
+            ...DEFAULT_SETTINGS,
+            ...settings,
+        }),
+    );
     const annotationSettings = ref({
         ...DEFAULT_ANNOTATION_SETTINGS,
         highlightColor: '#111111',
@@ -48,38 +35,45 @@ function createDefaultsSetup(
     const viewMode = ref<ISettingsData['defaultViewMode']>('facing');
     const viewRotation = ref<TPdfViewRotation>(0);
     const continuousScroll = ref(false);
-    const owner = scope.run(() => useWorkspaceViewerShellState({
-        surfaceMode: 'reader',
-        currentPage: 1,
-        zoom: 2,
-        zoomMode: 'custom',
-        fitMode: 'height',
-        viewMode: 'single',
-        showSidebar: false,
-        sidebarTab: 'thumbnails',
-        sidebarWidth: 272,
-        continuousScroll: true,
-    }, createDocumentOpenSurfaceSession()))!;
+    const owner = scope.run(() =>
+        useWorkspaceViewerShellState(
+            {
+                surfaceMode: 'reader',
+                currentPage: 1,
+                zoom: 2,
+                zoomMode: 'custom',
+                fitMode: 'height',
+                viewMode: 'single',
+                showSidebar: false,
+                sidebarTab: 'thumbnails',
+                sidebarWidth: 272,
+                continuousScroll: true,
+            },
+            createDocumentOpenSurfaceSession(),
+        ),
+    )!;
     const {fitMode, zoom, zoomMode, zoomState, setZoomState} = owner;
     const runtimeZoom = ref(2);
     const effectiveZoom = computed(() => runtimeZoom.value);
     const pdfSrc = ref<TPdfSource | null>(null);
     const documentSourceKey = ref<unknown>(options.initialDocumentSourceKey ?? null);
 
-    const defaults = scope.run(() => useWorkspaceViewerDefaults({
-        appSettings,
-        annotationSettings,
-        viewMode,
-        viewRotation,
-        continuousScroll,
-        zoomState,
-        setZoomState,
-        zoom,
-        effectiveZoom,
-        pdfSrc,
-        documentSourceKey,
-        preserveInitialStateForFirstSource: options.preserveInitialStateForFirstSource,
-    }));
+    const defaults = scope.run(() =>
+        useWorkspaceViewerDefaults({
+            appSettings,
+            annotationSettings,
+            viewMode,
+            viewRotation,
+            continuousScroll,
+            zoomState,
+            setZoomState,
+            zoom,
+            effectiveZoom,
+            pdfSrc,
+            documentSourceKey,
+            preserveInitialStateForFirstSource: options.preserveInitialStateForFirstSource,
+        }),
+    );
 
     if (!defaults) {
         throw new Error('Failed to create workspace viewer defaults');
@@ -106,7 +100,7 @@ function createDefaultsSetup(
 }
 
 async function openPdf(pdfSrc: Ref<TPdfSource | null>) {
-    pdfSrc.value = new Blob([], { type: 'application/pdf' });
+    pdfSrc.value = new Blob([], {type: 'application/pdf'});
     await nextTick();
 }
 
@@ -145,17 +139,18 @@ describe('useWorkspaceViewerDefaults', () => {
     });
 
     it('keeps a view seeded for its admitted source when that source is shown, and defaults any other', async () => {
-        const setup = createDefaultsSetup(
-            {defaultZoomPreset: 'fit-width'},
-            {initialDocumentSourceKey: '/tmp/previous-working.pdf'},
-        );
-        const seed = (source: string) => setup.defaults.seedViewForSource({
-            zoom: 1.85,
-            zoomMode: 'custom',
-            viewMode: 'single',
-            continuousScroll: true,
-            viewRotation: 90,
-        }, source);
+        const setup = createDefaultsSetup({defaultZoomPreset: 'fit-width'}, {initialDocumentSourceKey: '/tmp/previous-working.pdf'});
+        const seed = (source: string) =>
+            setup.defaults.seedViewForSource(
+                {
+                    zoom: 1.85,
+                    zoomMode: 'custom',
+                    viewMode: 'single',
+                    continuousScroll: true,
+                    viewRotation: 90,
+                },
+                source,
+            );
 
         try {
             // A replacing open: seeded, the old source reset, the admitted one shown.
@@ -170,13 +165,7 @@ describe('useWorkspaceViewerDefaults', () => {
                 setup.viewMode.value,
                 setup.continuousScroll.value,
                 setup.viewRotation.value,
-            ]).toEqual([
-                'custom',
-                1.85,
-                'single',
-                true,
-                90,
-            ]);
+            ]).toEqual(['custom', 1.85, 'single', true, 90]);
 
             // An open seeded for one source that shows another takes that one's defaults.
             seed('/tmp/seeded-working.pdf');
@@ -192,13 +181,16 @@ describe('useWorkspaceViewerDefaults', () => {
         const source = '/docs/admitted.pdf';
         const setup = createDefaultsSetup({}, {initialDocumentSourceKey: source});
         try {
-            setup.defaults.seedViewForSource({
-                zoom: 1.4,
-                zoomMode: 'fit-width',
-                viewMode: 'single',
-                continuousScroll: true,
-                viewRotation: 90,
-            }, source);
+            setup.defaults.seedViewForSource(
+                {
+                    zoom: 1.4,
+                    zoomMode: 'fit-width',
+                    viewMode: 'single',
+                    continuousScroll: true,
+                    viewRotation: 90,
+                },
+                source,
+            );
             expect(setup.zoomMode.value).toBe('fit-width');
             expect(setup.fitMode.value).toBe('width');
             expect(setup.viewRotation.value).toBe(90);
@@ -209,25 +201,22 @@ describe('useWorkspaceViewerDefaults', () => {
         }
     });
 
-    it('shows a seed at once when nothing is shown, and keeps the reader\'s later zoom when the source arrives', async () => {
+    it("shows a seed at once when nothing is shown, and keeps the reader's later zoom when the source arrives", async () => {
         const setup = createDefaultsSetup({defaultZoomPreset: 'fit-width'});
 
         try {
             // A normal open's reading view, before its source exists.
-            setup.defaults.seedViewForSource({
-                zoom: 1.85,
-                zoomMode: 'custom',
-                viewMode: 'single',
-                continuousScroll: true,
-                viewRotation: 0,
-            }, null);
-            expect([
-                setup.zoomMode.value,
-                setup.zoom.value,
-            ]).toEqual([
-                'custom',
-                1.85,
-            ]);
+            setup.defaults.seedViewForSource(
+                {
+                    zoom: 1.85,
+                    zoomMode: 'custom',
+                    viewMode: 'single',
+                    continuousScroll: true,
+                    viewRotation: 0,
+                },
+                null,
+            );
+            expect([setup.zoomMode.value, setup.zoom.value]).toEqual(['custom', 1.85]);
 
             // The reader zooms the opening view, then the source is shown.
             setup.defaults.handleZoomIn();
@@ -236,13 +225,7 @@ describe('useWorkspaceViewerDefaults', () => {
             await nextTick();
 
             expect(readerZoom).toBeGreaterThan(1.85);
-            expect([
-                setup.zoomMode.value,
-                setup.zoom.value,
-            ]).toEqual([
-                'custom',
-                readerZoom,
-            ]);
+            expect([setup.zoomMode.value, setup.zoom.value]).toEqual(['custom', readerZoom]);
         } finally {
             setup.stop();
         }
@@ -281,39 +264,27 @@ describe('useWorkspaceViewerDefaults', () => {
         }
     });
 
-    it('leaves the shown document\'s view as it is while a seed for the next source waits, and after it is withdrawn', async () => {
-        const setup = createDefaultsSetup(
-            {defaultZoomPreset: 'fit-width'},
-            {initialDocumentSourceKey: '/tmp/shown-working.pdf'},
-        );
+    it("leaves the shown document's view as it is while a seed for the next source waits, and after it is withdrawn", async () => {
+        const setup = createDefaultsSetup({defaultZoomPreset: 'fit-width'}, {initialDocumentSourceKey: '/tmp/shown-working.pdf'});
 
         try {
-            const shown = [
-                setup.zoomMode.value,
-                setup.zoom.value,
-                setup.viewMode.value,
-            ];
-            const withdraw = setup.defaults.seedViewForSource({
-                zoom: 1.85,
-                zoomMode: 'custom',
-                viewMode: 'single',
-                continuousScroll: true,
-                viewRotation: 0,
-            }, '/tmp/failed-working.pdf');
-            expect([
-                setup.zoomMode.value,
-                setup.zoom.value,
-                setup.viewMode.value,
-            ]).toEqual(shown);
+            const shown = [setup.zoomMode.value, setup.zoom.value, setup.viewMode.value];
+            const withdraw = setup.defaults.seedViewForSource(
+                {
+                    zoom: 1.85,
+                    zoomMode: 'custom',
+                    viewMode: 'single',
+                    continuousScroll: true,
+                    viewRotation: 0,
+                },
+                '/tmp/failed-working.pdf',
+            );
+            expect([setup.zoomMode.value, setup.zoom.value, setup.viewMode.value]).toEqual(shown);
 
             // The open failed before its source was shown.
             withdraw();
             await nextTick();
-            expect([
-                setup.zoomMode.value,
-                setup.zoom.value,
-                setup.viewMode.value,
-            ]).toEqual(shown);
+            expect([setup.zoomMode.value, setup.zoom.value, setup.viewMode.value]).toEqual(shown);
         } finally {
             setup.stop();
         }
@@ -350,23 +321,14 @@ describe('useWorkspaceViewerDefaults', () => {
                 continuousScroll: null,
                 viewRotation: null,
             });
-            expect([
-                setup.zoomMode.value,
-                setup.zoom.value,
-            ]).toEqual([
-                'custom',
-                1.37,
-            ]);
+            expect([setup.zoomMode.value, setup.zoom.value]).toEqual(['custom', 1.37]);
         } finally {
             setup.stop();
         }
     });
 
     it('preserves a document source already attached during setup', async () => {
-        const setup = createDefaultsSetup(
-            {defaultZoomPreset: 'fit-width'},
-            {initialDocumentSourceKey: 'pdf:/docs/transferred.pdf'},
-        );
+        const setup = createDefaultsSetup({defaultZoomPreset: 'fit-width'}, {initialDocumentSourceKey: 'pdf:/docs/transferred.pdf'});
 
         try {
             expect(setup.fitMode.value).toBe('height');
@@ -417,7 +379,7 @@ describe('useWorkspaceViewerDefaults', () => {
     });
 
     it('applies fit-height as the default zoom preset', async () => {
-        const setup = createDefaultsSetup({ defaultZoomPreset: 'fit-height' });
+        const setup = createDefaultsSetup({defaultZoomPreset: 'fit-height'});
 
         try {
             await openPdf(setup.pdfSrc);
@@ -432,20 +394,11 @@ describe('useWorkspaceViewerDefaults', () => {
     });
 
     it.each([
-        [
-            '100',
-            1,
-        ],
-        [
-            '125',
-            1.25,
-        ],
-        [
-            '150',
-            1.5,
-        ],
+        ['100', 1],
+        ['125', 1.25],
+        ['150', 1.5],
     ] as const)('applies numeric default zoom preset %s as custom zoom', async (preset, expectedZoom) => {
-        const setup = createDefaultsSetup({ defaultZoomPreset: preset });
+        const setup = createDefaultsSetup({defaultZoomPreset: preset});
 
         try {
             await openPdf(setup.pdfSrc);
@@ -459,7 +412,7 @@ describe('useWorkspaceViewerDefaults', () => {
     });
 
     it('applies fit-width when settings sanitization rejects the stored preset', async () => {
-        const setup = createDefaultsSetup({ defaultZoomPreset: 'unsupported' as ISettingsData['defaultZoomPreset'] });
+        const setup = createDefaultsSetup({defaultZoomPreset: 'unsupported' as ISettingsData['defaultZoomPreset']});
 
         try {
             await openPdf(setup.pdfSrc);
@@ -572,10 +525,7 @@ describe('useWorkspaceViewerDefaults', () => {
     });
 
     it('preserves restored viewer state when the first source is reacquired', async () => {
-        const setup = createDefaultsSetup(
-            {defaultZoomPreset: 'fit-width'},
-            {preserveInitialStateForFirstSource: true},
-        );
+        const setup = createDefaultsSetup({defaultZoomPreset: 'fit-width'}, {preserveInitialStateForFirstSource: true});
 
         try {
             expect(setup.viewMode.value).toBe('facing');

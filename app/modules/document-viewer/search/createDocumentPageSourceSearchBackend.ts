@@ -1,9 +1,6 @@
-import type {
-    IDocumentPageSource,
-    IDocumentSearchProvider,
-} from '@app/modules/document-viewer/source/documentPageSource';
-import type { IDocumentSearchBackend } from '@app/modules/document-viewer/search/documentSearch';
-import { DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH } from '@contracts/search';
+import type {IDocumentPageSource, IDocumentSearchProvider} from '@app/modules/document-viewer/source/documentPageSource';
+import type {IDocumentSearchBackend} from '@app/modules/document-viewer/search/documentSearch';
+import {DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH} from '@contracts/search';
 
 let nextDocumentSourceSearchRequestId = 0;
 
@@ -14,14 +11,15 @@ function createProviderBackend(provider: IDocumentSearchProvider): IDocumentSear
             const response = await provider.search({
                 ...request,
                 requestId: `document-source-search-${String(++nextDocumentSourceSearchRequestId)}`,
-                onProgress: progress => request.onProgress?.({
-                    processed: progress.processed,
-                    total: progress.total,
-                    ...(progress.coverage ? {coverage: progress.coverage} : {}),
-                }),
+                onProgress: (progress) =>
+                    request.onProgress?.({
+                        processed: progress.processed,
+                        total: progress.total,
+                        ...(progress.coverage ? {coverage: progress.coverage} : {}),
+                    }),
             });
             return {
-                results: response.results.map(result => ({
+                results: response.results.map((result) => ({
                     pageIndex: Number(result.pageNumber) - 1,
                     pageMatchIndex: result.pageMatchIndex,
                     matchIndex: result.matchIndex,
@@ -41,9 +39,7 @@ function createProviderBackend(provider: IDocumentSearchProvider): IDocumentSear
 }
 
 /** Uses the format's indexed/native search provider. */
-export function createDocumentPageSourceSearchBackend(
-    source: IDocumentPageSource | null,
-): IDocumentSearchBackend | null {
+export function createDocumentPageSourceSearchBackend(source: IDocumentPageSource | null): IDocumentSearchBackend | null {
     if (source?.searchProvider) {
         return createProviderBackend(source.searchProvider);
     }

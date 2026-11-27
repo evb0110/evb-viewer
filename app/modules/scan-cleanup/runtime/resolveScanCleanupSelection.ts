@@ -26,8 +26,11 @@ export function resolveScanCleanupSelection(
 ): IScanCleanupSelectionState {
     if (intent === 'toggle') {
         const selectedPages = new Set(state.selectedPages);
-        if (selectedPages.has(page)) selectedPages.delete(page);
-        else selectedPages.add(page);
+        if (selectedPages.has(page)) {
+            selectedPages.delete(page);
+        } else {
+            selectedPages.add(page);
+        }
         return {
             anchor: page,
             leader: page,
@@ -58,12 +61,8 @@ export function createScanCleanupNaturalPageOrder(pageCount: number): IScanClean
     const length = Math.max(0, Math.trunc(pageCount));
     return {
         length,
-        pageAt: position => position >= 1 && position <= length
-            ? position
-            : undefined,
-        positionOf: page => page >= 1 && page <= length
-            ? page
-            : -1,
+        pageAt: (position) => (position >= 1 && position <= length ? position : undefined),
+        positionOf: (page) => (page >= 1 && page <= length ? page : -1),
     };
 }
 
@@ -79,14 +78,10 @@ export function createScanCleanupSparsePageOrder(
     compare: (left: number, right: number) => number,
 ): IScanCleanupPageOrder {
     const length = Math.max(0, Math.trunc(pageCount));
-    const knownByPosition = [...loadedPages]
-        .filter(page => Number.isInteger(page) && page >= 1 && page <= length);
+    const knownByPosition = [...loadedPages].filter((page) => Number.isInteger(page) && page >= 1 && page <= length);
     knownByPosition.sort(compare);
     const knownByNaturalPage = [...knownByPosition].sort((left, right) => left - right);
-    const positionByPage = new Map(knownByPosition.map((page, index) => [
-        page,
-        index + 1,
-    ] as const));
+    const positionByPage = new Map(knownByPosition.map((page, index) => [page, index + 1] as const));
     const unknownCountBefore = (page: number) => upperBound(knownByNaturalPage, page - 1);
     const pageAtUnknownPosition = (unknownPosition: number) => {
         let low = 1;
@@ -94,14 +89,17 @@ export function createScanCleanupSparsePageOrder(
         while (low < high) {
             const middle = low + Math.floor((high - low) / 2);
             const unknownCount = middle - unknownCountBefore(middle + 1);
-            if (unknownCount < unknownPosition) low = middle + 1;
-            else high = middle;
+            if (unknownCount < unknownPosition) {
+                low = middle + 1;
+            } else {
+                high = middle;
+            }
         }
         return low;
     };
     return {
         length,
-        pageAt: position => {
+        pageAt: (position) => {
             if (position < 1 || position > length) {
                 return undefined;
             }
@@ -110,7 +108,7 @@ export function createScanCleanupSparsePageOrder(
             }
             return pageAtUnknownPosition(position - knownByPosition.length);
         },
-        positionOf: page => {
+        positionOf: (page) => {
             if (!Number.isInteger(page) || page < 1 || page > length) {
                 return -1;
             }
@@ -130,8 +128,11 @@ function upperBound(values: readonly number[], target: number) {
             high = middle;
             continue;
         }
-        if (value <= target) low = middle + 1;
-        else high = middle;
+        if (value <= target) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
     }
     return low;
 }
@@ -141,9 +142,7 @@ function isPageNumberArray(orderedPages: TScanCleanupOrderedPages): orderedPages
 }
 
 function pageOrderPositionOf(orderedPages: TScanCleanupOrderedPages, page: number) {
-    return isPageNumberArray(orderedPages)
-        ? orderedPages.indexOf(page) + 1
-        : orderedPages.positionOf(page);
+    return isPageNumberArray(orderedPages) ? orderedPages.indexOf(page) + 1 : orderedPages.positionOf(page);
 }
 
 function pageOrderPages(orderedPages: TScanCleanupOrderedPages, start: number, end: number) {

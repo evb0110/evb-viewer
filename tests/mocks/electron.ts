@@ -44,7 +44,7 @@ export class BrowserWindow {
         once: noop,
         openDevTools: noop,
         send: noop,
-        setWindowOpenHandler: () => ({ action: 'deny' as const }),
+        setWindowOpenHandler: () => ({action: 'deny' as const}),
     };
 
     close = noop;
@@ -69,7 +69,7 @@ export const contextBridge = {exposeInMainWorld: noop};
 
 export const dialog = {
     showErrorBox: noop,
-    showMessageBox: async () => ({ response: 0 }),
+    showMessageBox: async () => ({response: 0}),
     showOpenDialog: async () => ({
         canceled: true,
         filePaths: [],
@@ -110,25 +110,29 @@ export function MenuItem(_options: Record<string, unknown> = {}) {}
 
 export const nativeImage = {createFromPath: () => createNativeImage()};
 
-export const screen = {getPrimaryDisplay: () => ({
-    scaleFactor: 1,
-    workAreaSize: {
-        height: 900,
-        width: 1440,
-    },
-})};
+export const screen = {
+    getPrimaryDisplay: () => ({
+        scaleFactor: 1,
+        workAreaSize: {
+            height: 900,
+            width: 1440,
+        },
+    }),
+};
 
-export const session = {defaultSession: {
-    clearCache: noopAsync,
-    protocol: {registerFileProtocol: noop},
-    setDisplayMediaRequestHandler: noop,
-    setPermissionCheckHandler: noop,
-    setPermissionRequestHandler: noop,
-    webRequest: {
-        onBeforeSendHeaders: noop,
-        onHeadersReceived: noop,
+export const session = {
+    defaultSession: {
+        clearCache: noopAsync,
+        protocol: {registerFileProtocol: noop},
+        setDisplayMediaRequestHandler: noop,
+        setPermissionCheckHandler: noop,
+        setPermissionRequestHandler: noop,
+        webRequest: {
+            onBeforeSendHeaders: noop,
+            onHeadersReceived: noop,
+        },
     },
-}};
+};
 
 export const shell = {
     openExternal: noopAsync,

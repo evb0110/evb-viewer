@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {ref} from 'vue';
 import {useCombinePdfQueue} from '@app/modules/combine/useCombinePdfQueue';
 
@@ -14,18 +10,12 @@ describe('useCombinePdfQueue', () => {
         const queue = useCombinePdfQueue({
             files,
             isMutationLocked: ref(false),
-            isSupported: file => file.name.endsWith('.pdf'),
-            toQueueItem: file => file,
+            isSupported: (file) => file.name.endsWith('.pdf'),
+            toQueueItem: (file) => file,
         });
-        queue.addFiles([
-            duplicate,
-            unsupported,
-        ]);
+        queue.addFiles([duplicate, unsupported]);
 
-        expect(files.value).toEqual([
-            duplicate,
-            duplicate,
-        ]);
+        expect(files.value).toEqual([duplicate, duplicate]);
         expect(queue.lastRejectedCount.value).toBe(1);
     });
 });

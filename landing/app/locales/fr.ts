@@ -1,7 +1,8 @@
 export default {
     app: {
         title: 'EVB Viewer',
-        description: 'Outils hors ligne pour nettoyer des scans bruts et des fichiers DjVu, effectuer l\'OCR, ajouter des annotations et exporter des PDF sur macOS, Windows et Linux. Gratuit et sous licence MIT.',
+        description:
+            "Outils hors ligne pour nettoyer des scans bruts et des fichiers DjVu, effectuer l'OCR, ajouter des annotations et exporter des PDF sur macOS, Windows et Linux. Gratuit et sous licence MIT.",
         seo: {titleTemplate: '{title} · EVB Viewer'},
     },
     header: {
@@ -30,7 +31,8 @@ export default {
         seo: {
             title: 'Application web EVB Viewer et téléchargements bureau',
             ogTitle: 'EVB Viewer pour le travail documentaire web et bureau',
-            ogDescription: 'Transformez des scans bruts et des fichiers DjVu en PDF recherchables et annotables grâce au nettoyage, à l\'OCR, à l\'annotation et à l\'export hors ligne sur macOS, Windows et Linux. Gratuit et sous licence MIT.',
+            ogDescription:
+                "Transformez des scans bruts et des fichiers DjVu en PDF recherchables et annotables grâce au nettoyage, à l'OCR, à l'annotation et à l'export hors ligne sur macOS, Windows et Linux. Gratuit et sous licence MIT.",
         },
         hero: {
             lede: 'EVB Viewer nettoie les scans bruts et les fichiers DjVu, reconnaît leur texte et enregistre des PDF recherchables et annotables. Il fonctionne hors ligne sur macOS, Windows et Linux, gratuitement et sous licence MIT.',
@@ -40,20 +42,23 @@ export default {
             downloadInstaller: 'Télécharger {installerLabel}',
             browseInstallers: 'Voir tous les installateurs',
             openInBrowser: 'Utiliser dans le navigateur',
-            detectionUnavailable: 'La détection automatique de l’installateur n’est pas disponible. Vous pouvez toujours ouvrir l’application web ou choisir un build bureau ci-dessous.',
+            detectionUnavailable:
+                'La détection automatique de l’installateur n’est pas disponible. Vous pouvez toujours ouvrir l’application web ou choisir un build bureau ci-dessous.',
             suggestedDevice: 'Build bureau suggéré : {installerLabel}',
             published: 'Publié le {date}',
         },
         film: {
-            ariaLabel: 'Enregistrement d\'EVB Viewer : un scan brut de 1880 est nettoyé, reconnu en allemand, puis on y recherche « Edessa ».',
-            play: 'Lire l\'enregistrement',
-            pause: 'Mettre l\'enregistrement en pause',
-            position: 'Position dans l\'enregistrement',
+            ariaLabel:
+                "Enregistrement d'EVB Viewer : un scan brut de 1880 est nettoyé, reconnu en allemand, puis on y recherche « Edessa ».",
+            play: "Lire l'enregistrement",
+            pause: "Mettre l'enregistrement en pause",
+            position: "Position dans l'enregistrement",
             caption: 'Enregistré dans la vraie application avec un scan de 1880 du domaine public.',
         },
         installers: {
             heading: 'Téléchargements bureau',
-            description: 'Les builds bureau ajoutent le nettoyage des numérisations, l’intégration native au système d’exploitation et les flux plus lourds comme les grandes fusions. L’installateur recommandé dépend de votre appareil actuel, mais chaque build reste sélectionnable.',
+            description:
+                'Les builds bureau ajoutent le nettoyage des numérisations, l’intégration native au système d’exploitation et les flux plus lourds comme les grandes fusions. L’installateur recommandé dépend de votre appareil actuel, mais chaque build reste sélectionnable.',
             loading: 'Chargement des liens de la dernière version...',
             error: 'Impossible de charger les artefacts de version pour le moment.',
             retry: 'Réessayer',
@@ -95,7 +100,7 @@ export default {
             },
         },
         features: {
-            title: 'Ce qu\'il fait',
+            title: "Ce qu'il fait",
             items: {
                 cleanup: {
                     title: 'Nettoyage des scans',
@@ -103,11 +108,11 @@ export default {
                 },
                 ocr: {
                     title: 'OCR en 30 langues',
-                    text: 'Tesseract avec les modèles tessdata_best ajoute une couche de texte recherchable. L\'anglais et le russe sont inclus ; les autres langues se téléchargent une fois, quand vous les choisissez.',
+                    text: "Tesseract avec les modèles tessdata_best ajoute une couche de texte recherchable. L'anglais et le russe sont inclus ; les autres langues se téléchargent une fois, quand vous les choisissez.",
                 },
                 search: {
                     title: 'Recherche et navigation',
-                    text: 'Cherchez dans le texte reconnu sur toutes les pages, passez d\'une occurrence à l\'autre et naviguez avec les miniatures, les signets, les onglets et la vue partagée.',
+                    text: "Cherchez dans le texte reconnu sur toutes les pages, passez d'une occurrence à l'autre et naviguez avec les miniatures, les signets, les onglets et la vue partagée.",
                 },
                 annotate: {
                     title: 'Annotations dans le fichier',
@@ -132,7 +137,7 @@ export default {
                 },
                 scholars: {
                     title: 'Historiens et philologues',
-                    text: 'Cherchez dans d\'anciennes éditions dans leur langue d\'origine et gardez vos notes sur la page.',
+                    text: "Cherchez dans d'anciennes éditions dans leur langue d'origine et gardez vos notes sur la page.",
                 },
                 students: {
                     title: 'Étudiants et chercheurs',
@@ -153,32 +158,34 @@ export default {
                 },
                 files: {
                     question: 'Mes documents sont-ils envoyés quelque part ?',
-                    answer: 'Non. L\'application de bureau nettoie, reconnaît, annote et exporte les documents sur votre ordinateur et fonctionne hors ligne. L\'application web traite dans votre navigateur les fichiers que vous ouvrez.',
+                    answer: "Non. L'application de bureau nettoie, reconnaît, annote et exporte les documents sur votre ordinateur et fonctionne hors ligne. L'application web traite dans votre navigateur les fichiers que vous ouvrez.",
                 },
                 languages: {
-                    question: 'Quelles langues l\'OCR reconnaît-il ?',
-                    answer: 'Une trentaine, dont l\'anglais, l\'allemand, le français, le russe, le grec, l\'hébreu, l\'arabe et le syriaque. L\'anglais et le russe sont fournis avec l\'application ; les autres modèles se téléchargent une fois, au premier choix. L’application web lit les mêmes langues.',
+                    question: "Quelles langues l'OCR reconnaît-il ?",
+                    answer: "Une trentaine, dont l'anglais, l'allemand, le français, le russe, le grec, l'hébreu, l'arabe et le syriaque. L'anglais et le russe sont fournis avec l'application ; les autres modèles se téléchargent une fois, au premier choix. L’application web lit les mêmes langues.",
                 },
                 formats: {
                     question: 'Quels fichiers ouvre-t-il ?',
                     answer: 'PDF, DjVu, PNG, JPEG, TIFF, BMP, WebP et GIF. Vous pouvez en combiner plusieurs en un seul PDF.',
                 },
                 browser: {
-                    question: 'Puis-je l\'utiliser sans rien installer ?',
+                    question: "Puis-je l'utiliser sans rien installer ?",
                     answer: 'Oui, sur {webAppUrl}. L’application web ouvre des PDF, des fichiers DjVu et des images locaux, fait l’OCR dans les mêmes langues que l’application de bureau et modifie, enregistre, combine et optimise aussi les gros documents ; produire une numérisation nettoyée nécessite encore l’application de bureau.',
                 },
                 assistant: {
-                    question: 'Utilise-t-il l\'IA ?',
-                    answer: 'EVB Assistant est optionnel et désactivé par défaut. Si vous l\'activez, il utilise votre propre compte Codex ou Claude et peut exposer un serveur MCP local ; le nettoyage des scans, l\'OCR, la recherche et l\'export ne l\'utilisent jamais.',
+                    question: "Utilise-t-il l'IA ?",
+                    answer: "EVB Assistant est optionnel et désactivé par défaut. Si vous l'activez, il utilise votre propre compte Codex ou Claude et peut exposer un serveur MCP local ; le nettoyage des scans, l'OCR, la recherche et l'export ne l'utilisent jamais.",
                 },
             },
         },
         entryPoints: {
             heading: 'Choisir le bon point d’entrée',
-            description: 'Commencez dans le navigateur pour un travail rapide sur PDF, DjVu et images locaux, y compris l’OCR dans une trentaine de langues, ou choisissez l’application de bureau pour le nettoyage des numérisations, l’intégration native au système et les grandes fusions.',
+            description:
+                'Commencez dans le navigateur pour un travail rapide sur PDF, DjVu et images locaux, y compris l’OCR dans une trentaine de langues, ou choisissez l’application de bureau pour le nettoyage des numérisations, l’intégration native au système et les grandes fusions.',
             web: {
                 title: 'Application web',
-                description: 'Idéale pour ouvrir immédiatement des PDF locaux, des fichiers DjVu et des images courantes, puis relire, annoter et exporter sans rien installer.',
+                description:
+                    'Idéale pour ouvrir immédiatement des PDF locaux, des fichiers DjVu et des images courantes, puis relire, annoter et exporter sans rien installer.',
                 point1: 'Flux de travail PDF, DjVu et images',
                 point2: 'Aucune friction d’installation ou de mise à jour',
                 point3: 'Parfait pour la relecture rapide, les annotations, les éditions de pages, l’OCR et l’export',
@@ -186,7 +193,8 @@ export default {
             },
             desktop: {
                 title: 'Application de bureau',
-                description: 'Idéale pour le nettoyage des numérisations, l’intégration native au système, les gros travaux de fusion et les flux qui dépassent les limites mémoire du navigateur.',
+                description:
+                    'Idéale pour le nettoyage des numérisations, l’intégration native au système, les gros travaux de fusion et les flux qui dépassent les limites mémoire du navigateur.',
                 point1: 'Nettoyage des numérisations avant l’OCR',
                 point2: 'Gros travaux de fusion et d’export',
                 point3: 'Dialogues de bureau natifs et intégration au système',
@@ -195,7 +203,8 @@ export default {
         },
         explore: {
             heading: 'Explorer le produit en contexte',
-            description: 'Utilisez les pages détaillées pour comparer les fonctionnalités navigateur et bureau, et consulter un guide utilisateur pratique.',
+            description:
+                'Utilisez les pages détaillées pour comparer les fonctionnalités navigateur et bureau, et consulter un guide utilisateur pratique.',
             featuresPage: 'Ouvrir la page complète des fonctionnalités',
             docsPage: 'Ouvrir toute la documentation',
         },
@@ -204,25 +213,30 @@ export default {
         seo: {
             title: 'Fonctionnalités EVB Viewer pour navigateur et bureau',
             ogTitle: 'Aperçu des fonctionnalités d’EVB Viewer',
-            ogDescription: 'Découvrez ce que couvre EVB Viewer dans le navigateur aujourd’hui et ce que l’application de bureau ajoute pour le nettoyage des numérisations, l’intégration native au système et les travaux plus lourds.',
+            ogDescription:
+                'Découvrez ce que couvre EVB Viewer dans le navigateur aujourd’hui et ce que l’application de bureau ajoute pour le nettoyage des numérisations, l’intégration native au système et les travaux plus lourds.',
         },
         hero: {
             badge: 'Nettoyage natif des scans et OCR',
             title: 'Nettoyez les scans bruts, puis recherchez et annotez le PDF',
-            subtitle: 'EVB Viewer fonctionne hors ligne sur macOS, Windows et Linux. Son moteur natif en Rust redresse les pages, supprime les petites taches, binarise, recadre et sépare les doubles pages. L\'OCR Tesseract avec les modèles tessdata-best prend en charge 30 langues. Ce processus s\'adresse aux archivistes, bibliothécaires, historiens, philologues et personnes qui entretiennent des bibliothèques personnelles de scans.',
+            subtitle:
+                "EVB Viewer fonctionne hors ligne sur macOS, Windows et Linux. Son moteur natif en Rust redresse les pages, supprime les petites taches, binarise, recadre et sépare les doubles pages. L'OCR Tesseract avec les modèles tessdata-best prend en charge 30 langues. Ce processus s'adresse aux archivistes, bibliothécaires, historiens, philologues et personnes qui entretiennent des bibliothèques personnelles de scans.",
         },
         capabilities: {
             heading: 'Capacités principales de l’espace de travail',
-            description: 'Lisez, relisez, annotez, réorganisez et exportez des documents dans un seul espace de travail, puis choisissez l’environnement adapté à la tâche.',
+            description:
+                'Lisez, relisez, annotez, réorganisez et exportez des documents dans un seul espace de travail, puis choisissez l’environnement adapté à la tâche.',
         },
         cards: {
             pdfDjvu: {
                 title: 'PDF, images et DjVu là où c’est pertinent',
-                description: 'Les flux du navigateur ouvrent des PDF locaux, des fichiers DjVu et des images courantes. L’application de bureau ajoute le nettoyage des numérisations et évite les limites mémoire du navigateur pour les travaux plus lourds.',
+                description:
+                    'Les flux du navigateur ouvrent des PDF locaux, des fichiers DjVu et des images courantes. L’application de bureau ajoute le nettoyage des numérisations et évite les limites mémoire du navigateur pour les travaux plus lourds.',
             },
             ocr: {
                 title: 'OCR avec sortie recherchable',
-                description: 'L’OCR s’exécute localement dans le navigateur et dans les builds bureau, et conserve le résultat recherchable dans le document édité. Les deux lisent la même trentaine de langues.',
+                description:
+                    'L’OCR s’exécute localement dans le navigateur et dans les builds bureau, et conserve le résultat recherchable dans le document édité. Les deux lisent la même trentaine de langues.',
             },
             annotations: {
                 title: 'Outils d’annotation avancés',
@@ -230,20 +244,24 @@ export default {
             },
             pages: {
                 title: 'Opérations sur les pages',
-                description: 'Supprimez, extrayez, réordonnez, faites pivoter, rognez et capturez des pages. Les fusions navigateur sont limitées par la mémoire ; le bureau convient mieux aux gros lots.',
+                description:
+                    'Supprimez, extrayez, réordonnez, faites pivoter, rognez et capturez des pages. Les fusions navigateur sont limitées par la mémoire ; le bureau convient mieux aux gros lots.',
             },
             workspace: {
                 title: 'Gestion de l’espace de travail',
-                description: 'Utilisez des onglets, des dispositions fractionnées, des signets, la recherche et des panneaux latéraux ciblés au lieu de passer d’un outil à l’autre.',
+                description:
+                    'Utilisez des onglets, des dispositions fractionnées, des signets, la recherche et des panneaux latéraux ciblés au lieu de passer d’un outil à l’autre.',
             },
             exports: {
                 title: 'Multiples destinations d’export',
-                description: 'Exportez en PDF, PNG, JPG, TIFF et DOCX depuis le même espace de travail qui a géré la relecture et les modifications.',
+                description:
+                    'Exportez en PDF, PNG, JPG, TIFF et DOCX depuis le même espace de travail qui a géré la relecture et les modifications.',
             },
         },
         workflow: {
             heading: 'Comment le produit s’insère dans le travail réel',
-            description: 'Une session EVB Viewer typique commence par un travail rapide dans le navigateur et passe au bureau quand le nettoyage des numérisations ou l’échelle l’exigent.',
+            description:
+                'Une session EVB Viewer typique commence par un travail rapide dans le navigateur et passe au bureau quand le nettoyage des numérisations ou l’échelle l’exigent.',
             load: {
                 title: 'Commencer dans le navigateur',
                 body: 'Ouvrez immédiatement un PDF local, un fichier DjVu ou une image quand une installation ralentirait la tâche.',
@@ -285,11 +303,13 @@ export default {
         seo: {
             title: 'Documentation EVB Viewer pour les flux navigateur et bureau',
             ogTitle: 'Guide utilisateur EVB Viewer',
-            ogDescription: 'Commencez avec l’application navigateur pour les fichiers locaux et l’OCR, puis installez l’application de bureau quand vous avez besoin du nettoyage des numérisations, de l’intégration native au système ou de gros travaux de fusion/export.',
+            ogDescription:
+                'Commencez avec l’application navigateur pour les fichiers locaux et l’OCR, puis installez l’application de bureau quand vous avez besoin du nettoyage des numérisations, de l’intégration native au système ou de gros travaux de fusion/export.',
         },
         hero: {
             title: 'Guides pour les applications navigateur et bureau',
-            subtitle: 'Commencez avec l’application web pour un travail rapide sur PDF, DjVu et images locaux, OCR compris, puis passez à l’application de bureau pour le nettoyage des numérisations, l’intégration native au système ou les gros travaux de fusion/export.',
+            subtitle:
+                'Commencez avec l’application web pour un travail rapide sur PDF, DjVu et images locaux, OCR compris, puis passez à l’application de bureau pour le nettoyage des numérisations, l’intégration native au système ou les gros travaux de fusion/export.',
         },
         guideCardAction: 'Aller à la section',
         browserQuickstart: {
@@ -352,7 +372,8 @@ export default {
             li3: 'Le nom du fichier généré suit le premier fichier sélectionné, par exemple {example}.',
             li4: 'Si un document est déjà ouvert, la sortie combinée s’ouvre dans un nouvel onglet afin que le travail en cours reste intact.',
             li5: '{openRecent} conserve l’historique et inclut une commande pour effacer les fichiers récents.',
-            convertIntro: '{menuPath} a deux comportements : en mode DjVu il ouvre les options de conversion DjVu ; sinon il ouvre la sélection de fichiers et crée un PDF depuis les sources sélectionnées.',
+            convertIntro:
+                '{menuPath} a deux comportements : en mode DjVu il ouvre les options de conversion DjVu ; sinon il ouvre la sélection de fichiers et crée un PDF depuis les sources sélectionnées.',
         },
         tabsSplits: {
             heading: 'Onglets et éditeur fractionné',
@@ -424,15 +445,18 @@ export default {
             actionCol: 'Action',
             shortcutCol: 'Raccourci',
             menuFile: 'Fichier',
-            menuFileActions: 'Ouvrir un fichier, Ouvrir récent, Enregistrer, Enregistrer sous, Exporter DOCX/Images/TIFF, Convertir en PDF, Nouvel onglet, Fermer l’onglet',
+            menuFileActions:
+                'Ouvrir un fichier, Ouvrir récent, Enregistrer, Enregistrer sous, Exporter DOCX/Images/TIFF, Convertir en PDF, Nouvel onglet, Fermer l’onglet',
             menuActions: 'Actions',
             menuActionsActions: 'Annuler, Rétablir, Copier',
             menuPages: 'Pages',
             menuPagesActions: 'Supprimer les pages sélectionnées, extraire les pages sélectionnées, pivoter, insérer des pages',
             menuView: 'Affichage',
-            menuViewActions: 'Contrôles de zoom, modes d’ajustement, modes de mise en page, fractionner/focaliser/déplacer/copier les volets de l’éditeur',
+            menuViewActions:
+                'Contrôles de zoom, modes d’ajustement, modes de mise en page, fractionner/focaliser/déplacer/copier les volets de l’éditeur',
             menuWindow: 'Fenêtre',
-            menuWindowActions: 'Déplacer l’onglet actif vers une nouvelle fenêtre, déplacer l’onglet actif vers une autre fenêtre, fusionner cette fenêtre dans',
+            menuWindowActions:
+                'Déplacer l’onglet actif vers une nouvelle fenêtre, déplacer l’onglet actif vers une autre fenêtre, fusionner cette fenêtre dans',
             menuHelp: 'Aide',
             menuHelpActions: 'À propos d’EVB Viewer',
             shortcutOpenFile: 'Ouvrir un fichier',
@@ -451,7 +475,8 @@ export default {
             shortcutSplitEditor: 'Fractionner l’éditeur à droite',
             shortcutFind: 'Rechercher dans le document',
             shortcutCycleTabs: 'Parcourir les onglets',
-            contextMenuNote: 'La plupart des contrôles d’édition et de mise en page sont disponibles depuis les menus et les menus contextuels d’onglet/page.',
+            contextMenuNote:
+                'La plupart des contrôles d’édition et de mise en page sont disponibles depuis les menus et les menus contextuels d’onglet/page.',
             repoNote: 'Pour les bugs et demandes de fonctionnalités, consultez le dépôt du projet.',
         },
         license: {

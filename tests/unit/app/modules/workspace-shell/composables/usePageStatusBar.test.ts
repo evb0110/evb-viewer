@@ -1,27 +1,18 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
-import { ref } from 'vue';
-import type { TDocumentRef } from '@contracts/documentRef';
-import { requireDocumentRef } from '@contracts/documentRef';
-import type { TPdfSource } from '@app/types/pdfUi';
-import { usePageStatusBar } from '@app/modules/workspace-shell/composables/usePageStatusBar';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
+import {ref} from 'vue';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {requireDocumentRef} from '@contracts/documentRef';
+import type {TPdfSource} from '@app/types/pdfUi';
+import {usePageStatusBar} from '@app/modules/workspace-shell/composables/usePageStatusBar';
 
-const {
-    showItemInFolderMock,
-    statFileMock,
-} = vi.hoisted(() => ({
+const {showItemInFolderMock, statFileMock} = vi.hoisted(() => ({
     showItemInFolderMock: vi.fn(async () => true),
-    statFileMock: vi.fn(async () => ({ size: 0 })),
+    statFileMock: vi.fn(async () => ({size: 0})),
 }));
 
 const platformApi = createElectronPlatformApiFixture({
-    documentWindow: { showItemInFolder: showItemInFolderMock },
+    documentWindow: {showItemInFolder: showItemInFolderMock},
     documentFiles: {
         statFile: statFileMock,
     },
@@ -40,9 +31,7 @@ function pathPdfSource(path: string, size: number): TPdfSource {
     };
 }
 
-function createDeps(
-    overrides: Partial<Parameters<typeof usePageStatusBar>[0]> = {},
-): Parameters<typeof usePageStatusBar>[0] {
+function createDeps(overrides: Partial<Parameters<typeof usePageStatusBar>[0]> = {}): Parameters<typeof usePageStatusBar>[0] {
     return {
         hasDocument: ref(true),
         pdfSrc: ref<TPdfSource | null>(null),
@@ -63,16 +52,19 @@ describe('usePageStatusBar', () => {
     beforeEach(() => {
         showItemInFolderMock.mockClear();
         statFileMock.mockClear();
-        statFileMock.mockResolvedValue({ size: 0 });
+        statFileMock.mockResolvedValue({size: 0});
     });
 
     it('shows the folder action only for filesystem-backed document refs', async () => {
         vi.stubGlobal('useTypedI18n', () => ({
             locale: {value: 'en'},
-            t: (key: string, params?: {
-                size?: string;
-                zoom?: number
-            }) => {
+            t: (
+                key: string,
+                params?: {
+                    size?: string;
+                    zoom?: number;
+                },
+            ) => {
                 if (key === 'status.fileSizeValue') {
                     return `size:${params?.size ?? ''}`;
                 }
@@ -80,11 +72,11 @@ describe('usePageStatusBar', () => {
                     return `zoom:${params?.zoom ?? ''}`;
                 }
                 return key;
-            }, 
+            },
         }));
 
-        const browserStatusBar = usePageStatusBar(createDeps({ originalPath: documentPathRef('browser://documents/example.pdf') }));
-        const fileStatusBar = usePageStatusBar(createDeps({ originalPath: documentPathRef('/tmp/example.pdf') }));
+        const browserStatusBar = usePageStatusBar(createDeps({originalPath: documentPathRef('browser://documents/example.pdf')}));
+        const fileStatusBar = usePageStatusBar(createDeps({originalPath: documentPathRef('/tmp/example.pdf')}));
 
         expect(browserStatusBar.statusCanShowInFolder.value).toBe(false);
         expect(fileStatusBar.statusCanShowInFolder.value).toBe(true);
@@ -96,11 +88,13 @@ describe('usePageStatusBar', () => {
             t: (key: string) => key,
         }));
         const hasSaveFailure = ref(true);
-        const statusBar = usePageStatusBar(createDeps({
-            pdfSrc: ref<TPdfSource | null>(pathPdfSource('/tmp/example.pdf', 1024)),
-            canSave: ref(false),
-            hasSaveFailure,
-        }));
+        const statusBar = usePageStatusBar(
+            createDeps({
+                pdfSrc: ref<TPdfSource | null>(pathPdfSource('/tmp/example.pdf', 1024)),
+                canSave: ref(false),
+                hasSaveFailure,
+            }),
+        );
 
         expect(statusBar.statusSaveDotClass.value).toBe('is-failed');
         expect(statusBar.statusSaveDotTooltip.value).toBe('status.saveFailed');
@@ -118,12 +112,14 @@ describe('usePageStatusBar', () => {
             locale: {value: 'en'},
             t: (key: string) => key,
         }));
-        const statusBar = usePageStatusBar(createDeps({
-            pdfSrc: ref<TPdfSource | null>(pathPdfSource('/tmp/example.pdf', 1024)),
-            canSave: ref(true),
-            isAnySaving: ref(true),
-            hasSaveFailure: ref(true),
-        }));
+        const statusBar = usePageStatusBar(
+            createDeps({
+                pdfSrc: ref<TPdfSource | null>(pathPdfSource('/tmp/example.pdf', 1024)),
+                canSave: ref(true),
+                isAnySaving: ref(true),
+                hasSaveFailure: ref(true),
+            }),
+        );
 
         expect(statusBar.statusSaveDotClass.value).toBe('is-saving');
         expect(statusBar.statusSaveDotCanSave.value).toBe(false);
@@ -134,7 +130,7 @@ describe('usePageStatusBar', () => {
             locale: {value: 'en'},
             t: (key: string) => key,
         }));
-        const statusBar = usePageStatusBar(createDeps({ originalPath: documentPathRef('browser://documents/example.pdf') }));
+        const statusBar = usePageStatusBar(createDeps({originalPath: documentPathRef('browser://documents/example.pdf')}));
 
         await statusBar.handleStatusShowInFolderClick();
 
@@ -146,7 +142,7 @@ describe('usePageStatusBar', () => {
             locale: {value: 'en'},
             t: (key: string) => key,
         }));
-        const statusBar = usePageStatusBar(createDeps({ originalPath: documentPathRef('/tmp/example.pdf') }));
+        const statusBar = usePageStatusBar(createDeps({originalPath: documentPathRef('/tmp/example.pdf')}));
 
         await statusBar.handleStatusShowInFolderClick();
 
@@ -158,7 +154,9 @@ describe('usePageStatusBar', () => {
             locale: {value: 'en'},
             t: (key: string) => key,
         }));
-        const statusBar = usePageStatusBar(createDeps({ originalPath: documentPathRef('browser://documents/source/%D0%A2%D1%80%D1%83%D0%B4.pdf') }));
+        const statusBar = usePageStatusBar(
+            createDeps({originalPath: documentPathRef('browser://documents/source/%D0%A2%D1%80%D1%83%D0%B4.pdf')}),
+        );
 
         expect(statusBar.statusFilePath.value).toBe('Труд.pdf');
         expect(statusBar.statusShowInFolderTooltip.value).toBe('status.showInFolderUnavailableWeb');
@@ -170,7 +168,7 @@ describe('usePageStatusBar', () => {
             locale: {value: 'en'},
             t: (key: string) => key,
         }));
-        const statusBar = usePageStatusBar(createDeps({ originalPath: documentPathRef('/Users/evb/Desktop/To/book.djvu') }));
+        const statusBar = usePageStatusBar(createDeps({originalPath: documentPathRef('/Users/evb/Desktop/To/book.djvu')}));
 
         expect(statusBar.statusFileName.value).toBe('book.djvu');
         expect(statusBar.statusFilePath.value).toBe('/Users/evb/Desktop/To/book.djvu');
@@ -179,18 +177,17 @@ describe('usePageStatusBar', () => {
     it('falls back to the on-disk size when the document has no in-memory bytes', async () => {
         vi.stubGlobal('useTypedI18n', () => ({
             locale: {value: 'en'},
-            t: (key: string, params?: { size?: string }) => (
-                key === 'status.fileSizeValue'
-                    ? `size:${params?.size ?? ''}`
-                    : key === 'common.unitKilobyte' ? 'KB' : key
-            ),
+            t: (key: string, params?: {size?: string}) =>
+                key === 'status.fileSizeValue' ? `size:${params?.size ?? ''}` : key === 'common.unitKilobyte' ? 'KB' : key,
         }));
-        statFileMock.mockResolvedValue({ size: 2048 });
+        statFileMock.mockResolvedValue({size: 2048});
 
-        const statusBar = usePageStatusBar(createDeps({
-            originalPath: documentPathRef('/Users/evb/Desktop/book.djvu'),
-            workingCopyPath: documentPathRef('/tmp/managed/book.djvu'),
-        }));
+        const statusBar = usePageStatusBar(
+            createDeps({
+                originalPath: documentPathRef('/Users/evb/Desktop/book.djvu'),
+                workingCopyPath: documentPathRef('/tmp/managed/book.djvu'),
+            }),
+        );
 
         await vi.waitFor(() => {
             expect(statusBar.statusFileSizeLabel.value).toContain('2.00 common.unitKilobyte');
@@ -202,16 +199,15 @@ describe('usePageStatusBar', () => {
     it('uses trusted opening metadata for a DjVu without a managed working copy', () => {
         vi.stubGlobal('useTypedI18n', () => ({
             locale: {value: 'en'},
-            t: (key: string, params?: { size?: string }) => (
-                key === 'status.fileSizeValue'
-                    ? `size:${params?.size ?? ''}`
-                    : key === 'common.unitKilobyte' ? 'KB' : key
-            ),
+            t: (key: string, params?: {size?: string}) =>
+                key === 'status.fileSizeValue' ? `size:${params?.size ?? ''}` : key === 'common.unitKilobyte' ? 'KB' : key,
         }));
-        const statusBar = usePageStatusBar(createDeps({
-            knownFileSizeBytes: ref(4096),
-            originalPath: documentPathRef('/Users/evb/Desktop/book.djvu'),
-        }));
+        const statusBar = usePageStatusBar(
+            createDeps({
+                knownFileSizeBytes: ref(4096),
+                originalPath: documentPathRef('/Users/evb/Desktop/book.djvu'),
+            }),
+        );
 
         expect(statusBar.statusFileSizeLabel.value).toContain('4.00 common.unitKilobyte');
         expect(statFileMock).not.toHaveBeenCalled();
@@ -223,10 +219,12 @@ describe('usePageStatusBar', () => {
             t: (key: string) => key,
         }));
         const isDocumentVisualPending = ref(true);
-        usePageStatusBar(createDeps({
-            isDocumentVisualPending,
-            originalPath: documentPathRef('/tmp/pending-book.djvu'),
-        }));
+        usePageStatusBar(
+            createDeps({
+                isDocumentVisualPending,
+                originalPath: documentPathRef('/tmp/pending-book.djvu'),
+            }),
+        );
 
         await Promise.resolve();
         expect(statFileMock).not.toHaveBeenCalled();
@@ -236,11 +234,13 @@ describe('usePageStatusBar', () => {
         expect(statFileMock).not.toHaveBeenCalled();
 
         const workingCopyPath = ref<TDocumentRef | null>(null);
-        usePageStatusBar(createDeps({
-            isDocumentVisualPending: ref(false),
-            originalPath: documentPathRef('/tmp/adopted-book.djvu'),
-            workingCopyPath,
-        }));
+        usePageStatusBar(
+            createDeps({
+                isDocumentVisualPending: ref(false),
+                originalPath: documentPathRef('/tmp/adopted-book.djvu'),
+                workingCopyPath,
+            }),
+        );
         workingCopyPath.value = requireDocumentRef('/tmp/managed/adopted-book.djvu');
         await vi.waitFor(() => {
             expect(statFileMock).toHaveBeenCalledWith('/tmp/managed/adopted-book.djvu');
@@ -251,18 +251,25 @@ describe('usePageStatusBar', () => {
 });
 
 // The status-bar reveal button must acknowledge a shell failure (I1).
-it.each(['reject', 'false'])('#1608 reports a failed status-bar show-in-folder action (%s)', async outcome => {
+it.each(['reject', 'false'])('#1608 reports a failed status-bar show-in-folder action (%s)', async (outcome) => {
     const messages: string[] = [];
-    vi.stubGlobal('useToast', () => ({add: (notice: {title: string; description?: string}) => {
-        messages.push([notice.title, notice.description].filter(Boolean).join(' '));
-    }}));
+    vi.stubGlobal('useToast', () => ({
+        add: (notice: {title: string; description?: string}) => {
+            messages.push([notice.title, notice.description].filter(Boolean).join(' '));
+        },
+    }));
     vi.stubGlobal('useTypedI18n', () => ({locale: ref('en'), t: (key: string) => key}));
-    if (outcome === 'false') showItemInFolderMock.mockResolvedValueOnce(false);
-    else showItemInFolderMock.mockRejectedValueOnce(new Error('File manager unavailable'));
+    if (outcome === 'false') {
+        showItemInFolderMock.mockResolvedValueOnce(false);
+    } else {
+        showItemInFolderMock.mockRejectedValueOnce(new Error('File manager unavailable'));
+    }
     try {
         await usePageStatusBar(createDeps({originalPath: documentPathRef('/docs/a.pdf')})).handleStatusShowInFolderClick();
         expect(messages.join(' ')).toMatch(/folder|reveal/i);
-    } finally {vi.unstubAllGlobals();}
+    } finally {
+        vi.unstubAllGlobals();
+    }
 });
 
 beforeEach(() => {

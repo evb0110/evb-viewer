@@ -43,11 +43,11 @@
 </template>
 
 <script setup lang="ts">
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {IWorkspaceToolbarSnapshot} from '@app/types/workspaceExpose';
 import WorkspacePdfToolbarView from '@app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue';
-import { useCanUseOcr } from '@app/composables/useCanUseOcr';
+import {useCanUseOcr} from '@app/composables/useCanUseOcr';
 
 const {
     hasPdf,
@@ -80,13 +80,13 @@ const emit = defineEmits<{
     'update:viewMode': [mode: IWorkspaceToolbarSnapshot['viewMode']];
     'open-file': [];
     'open-settings': [];
-    'save': [];
+    save: [];
     'save-as': [];
-    'print': [];
+    print: [];
     'print-current-page': [];
     'export-docx': [];
-    'undo': [];
-    'redo': [];
+    undo: [];
+    redo: [];
     'toggle-sidebar': [];
     'fit-width': [];
     'fit-height': [];
@@ -94,7 +94,7 @@ const emit = defineEmits<{
     'enable-drag': [];
     'disable-drag': [];
     'capture-region': [];
-    'crop': [];
+    crop: [];
     'quick-note': [];
     'toggle-fullscreen': [];
     'go-to-page': [page: number];

@@ -20,38 +20,40 @@
 </template>
 
 <script setup lang="ts">
-import type { ILinkAnnotation } from '@app/types/annotations';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { getShellCapability } from '@app/utils/getShellCapability';
-import { normalizeAllowedExternalUrl } from '@contracts/externalUrl';
+import type {ILinkAnnotation} from '@app/types/annotations';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getShellCapability} from '@app/utils/getShellCapability';
+import {normalizeAllowedExternalUrl} from '@contracts/externalUrl';
 
-const { links } = defineProps<{links: ILinkAnnotation[];}>();
-const emit = defineEmits<{'navigate-destination': [dest: NonNullable<ILinkAnnotation['dest']>];}>();
+const {links} = defineProps<{links: ILinkAnnotation[]}>();
+const emit = defineEmits<{'navigate-destination': [dest: NonNullable<ILinkAnnotation['dest']>]}>();
 const {t} = useTypedI18n();
 
-const renderedLinks = computed(() => links.map(link => ({
-    link,
-    id: link.id,
-    href: link.url ?? '',
-    ariaLabel: link.url ? t('annotations.externalLink', {url: link.url}) : t('annotations.internalLink'),
-    style: {
-        left: `${link.rect.left * 100}%`,
-        top: `${link.rect.top * 100}%`,
-        width: `${link.rect.width * 100}%`,
-        height: `${link.rect.height * 100}%`,
-    },
-})));
+const renderedLinks = computed(() =>
+    links.map((link) => ({
+        link,
+        id: link.id,
+        href: link.url ?? '',
+        ariaLabel: link.url ? t('annotations.externalLink', {url: link.url}) : t('annotations.internalLink'),
+        style: {
+            left: `${link.rect.left * 100}%`,
+            top: `${link.rect.top * 100}%`,
+            width: `${link.rect.width * 100}%`,
+            height: `${link.rect.height * 100}%`,
+        },
+    })),
+);
 
 const DRAG_THRESHOLD_PX = 5;
 let pointerDownPos: {
     x: number;
-    y: number 
+    y: number;
 } | null = null;
 
 function onPointerDown(event: PointerEvent) {
     pointerDownPos = {
         x: event.clientX,
-        y: event.clientY, 
+        y: event.clientY,
     };
 }
 
@@ -62,13 +64,11 @@ function openLink(url: string) {
         return;
     }
 
-    void getShellCapability().openExternal(normalizedUrl).catch((error) => {
-        BrowserLogger.warn(
-            'pdf-link-overlay',
-            `Failed to open external link: ${normalizedUrl}`,
-            error,
-        );
-    });
+    void getShellCapability()
+        .openExternal(normalizedUrl)
+        .catch((error) => {
+            BrowserLogger.warn('pdf-link-overlay', `Failed to open external link: ${normalizedUrl}`, error);
+        });
 }
 
 function activateLink(link: ILinkAnnotation) {

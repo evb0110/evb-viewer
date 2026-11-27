@@ -1,7 +1,7 @@
-import { statSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import { pathToFileURL } from 'node:url';
-import { getCliErrorMessage } from './lib/cli-error.mjs';
+import {statSync} from 'node:fs';
+import {createRequire} from 'node:module';
+import {pathToFileURL} from 'node:url';
+import {getCliErrorMessage} from './lib/cli-error.mjs';
 
 const require = createRequire(import.meta.url);
 
@@ -13,19 +13,16 @@ function isFile(filePath) {
     }
 }
 
-export function verifyElectronInstall({
-    loadElectron = () => require('electron'),
-    pathIsFile = isFile,
-} = {}) {
+export function verifyElectronInstall({loadElectron = () => require('electron'), pathIsFile = isFile} = {}) {
     let electronBinaryPath;
 
     try {
         electronBinaryPath = loadElectron();
     } catch (error) {
         throw new Error(
-            'Electron binary is not installed for this checkout. '
-            + 'Run pnpm install with network access, or retry this check after restoring network access. '
-            + `Original error: ${getCliErrorMessage(error)}`,
+            'Electron binary is not installed for this checkout. ' +
+                'Run pnpm install with network access, or retry this check after restoring network access. ' +
+                `Original error: ${getCliErrorMessage(error)}`,
         );
     }
 

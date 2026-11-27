@@ -1,18 +1,10 @@
-import {
-    effectScope,
-    ref,
-} from 'vue';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentSidebarTab } from '@app/modules/document-viewer/sidebar/documentSidebarTabs';
+import {effectScope, ref} from 'vue';
+import {describe, expect, it, vi} from 'vitest';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TDocumentSidebarTab} from '@app/modules/document-viewer/sidebar/documentSidebarTabs';
 import {useDocumentSidebarCapabilitySession} from '@app/modules/document-viewer/sidebar/useDocumentSidebarCapabilitySession';
 import {computed} from 'vue';
-import { usePageSearch } from '@app/modules/workspace-shell/composables/usePageSearch';
+import {usePageSearch} from '@app/modules/workspace-shell/composables/usePageSearch';
 
 function createPageSearch(tabs?: readonly TDocumentSidebarTab[]) {
     const state = {
@@ -43,15 +35,19 @@ function createPageSearch(tabs?: readonly TDocumentSidebarTab[]) {
     });
     const clearSearch = vi.fn();
     const scope = effectScope();
-    const pageSearch = scope.run(() => usePageSearch({
-        ...state,
-        sidebarTabs,
-        search: vi.fn(async () => true),
-        goToResult: vi.fn(),
-        setResultIndex: vi.fn(),
-        clearSearch,
-    }));
-    if (!pageSearch) throw new Error('usePageSearch test harness failed to initialize');
+    const pageSearch = scope.run(() =>
+        usePageSearch({
+            ...state,
+            sidebarTabs,
+            search: vi.fn(async () => true),
+            goToResult: vi.fn(),
+            setResultIndex: vi.fn(),
+            clearSearch,
+        }),
+    );
+    if (!pageSearch) {
+        throw new Error('usePageSearch test harness failed to initialize');
+    }
     return {
         ...state,
         clearSearch,
@@ -73,10 +69,7 @@ describe('usePageSearch sidebar tab selection', () => {
     });
 
     it('leaves search for the first available tab when the format has no pages tab', () => {
-        const harness = createPageSearch([
-            'bookmarks',
-            'search',
-        ]);
+        const harness = createPageSearch(['bookmarks', 'search']);
         harness.sidebarTab.value = 'search';
 
         harness.pageSearch.closeSearch();
@@ -86,11 +79,7 @@ describe('usePageSearch sidebar tab selection', () => {
     });
 
     it('prefers the pages tab whenever the format has one', () => {
-        const harness = createPageSearch([
-            'bookmarks',
-            'thumbnails',
-            'search',
-        ]);
+        const harness = createPageSearch(['bookmarks', 'thumbnails', 'search']);
         harness.sidebarTab.value = 'search';
 
         harness.pageSearch.closeSearch();
@@ -148,10 +137,7 @@ describe('usePageSearch sidebar tab selection', () => {
     });
 
     it('opens and focuses the search tab when the format supports search', () => {
-        const harness = createPageSearch([
-            'thumbnails',
-            'search',
-        ]);
+        const harness = createPageSearch(['thumbnails', 'search']);
 
         harness.pageSearch.openSearch();
 

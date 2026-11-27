@@ -1,13 +1,10 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { app } from 'electron';
-import { parseClientDiagnosticsPreference } from '@contracts/diagnostics/diagnosticsPreference';
-import {
-    DEFAULT_SETTINGS,
-    sanitizeSettings,
-} from '@contracts/settings';
-import type { ISettingsData } from '@contracts/shared';
-import { isRecord } from '@contracts/runtimeGuards';
+import {readFileSync} from 'node:fs';
+import {join} from 'node:path';
+import {app} from 'electron';
+import {parseClientDiagnosticsPreference} from '@contracts/diagnostics/diagnosticsPreference';
+import {DEFAULT_SETTINGS, sanitizeSettings} from '@contracts/settings';
+import type {ISettingsData} from '@contracts/shared';
+import {isRecord} from '@contracts/runtimeGuards';
 
 function isCompleteSettingsSchemaV2(value: unknown): value is ISettingsData {
     if (!isRecord(value) || value.version !== DEFAULT_SETTINGS.version) {
@@ -15,9 +12,9 @@ function isCompleteSettingsSchemaV2(value: unknown): value is ISettingsData {
     }
 
     const normalized = sanitizeSettings(value);
-    return (Object.keys(DEFAULT_SETTINGS) as Array<keyof ISettingsData>).every(key => (
-        Object.hasOwn(value, key) && value[key] === normalized[key]
-    ));
+    return (Object.keys(DEFAULT_SETTINGS) as Array<keyof ISettingsData>).every(
+        (key) => Object.hasOwn(value, key) && value[key] === normalized[key],
+    );
 }
 
 export function readDiagnosticsPreferenceSync() {

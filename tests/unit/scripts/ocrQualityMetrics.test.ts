@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     editDistance,
     measureOcrQuality,
@@ -16,11 +12,7 @@ import {
 describe('OCR quality metrics', () => {
     it('normalizes multilingual whitespace and dash variants without dropping identifiers', () => {
         expect(normalizeCompatibilityOcrText('  СЧЁТ\nQ7\u20112026  ')).toBe('счёт q7-2026');
-        expect(tokenizeOcrWords('СЧЁТ Q7-2026 / 73.45')).toEqual([
-            'счёт',
-            'q7-2026',
-            '73.45',
-        ]);
+        expect(tokenizeOcrWords('СЧЁТ Q7-2026 / 73.45')).toEqual(['счёт', 'q7-2026', '73.45']);
     });
 
     it('calculates character and word edit rates over Unicode code points', () => {
@@ -68,41 +60,16 @@ describe('OCR quality metrics', () => {
     });
 
     it('keeps combining marks attached in Arabic, Hebrew, Syriac, Greek and Vietnamese words', () => {
-        expect(tokenizeFaithfulOcrWords('قَالَ שָׁלוֹם ܫܠܵܡܵܐ ἄνθρωπος Tiếng Việt')).toEqual([
-            'قَالَ',
-            'שָׁלוֹם',
-            'ܫܠܵܡܵܐ',
-            'ἄνθρωπος',
-            'Tiếng',
-            'Việt',
-        ]);
+        expect(tokenizeFaithfulOcrWords('قَالَ שָׁלוֹם ܫܠܵܡܵܐ ἄνθρωπος Tiếng Việt')).toEqual(['قَالَ', 'שָׁלוֹם', 'ܫܠܵܡܵܐ', 'ἄνθρωπος', 'Tiếng', 'Việt']);
         expect(tokenizeFaithfulOcrWords('قَالَ')).toHaveLength(1);
 
-        for (const [
-            expected,
-            actual,
-        ] of [
-                [
-                    'قَالَ',
-                    'قَال',
-                ],
-                [
-                    'שָׁלוֹם',
-                    'שלום',
-                ],
-                [
-                    'ܫܠܵܡܵܐ',
-                    'ܫܠܡܐ',
-                ],
-                [
-                    'ἄνθρωπος',
-                    'ανθρωπος',
-                ],
-                [
-                    'Tiếng Việt',
-                    'Tieng Viet',
-                ],
-            ]) {
+        for (const [expected, actual] of [
+            ['قَالَ', 'قَال'],
+            ['שָׁלוֹם', 'שלום'],
+            ['ܫܠܵܡܵܐ', 'ܫܠܡܐ'],
+            ['ἄνθρωπος', 'ανθρωπος'],
+            ['Tiếng Việt', 'Tieng Viet'],
+        ]) {
             expect(measureOcrQuality(expected, actual).faithful.cer).toBeGreaterThan(0);
         }
     });

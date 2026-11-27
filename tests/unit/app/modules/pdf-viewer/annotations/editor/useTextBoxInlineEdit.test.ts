@@ -1,17 +1,7 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    computed,
-    effectScope,
-    ref,
-} from 'vue';
-import type { ITextBoxEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import { useTextBoxInlineEdit } from '@app/modules/pdf-viewer/annotations/editor/useTextBoxInlineEdit';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {computed, effectScope, ref} from 'vue';
+import type {ITextBoxEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {useTextBoxInlineEdit} from '@app/modules/pdf-viewer/annotations/editor/useTextBoxInlineEdit';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
 const entity = ref<ITextBoxEntity>({
@@ -40,7 +30,7 @@ describe('useTextBoxInlineEdit', () => {
     const scopes = new Set<ReturnType<typeof effectScope>>();
 
     afterEach(() => {
-        scopes.forEach(scope => scope.stop());
+        scopes.forEach((scope) => scope.stop());
         scopes.clear();
         entity.value = {
             ...entity.value,
@@ -54,12 +44,14 @@ describe('useTextBoxInlineEdit', () => {
         const cancel = vi.fn();
         const scope = effectScope();
         scopes.add(scope);
-        const editor = scope.run(() => useTextBoxInlineEdit({
-            entity: computed(() => entity.value),
-            editing,
-            onCommit: commit,
-            onCancel: cancel,
-        }))!;
+        const editor = scope.run(() =>
+            useTextBoxInlineEdit({
+                entity: computed(() => entity.value),
+                editing,
+                onCommit: commit,
+                onCancel: cancel,
+            }),
+        )!;
 
         editing.value = true;
         await Promise.resolve();
@@ -80,12 +72,14 @@ describe('useTextBoxInlineEdit', () => {
         const cancel = vi.fn();
         const scope = effectScope();
         scopes.add(scope);
-        const editor = scope.run(() => useTextBoxInlineEdit({
-            entity: computed(() => entity.value),
-            editing,
-            onCommit: commit,
-            onCancel: cancel,
-        }))!;
+        const editor = scope.run(() =>
+            useTextBoxInlineEdit({
+                entity: computed(() => entity.value),
+                editing,
+                onCommit: commit,
+                onCancel: cancel,
+            }),
+        )!;
 
         editing.value = true;
         await Promise.resolve();
@@ -104,12 +98,14 @@ describe('useTextBoxInlineEdit', () => {
         const editing = ref(true);
         const scope = effectScope();
         scopes.add(scope);
-        const editor = scope.run(() => useTextBoxInlineEdit({
-            entity: computed(() => entity.value),
-            editing,
-            onCommit: vi.fn(),
-            onCancel: vi.fn(),
-        }))!;
+        const editor = scope.run(() =>
+            useTextBoxInlineEdit({
+                entity: computed(() => entity.value),
+                editing,
+                onCommit: vi.fn(),
+                onCancel: vi.fn(),
+            }),
+        )!;
         await Promise.resolve();
         const element = {textContent: 'composition'} as HTMLElement;
         editor.editorRef.value = element;
@@ -130,13 +126,15 @@ describe('useTextBoxInlineEdit', () => {
         const recoveredDraftText = ref<string | null>('restored text');
         const scope = effectScope();
         scopes.add(scope);
-        const editor = scope.run(() => useTextBoxInlineEdit({
-            entity: computed(() => entity.value),
-            editing,
-            recoveredDraftText,
-            onCommit: vi.fn(),
-            onCancel: vi.fn(),
-        }))!;
+        const editor = scope.run(() =>
+            useTextBoxInlineEdit({
+                entity: computed(() => entity.value),
+                editing,
+                recoveredDraftText,
+                onCommit: vi.fn(),
+                onCancel: vi.fn(),
+            }),
+        )!;
         editing.value = true;
         await Promise.resolve();
 
@@ -149,19 +147,21 @@ describe('useTextBoxInlineEdit', () => {
         let protection = Promise.withResolvers<undefined>();
         const scope = effectScope();
         scopes.add(scope);
-        const editor = scope.run(() => useTextBoxInlineEdit({
-            entity: computed(() => entity.value),
-            editing,
-            onCommit: async (text) => {
-                await protection.promise;
-                entity.value = {
-                    ...entity.value,
-                    text,
-                };
-                editing.value = false;
-            },
-            onCancel: vi.fn(),
-        }))!;
+        const editor = scope.run(() =>
+            useTextBoxInlineEdit({
+                entity: computed(() => entity.value),
+                editing,
+                onCommit: async (text) => {
+                    await protection.promise;
+                    entity.value = {
+                        ...entity.value,
+                        text,
+                    };
+                    editing.value = false;
+                },
+                onCancel: vi.fn(),
+            }),
+        )!;
         editor.handleInput({currentTarget: {textContent: 'First'} as HTMLElement});
         const committing = editor.commit();
         editor.handleInput({currentTarget: {textContent: 'Newer'} as HTMLElement});
@@ -187,19 +187,23 @@ describe('useTextBoxInlineEdit', () => {
         const publication = Promise.withResolvers<undefined>();
         const scope = effectScope();
         scopes.add(scope);
-        const editor = scope.run(() => useTextBoxInlineEdit({
-            entity: computed(() => entity.value),
-            editing,
-            onCommit: async (text) => {
-                await publication.promise;
-                entity.value = {
-                    ...entity.value,
-                    text,
-                };
-                editing.value = false;
-            },
-            onCancel: () => {editing.value = false;},
-        }))!;
+        const editor = scope.run(() =>
+            useTextBoxInlineEdit({
+                entity: computed(() => entity.value),
+                editing,
+                onCommit: async (text) => {
+                    await publication.promise;
+                    entity.value = {
+                        ...entity.value,
+                        text,
+                    };
+                    editing.value = false;
+                },
+                onCancel: () => {
+                    editing.value = false;
+                },
+            }),
+        )!;
         editor.handleInput({currentTarget: {textContent: 'Accepted'} as HTMLElement});
         const completing = editor.commit();
         editor.handleKeydown({
@@ -220,18 +224,22 @@ describe('useTextBoxInlineEdit', () => {
         let restoration = Promise.withResolvers<undefined>();
         const scope = effectScope();
         scopes.add(scope);
-        const editor = scope.run(() => useTextBoxInlineEdit({
-            entity: computed(() => entity.value),
-            editing,
-            onCommit: text => {entity.value = {
-                ...entity.value,
-                text,
-            };},
-            onCancel: async () => {
-                await restoration.promise;
-                editing.value = false;
-            },
-        }))!;
+        const editor = scope.run(() =>
+            useTextBoxInlineEdit({
+                entity: computed(() => entity.value),
+                editing,
+                onCommit: (text) => {
+                    entity.value = {
+                        ...entity.value,
+                        text,
+                    };
+                },
+                onCancel: async () => {
+                    await restoration.promise;
+                    editing.value = false;
+                },
+            }),
+        )!;
         editor.handleInput({currentTarget: {textContent: 'Draft'} as HTMLElement});
         editor.handleKeydown({
             key: 'Escape',
@@ -259,22 +267,21 @@ describe('useTextBoxInlineEdit', () => {
         expect(entity.value.text).toBe('before');
     });
 
-    it.each([
-        'Escape',
-        'Enter',
-    ])('leaves composing %s to the input method', async (key) => {
+    it.each(['Escape', 'Enter'])('leaves composing %s to the input method', async (key) => {
         const editing = ref(true);
         const commit = vi.fn();
         const cancel = vi.fn();
         const preventDefault = vi.fn();
         const scope = effectScope();
         scopes.add(scope);
-        const editor = scope.run(() => useTextBoxInlineEdit({
-            entity: computed(() => entity.value),
-            editing,
-            onCommit: commit,
-            onCancel: cancel,
-        }))!;
+        const editor = scope.run(() =>
+            useTextBoxInlineEdit({
+                entity: computed(() => entity.value),
+                editing,
+                onCommit: commit,
+                onCancel: cancel,
+            }),
+        )!;
         await Promise.resolve();
         editor.handleKeydown({
             key,
@@ -291,7 +298,7 @@ describe('useTextBoxInlineEdit', () => {
     });
 
     it('keeps editing open when moving into data-text-edit-menu or inspector and commits when focus leaves them', async () => {
-        const { Window } = await import('happy-dom');
+        const {Window} = await import('happy-dom');
         const dom = new Window();
         const prevDoc = globalThis.document;
         const prevWin = globalThis.window;
@@ -311,12 +318,14 @@ describe('useTextBoxInlineEdit', () => {
             const commit = vi.fn();
             const scope = effectScope();
             scopes.add(scope);
-            const editor = scope.run(() => useTextBoxInlineEdit({
-                entity: computed(() => entity.value),
-                editing,
-                onCommit: commit,
-                onCancel: vi.fn(),
-            }))!;
+            const editor = scope.run(() =>
+                useTextBoxInlineEdit({
+                    entity: computed(() => entity.value),
+                    editing,
+                    onCommit: commit,
+                    onCancel: vi.fn(),
+                }),
+            )!;
 
             const editorEl = dom.document.createElement('div');
             const menu = dom.document.createElement('div');
@@ -332,10 +341,12 @@ describe('useTextBoxInlineEdit', () => {
             editor.editorRef.value = editorEl as unknown as HTMLElement;
 
             // Outside editing mode, focus leaving the menu does not commit
-            menuButton.dispatchEvent(new dom.FocusEvent('focusout', {
-                bubbles: true,
-                relatedTarget: outside,
-            }));
+            menuButton.dispatchEvent(
+                new dom.FocusEvent('focusout', {
+                    bubbles: true,
+                    relatedTarget: outside,
+                }),
+            );
             await Promise.resolve();
             expect(commit).not.toHaveBeenCalled();
 
@@ -343,36 +354,44 @@ describe('useTextBoxInlineEdit', () => {
             await Promise.resolve();
 
             // Moving focus into the text-edit menu or inspector keeps the draft open
-            editor.handleBlur({ relatedTarget: menuButton as unknown as EventTarget });
-            editor.handleBlur({ relatedTarget: inspectorInput as unknown as EventTarget });
+            editor.handleBlur({relatedTarget: menuButton as unknown as EventTarget});
+            editor.handleBlur({relatedTarget: inspectorInput as unknown as EventTarget});
             expect(commit).not.toHaveBeenCalled();
 
             // Returning focus from menu back into editor or inspector keeps the draft open
-            menuButton.dispatchEvent(new dom.FocusEvent('focusout', {
-                bubbles: true,
-                relatedTarget: editorEl,
-            }));
-            menuButton.dispatchEvent(new dom.FocusEvent('focusout', {
-                bubbles: true,
-                relatedTarget: inspectorInput,
-            }));
+            menuButton.dispatchEvent(
+                new dom.FocusEvent('focusout', {
+                    bubbles: true,
+                    relatedTarget: editorEl,
+                }),
+            );
+            menuButton.dispatchEvent(
+                new dom.FocusEvent('focusout', {
+                    bubbles: true,
+                    relatedTarget: inspectorInput,
+                }),
+            );
             expect(commit).not.toHaveBeenCalled();
 
             // Leaving the text-edit menu to an unrelated control commits
-            menuButton.dispatchEvent(new dom.FocusEvent('focusout', {
-                bubbles: true,
-                relatedTarget: outside,
-            }));
+            menuButton.dispatchEvent(
+                new dom.FocusEvent('focusout', {
+                    bubbles: true,
+                    relatedTarget: outside,
+                }),
+            );
             await Promise.resolve();
             expect(commit).toHaveBeenCalledOnce();
 
             // After leaving editing mode, focusout events no longer trigger commits
             editing.value = false;
             await Promise.resolve();
-            menuButton.dispatchEvent(new dom.FocusEvent('focusout', {
-                bubbles: true,
-                relatedTarget: outside,
-            }));
+            menuButton.dispatchEvent(
+                new dom.FocusEvent('focusout', {
+                    bubbles: true,
+                    relatedTarget: outside,
+                }),
+            );
             await Promise.resolve();
             expect(commit).toHaveBeenCalledOnce();
         } finally {
@@ -386,5 +405,4 @@ describe('useTextBoxInlineEdit', () => {
             await dom.happyDOM.close();
         }
     });
-
 });

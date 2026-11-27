@@ -1,10 +1,7 @@
-import { BrowserLogger } from '@app/utils/browserLogger';
+import {BrowserLogger} from '@app/utils/browserLogger';
 import {ImageKind} from '@app/services/pdfjs/runtimeLib';
-import {
-    formatPdfJsAnnotationRef,
-    normalizePdfJsAnnotationId,
-} from '@app/utils/pdfAnnotationRefs';
-import type { IAnnotationImageReference } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {formatPdfJsAnnotationRef, normalizePdfJsAnnotationId} from '@app/utils/pdfAnnotationRefs';
+import type {IAnnotationImageReference} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 const MAX_STAMP_IMAGE_PIXELS = 16 * 1024 * 1024;
 
@@ -22,12 +19,12 @@ interface IPdfJsImageDataLike {
     readonly ref: string;
 }
 
-interface IPdfJsPageWithObjects {readonly objs: Iterable<unknown>;}
+interface IPdfJsPageWithObjects {
+    readonly objs: Iterable<unknown>;
+}
 
 function asRecord(value: unknown): Record<PropertyKey, unknown> | null {
-    return typeof value === 'object' && value !== null
-        ? value as Record<PropertyKey, unknown>
-        : null;
+    return typeof value === 'object' && value !== null ? (value as Record<PropertyKey, unknown>) : null;
 }
 
 function asByteArray(value: unknown): IByteArrayLike | null {
@@ -35,18 +32,10 @@ function asByteArray(value: unknown): IByteArrayLike | null {
         return null;
     }
     const length = (value as {length?: unknown}).length;
-    return typeof length === 'number'
-        && Number.isSafeInteger(length)
-        && length >= 0
-        ? value as IByteArrayLike
-        : null;
+    return typeof length === 'number' && Number.isSafeInteger(length) && length >= 0 ? (value as IByteArrayLike) : null;
 }
 
-function inferImageKind(
-    width: number,
-    height: number,
-    dataLength: number,
-) {
+function inferImageKind(width: number, height: number, dataLength: number) {
     const pixelCount = width * height;
     if (dataLength === pixelCount * 4) {
         return ImageKind.RGBA_32BPP;
@@ -72,23 +61,24 @@ function asImageData(value: unknown): IPdfJsImageDataLike | null {
     const data = asByteArray(record.data);
     const bitmap = record.bitmap;
     if (
-        typeof width !== 'number'
-        || !Number.isSafeInteger(width)
-        || width <= 0
-        || typeof height !== 'number'
-        || !Number.isSafeInteger(height)
-        || height <= 0
-        || width * height > MAX_STAMP_IMAGE_PIXELS
-        || typeof ref !== 'string'
-        || (!data && (bitmap === null || bitmap === undefined))
+        typeof width !== 'number' ||
+        !Number.isSafeInteger(width) ||
+        width <= 0 ||
+        typeof height !== 'number' ||
+        !Number.isSafeInteger(height) ||
+        height <= 0 ||
+        width * height > MAX_STAMP_IMAGE_PIXELS ||
+        typeof ref !== 'string' ||
+        (!data && (bitmap === null || bitmap === undefined))
     ) {
         return null;
     }
-    const kind = typeof declaredKind === 'number' && Number.isSafeInteger(declaredKind)
-        ? declaredKind
-        : data
-            ? inferImageKind(width, height, data.length)
-            : null;
+    const kind =
+        typeof declaredKind === 'number' && Number.isSafeInteger(declaredKind)
+            ? declaredKind
+            : data
+              ? inferImageKind(width, height, data.length)
+              : null;
     if (data && kind === null) {
         return null;
     }
@@ -102,10 +92,7 @@ function asImageData(value: unknown): IPdfJsImageDataLike | null {
     };
 }
 
-function findImageData(
-    pdfPage: IPdfJsPageWithObjects,
-    imageReference: IAnnotationImageReference,
-) {
+function findImageData(pdfPage: IPdfJsPageWithObjects, imageReference: IAnnotationImageReference) {
     const expectedRef = formatPdfJsAnnotationRef(imageReference);
     for (const entry of pdfPage.objs) {
         if (!Array.isArray(entry) || entry.length < 2) {
@@ -167,10 +154,7 @@ function toRgba(imageData: IPdfJsImageDataLike) {
     return rgba;
 }
 
-export function resolvePdfJsStampImageDataUrl(
-    pdfPage: IPdfJsPageWithObjects,
-    imageReference: IAnnotationImageReference,
-) {
+export function resolvePdfJsStampImageDataUrl(pdfPage: IPdfJsPageWithObjects, imageReference: IAnnotationImageReference) {
     if (typeof document === 'undefined') {
         return null;
     }
@@ -187,13 +171,7 @@ export function resolvePdfJsStampImageDataUrl(
             return null;
         }
         if (imageData.bitmap !== null && imageData.bitmap !== undefined) {
-            context.drawImage(
-                imageData.bitmap as CanvasImageSource,
-                0,
-                0,
-                imageData.width,
-                imageData.height,
-            );
+            context.drawImage(imageData.bitmap as CanvasImageSource, 0, 0, imageData.width, imageData.height);
             return canvas.toDataURL('image/png');
         }
         const rgba = toRgba(imageData);

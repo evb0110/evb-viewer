@@ -1,10 +1,6 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { createDocumentPageSlotRegistry } from '@app/modules/document-viewer/page-slots/createDocumentPageSlotRegistry';
-import { createDocumentViewerRenderCoordinator } from '@app/modules/document-viewer/runtime/createDocumentViewerRenderCoordinator';
+import {describe, expect, it} from 'vitest';
+import {createDocumentPageSlotRegistry} from '@app/modules/document-viewer/page-slots/createDocumentPageSlotRegistry';
+import {createDocumentViewerRenderCoordinator} from '@app/modules/document-viewer/runtime/createDocumentViewerRenderCoordinator';
 
 describe('document viewer render coordinator', () => {
     it('makes feature replacement transactional across equal page numbers', async () => {
@@ -12,9 +8,13 @@ describe('document viewer render coordinator', () => {
         const outgoing = coordinator.createSession('pdf:1');
         const incoming = coordinator.createSession('djvu:2');
         let finishOutgoing!: () => void;
-        const outgoingRender = outgoing.runPageRender(5, () => new Promise<void>((resolve) => {
-            finishOutgoing = resolve;
-        }));
+        const outgoingRender = outgoing.runPageRender(
+            5,
+            () =>
+                new Promise<void>((resolve) => {
+                    finishOutgoing = resolve;
+                }),
+        );
         const incomingRender = incoming.runPageRender(5, async () => {});
 
         incoming.pageSlots.markMounted(5);
@@ -27,51 +27,32 @@ describe('document viewer render coordinator', () => {
     });
 
     it('keeps viewport and destination windows disjoint on long jumps', () => {
-        const session = createDocumentViewerRenderCoordinator(createDocumentPageSlotRegistry())
-            .createSession('pdf:jump');
-        expect(session.resolveMountedPages({
-            currentPage: 1,
-            destinationPage: 500,
-            pageCount: 600,
-            radius: 1,
-        })).toEqual([
-            1,
-            2,
-            499,
-            500,
-            501,
-        ]);
+        const session = createDocumentViewerRenderCoordinator(createDocumentPageSlotRegistry()).createSession('pdf:jump');
+        expect(
+            session.resolveMountedPages({
+                currentPage: 1,
+                destinationPage: 500,
+                pageCount: 600,
+                radius: 1,
+            }),
+        ).toEqual([1, 2, 499, 500, 501]);
     });
 
     it('admits viewport pages independently of a stale semantic page', () => {
-        const session = createDocumentViewerRenderCoordinator(createDocumentPageSlotRegistry())
-            .createSession('djvu:viewport-authority');
+        const session = createDocumentViewerRenderCoordinator(createDocumentPageSlotRegistry()).createSession('djvu:viewport-authority');
         const pages = session.resolveMountedPages({
             currentPage: 17,
             pageCount: 1_532,
             radius: 2,
-            viewportPages: [
-                910,
-                911,
-                912,
-            ],
+            viewportPages: [910, 911, 912],
         });
 
-        expect(pages).toEqual([
-            15,
-            16,
-            17,
-            18,
-            19,
-            910,
-            911,
-            912,
-        ]);
+        expect(pages).toEqual([15, 16, 17, 18, 19, 910, 911, 912]);
     });
 
     it('caps disjoint semantic and viewport windows without evicting their owners', () => {
-        const session = createDocumentViewerRenderCoordinator(createDocumentPageSlotRegistry())
-            .createSession('djvu:bounded-viewport-authority');
+        const session =
+            createDocumentViewerRenderCoordinator(createDocumentPageSlotRegistry()).createSession('djvu:bounded-viewport-authority');
         const viewportPages = Array.from({length: 25}, (_, index) => 900 + index);
         const pages = session.resolveMountedPages({
             currentPage: 17,
@@ -93,9 +74,13 @@ describe('document viewer render coordinator', () => {
         const coordinator = createDocumentViewerRenderCoordinator(createDocumentPageSlotRegistry());
         const outgoing = coordinator.createSession('pdf:render-old');
         let finish!: (value: string) => void;
-        const pending = outgoing.runPageRender(3, () => new Promise<string>((resolve) => {
-            finish = resolve;
-        }));
+        const pending = outgoing.runPageRender(
+            3,
+            () =>
+                new Promise<string>((resolve) => {
+                    finish = resolve;
+                }),
+        );
         outgoing.dispose();
         const incoming = coordinator.createSession('djvu:render-new');
         const latest = incoming.runPageRender(3, async () => 'new');
@@ -112,22 +97,19 @@ describe('document viewer render coordinator', () => {
     });
 
     it('commits only the latest attempt of a page and carries its identity', async () => {
-        const session = createDocumentViewerRenderCoordinator(createDocumentPageSlotRegistry())
-            .createSession('djvu:replace');
+        const session = createDocumentViewerRenderCoordinator(createDocumentPageSlotRegistry()).createSession('djvu:replace');
         let finishFirst!: () => void;
-        const first = session.runPageRender(4, () => new Promise<void>((resolve) => {
-            finishFirst = resolve;
-        }));
-        const replacement = session.runPageRender(4, async attempt => attempt);
+        const first = session.runPageRender(
+            4,
+            () =>
+                new Promise<void>((resolve) => {
+                    finishFirst = resolve;
+                }),
+        );
+        const replacement = session.runPageRender(4, async (attempt) => attempt);
         finishFirst();
 
-        const [
-            firstOutcome,
-            replacementOutcome,
-        ] = await Promise.all([
-            first,
-            replacement,
-        ]);
+        const [firstOutcome, replacementOutcome] = await Promise.all([first, replacement]);
         expect(firstOutcome.committed).toBe(false);
         expect(replacementOutcome.committed).toBe(true);
         // The renderer sees the attempt the session commits, not a translation.
@@ -137,21 +119,25 @@ describe('document viewer render coordinator', () => {
     });
 
     it('fails a render without committing it', async () => {
-        const session = createDocumentViewerRenderCoordinator(createDocumentPageSlotRegistry())
-            .createSession('djvu:fail');
-        await expect(session.runPageRender(2, async () => {
-            throw new Error('render failed');
-        })).rejects.toThrow('render failed');
+        const session = createDocumentViewerRenderCoordinator(createDocumentPageSlotRegistry()).createSession('djvu:fail');
+        await expect(
+            session.runPageRender(2, async () => {
+                throw new Error('render failed');
+            }),
+        ).rejects.toThrow('render failed');
         await expect(session.runPageRender(2, async () => 'retry')).resolves.toMatchObject({committed: true});
     });
 
     it('forgets a page attempt when the page leaves residency', async () => {
-        const session = createDocumentViewerRenderCoordinator(createDocumentPageSlotRegistry())
-            .createSession('djvu:release-page');
+        const session = createDocumentViewerRenderCoordinator(createDocumentPageSlotRegistry()).createSession('djvu:release-page');
         let finish!: () => void;
-        const pending = session.runPageRender(8, () => new Promise<void>((resolve) => {
-            finish = resolve;
-        }));
+        const pending = session.runPageRender(
+            8,
+            () =>
+                new Promise<void>((resolve) => {
+                    finish = resolve;
+                }),
+        );
 
         session.releasePage(8);
         finish();

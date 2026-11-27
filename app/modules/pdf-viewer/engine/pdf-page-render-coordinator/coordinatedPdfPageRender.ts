@@ -1,15 +1,12 @@
-import type {
-    IPdfPage,
-    IPdfRenderTask,
-} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+import type {IPdfPage, IPdfRenderTask} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import {logPdfRenderTrace} from '@app/utils/pdfRenderTrace';
 import {
     pdfRenderContinuationScheduler,
     type TPdfRenderContinuationPriority,
 } from '@app/modules/pdf-viewer/engine/pdf-render-continuation-scheduler/pdfRenderContinuationScheduler';
-import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
-import type { IPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
-import { armPageStageDeadline } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
+import type {IPageRenderStallPayload} from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
+import type {IPdfRenderSupervisor} from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
+import {armPageStageDeadline} from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
 
 interface ICoordinatedPdfPageRenderTask {
     promise: Promise<unknown>;
@@ -35,18 +32,22 @@ interface IRunCoordinatedPdfPageRenderOptions<TTask extends ICoordinatedPdfPageR
     shouldStart?: (() => boolean) | undefined;
     startRender: () => TTask;
     onTask?: ((task: TTask) => void) | undefined;
-    continuation?: {
-        key: string;
-        priority: TPdfRenderContinuationPriority;
-    } | undefined;
-    watchdog?: {
-        key: string;
-        metadata?: Record<string, unknown> | undefined;
-        onRenderStall?: ((payload: IPageRenderStallPayload) => void) | undefined;
-        payload: IPageRenderStallPayload;
-        renderSupervisor: IPdfRenderSupervisor;
-        shouldNotify?: (() => boolean) | undefined;
-    } | undefined;
+    continuation?:
+        | {
+              key: string;
+              priority: TPdfRenderContinuationPriority;
+          }
+        | undefined;
+    watchdog?:
+        | {
+              key: string;
+              metadata?: Record<string, unknown> | undefined;
+              onRenderStall?: ((payload: IPageRenderStallPayload) => void) | undefined;
+              payload: IPageRenderStallPayload;
+              renderSupervisor: IPdfRenderSupervisor;
+              shouldNotify?: (() => boolean) | undefined;
+          }
+        | undefined;
     captureSettlement?: TPdfPageOperationSettlementCapture | undefined;
 }
 
@@ -73,22 +74,13 @@ function createCoordinatedRenderCancelledError(pageNumber: number, owner: string
     return error;
 }
 
-function throwIfCoordinatedOperationCancelled(
-    signal: AbortSignal | undefined,
-    pageNumber: number,
-    owner: string,
-) {
+function throwIfCoordinatedOperationCancelled(signal: AbortSignal | undefined, pageNumber: number, owner: string) {
     if (signal?.aborted) {
         throw createCoordinatedRenderCancelledError(pageNumber, owner);
     }
 }
 
-function createAbortWaiter(
-    signal: AbortSignal | undefined,
-    pageNumber: number,
-    owner: string,
-    onAbort?: (() => void) | undefined,
-) {
+function createAbortWaiter(signal: AbortSignal | undefined, pageNumber: number, owner: string, onAbort?: (() => void) | undefined) {
     if (!signal) {
         return null;
     }
@@ -153,18 +145,9 @@ async function waitForActiveOperation(
         });
     }
 
-    const abortWaiter = createAbortWaiter(
-        signal,
-        activeOperation.pageNumber,
-        owner,
-    );
+    const abortWaiter = createAbortWaiter(signal, activeOperation.pageNumber, owner);
     try {
-        await (abortWaiter
-            ? Promise.race([
-                activeOperation.settled,
-                abortWaiter.promise,
-            ])
-            : activeOperation.settled);
+        await (abortWaiter ? Promise.race([activeOperation.settled, abortWaiter.promise]) : activeOperation.settled);
     } finally {
         abortWaiter?.remove();
     }
@@ -222,28 +205,10 @@ async function waitForCoordinatedTurn(
     }
 }
 
-export async function runCoordinatedPdfPageOperation<TResult>(
-    options: IRunCoordinatedPdfPageOperationOptions<TResult>,
-) {
-    const {
-        operation,
-        owner,
-        pageNumber,
-        pdfPage,
-        priority,
-        signal,
-        shouldContinue,
-        shouldStart,
-        captureSettlement,
-    } = options;
+export async function runCoordinatedPdfPageOperation<TResult>(options: IRunCoordinatedPdfPageOperationOptions<TResult>) {
+    const {operation, owner, pageNumber, pdfPage, priority, signal, shouldContinue, shouldStart, captureSettlement} = options;
 
-    const ownership = await waitForCoordinatedTurn(
-        pdfPage,
-        owner,
-        pageNumber,
-        priority,
-        signal,
-    );
+    const ownership = await waitForCoordinatedTurn(pdfPage, owner, pageNumber, priority, signal);
     const releaseOwnership = ownership.release;
     try {
         captureSettlement?.(ownership.settled);
@@ -266,16 +231,9 @@ export async function runCoordinatedPdfPageOperation<TResult>(
         releaseOwnership();
         throw error;
     }
-    void operationPromise
-        .catch(() => {})
-        .then(releaseOwnership);
+    void operationPromise.catch(() => {}).then(releaseOwnership);
     try {
-        const result = await (abortWaiter
-            ? Promise.race([
-                operationPromise,
-                abortWaiter.promise,
-            ])
-            : operationPromise);
+        const result = await (abortWaiter ? Promise.race([operationPromise, abortWaiter.promise]) : operationPromise);
         if (shouldContinue?.() === false) {
             throw createCoordinatedRenderCancelledError(pageNumber, owner);
         }
@@ -288,19 +246,8 @@ export async function runCoordinatedPdfPageOperation<TResult>(
 export async function runCoordinatedPdfPageRender<TTask extends ICoordinatedPdfPageRenderTask>(
     options: IRunCoordinatedPdfPageRenderOptions<TTask>,
 ) {
-    const {
-        onTask,
-        owner,
-        pageNumber,
-        pdfPage,
-        priority,
-        signal,
-        shouldStart,
-        startRender,
-        continuation,
-        watchdog,
-        captureSettlement,
-    } = options;
+    const {onTask, owner, pageNumber, pdfPage, priority, signal, shouldStart, startRender, continuation, watchdog, captureSettlement} =
+        options;
 
     let cancelTask: (() => void) | undefined = undefined;
     let cancelRequested = false;
@@ -314,14 +261,7 @@ export async function runCoordinatedPdfPageRender<TTask extends ICoordinatedPdfP
         }
         cancelTask();
     };
-    const ownership = await waitForCoordinatedTurn(
-        pdfPage,
-        owner,
-        pageNumber,
-        priority,
-        signal,
-        requestCancel,
-    );
+    const ownership = await waitForCoordinatedTurn(pdfPage, owner, pageNumber, priority, signal, requestCancel);
     const releaseOwnership = ownership.release;
     let task: TTask;
     try {
@@ -342,9 +282,7 @@ export async function runCoordinatedPdfPageRender<TTask extends ICoordinatedPdfP
     const disposeContinuation = continuation
         ? bindRenderTaskContinuation(task, continuation, signal, () => watchdogDeadline?.refresh())
         : () => {};
-    const settled = task.promise
-        .catch(() => {})
-        .then(releaseOwnership);
+    const settled = task.promise.catch(() => {}).then(releaseOwnership);
 
     cancelTask = () => {
         if (taskCancelIssued) {
@@ -359,31 +297,27 @@ export async function runCoordinatedPdfPageRender<TTask extends ICoordinatedPdfP
     }
     onTask?.(task);
 
-    watchdogDeadline = watchdog && !taskCancelIssued
-        ? armPageStageDeadline({
-            key: watchdog.key,
-            metadata: watchdog.metadata,
-            onRenderStall: watchdog.onRenderStall,
-            onTimeout: () => cancelPdfPageRender(cancelTask),
-            payload: watchdog.payload,
-            renderSupervisor: watchdog.renderSupervisor,
-            shouldNotify: () => watchdog.shouldNotify?.() !== false,
-        })
-        : null;
+    watchdogDeadline =
+        watchdog && !taskCancelIssued
+            ? armPageStageDeadline({
+                  key: watchdog.key,
+                  metadata: watchdog.metadata,
+                  onRenderStall: watchdog.onRenderStall,
+                  onTimeout: () => cancelPdfPageRender(cancelTask),
+                  payload: watchdog.payload,
+                  renderSupervisor: watchdog.renderSupervisor,
+                  shouldNotify: () => watchdog.shouldNotify?.() !== false,
+              })
+            : null;
     void task.promise.then(
         () => watchdogDeadline?.clear(),
         () => watchdogDeadline?.clear(),
     );
 
-    const abortWaiter = createAbortWaiter(
-        signal,
-        pageNumber,
-        owner,
-        () => {
-            watchdogDeadline?.clear();
-            cancelPdfPageRender(cancelTask);
-        },
-    );
+    const abortWaiter = createAbortWaiter(signal, pageNumber, owner, () => {
+        watchdogDeadline?.clear();
+        cancelPdfPageRender(cancelTask);
+    });
 
     try {
         await Promise.race([

@@ -27,7 +27,7 @@ export function resolveDocumentThumbnailPageBounds(
     page: number,
     layout: {
         getPageHeight(page: number): number;
-        getPageTop(page: number): number
+        getPageTop(page: number): number;
     },
 ): IDocumentThumbnailPageBounds {
     const top = Math.max(0, layout.getPageTop(page));
@@ -44,29 +44,19 @@ export function getDocumentThumbnailMaxScrollTop(viewport: IDocumentThumbnailVie
 }
 
 export function getDocumentThumbnailComfortPadding(viewport: IDocumentThumbnailViewport) {
-    return Math.min(
-        COMFORT_PADDING_MAX_PX,
-        Math.max(COMFORT_PADDING_MIN_PX, Math.round(viewport.clientHeight * 0.12)),
-    );
+    return Math.min(COMFORT_PADDING_MAX_PX, Math.max(COMFORT_PADDING_MIN_PX, Math.round(viewport.clientHeight * 0.12)));
 }
 
-export function isDocumentThumbnailWithinComfortViewport(
-    viewport: IDocumentThumbnailViewport,
-    bounds: IDocumentThumbnailPageBounds,
-) {
+export function isDocumentThumbnailWithinComfortViewport(viewport: IDocumentThumbnailViewport, bounds: IDocumentThumbnailPageBounds) {
     const padding = getDocumentThumbnailComfortPadding(viewport);
-    return bounds.top >= viewport.scrollTop + padding
-        && bounds.bottom <= viewport.scrollTop + viewport.clientHeight - padding;
+    return bounds.top >= viewport.scrollTop + padding && bounds.bottom <= viewport.scrollTop + viewport.clientHeight - padding;
 }
 
 /**
  * Shared current-page reveal policy for every document thumbnail adapter.
  * Distant pages are centered; nearby pages move only enough to regain a stable comfort inset.
  */
-export function resolveDocumentThumbnailRevealScrollTop(
-    viewport: IDocumentThumbnailViewport,
-    bounds: IDocumentThumbnailPageBounds,
-) {
+export function resolveDocumentThumbnailRevealScrollTop(viewport: IDocumentThumbnailViewport, bounds: IDocumentThumbnailPageBounds) {
     if (viewport.clientHeight <= 0) {
         return null;
     }
@@ -77,11 +67,7 @@ export function resolveDocumentThumbnailRevealScrollTop(
         return null;
     }
     if (bounds.bottom <= viewport.scrollTop || bounds.top >= viewportBottom) {
-        return clamp(
-            bounds.top - Math.max(0, (viewport.clientHeight - bounds.height) / 2),
-            0,
-            maxScrollTop,
-        );
+        return clamp(bounds.top - Math.max(0, (viewport.clientHeight - bounds.height) / 2), 0, maxScrollTop);
     }
     if (bounds.top < viewport.scrollTop + padding) {
         return clamp(bounds.top - padding, 0, maxScrollTop);

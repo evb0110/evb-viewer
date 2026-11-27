@@ -1,12 +1,8 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { readFileSync } from 'fs';
+import {describe, expect, it} from 'vitest';
+import {readFileSync} from 'fs';
 import * as contractsSearch from '@contracts/search';
 import * as pdfSearchCore from '@pdf-core';
-import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
+import {SEARCH_PLATFORM_FEATURE} from '@contracts/searchPlatformFeature';
 
 const {
     buildPdfSearchExcerpt,
@@ -22,9 +18,9 @@ const {
 
 describe('contracts search compatibility exports', () => {
     it('defines all eight search option combinations exactly once', () => {
-        const optionKeys = contractsSearch.SEARCH_OPTION_SEMANTICS.map(options => (
-            `${Number(options.matchCase)}${Number(options.wholeWord)}${Number(options.useRegex)}`
-        ));
+        const optionKeys = contractsSearch.SEARCH_OPTION_SEMANTICS.map(
+            (options) => `${Number(options.matchCase)}${Number(options.wholeWord)}${Number(options.useRegex)}`,
+        );
 
         expect(optionKeys).toHaveLength(8);
         expect(new Set(optionKeys).size).toBe(8);
@@ -34,68 +30,89 @@ describe('contracts search compatibility exports', () => {
         expect(contractsSearch.SEARCH_RESULT_LIMIT).toBe(500);
         expect(contractsSearch.SEARCH_EXCERPT_CONTEXT_CHARS).toBe(56);
         const response = {
-            results: [{
-                pageNumber: 1,
-                pageMatchIndex: 0,
-                matchIndex: 0,
-                startOffset: 2,
-                endOffset: 5,
-                excerpt: {
-                    prefix: false,
-                    suffix: false,
-                    before: 'a ',
-                    match: 'foo',
-                    after: ' b',
+            results: [
+                {
+                    pageNumber: 1,
+                    pageMatchIndex: 0,
+                    matchIndex: 0,
+                    startOffset: 2,
+                    endOffset: 5,
+                    excerpt: {
+                        prefix: false,
+                        suffix: false,
+                        before: 'a ',
+                        match: 'foo',
+                        after: ' b',
+                    },
                 },
-            }],
+            ],
             truncated: false,
         };
 
         expect(contractsSearch.SEARCH_WIRE_CODEC.decodeResponse(response)).toEqual(response);
-        expect(contractsSearch.SEARCH_WIRE_CODEC.decodeResponse({
-            ...response,
-            ignored: true,
-            results: [{
-                ...response.results[0],
+        expect(
+            contractsSearch.SEARCH_WIRE_CODEC.decodeResponse({
+                ...response,
                 ignored: true,
-                excerpt: {
-                    ...response.results[0]!.excerpt,
-                    ignored: true,
+                results: [
+                    {
+                        ...response.results[0],
+                        ignored: true,
+                        excerpt: {
+                            ...response.results[0]!.excerpt,
+                            ignored: true,
+                        },
+                        words: [
+                            {
+                                text: 'foo',
+                                x: 1,
+                                y: 2,
+                                width: 3,
+                                height: 4,
+                                ignored: true,
+                            },
+                        ],
+                    },
+                ],
+            }),
+        ).toEqual({
+            ...response,
+            results: [
+                {
+                    ...response.results[0],
+                    words: [
+                        {
+                            text: 'foo',
+                            x: 1,
+                            y: 2,
+                            width: 3,
+                            height: 4,
+                            ignored: true,
+                        },
+                    ],
                 },
-                words: [{
-                    text: 'foo',
-                    x: 1,
-                    y: 2,
-                    width: 3,
-                    height: 4,
-                    ignored: true,
-                }],
-            }],
-        })).toEqual({
-            ...response,
-            results: [{
-                ...response.results[0],
-                words: [{
-                    text: 'foo',
-                    x: 1,
-                    y: 2,
-                    width: 3,
-                    height: 4,
-                    ignored: true,
-                }],
-            }],
+            ],
         });
-        expect(contractsSearch.SEARCH_WIRE_CODEC.decodeResult({
-            ...response.results[0],
-            startOffset: Number.NaN,
-        })).toBeNull();
-        expect(contractsSearch.SEARCH_WIRE_CODEC.decodeResponse({
-            ...response,
-            results: [{
+        expect(
+            contractsSearch.SEARCH_WIRE_CODEC.decodeResult({
                 ...response.results[0],
-                pageNumber: 2,
-            }],
-        }, 1)).toBeNull();
+                startOffset: Number.NaN,
+            }),
+        ).toBeNull();
+        expect(
+            contractsSearch.SEARCH_WIRE_CODEC.decodeResponse(
+                {
+                    ...response,
+                    results: [
+                        {
+                            ...response.results[0],
+                            pageNumber: 2,
+                        },
+                    ],
+                },
+                1,
+            ),
+        ).toBeNull();
     });
 
     it('preserves incomplete coverage separately from the match limit', () => {
@@ -120,40 +137,50 @@ describe('contracts search compatibility exports', () => {
             coverage,
         };
         expect(contractsSearch.SEARCH_WIRE_CODEC.decodeProgress(progress)).toEqual(progress);
-        expect(contractsSearch.SEARCH_WIRE_CODEC.decodeResponse({
-            ...response,
-            coverage: {
-                ...coverage,
-                pagesWritten: 4,
-            },
-        })).toBeNull();
+        expect(
+            contractsSearch.SEARCH_WIRE_CODEC.decodeResponse({
+                ...response,
+                coverage: {
+                    ...coverage,
+                    pagesWritten: 4,
+                },
+            }),
+        ).toBeNull();
         const completeCoverage = {
             ...coverage,
             pagesScanned: coverage.pageCount,
         };
-        expect(contractsSearch.SEARCH_WIRE_CODEC.decodeResponse({
-            ...response,
-            coverage: completeCoverage,
-        })).toBeNull();
-        expect(contractsSearch.SEARCH_WIRE_CODEC.decodeProgress({
-            ...progress,
-            coverage: completeCoverage,
-        })).toBeNull();
-        expect(contractsSearch.SEARCH_WIRE_CODEC.decodeResponse({
-            ...response,
-            coverage: {
-                ...completeCoverage,
-                truncated: false,
-            },
-        })).not.toBeNull();
+        expect(
+            contractsSearch.SEARCH_WIRE_CODEC.decodeResponse({
+                ...response,
+                coverage: completeCoverage,
+            }),
+        ).toBeNull();
+        expect(
+            contractsSearch.SEARCH_WIRE_CODEC.decodeProgress({
+                ...progress,
+                coverage: completeCoverage,
+            }),
+        ).toBeNull();
+        expect(
+            contractsSearch.SEARCH_WIRE_CODEC.decodeResponse({
+                ...response,
+                coverage: {
+                    ...completeCoverage,
+                    truncated: false,
+                },
+            }),
+        ).not.toBeNull();
         // Native input can end before pageCount without breaching its budget.
-        expect(contractsSearch.SEARCH_WIRE_CODEC.decodeResponse({
-            ...response,
-            coverage: {
-                ...coverage,
-                truncated: false,
-            },
-        })).not.toBeNull();
+        expect(
+            contractsSearch.SEARCH_WIRE_CODEC.decodeResponse({
+                ...response,
+                coverage: {
+                    ...coverage,
+                    truncated: false,
+                },
+            }),
+        ).not.toBeNull();
     });
 
     it('keeps boundary helpers and moved ownership explicit', () => {
@@ -163,13 +190,14 @@ describe('contracts search compatibility exports', () => {
             useRegex: false,
         };
 
-        expect(() => pdfSearchCore.assertSafePdfSearchRegex('(a+)+$', options))
-            .toThrow('pattern is too complex');
-        expect(() => pdfSearchCore.validateSearchQuery('x'.repeat(513), {
-            matchCase: false,
-            wholeWord: false,
-            useRegex: true,
-        })).toThrow('maximum length is 512');
+        expect(() => pdfSearchCore.assertSafePdfSearchRegex('(a+)+$', options)).toThrow('pattern is too complex');
+        expect(() =>
+            pdfSearchCore.validateSearchQuery('x'.repeat(513), {
+                matchCase: false,
+                wholeWord: false,
+                useRegex: true,
+            }),
+        ).toThrow('maximum length is 512');
         expect(contractsSearch).not.toHaveProperty('assembleSearchablePageText');
         expect(contractsSearch).not.toHaveProperty('assertSafePdfSearchRegex');
         expect(contractsSearch).not.toHaveProperty('buildPdfSearchRegex');
@@ -189,7 +217,6 @@ describe('Search platform feature schemas', () => {
     const codecs = SEARCH_PLATFORM_FEATURE.ipcCodecs;
 
     it('preserves public IPC channels and replay policy', () => {
-
         expect(SEARCH_PLATFORM_FEATURE.methods.run.ipc.timeoutMs).toBe(30 * 60 * 1_000);
         expect(SEARCH_PLATFORM_FEATURE.methods.warmIndex.ipc.timeoutMs).toBe(30 * 60 * 1_000);
     });
@@ -199,27 +226,35 @@ describe('Search platform feature schemas', () => {
             expect(codecs[channel]!.decodeArgs(wire)).toEqual(normalized);
         expectArgs(
             channels.run,
-            [{
-                pdfPath: ' /tmp/a.pdf ',
-                query: 'needle',
-                requestId: ' request-1 ',
-            }],
-            [{
-                pdfPath: '/tmp/a.pdf',
-                query: 'needle',
-                requestId: 'request-1',
-            }],
+            [
+                {
+                    pdfPath: ' /tmp/a.pdf ',
+                    query: 'needle',
+                    requestId: ' request-1 ',
+                },
+            ],
+            [
+                {
+                    pdfPath: '/tmp/a.pdf',
+                    query: 'needle',
+                    requestId: 'request-1',
+                },
+            ],
         );
         expectArgs(
             channels.warmIndex,
-            [{
-                pdfPath: ' /tmp/a.pdf ',
-                pageCount: 4,
-            }],
-            [{
-                pdfPath: '/tmp/a.pdf',
-                pageCount: 4,
-            }],
+            [
+                {
+                    pdfPath: ' /tmp/a.pdf ',
+                    pageCount: 4,
+                },
+            ],
+            [
+                {
+                    pdfPath: '/tmp/a.pdf',
+                    pageCount: 4,
+                },
+            ],
         );
         expectArgs(channels.cancel, [' request-1 '], ['request-1']);
         expectArgs(channels.cancel, [undefined], []);
@@ -227,11 +262,7 @@ describe('Search platform feature schemas', () => {
     });
 
     it('preserves bounded-window offsets through the existing request codec', () => {
-        for (const resultOffset of [
-            0,
-            500,
-            'last',
-        ]) {
+        for (const resultOffset of [0, 500, 'last']) {
             const request = {
                 pdfPath: '/tmp/manual.pdf',
                 query: 'valve',
@@ -239,30 +270,24 @@ describe('Search platform feature schemas', () => {
             };
             expect(codecs[channels.run]!.decodeArgs([request])).toEqual([request]);
         }
-        for (const resultOffset of [
-            -1,
-            0.5,
-            Number.MAX_SAFE_INTEGER + 1,
-            'first',
-            null,
-        ]) {
-            expect(() => codecs[channels.run]!.decodeArgs([{
-                pdfPath: '/tmp/manual.pdf',
-                query: 'valve',
-                resultOffset,
-            }])).toThrow();
+        for (const resultOffset of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1, 'first', null]) {
+            expect(() =>
+                codecs[channels.run]!.decodeArgs([
+                    {
+                        pdfPath: '/tmp/manual.pdf',
+                        query: 'valve',
+                        resultOffset,
+                    },
+                ]),
+            ).toThrow();
         }
     });
 
     it('keeps malformed argument and result messages stable', () => {
-        expect(() => codecs[channels.run]!.decodeArgs([]))
-            .toThrow('expected 1 arguments, received 0');
-        expect(() => codecs[channels.cancel]!.decodeArgs([1]))
-            .toThrow('requestId must be a string');
-        expect(() => codecs[channels.run]!.decodeResult({results: 'invalid'}))
-            .toThrow('invalid search response');
-        expect(() => codecs[channels.cancel]!.decodeResult({canceled: 'yes'}))
-            .toThrow('invalid search cancellation result');
+        expect(() => codecs[channels.run]!.decodeArgs([])).toThrow('expected 1 arguments, received 0');
+        expect(() => codecs[channels.cancel]!.decodeArgs([1])).toThrow('requestId must be a string');
+        expect(() => codecs[channels.run]!.decodeResult({results: 'invalid'})).toThrow('invalid search response');
+        expect(() => codecs[channels.cancel]!.decodeResult({canceled: 'yes'})).toThrow('invalid search cancellation result');
     });
 
     it('round-trips valid results and validates progress payloads', () => {
@@ -278,11 +303,13 @@ describe('Search platform feature schemas', () => {
             status: 'running' as const,
         };
         expect(contractsSearch.SEARCH_WIRE_CODEC.decodeProgress(progress)).toEqual(progress);
-        expect(contractsSearch.SEARCH_WIRE_CODEC.decodeProgress({
-            requestId: 'request-1',
-            processed: '1',
-            total: 2,
-        })).toBeNull();
+        expect(
+            contractsSearch.SEARCH_WIRE_CODEC.decodeProgress({
+                requestId: 'request-1',
+                processed: '1',
+                total: 2,
+            }),
+        ).toBeNull();
     });
 });
 
@@ -294,8 +321,7 @@ describe('collapseRepeatedPdfSearchPageText', () => {
     });
 
     it('refuses normalized page text that exceeds the output budget', () => {
-        expect(() => pdfSearchCore.normalizeSearchText('\uFB03'.repeat(8), 16))
-            .toThrow('normalized search text exceeds 16 bytes');
+        expect(() => pdfSearchCore.normalizeSearchText('\uFB03'.repeat(8), 16)).toThrow('normalized search text exceeds 16 bytes');
     });
 
     it('collapses OCR overlay stacks with more than four copies', () => {
@@ -322,10 +348,7 @@ const RECORDED_PDFJS_LINE_ITEMS = [
     ' ',
     Array(6).fill('aaaaaaaaa').join(' '),
     ' ',
-    ...Array.from({length: 21}, () => [
-        'aaaaaaaaa',
-        ' ',
-    ]).flat(),
+    ...Array.from({length: 21}, () => ['aaaaaaaaa', ' ']).flat(),
     Array(12).fill('aaaaaaaaa').join(' '),
 ];
 
@@ -363,10 +386,12 @@ describe('assembleSearchablePageText', () => {
     });
 
     it('assembles a page of 400 long lines without exhausting the stack', () => {
-        const items = Array.from({length: 400}, () => RECORDED_PDFJS_LINE_ITEMS.map((text, index) => ({
-            text,
-            separatorAfter: index === RECORDED_PDFJS_LINE_ITEMS.length - 1 ? 'line' as const : 'none' as const,
-        }))).flat();
+        const items = Array.from({length: 400}, () =>
+            RECORDED_PDFJS_LINE_ITEMS.map((text, index) => ({
+                text,
+                separatorAfter: index === RECORDED_PDFJS_LINE_ITEMS.length - 1 ? ('line' as const) : ('none' as const),
+            })),
+        ).flat();
 
         const assembled = assembleSearchablePageText(items);
 
@@ -374,26 +399,27 @@ describe('assembleSearchablePageText', () => {
     });
 
     it('keeps identical lines at different heights as separate text', () => {
-        const items = Array.from({length: 400}, (_line, line) => RECORDED_PDFJS_LINE_ITEMS.map((text, index) => ({
-            text,
-            separatorAfter: index === RECORDED_PDFJS_LINE_ITEMS.length - 1 ? 'line' as const : 'none' as const,
-            origin: {
-                x: 10 + index * 5,
-                y: 3180 - line * 20,
-            },
-        }))).flat();
+        const items = Array.from({length: 400}, (_line, line) =>
+            RECORDED_PDFJS_LINE_ITEMS.map((text, index) => ({
+                text,
+                separatorAfter: index === RECORDED_PDFJS_LINE_ITEMS.length - 1 ? ('line' as const) : ('none' as const),
+                origin: {
+                    x: 10 + index * 5,
+                    y: 3180 - line * 20,
+                },
+            })),
+        ).flat();
 
         expect(findPdfSearchMatches(assembleSearchablePageText(items).text, 'aaaaaaaaa')).toHaveLength(400 * 40);
     });
 
     it('gives callers without a character map the same text and item spans', () => {
-        const spans = (offsets: ReadonlyArray<{
-            startOffset: number;
-            endOffset: number
-        }>) => offsets
-            .map(({
-                startOffset, endOffset,
-            }) => `${startOffset}-${endOffset}`).join(' ');
+        const spans = (
+            offsets: ReadonlyArray<{
+                startOffset: number;
+                endOffset: number;
+            }>,
+        ) => offsets.map(({startOffset, endOffset}) => `${startOffset}-${endOffset}`).join(' ');
         const joined = [
             {
                 text: 'Cafe\u0301 ex-',
@@ -413,31 +439,25 @@ describe('assembleSearchablePageText', () => {
         expect(spans(assembled.itemOffsets)).toBe('0-8 0-0 8-12 12-16 16-19 19-24');
         // Hyphenation drops source offsets 8, 18 and 19, the last pair across
         // two items; inserted spaces map to empty ranges.
-        expect(spans(assembleSearchablePageText(joined).sourceOffsets)).toBe([
-            '0-1 1-2 2-3 3-4 4-5 5-6 6-7 7-8 9-10 10-11 11-12 12-12',
-            '12-13 13-14 14-15 15-16 16-16 16-17 17-18 20-21 21-22 22-23 23-24 24-25',
-        ].join(' '));
+        expect(spans(assembleSearchablePageText(joined).sourceOffsets)).toBe(
+            [
+                '0-1 1-2 2-3 3-4 4-5 5-6 6-7 7-8 9-10 10-11 11-12 12-12',
+                '12-13 13-14 14-15 15-16 16-16 16-17 17-18 20-21 21-22 22-23 23-24 24-25',
+            ].join(' '),
+        );
 
         const line = {
             text: 'The same heading drawn again over itself, word for word.',
             separatorAfter: 'line' as const,
         };
-        const drawnInPlace = [
-            0,
-            1,
-            2,
-        ].map(() => ({
+        const drawnInPlace = [0, 1, 2].map(() => ({
             ...line,
             origin: {
                 x: 10,
                 y: 700,
             },
         }));
-        const drawnLower = [
-            0,
-            1,
-            2,
-        ].map(copy => ({
+        const drawnLower = [0, 1, 2].map((copy) => ({
             ...line,
             origin: {
                 x: 10,
@@ -446,11 +466,7 @@ describe('assembleSearchablePageText', () => {
         }));
         expect(spans(assembleSearchablePageTextItems(drawnInPlace).itemOffsets)).toBe('0-57 0-0 0-0');
         expect(spans(assembleSearchablePageTextItems(drawnLower).itemOffsets)).toBe('0-57 57-114 114-171');
-        for (const items of [
-            joined,
-            drawnInPlace,
-            drawnLower,
-        ]) {
+        for (const items of [joined, drawnInPlace, drawnLower]) {
             const full = assembleSearchablePageText(items);
             expect(assembleSearchablePageTextItems(items)).toEqual({
                 text: full.text,
@@ -461,13 +477,15 @@ describe('assembleSearchablePageText', () => {
     });
 
     it('preserves source Unicode offsets while joining line hyphenation', () => {
-        expect(assembleSearchablePageText([
-            {
-                text: 'Cafe\u0301 ex-',
-                separatorAfter: 'line',
-            },
-            {text: '\uFB01le'},
-        ]).text).toBe('Cafe\u0301 ex\uFB01le');
+        expect(
+            assembleSearchablePageText([
+                {
+                    text: 'Cafe\u0301 ex-',
+                    separatorAfter: 'line',
+                },
+                {text: '\uFB01le'},
+            ]).text,
+        ).toBe('Cafe\u0301 ex\uFB01le');
     });
 });
 
@@ -488,18 +506,24 @@ describe('normalizeSearchablePageText', () => {
 
 describe('findPdfSearchMatches', () => {
     it('maps normalized matches back to source UTF-16 offsets', () => {
-        expect(findPdfSearchMatches('Cafe\u0301 and \uFB01le', 'café')).toEqual([{
-            startOffset: 0,
-            endOffset: 5,
-        }]);
-        expect(findPdfSearchMatches('Cafe\u0301 and \uFB01le', 'file')).toEqual([{
-            startOffset: 10,
-            endOffset: 13,
-        }]);
-        expect(findPdfSearchMatches('Baptiſtæ venerit feſtum', 'festum')).toEqual([{
-            startOffset: 17,
-            endOffset: 23,
-        }]);
+        expect(findPdfSearchMatches('Cafe\u0301 and \uFB01le', 'café')).toEqual([
+            {
+                startOffset: 0,
+                endOffset: 5,
+            },
+        ]);
+        expect(findPdfSearchMatches('Cafe\u0301 and \uFB01le', 'file')).toEqual([
+            {
+                startOffset: 10,
+                endOffset: 13,
+            },
+        ]);
+        expect(findPdfSearchMatches('Baptiſtæ venerit feſtum', 'festum')).toEqual([
+            {
+                startOffset: 17,
+                endOffset: 23,
+            },
+        ]);
     });
     it('ignores zero-width regex matches without looping forever', () => {
         expect(findPdfSearchMatches('aaa', /(?=a)/gu)).toEqual([]);
@@ -530,18 +554,22 @@ describe('findPdfSearchMatches', () => {
                 endOffset: 7,
             },
         ]);
-        expect(findPdfSearchMatches('Foo foo f.o', 'foo', { matchCase: true })).toEqual([{
-            startOffset: 4,
-            endOffset: 7,
-        }]);
-        expect(findPdfSearchMatches('fao f.o foo', 'f.o')).toEqual([{
-            startOffset: 4,
-            endOffset: 7,
-        }]);
+        expect(findPdfSearchMatches('Foo foo f.o', 'foo', {matchCase: true})).toEqual([
+            {
+                startOffset: 4,
+                endOffset: 7,
+            },
+        ]);
+        expect(findPdfSearchMatches('fao f.o foo', 'f.o')).toEqual([
+            {
+                startOffset: 4,
+                endOffset: 7,
+            },
+        ]);
     });
 
     it('supports regex and non-global regex inputs', () => {
-        expect(findPdfSearchMatches('a1 b22 c333', '\\p{L}\\d+', { useRegex: true })).toEqual([
+        expect(findPdfSearchMatches('a1 b22 c333', '\\p{L}\\d+', {useRegex: true})).toEqual([
             {
                 startOffset: 0,
                 endOffset: 2,
@@ -568,55 +596,53 @@ describe('findPdfSearchMatches', () => {
     });
 
     it('validates precompiled regex inputs when regex search is enabled', () => {
-        expect(() => findPdfSearchMatches('a'.repeat(40), /(a|aa)+b/u, {useRegex: true}))
-            .toThrow('pattern is too complex for document search');
+        expect(() => findPdfSearchMatches('a'.repeat(40), /(a|aa)+b/u, {useRegex: true})).toThrow(
+            'pattern is too complex for document search',
+        );
     });
 
-    it.each([
-        '[a-\\P{Ll}]',
-        '[\\P{Ll}-a]',
-        '[\\b]',
-        '(a+)+$',
-        '\\P{Ll',
-        '\\P{Unknown_Property}',
-    ])('rejects invalid or unsafe Unicode complement syntax %s', pattern => {
-        expect(() => pdfSearchCore.assertSafePdfSearchRegex(pattern, {
-            matchCase: false,
-            wholeWord: false,
-        })).toThrow();
-    });
+    it.each(['[a-\\P{Ll}]', '[\\P{Ll}-a]', '[\\b]', '(a+)+$', '\\P{Ll', '\\P{Unknown_Property}'])(
+        'rejects invalid or unsafe Unicode complement syntax %s',
+        (pattern) => {
+            expect(() =>
+                pdfSearchCore.assertSafePdfSearchRegex(pattern, {
+                    matchCase: false,
+                    wholeWord: false,
+                }),
+            ).toThrow();
+        },
+    );
 
     it('rejects regex patterns that are unsafe for document search', () => {
-        expect(() => findPdfSearchMatches('aaaaaaaaaaaaaaaa!', '(a+)+$', { useRegex: true }))
-            .toThrow('pattern is too complex for document search');
-        expect(() => findPdfSearchMatches('aaaaaaaaaaaaaaaa!', '(?:a|aa)+$', { useRegex: true }))
-            .toThrow('pattern is too complex for document search');
-        expect(() => findPdfSearchMatches('a'.repeat(100), 'a*a*a*a*a*a*a*a*b', { useRegex: true }))
-            .toThrow('pattern is too complex for document search');
-        expect(() => findPdfSearchMatches('alpha alpha', '(alpha) \\1', { useRegex: true }))
-            .toThrow('pattern is too complex for document search');
+        expect(() => findPdfSearchMatches('aaaaaaaaaaaaaaaa!', '(a+)+$', {useRegex: true})).toThrow(
+            'pattern is too complex for document search',
+        );
+        expect(() => findPdfSearchMatches('aaaaaaaaaaaaaaaa!', '(?:a|aa)+$', {useRegex: true})).toThrow(
+            'pattern is too complex for document search',
+        );
+        expect(() => findPdfSearchMatches('a'.repeat(100), 'a*a*a*a*a*a*a*a*b', {useRegex: true})).toThrow(
+            'pattern is too complex for document search',
+        );
+        expect(() => findPdfSearchMatches('alpha alpha', '(alpha) \\1', {useRegex: true})).toThrow(
+            'pattern is too complex for document search',
+        );
     });
 
     it('rejects alternation hidden behind nested groups before matching', () => {
-        for (const pattern of [
-            '((a|aa))+b',
-            '(((a|aa)))+b',
-            '(?:((a|aa)))+b',
-        ]) {
-            expect(() => findPdfSearchMatches('a'.repeat(40), pattern, {useRegex: true}))
-                .toThrow('pattern is too complex for document search');
+        for (const pattern of ['((a|aa))+b', '(((a|aa)))+b', '(?:((a|aa)))+b']) {
+            expect(() => findPdfSearchMatches('a'.repeat(40), pattern, {useRegex: true})).toThrow(
+                'pattern is too complex for document search',
+            );
         }
     });
 
     it('allows safe regexes with several separated quantifiers', () => {
-        expect(findPdfSearchMatches(
-            'abc-123-def',
-            '[a-z]+-\\d+-[a-z]+',
-            {useRegex: true},
-        )).toEqual([{
-            startOffset: 0,
-            endOffset: 11,
-        }]);
+        expect(findPdfSearchMatches('abc-123-def', '[a-z]+-\\d+-[a-z]+', {useRegex: true})).toEqual([
+            {
+                startOffset: 0,
+                endOffset: 11,
+            },
+        ]);
     });
 
     it('applies the regex execution budget to precompiled matchers', () => {
@@ -635,17 +661,21 @@ describe('findPdfSearchMatches', () => {
 
     it('skips empty Unicode matches without revisiting an astral character', () => {
         expect(findPdfSearchMatches('😀', '(?:)', {useRegex: true})).toEqual([]);
-        expect(findPdfSearchMatches('😀😀a', 'a|(?:)', {
-            useRegex: true,
-            matchCase: true,
-        })).toEqual([{
-            startOffset: 4,
-            endOffset: 5,
-        }]);
+        expect(
+            findPdfSearchMatches('😀😀a', 'a|(?:)', {
+                useRegex: true,
+                matchCase: true,
+            }),
+        ).toEqual([
+            {
+                startOffset: 4,
+                endOffset: 5,
+            },
+        ]);
     });
 
     it('uses Unicode-aware whole-word boundaries', () => {
-        expect(findPdfSearchMatches('cat bobcat кот cat_1 кот!', 'кот', { wholeWord: true })).toEqual([
+        expect(findPdfSearchMatches('cat bobcat кот cat_1 кот!', 'кот', {wholeWord: true})).toEqual([
             {
                 startOffset: 11,
                 endOffset: 14,
@@ -655,7 +685,7 @@ describe('findPdfSearchMatches', () => {
                 endOffset: 24,
             },
         ]);
-        expect(findPdfSearchMatches('cat bobcat cat!', 'cat', { wholeWord: true })).toEqual([
+        expect(findPdfSearchMatches('cat bobcat cat!', 'cat', {wholeWord: true})).toEqual([
             {
                 startOffset: 0,
                 endOffset: 3,
@@ -723,15 +753,14 @@ interface ISearchConformanceGeometryCase {
 }
 
 interface ISearchConformanceCorpus {
-    spec: {offsetEncoding: string;};
+    spec: {offsetEncoding: string};
     cases: ISearchConformanceCase[];
     geometryCase: ISearchConformanceGeometryCase;
 }
 
-const searchConformanceCorpus = JSON.parse(readFileSync(
-    new URL('../../../packages/contracts/searchConformanceCorpus.json', import.meta.url),
-    'utf8',
-)) as ISearchConformanceCorpus;
+const searchConformanceCorpus = JSON.parse(
+    readFileSync(new URL('../../../packages/contracts/searchConformanceCorpus.json', import.meta.url), 'utf8'),
+) as ISearchConformanceCorpus;
 
 describe('search conformance corpus', () => {
     it('documents UTF-16 as the normative search offset encoding', () => {
@@ -741,33 +770,35 @@ describe('search conformance corpus', () => {
     it.each(searchConformanceCorpus.cases)('matches corpus case $id', (fixture) => {
         const matches = findPdfSearchMatches(fixture.text, fixture.query, fixture.options);
 
-        expect(matches).toEqual(fixture.expectedMatches.map((match) => ({
-            startOffset: match.startOffset,
-            endOffset: match.endOffset,
-        })));
-        expect(matches.map(match => buildPdfSearchExcerpt(
-            fixture.text,
-            match.startOffset,
-            match.endOffset,
-            fixture.contextChars,
-        ))).toEqual(fixture.expectedMatches.map(match => match.excerpt));
+        expect(matches).toEqual(
+            fixture.expectedMatches.map((match) => ({
+                startOffset: match.startOffset,
+                endOffset: match.endOffset,
+            })),
+        );
+        expect(
+            matches.map((match) => buildPdfSearchExcerpt(fixture.text, match.startOffset, match.endOffset, fixture.contextChars)),
+        ).toEqual(fixture.expectedMatches.map((match) => match.excerpt));
     });
 
     it('attaches OCR geometry from the same UTF-16 match range', () => {
         const fixture = searchConformanceCorpus.geometryCase;
 
-        expect(collectSearchMatchWords({
-            words: fixture.words,
-            pageWidth: fixture.pageWidth,
-            pageHeight: fixture.pageHeight,
-        }, fixture.range.startOffset, fixture.range.endOffset)).toEqual(fixture.expectedWords);
+        expect(
+            collectSearchMatchWords(
+                {
+                    words: fixture.words,
+                    pageWidth: fixture.pageWidth,
+                    pageHeight: fixture.pageHeight,
+                },
+                fixture.range.startOffset,
+                fixture.range.endOffset,
+            ),
+        ).toEqual(fixture.expectedWords);
     });
 
     it('preserves normalized offsets, fallback cursors, and glyph cropping across out-of-order queries', async () => {
-        const {
-            createSearchPageWordIndex,
-            collectSearchMatchWordsFromIndex,
-        } = await import('@pdf-core/collectSearchMatchWords');
+        const {createSearchPageWordIndex, collectSearchMatchWordsFromIndex} = await import('@pdf-core/collectSearchMatchWords');
         const words = [
             {
                 text: 'Alpha',
@@ -823,13 +854,15 @@ describe('search conformance corpus', () => {
 
         // Query late hit first, then earlier fallback hit, then glyph-cropped hit.
         const omega = collectSearchMatchWordsFromIndex(index!, 15, 20);
-        expect(omega).toEqual([{
-            text: 'Omega',
-            x: 130,
-            y: 10,
-            width: 50,
-            height: 12,
-        }]);
+        expect(omega).toEqual([
+            {
+                text: 'Omega',
+                x: 130,
+                y: 10,
+                width: 50,
+                height: 12,
+            },
+        ]);
         const ghost = collectSearchMatchWordsFromIndex(index!, 6, 11);
         expect(ghost).toEqual([
             {
@@ -865,13 +898,15 @@ describe('search conformance corpus', () => {
             },
         ]);
         const alphaTailGlyph = collectSearchMatchWordsFromIndex(index!, 11, 12);
-        expect(alphaTailGlyph).toEqual([{
-            text: 'a',
-            x: 20,
-            y: 10,
-            width: 40,
-            height: 12,
-        }]);
+        expect(alphaTailGlyph).toEqual([
+            {
+                text: 'a',
+                x: 20,
+                y: 10,
+                width: 40,
+                height: 12,
+            },
+        ]);
     });
 
     it('collects 500 late hits on a 10,000-word dense page without quadratic rescanning', () => {
@@ -893,11 +928,7 @@ describe('search conformance corpus', () => {
         for (let index = 0; index < wordCount; index += 1) {
             const word = words[index]!;
             if (index >= wordCount - 500) {
-                lateOffsets.push([
-                    cursor,
-                    cursor + word.text.length,
-                    word.text,
-                ]);
+                lateOffsets.push([cursor, cursor + word.text.length, word.text]);
             }
             cursor += word.text.length + 1;
             if (index === wordCount - 1 || Math.abs(words[index + 1]!.y - word.y) > word.height * 0.5) {
@@ -907,10 +938,7 @@ describe('search conformance corpus', () => {
 
         const matchedResults: Array<ReturnType<typeof collectSearchMatchWords>> = [];
         const startedAt = performance.now();
-        for (const [
-            startOffset,
-            endOffset,
-        ] of lateOffsets) {
+        for (const [startOffset, endOffset] of lateOffsets) {
             matchedResults.push(collectSearchMatchWords(page, startOffset, endOffset));
         }
         const elapsedMs = performance.now() - startedAt;
@@ -947,12 +975,16 @@ describe('search conformance corpus', () => {
         expect(hitStart).toBeGreaterThan(0);
 
         const startedAt = performance.now();
-        const matched = collectSearchMatchWords({
-            text,
-            words,
-            pageWidth: 10_000,
-            pageHeight: 100,
-        }, hitStart, hitStart + 3);
+        const matched = collectSearchMatchWords(
+            {
+                text,
+                words,
+                pageWidth: 10_000,
+                pageHeight: 100,
+            },
+            hitStart,
+            hitStart + 3,
+        );
         const elapsedMs = performance.now() - startedAt;
 
         expect(matched).toHaveLength(1);
@@ -984,12 +1016,16 @@ describe('search conformance corpus', () => {
         expect(hitStart).toBeGreaterThan(0);
 
         const startedAt = performance.now();
-        const matched = collectSearchMatchWords({
-            text,
-            words,
-            pageWidth: 1_000,
-            pageHeight: count * 12 + 20,
-        }, hitStart, hitStart + 3);
+        const matched = collectSearchMatchWords(
+            {
+                text,
+                words,
+                pageWidth: 1_000,
+                pageHeight: count * 12 + 20,
+            },
+            hitStart,
+            hitStart + 3,
+        );
         const elapsedMs = performance.now() - startedAt;
 
         expect(matched).toHaveLength(1);
@@ -1034,12 +1070,16 @@ describe('search conformance corpus', () => {
         expect(targetStart).toBeGreaterThan(0);
 
         const startedAt = performance.now();
-        const matched = collectSearchMatchWords({
-            text,
-            words,
-            pageWidth: 1_000,
-            pageHeight: 15_000,
-        }, targetStart, targetStart + 6);
+        const matched = collectSearchMatchWords(
+            {
+                text,
+                words,
+                pageWidth: 1_000,
+                pageHeight: 15_000,
+            },
+            targetStart,
+            targetStart + 6,
+        );
         const elapsedMs = performance.now() - startedAt;
 
         expect(matched).toHaveLength(1);

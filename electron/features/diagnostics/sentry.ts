@@ -1,21 +1,10 @@
-import {
-    readFileSync,
-    rmSync,
-    writeFileSync,
-} from 'node:fs';
-import { join } from 'node:path';
-import { app } from 'electron';
-import { resolveApplicationVersion } from '@electron/appVersion';
-import {
-    parseClientDiagnosticsPreference,
-    type TClientDiagnosticsPreference,
-} from '@contracts/diagnostics/diagnosticsPreference';
-import { beforeSendSentryEvent } from '@contracts/diagnostics/scrubSentryEvent';
-import {
-    captureMainFailure,
-    registerMainFailureCaptureSender,
-    setMainFailureCaptureState,
-} from '@electron/utils/captureMainFailure';
+import {readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {join} from 'node:path';
+import {app} from 'electron';
+import {resolveApplicationVersion} from '@electron/appVersion';
+import {parseClientDiagnosticsPreference, type TClientDiagnosticsPreference} from '@contracts/diagnostics/diagnosticsPreference';
+import {beforeSendSentryEvent} from '@contracts/diagnostics/scrubSentryEvent';
+import {captureMainFailure, registerMainFailureCaptureSender, setMainFailureCaptureState} from '@electron/utils/captureMainFailure';
 
 declare const __EVB_SENTRY_DSN__: string | undefined;
 
@@ -50,13 +39,7 @@ function markerPath() {
 }
 
 async function loadSdk() {
-    const [
-        Sentry,
-        sentryCore,
-    ] = await Promise.all([
-        import('@sentry/electron/main'),
-        import('@sentry/core'),
-    ]);
+    const [Sentry, sentryCore] = await Promise.all([import('@sentry/electron/main'), import('@sentry/core')]);
     Sentry.init({
         dsn: SENTRY_DSN,
         release: `evb-viewer-desktop@${resolveApplicationVersion(app)}`,
@@ -65,16 +48,14 @@ async function loadSdk() {
         ipcMode: Sentry.IPCMode.Classic,
         sendDefaultPii: false,
         skipOpenTelemetrySetup: true,
-        integrations: defaults => defaults.filter(integration => MAIN_INTEGRATIONS.has(integration.name)),
+        integrations: (defaults) => defaults.filter((integration) => MAIN_INTEGRATIONS.has(integration.name)),
         beforeSend: beforeSendSentryEvent,
         beforeBreadcrumb: () => null,
-        transport: options => {
+        transport: (options) => {
             const transport = Sentry.makeElectronTransport(options);
             return {
-                send: envelope => isReportingEnabled()
-                    ? transport.send(envelope)
-                    : Promise.resolve({}),
-                flush: timeout => transport.flush(timeout),
+                send: (envelope) => (isReportingEnabled() ? transport.send(envelope) : Promise.resolve({})),
+                flush: (timeout) => transport.flush(timeout),
             };
         },
     });
@@ -120,11 +101,14 @@ export function installStartupCrashMarker() {
             return;
         }
         try {
-            writeFileSync(markerPath(), JSON.stringify({
-                name: error.name,
-                message: error.message,
-                stack: error.stack ?? '',
-            }));
+            writeFileSync(
+                markerPath(),
+                JSON.stringify({
+                    name: error.name,
+                    message: error.message,
+                    stack: error.stack ?? '',
+                }),
+            );
         } catch {
             // A marker is best effort; the crash itself proceeds unchanged.
         }
@@ -148,20 +132,18 @@ export function consumeStartupCrashMarker() {
     if (typeof marker !== 'object' || marker === null || sdkLoad === null) {
         return;
     }
-    const {
-        name,
-        message,
-        stack,
-    } = marker as Record<string, unknown>;
+    const {name, message, stack} = marker as Record<string, unknown>;
     const error = new Error(typeof message === 'string' ? message : 'Startup crash');
     error.name = typeof name === 'string' ? name : 'Error';
     if (typeof stack === 'string' && stack !== '') {
         error.stack = stack;
     }
-    void sdkLoad.then(() => captureMainFailure({
-        code: 'MAIN_STARTUP_CRASH',
-        message: error.message,
-        cause: error,
-        severity: 'fatal',
-    }));
+    void sdkLoad.then(() =>
+        captureMainFailure({
+            code: 'MAIN_STARTUP_CRASH',
+            message: error.message,
+            cause: error,
+            severity: 'fatal',
+        }),
+    );
 }

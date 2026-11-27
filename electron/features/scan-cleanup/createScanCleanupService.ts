@@ -1,12 +1,6 @@
 import {rm} from 'fs/promises';
-import {
-    dirname,
-    isAbsolute,
-    join,
-    normalize,
-    resolve,
-} from 'path';
-import type { WebContents } from 'electron';
+import {dirname, isAbsolute, join, normalize, resolve} from 'path';
+import type {WebContents} from 'electron';
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {
     IScanCleanupStartRequest,
@@ -20,22 +14,19 @@ import type {
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
-import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
-import {
-    createStableJobBrokerOwnerId,
-    mainJobBroker,
-} from '@electron/resources/jobBroker';
-import { getHostResourceProfileSnapshot } from '@electron/resources/hostResourceProfile';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
-import { resolveNativePdfImageCombinePath } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
-import { getAppTempDir } from '@electron/utils/appTempDir';
-import { getErrorMessage } from '@electron/utils/error';
+import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
+import {createStableJobBrokerOwnerId, mainJobBroker} from '@electron/resources/jobBroker';
+import {getHostResourceProfileSnapshot} from '@electron/resources/hostResourceProfile';
+import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
+import {resolveNativePdfImageCombinePath} from '@electron/image/tryCreatePdfWithNativeImageCombiner';
+import {getAppTempDir} from '@electron/utils/appTempDir';
+import {getErrorMessage} from '@electron/utils/error';
 import {createLogger} from '@electron/utils/createLogger';
 import {onSenderLifetimeEnd} from '@electron/utils/onSenderLifetimeEnd';
 import {getWorkerTaskFailureReceipt} from '@electron/utils/workerTask';
-import { SCAN_CLEANUP_PLATFORM_FEATURE } from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
-import { resolveDesktopQpdfPath } from '@electron/native-tools/qpdfWasmWorkerClient';
-import { runScanCleanupWorkerTask } from '@electron/features/scan-cleanup/runScanCleanupWorkerTask';
+import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
+import {resolveDesktopQpdfPath} from '@electron/native-tools/qpdfWasmWorkerClient';
+import {runScanCleanupWorkerTask} from '@electron/features/scan-cleanup/runScanCleanupWorkerTask';
 import {
     acknowledgeScanCleanupCompletedOutputs,
     createScanCleanupGeneratedOutputPath,
@@ -43,17 +34,9 @@ import {
     pruneScanCleanupGeneratedOutputs,
     recordScanCleanupCompletedOutput,
 } from '@electron/features/scan-cleanup/public/generatedOutputs';
-import {
-    allowOpenPath,
-    MAX_ALLOWED_OPEN_PATHS,
-    OPEN_PATH_CAPABILITY_TTL_MS,
-} from '@electron/file-access/openPathCapabilities';
+import {allowOpenPath, MAX_ALLOWED_OPEN_PATHS, OPEN_PATH_CAPABILITY_TTL_MS} from '@electron/file-access/openPathCapabilities';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public';
-import {
-    createMainJobRegistry,
-    type IMainJobRegistry,
-    type TMainJobSnapshot,
-} from '@electron/operation-lifecycle/createMainJobRegistry';
+import {createMainJobRegistry, type IMainJobRegistry, type TMainJobSnapshot} from '@electron/operation-lifecycle/createMainJobRegistry';
 import {
     ensureWorkingCopyMaterialized,
     getWorkingCopyBackingEntry,
@@ -78,15 +61,8 @@ import {
 } from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 import {createEpochMs} from '@contracts/timestamps';
-import {
-    createJobId,
-    requireJobId,
-    type TJobId,
-} from '@contracts/shared';
-import {
-    attachScanCleanupPageOverrideDefaults,
-    getScanCleanupPageOverride,
-} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {createJobId, requireJobId, type TJobId} from '@contracts/shared';
+import {attachScanCleanupPageOverrideDefaults, getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {usesScanCleanupInkAlignment} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {
     claimScanCleanupDetectionResultStore,
@@ -96,10 +72,7 @@ import {
     createScanCleanupDetectionSignature,
     createScanCleanupPlacementAnchorCalibrationSignature,
 } from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
-import {
-    isScanCleanupOutputMode,
-    isScanCleanupOutputModeRecommendationReason,
-} from '@contracts/scan-cleanup/outputModeGuards';
+import {isScanCleanupOutputMode, isScanCleanupOutputModeRecommendationReason} from '@contracts/scan-cleanup/outputModeGuards';
 import {requirePageNumber} from '@contracts/pageNumbers';
 
 interface IScanCleanupJobResult {
@@ -110,15 +83,12 @@ interface IScanCleanupJobResult {
     summary: TScanCleanupSummary;
 }
 
-type TScanCleanupJobError = IScanCleanupErrorEnvelope & {failure?: FailureReceipt;};
+type TScanCleanupJobError = IScanCleanupErrorEnvelope & {failure?: FailureReceipt};
 type TScanCleanupJobRegistry = IMainJobRegistry<TScanCleanupJobState, IScanCleanupJobResult, TScanCleanupJobError>;
 const scanCleanupJobLogger = createLogger('scan-cleanup-job');
 
 const SCAN_CLEANUP_OUTPUT_PRUNE_MIN_INTERVAL_MS = 60_000;
-export function grantScanCleanupOutputAccess(
-    outputPdfPath: string,
-    subscribers: Iterable<WebContents>,
-) {
+export function grantScanCleanupOutputAccess(outputPdfPath: string, subscribers: Iterable<WebContents>) {
     for (const subscriber of subscribers) {
         registerScanCleanupOutputAccess(outputPdfPath, subscriber);
     }
@@ -130,7 +100,9 @@ interface IScanCleanupOutputAccessRegistration {
     stop: () => void;
 }
 
-interface IScanCleanupProgressSubscription {unsubscribe: (() => void) | null;}
+interface IScanCleanupProgressSubscription {
+    unsubscribe: (() => void) | null;
+}
 
 const outputAccessRegistrations = new Map<number, IScanCleanupOutputAccessRegistration>();
 
@@ -153,11 +125,7 @@ function createOutputAccessRegistration(sender: WebContents) {
     const registration: IScanCleanupOutputAccessRegistration = {
         paths: new Map(),
         sender,
-        stop: onSenderLifetimeEnd(
-            sender,
-            () => removeOutputAccessRegistration(senderId, registration),
-            {navigation: true},
-        ),
+        stop: onSenderLifetimeEnd(sender, () => removeOutputAccessRegistration(senderId, registration), {navigation: true}),
     };
     outputAccessRegistrations.set(senderId, registration);
     return registration;
@@ -175,10 +143,7 @@ function registerScanCleanupOutputAccess(outputPath: string, sender: WebContents
     }
     registration ??= createOutputAccessRegistration(sender);
     const now = Date.now();
-    for (const [
-        path,
-        expiresAtMs,
-    ] of registration.paths) {
+    for (const [path, expiresAtMs] of registration.paths) {
         if (expiresAtMs <= now) {
             registration.paths.delete(path);
         }
@@ -203,13 +168,13 @@ function sendScanCleanupState(sender: WebContents, state: TScanCleanupJobState |
     if (sender.isDestroyed()) {
         return;
     }
-    if (state.status === 'completed') grantScanCleanupOutputAccess(state.outputPdfPath, [sender]);
+    if (state.status === 'completed') {
+        grantScanCleanupOutputAccess(state.outputPdfPath, [sender]);
+    }
     sender.send(SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onJobState, state);
 }
 
-function publicState(
-    snapshot: TMainJobSnapshot<TScanCleanupJobState, IScanCleanupJobResult, TScanCleanupJobError> | null,
-) {
+function publicState(snapshot: TMainJobSnapshot<TScanCleanupJobState, IScanCleanupJobResult, TScanCleanupJobError> | null) {
     if (!snapshot) {
         return null;
     }
@@ -233,11 +198,7 @@ function ownerActor(sender: WebContents, owner: IScanCleanupOwnerContext) {
 }
 
 function omitStageMetadata(progress: TScanCleanupProgress): TScanCleanupProgress {
-    const {
-        stageIndex: _stageIndex,
-        stageCount: _stageCount,
-        ...rest
-    } = progress;
+    const {stageIndex: _stageIndex, stageCount: _stageCount, ...rest} = progress;
     return rest;
 }
 
@@ -252,10 +213,7 @@ function omitCompletedPageMetadata(progress: TScanCleanupProgress): TScanCleanup
     return rest;
 }
 
-function resolveCompletedPageMetadata(
-    request: IScanCleanupStartRequest,
-    inputPages: number,
-) {
+function resolveCompletedPageMetadata(request: IScanCleanupStartRequest, inputPages: number) {
     if (request.sourcePageNumbers !== undefined) {
         return {completedPageNumbers: [...request.sourcePageNumbers]};
     }
@@ -281,15 +239,8 @@ function scanCleanupStorePageNumbers(request: IScanCleanupStartRequest) {
     return null;
 }
 
-function validateScanCleanupDetectionRecord(
-    result: unknown,
-    expectedPageNumber: number,
-) {
-    if (
-        typeof result !== 'object'
-        || result === null
-        || (result as {pageNumber?: unknown}).pageNumber !== expectedPageNumber
-    ) {
+function validateScanCleanupDetectionRecord(result: unknown, expectedPageNumber: number) {
+    if (typeof result !== 'object' || result === null || (result as {pageNumber?: unknown}).pageNumber !== expectedPageNumber) {
         throw new Error(`Scan cleanup detection store is missing page ${String(expectedPageNumber)}`);
     }
     const record = result as {
@@ -301,26 +252,28 @@ function validateScanCleanupDetectionRecord(
     if (record.recommendedOutputMode !== undefined && !isScanCleanupOutputMode(record.recommendedOutputMode)) {
         throw new Error(`Scan cleanup detection store has an invalid recommendation for page ${String(expectedPageNumber)}`);
     }
-    if (record.recommendedOutputModeConfidence !== undefined && (
-        typeof record.recommendedOutputModeConfidence !== 'number'
-        || !Number.isFinite(record.recommendedOutputModeConfidence)
-        || record.recommendedOutputModeConfidence < 0
-        || record.recommendedOutputModeConfidence > 1
-    )) {
+    if (
+        record.recommendedOutputModeConfidence !== undefined &&
+        (typeof record.recommendedOutputModeConfidence !== 'number' ||
+            !Number.isFinite(record.recommendedOutputModeConfidence) ||
+            record.recommendedOutputModeConfidence < 0 ||
+            record.recommendedOutputModeConfidence > 1)
+    ) {
         throw new Error(`Scan cleanup detection store has an invalid recommendation confidence for page ${String(expectedPageNumber)}`);
     }
-    if (record.recommendedOutputModeReason !== undefined
-        && !isScanCleanupOutputModeRecommendationReason(record.recommendedOutputModeReason)) {
+    if (
+        record.recommendedOutputModeReason !== undefined &&
+        !isScanCleanupOutputModeRecommendationReason(record.recommendedOutputModeReason)
+    ) {
         throw new Error(`Scan cleanup detection store has an invalid recommendation reason for page ${String(expectedPageNumber)}`);
     }
-    if (record.softAlphaForegroundRecommendation !== undefined
-        && typeof record.softAlphaForegroundRecommendation !== 'boolean') {
+    if (record.softAlphaForegroundRecommendation !== undefined && typeof record.softAlphaForegroundRecommendation !== 'boolean') {
         throw new Error(`Scan cleanup detection store has an invalid foreground recommendation for page ${String(expectedPageNumber)}`);
     }
-    if (record.recommendedOutputMode === undefined && (
-        record.recommendedOutputModeConfidence !== undefined
-        || record.recommendedOutputModeReason !== undefined
-    )) {
+    if (
+        record.recommendedOutputMode === undefined &&
+        (record.recommendedOutputModeConfidence !== undefined || record.recommendedOutputModeReason !== undefined)
+    ) {
         throw new Error(`Scan cleanup detection store has incomplete recommendation data for page ${String(expectedPageNumber)}`);
     }
     return record;
@@ -330,43 +283,41 @@ async function admitScanCleanupDetectionStore(
     request: IScanCleanupStartRequest,
     store: NonNullable<ReturnType<typeof claimScanCleanupDetectionResultStore>>['resultStore'],
 ) {
-    if (
-        !Number.isSafeInteger(store.pageCount)
-        || store.pageCount < 1
-        || store.resultCount !== store.pageCount
-    ) {
+    if (!Number.isSafeInteger(store.pageCount) || store.pageCount < 1 || store.resultCount !== store.pageCount) {
         throw new Error('Scan cleanup detection store is incomplete');
     }
     const selectedPages = scanCleanupStorePageNumbers(request);
-    if (selectedPages !== null && (
-        Array.isArray(selectedPages)
-            ? selectedPages.some(page => page < 1 || page > store.pageCount)
-            : selectedPages.startPageNumber < 1 || selectedPages.endPageNumber > store.pageCount
-    )) {
+    if (
+        selectedPages !== null &&
+        (Array.isArray(selectedPages)
+            ? selectedPages.some((page) => page < 1 || page > store.pageCount)
+            : selectedPages.startPageNumber < 1 || selectedPages.endPageNumber > store.pageCount)
+    ) {
         throw new Error('Scan cleanup source page is outside the detected document');
     }
-    const pageOverride = (pageNumber: number) => getScanCleanupPageOverride(
-        request.options.pageOverrides,
-        requirePageNumber(pageNumber),
-        request.options.pageOverrideDefaults,
-        request.options.marginsMm,
-    );
-    const validate = async (pageNumber: number) => {
-        const record = validateScanCleanupDetectionRecord(
-            await store.getPage(pageNumber),
-            pageNumber,
+    const pageOverride = (pageNumber: number) =>
+        getScanCleanupPageOverride(
+            request.options.pageOverrides,
+            requirePageNumber(pageNumber),
+            request.options.pageOverrideDefaults,
+            request.options.marginsMm,
         );
+    const validate = async (pageNumber: number) => {
+        const record = validateScanCleanupDetectionRecord(await store.getPage(pageNumber), pageNumber);
         const override = pageOverride(pageNumber);
-        const automatic = request.options.preserveOriginalQuality !== true
-            && !override.excluded
-            && (override.outputModeOverride ?? request.options.outputMode) === 'auto';
+        const automatic =
+            request.options.preserveOriginalQuality !== true &&
+            !override.excluded &&
+            (override.outputModeOverride ?? request.options.outputMode) === 'auto';
         if (automatic && record.recommendedOutputMode === undefined) {
             throw new Error(`Scan cleanup detection store has no automatic recommendation for page ${String(pageNumber)}`);
         }
     };
     if (selectedPages !== null) {
         if (Array.isArray(selectedPages)) {
-            for (const pageNumber of selectedPages) await validate(pageNumber);
+            for (const pageNumber of selectedPages) {
+                await validate(pageNumber);
+            }
         } else {
             for (let pageNumber = selectedPages.startPageNumber; pageNumber <= selectedPages.endPageNumber; pageNumber += 1) {
                 await validate(pageNumber);
@@ -375,15 +326,15 @@ async function admitScanCleanupDetectionStore(
         return;
     }
     let expectedPageNumber = 1;
-    await store.forEachChunk(results => {
+    await store.forEachChunk((results) => {
         for (const result of results) {
             validateScanCleanupDetectionRecord(result, expectedPageNumber);
             const override = pageOverride(expectedPageNumber);
-            const automatic = request.options.preserveOriginalQuality !== true
-                && !override.excluded
-                && (override.outputModeOverride ?? request.options.outputMode) === 'auto';
-            if (automatic
-                && (result as {recommendedOutputMode?: unknown}).recommendedOutputMode === undefined) {
+            const automatic =
+                request.options.preserveOriginalQuality !== true &&
+                !override.excluded &&
+                (override.outputModeOverride ?? request.options.outputMode) === 'auto';
+            if (automatic && (result as {recommendedOutputMode?: unknown}).recommendedOutputMode === undefined) {
                 throw new Error(`Scan cleanup detection store has no automatic recommendation for page ${String(expectedPageNumber)}`);
             }
             expectedPageNumber += 1;
@@ -394,16 +345,14 @@ async function admitScanCleanupDetectionStore(
     }
 }
 
-function completedProgress(
-    latest: TScanCleanupJobState,
-    result: IScanCleanupJobResult,
-): TScanCleanupJobState {
-    const completedPageMetadata = result.completedPageNumbersTruncated === true
-        ? {
-            completedPageNumbers: result.completedPageNumbers,
-            completedPageNumbersTruncated: true as const,
-        }
-        : {completedPageNumbers: result.completedPageNumbers};
+function completedProgress(latest: TScanCleanupJobState, result: IScanCleanupJobResult): TScanCleanupJobState {
+    const completedPageMetadata =
+        result.completedPageNumbersTruncated === true
+            ? {
+                  completedPageNumbers: result.completedPageNumbers,
+                  completedPageNumbersTruncated: true as const,
+              }
+            : {completedPageNumbers: result.completedPageNumbers};
     return {
         jobId: latest.jobId,
         status: 'completed',
@@ -416,21 +365,19 @@ function completedProgress(
             completedUnits: result.summary.inputPages,
             totalUnits: result.summary.inputPages,
             percent: 100,
-            ...(latest.progress.stageCount === undefined ? {} : {
-                stageIndex: latest.progress.stageCount,
-                stageCount: latest.progress.stageCount,
-            }),
+            ...(latest.progress.stageCount === undefined
+                ? {}
+                : {
+                      stageIndex: latest.progress.stageCount,
+                      stageCount: latest.progress.stageCount,
+                  }),
             ...completedPageMetadata,
         },
         updatedAtMs: createEpochMs(),
     };
 }
 
-function terminalProgress(
-    latest: TScanCleanupJobState,
-    status: 'canceled' | 'failed',
-    error: TScanCleanupJobError,
-): TScanCleanupJobState {
+function terminalProgress(latest: TScanCleanupJobState, status: 'canceled' | 'failed', error: TScanCleanupJobError): TScanCleanupJobState {
     const base = {
         jobId: latest.jobId,
         progress: latest.progress,
@@ -438,19 +385,17 @@ function terminalProgress(
     };
     return status === 'canceled'
         ? {
-            ...base,
-            status,
-        }
+              ...base,
+              status,
+          }
         : {
-            ...base,
-            status,
-            error: error.message,
-            errorCode: error.code,
-            ...(error.details?.scratchShortfall === undefined
-                ? {}
-                : {scratchShortfall: error.details.scratchShortfall}),
-            ...(error.failure === undefined ? {} : {failure: error.failure}),
-        };
+              ...base,
+              status,
+              error: error.message,
+              errorCode: error.code,
+              ...(error.details?.scratchShortfall === undefined ? {} : {scratchShortfall: error.details.scratchShortfall}),
+              ...(error.failure === undefined ? {} : {failure: error.failure}),
+          };
 }
 
 function createScanCleanupJobRegistry(): TScanCleanupJobRegistry {
@@ -466,13 +411,12 @@ function createScanCleanupJobRegistry(): TScanCleanupJobRegistry {
                 };
             }
             const existingFailure = getWorkerTaskFailureReceipt(cause);
-            const failure = existingFailure ?? scanCleanupJobLogger.error(
-                `Scan cleanup job failed: ${message}`,
-                {
+            const failure =
+                existingFailure ??
+                scanCleanupJobLogger.error(`Scan cleanup job failed: ${message}`, {
                     code: 'MAIN_SCAN_CLEANUP_FAILED',
                     cause,
-                },
-            );
+                });
             return {
                 code: classifyPreviewError(cause, false),
                 message,
@@ -488,11 +432,7 @@ function createScanCleanupJobRegistry(): TScanCleanupJobRegistry {
     });
 }
 
-export async function materializeScanCleanupSourcePath(
-    sourcePdfPath: string,
-    senderWebContentsId: number,
-    signal?: AbortSignal,
-) {
+export async function materializeScanCleanupSourcePath(sourcePdfPath: string, senderWebContentsId: number, signal?: AbortSignal) {
     if (!getWorkingCopyBackingEntry(sourcePdfPath, senderWebContentsId)) {
         throw new Error('Scan cleanup source is not a managed working copy');
     }
@@ -518,10 +458,7 @@ function resolveScanCleanupRuntimePolicy(
     profile: IHostResourceProfileSnapshot,
     options: IScanCleanupStartRequest['options'],
 ): IScanCleanupRuntimePolicy {
-    const rasterPolicy = resolvePreviewRasterAdmissionPolicy(
-        mainJobBroker.getSnapshot().capacity,
-        options,
-    );
+    const rasterPolicy = resolvePreviewRasterAdmissionPolicy(mainJobBroker.getSnapshot().capacity, options);
     return {
         ...rasterPolicy,
         logicalCpus: profile.logicalCpus,
@@ -529,24 +466,21 @@ function resolveScanCleanupRuntimePolicy(
     };
 }
 
-export function createScanCleanupService(
-    jobs: TScanCleanupJobRegistry = createScanCleanupJobRegistry(),
-): IScanCleanupService {
-    const activeJobsByBrokerOwner = new Map<string, {
-        jobId: TJobId;
-        outputPdfPath: string;
-        request: IScanCleanupStartRequest;
-        signature: string;
-    }>();
+export function createScanCleanupService(jobs: TScanCleanupJobRegistry = createScanCleanupJobRegistry()): IScanCleanupService {
+    const activeJobsByBrokerOwner = new Map<
+        string,
+        {
+            jobId: TJobId;
+            outputPdfPath: string;
+            request: IScanCleanupStartRequest;
+            signature: string;
+        }
+    >();
     const startReservationsByBrokerOwner = new Map<string, Promise<void>>();
     const progressSubscriptions = new Map<number, Map<string, IScanCleanupProgressSubscription>>();
     let pruneOutputsInFlight: Promise<number> | null = null;
     let pruneOutputsStartedAt: number | null = null;
-    function forgetProgressSubscription(
-        senderId: number,
-        jobId: string,
-        expected: IScanCleanupProgressSubscription,
-    ) {
+    function forgetProgressSubscription(senderId: number, jobId: string, expected: IScanCleanupProgressSubscription) {
         const subscriptions = progressSubscriptions.get(senderId);
         if (subscriptions?.get(jobId) !== expected) {
             return;
@@ -556,22 +490,14 @@ export function createScanCleanupService(
             progressSubscriptions.delete(senderId);
         }
     }
-    function releaseProgressSubscription(
-        senderId: number,
-        jobId: string,
-        subscription: IScanCleanupProgressSubscription,
-    ) {
+    function releaseProgressSubscription(senderId: number, jobId: string, subscription: IScanCleanupProgressSubscription) {
         forgetProgressSubscription(senderId, jobId, subscription);
         subscription.unsubscribe?.();
     }
     return {
         async start(sender, request) {
             const jobId = createJobId('scan-cleanup');
-            const brokerOwnerId = createStableJobBrokerOwnerId(
-                'scan-cleanup',
-                sender.id,
-                request.ownerId,
-            );
+            const brokerOwnerId = createStableJobBrokerOwnerId('scan-cleanup', sender.id, request.ownerId);
             if (!isAbsolute(request.sourcePdfPath)) {
                 return {
                     started: false,
@@ -587,7 +513,7 @@ export function createScanCleanupService(
                 return this.start(sender, request);
             }
             let releaseStartReservation!: () => void;
-            const reservation = new Promise<void>(resolve => {
+            const reservation = new Promise<void>((resolve) => {
                 releaseStartReservation = resolve;
             });
             startReservationsByBrokerOwner.set(brokerOwnerId, reservation);
@@ -608,18 +534,10 @@ export function createScanCleanupService(
             try {
                 const previous = activeJobsByBrokerOwner.get(brokerOwnerId);
                 if (previous) {
-                    const previousState = publicState(jobs.get(
-                        previous.jobId,
-                        ownerActor(sender, previous.request),
-                    ));
+                    const previousState = publicState(jobs.get(previous.jobId, ownerActor(sender, previous.request)));
                     // A job whose cancel was accepted is retiring: it stays
                     // owned until it settles, but a new start never joins it.
-                    if (previousState && ![
-                        'canceling',
-                        'completed',
-                        'failed',
-                        'canceled',
-                    ].includes(previousState.status)) {
+                    if (previousState && !['canceling', 'completed', 'failed', 'canceled'].includes(previousState.status)) {
                         if (previous.signature === signature) {
                             return {
                                 started: true,
@@ -627,15 +545,10 @@ export function createScanCleanupService(
                                 outputPdfPath: previous.outputPdfPath,
                             };
                         }
-                        jobs.cancel(
-                            previous.jobId,
-                            ownerActor(sender, previous.request),
-                            'Superseded scan cleanup request',
-                        );
+                        jobs.cancel(previous.jobId, ownerActor(sender, previous.request), 'Superseded scan cleanup request');
                     }
                 }
-                const partial = request.sourcePageNumbers !== undefined
-                                || request.sourcePageRange !== undefined;
+                const partial = request.sourcePageNumbers !== undefined || request.sourcePageRange !== undefined;
                 attachScanCleanupPageOverrideDefaults(
                     request.options.pageOverrides,
                     request.options.pageOverrideDefaults,
@@ -643,16 +556,16 @@ export function createScanCleanupService(
                 );
                 const detectionSignature = createScanCleanupDetectionSignature(request.options);
                 if (
-                    request.detectionResultStoreId !== undefined
-                    && usesScanCleanupInkAlignment(request.options)
-                    && request.placementAnchorSummary !== undefined
+                    request.detectionResultStoreId !== undefined &&
+                    usesScanCleanupInkAlignment(request.options) &&
+                    request.placementAnchorSummary !== undefined
                 ) {
                     const identity = request.placementAnchorSummary.identity;
                     const calibrationSignature = createScanCleanupPlacementAnchorCalibrationSignature(request.options);
                     if (
-                        identity.documentRevision !== request.documentRevision
-                        || identity.detectionSignature !== detectionSignature
-                        || identity.calibrationSignature !== calibrationSignature
+                        identity.documentRevision !== request.documentRevision ||
+                        identity.detectionSignature !== detectionSignature ||
+                        identity.calibrationSignature !== calibrationSignature
                     ) {
                         return {
                             started: false,
@@ -662,17 +575,15 @@ export function createScanCleanupService(
                         };
                     }
                 }
-                detectionResultStoreLease = request.detectionResultStoreId === undefined
-                    ? null
-                    : claimScanCleanupDetectionResultStore(
-                        request.detectionResultStoreId,
-                        {
-                            detectionSignature,
-                            documentRevision: request.documentRevision,
-                            ownerId: request.ownerId,
-                            sourcePdfPath: request.sourcePdfPath,
-                        },
-                    );
+                detectionResultStoreLease =
+                    request.detectionResultStoreId === undefined
+                        ? null
+                        : claimScanCleanupDetectionResultStore(request.detectionResultStoreId, {
+                              detectionSignature,
+                              documentRevision: request.documentRevision,
+                              ownerId: request.ownerId,
+                              sourcePdfPath: request.sourcePdfPath,
+                          });
                 if (request.detectionResultStoreId !== undefined && detectionResultStoreLease === null) {
                     return {
                         started: false,
@@ -684,10 +595,10 @@ export function createScanCleanupService(
                     };
                 }
                 if (
-                    detectionResultStoreLease !== null
-                    && detectionResultStoreLease.resultStore.pageCount > SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES
-                    && usesScanCleanupInkAlignment(request.options)
-                    && request.placementAnchorSummary === undefined
+                    detectionResultStoreLease !== null &&
+                    detectionResultStoreLease.resultStore.pageCount > SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES &&
+                    usesScanCleanupInkAlignment(request.options) &&
+                    request.placementAnchorSummary === undefined
                 ) {
                     // The renderer keeps only a bounded result window. A
                     // completed detection must carry the document-wide
@@ -718,8 +629,7 @@ export function createScanCleanupService(
                 // The request path is the private working copy (pdf-work-<uuid>/document.pdf);
                 // the user's file name lives with its registered original.
                 const outputPdfPath = await createScanCleanupGeneratedOutputPath(
-                    getWorkingCopyBackingEntry(request.sourcePdfPath, sender.id)?.originalPath
-                        ?? request.sourcePdfPath,
+                    getWorkingCopyBackingEntry(request.sourcePdfPath, sender.id)?.originalPath ?? request.sourcePdfPath,
                     partial,
                 );
                 // Allocate the run-owned scratch before handing the job to the
@@ -728,18 +638,12 @@ export function createScanCleanupService(
                 // handoff while the first run is still preparing its worker.
                 const scratchPath = await createScanCleanupScratchDir(getAppTempDir());
                 runScratchPath = scratchPath;
-                const {
-                    detectionResultStoreId: _detectionResultStoreId,
-                    ...requestWithoutDetectionStoreId
-                } = request;
+                const {detectionResultStoreId: _detectionResultStoreId, ...requestWithoutDetectionStoreId} = request;
                 const workerRequest = {
                     ...requestWithoutDetectionStoreId,
                     outputPdfPath,
                 };
-                const runtimePolicy = resolveScanCleanupRuntimePolicy(
-                    getHostResourceProfileSnapshot(),
-                    request.options,
-                );
+                const runtimePolicy = resolveScanCleanupRuntimePolicy(getHostResourceProfileSnapshot(), request.options);
                 const progress: TScanCleanupProgress = {
                     stage: 'queued' as const,
                     completedUnits: 0,
@@ -798,121 +702,122 @@ export function createScanCleanupService(
                             force: true,
                         }).catch(() => undefined);
                     },
-                    run: async job => {
+                    run: async (job) => {
                         runStarted = true;
                         let retainRunArtifacts = false;
                         try {
-                            return await mainJobBroker.run({
-                                ownerId: brokerOwnerId,
-                                kind: 'scan-cleanup',
-                                priority: 'user',
-                                resources: {
-                                    cpuTokens: runtimePolicy.rasterConcurrency,
-                                    estimatedResidentBytes: runtimePolicy.rasterConcurrency
-                                        * resolveScanCleanupPreviewRasterSlotResidentBytes(
-                                            request.options,
-                                            runtimePolicy.rasterMaxPixels,
-                                        ),
-                                    nativeProcesses: runtimePolicy.rasterConcurrency,
-                                    ioWeight: 4,
+                            return await mainJobBroker.run(
+                                {
+                                    ownerId: brokerOwnerId,
+                                    kind: 'scan-cleanup',
+                                    priority: 'user',
+                                    resources: {
+                                        cpuTokens: runtimePolicy.rasterConcurrency,
+                                        estimatedResidentBytes:
+                                            runtimePolicy.rasterConcurrency *
+                                            resolveScanCleanupPreviewRasterSlotResidentBytes(
+                                                request.options,
+                                                runtimePolicy.rasterMaxPixels,
+                                            ),
+                                        nativeProcesses: runtimePolicy.rasterConcurrency,
+                                        ioWeight: 4,
+                                    },
+                                    perOwnerLimit: 1,
+                                    signal: job.signal,
                                 },
-                                perOwnerLimit: 1,
-                                signal: job.signal,
-                            }, async (brokerRun) => {
-                                const pdfPaths = getPdfNativeToolPaths();
-                                const scanCleanupBinary = resolvePreviewPath();
-                                const pdfImageCombineBinary = resolveNativePdfImageCombinePath();
-                                const pdfPageOpsBinary = resolveNativePageOpsPath();
-                                if (!pdfPageOpsBinary) {
-                                    throw new ScanCleanupNativeToolUnavailableError('evb-pdf-page-ops');
-                                }
-                                const missingTools = [
-                                    scanCleanupBinary ? null : 'evb-scan-cleanup',
-                                    pdfImageCombineBinary ? null : 'evb-pdf-image-combine',
-                                ].filter((name): name is string => name !== null);
-                                if (missingTools.length > 0 || !scanCleanupBinary || !pdfImageCombineBinary) {
-                                    throw new ScanCleanupNativeToolUnavailableError(
-                                        missingTools[0] ?? 'unknown scan-cleanup native tool',
-                                    );
-                                }
-                                const checkpointDir = join(getAppTempDir(), 'scan-cleanup-checkpoints');
-                                let completedCheckpointEntryDir: string | null = null;
-                                const summary = await runScanCleanupWorkerTask(
-                                    {
-                                        ...workerRequest,
-                                        ...(detectionResultStoreLease === null
-                                            ? {}
-                                            : {detectionResultStore: detectionResultStoreLease.resultStore}),
-                                        sourcePdfPath: await materializeScanCleanupSourcePath(
-                                            request.sourcePdfPath,
-                                            sender.id,
-                                            job.signal,
-                                        ),
-                                    },
-                                    {
-                                        qpdfBinary: resolveDesktopQpdfPath(),
-                                        pdftoppmBinary: pdfPaths.pdftoppm,
-                                        ...(pdfPaths.pdfimages ? {pdfimagesBinary: pdfPaths.pdfimages} : {}),
-                                        scanCleanupBinary,
-                                        pdfImageCombineBinary,
-                                        pdfPageOpsBinary,
-                                        tempDir: getAppTempDir(),
-                                        scratchDir: scratchPath,
-                                        checkpointDir,
-                                        deferCheckpointCleanup: true,
-                                    },
-                                    runtimePolicy,
-                                    job.signal,
-                                    nextProgress => {
-                                        job.publish({
-                                            jobId,
-                                            status: nextProgress.stage === 'handoff' ? 'handoff' : 'running',
-                                            progress: nextProgress,
-                                            updatedAtMs: createEpochMs(),
-                                        });
-                                    },
-                                    jobId,
-                                    {
-                                        onCheckpointReady: entryDir => {
-                                            completedCheckpointEntryDir = entryDir;
+                                async (brokerRun) => {
+                                    const pdfPaths = getPdfNativeToolPaths();
+                                    const scanCleanupBinary = resolvePreviewPath();
+                                    const pdfImageCombineBinary = resolveNativePdfImageCombinePath();
+                                    const pdfPageOpsBinary = resolveNativePageOpsPath();
+                                    if (!pdfPageOpsBinary) {
+                                        throw new ScanCleanupNativeToolUnavailableError('evb-pdf-page-ops');
+                                    }
+                                    const missingTools = [
+                                        scanCleanupBinary ? null : 'evb-scan-cleanup',
+                                        pdfImageCombineBinary ? null : 'evb-pdf-image-combine',
+                                    ].filter((name): name is string => name !== null);
+                                    if (missingTools.length > 0 || !scanCleanupBinary || !pdfImageCombineBinary) {
+                                        throw new ScanCleanupNativeToolUnavailableError(
+                                            missingTools[0] ?? 'unknown scan-cleanup native tool',
+                                        );
+                                    }
+                                    const checkpointDir = join(getAppTempDir(), 'scan-cleanup-checkpoints');
+                                    let completedCheckpointEntryDir: string | null = null;
+                                    const summary = await runScanCleanupWorkerTask(
+                                        {
+                                            ...workerRequest,
+                                            ...(detectionResultStoreLease === null
+                                                ? {}
+                                                : {detectionResultStore: detectionResultStoreLease.resultStore}),
+                                            sourcePdfPath: await materializeScanCleanupSourcePath(
+                                                request.sourcePdfPath,
+                                                sender.id,
+                                                job.signal,
+                                            ),
                                         },
-                                        // The worker's native children run under this
-                                        // lease, so an unproven stop keeps it charged.
-                                        brokerRun,
-                                    },
-                                );
-                                // Resolve the cancel-vs-publish race in the same main
-                                // process that owns the job state. If cancel won while
-                                // the worker was publishing, the catch path removes the
-                                // generated-output directory and leaves any resumable
-                                // checkpoint intact for the next run. Otherwise later
-                                // cancel requests are rejected as soon as commit begins
-                                // and the completed checkpoint is reclaimed here.
-                                job.signal.throwIfAborted();
-                                job.markCommitStarted();
-                                if (completedCheckpointEntryDir !== null) {
-                                    await reclaimScanCleanupCheckpoint(
-                                        checkpointDir,
-                                        completedCheckpointEntryDir,
-                                    ).catch(error => {
+                                        {
+                                            qpdfBinary: resolveDesktopQpdfPath(),
+                                            pdftoppmBinary: pdfPaths.pdftoppm,
+                                            ...(pdfPaths.pdfimages ? {pdfimagesBinary: pdfPaths.pdfimages} : {}),
+                                            scanCleanupBinary,
+                                            pdfImageCombineBinary,
+                                            pdfPageOpsBinary,
+                                            tempDir: getAppTempDir(),
+                                            scratchDir: scratchPath,
+                                            checkpointDir,
+                                            deferCheckpointCleanup: true,
+                                        },
+                                        runtimePolicy,
+                                        job.signal,
+                                        (nextProgress) => {
+                                            job.publish({
+                                                jobId,
+                                                status: nextProgress.stage === 'handoff' ? 'handoff' : 'running',
+                                                progress: nextProgress,
+                                                updatedAtMs: createEpochMs(),
+                                            });
+                                        },
+                                        jobId,
+                                        {
+                                            onCheckpointReady: (entryDir) => {
+                                                completedCheckpointEntryDir = entryDir;
+                                            },
+                                            // The worker's native children run under this
+                                            // lease, so an unproven stop keeps it charged.
+                                            brokerRun,
+                                        },
+                                    );
+                                    // Resolve the cancel-vs-publish race in the same main
+                                    // process that owns the job state. If cancel won while
+                                    // the worker was publishing, the catch path removes the
+                                    // generated-output directory and leaves any resumable
+                                    // checkpoint intact for the next run. Otherwise later
+                                    // cancel requests are rejected as soon as commit begins
+                                    // and the completed checkpoint is reclaimed here.
+                                    job.signal.throwIfAborted();
+                                    job.markCommitStarted();
+                                    if (completedCheckpointEntryDir !== null) {
+                                        await reclaimScanCleanupCheckpoint(checkpointDir, completedCheckpointEntryDir).catch((error) => {
+                                            scanCleanupJobLogger.warn(
+                                                `Could not remove completed scan-cleanup checkpoint: ${getErrorMessage(error)}`,
+                                            );
+                                        });
+                                    }
+                                    await recordScanCleanupCompletedOutput(outputPdfPath).catch((error) => {
                                         scanCleanupJobLogger.warn(
-                                            `Could not remove completed scan-cleanup checkpoint: ${getErrorMessage(error)}`,
+                                            `Could not journal completed scan-cleanup output: ${getErrorMessage(error)}`,
                                         );
                                     });
-                                }
-                                await recordScanCleanupCompletedOutput(outputPdfPath).catch(error => {
-                                    scanCleanupJobLogger.warn(
-                                        `Could not journal completed scan-cleanup output: ${getErrorMessage(error)}`,
-                                    );
-                                });
-                                const completedPageMetadata = resolveCompletedPageMetadata(request, summary.inputPages);
-                                return {
-                                    outputPdfPath,
-                                    summary,
-                                    partial,
-                                    ...completedPageMetadata,
-                                };
-                            });
+                                    const completedPageMetadata = resolveCompletedPageMetadata(request, summary.inputPages);
+                                    return {
+                                        outputPdfPath,
+                                        summary,
+                                        partial,
+                                        ...completedPageMetadata,
+                                    };
+                                },
+                            );
                         } catch (error) {
                             // The run stopped, but its native tree may not have.
                             // Whoever closes this document next must not delete
@@ -930,8 +835,8 @@ export function createScanCleanupService(
                             // owns that scratch, so it keeps it too.
                             const errorCode = (error as {code?: unknown} | null)?.code;
                             if (
-                                errorCode === SCAN_CLEANUP_PDF_VALIDATION_ERROR_CODE
-                                || errorCode === SCAN_CLEANUP_STREAMING_EVIDENCE_ERROR_CODE
+                                errorCode === SCAN_CLEANUP_PDF_VALIDATION_ERROR_CODE ||
+                                errorCode === SCAN_CLEANUP_STREAMING_EVIDENCE_ERROR_CODE
                             ) {
                                 retainRunArtifacts = true;
                                 scanCleanupJobLogger.warn(`Retaining invalid scan-cleanup output for diagnostics: ${scratchPath}`);
@@ -942,9 +847,7 @@ export function createScanCleanupService(
                                     force: true,
                                 }).catch(() => undefined);
                             } else {
-                                scanCleanupJobLogger.warn(
-                                    `Retaining scan-cleanup output artifacts: ${dirname(outputPdfPath)}`,
-                                );
+                                scanCleanupJobLogger.warn(`Retaining scan-cleanup output artifacts: ${dirname(outputPdfPath)}`);
                             }
                             throw error;
                         } finally {
@@ -952,7 +855,7 @@ export function createScanCleanupService(
                                 await rm(scratchPath, {
                                     recursive: true,
                                     force: true,
-                                }).catch(error => {
+                                }).catch((error) => {
                                     scanCleanupJobLogger.warn(`Could not remove scan-cleanup run scratch: ${getErrorMessage(error)}`);
                                 });
                             }
@@ -968,11 +871,13 @@ export function createScanCleanupService(
                     signature,
                 };
                 activeJobsByBrokerOwner.set(brokerOwnerId, activeEntry);
-                void handle.settled.finally(() => {
-                    if (activeJobsByBrokerOwner.get(brokerOwnerId) === activeEntry) {
-                        activeJobsByBrokerOwner.delete(brokerOwnerId);
-                    }
-                }).catch(() => undefined);
+                void handle.settled
+                    .finally(() => {
+                        if (activeJobsByBrokerOwner.get(brokerOwnerId) === activeEntry) {
+                            activeJobsByBrokerOwner.delete(brokerOwnerId);
+                        }
+                    })
+                    .catch(() => undefined);
                 return {
                     started: true,
                     jobId,
@@ -999,11 +904,7 @@ export function createScanCleanupService(
             if (!state) {
                 return false;
             }
-            if ([
-                'completed',
-                'failed',
-                'canceled',
-            ].includes(state.status)) {
+            if (['completed', 'failed', 'canceled'].includes(state.status)) {
                 return true;
             }
             return jobs.cancel(jobId, actor, 'Scan cleanup canceled');
@@ -1013,8 +914,7 @@ export function createScanCleanupService(
         },
         subscribe(sender, jobId, owner) {
             const actor = ownerActor(sender, owner);
-            const subscriptions = progressSubscriptions.get(sender.id)
-                ?? new Map<string, IScanCleanupProgressSubscription>();
+            const subscriptions = progressSubscriptions.get(sender.id) ?? new Map<string, IScanCleanupProgressSubscription>();
             const previous = subscriptions.get(jobId);
             if (previous) {
                 releaseProgressSubscription(sender.id, jobId, previous);
@@ -1022,16 +922,23 @@ export function createScanCleanupService(
             progressSubscriptions.set(sender.id, subscriptions);
             const subscription: IScanCleanupProgressSubscription = {unsubscribe: null};
             subscriptions.set(jobId, subscription);
-            const unsubscribe = jobs.subscribe(jobId, actor, state => {
-                const publicProgress = publicState(state);
-                if (publicProgress) {
-                    sendScanCleanupState(sender, publicProgress);
-                }
-            }, closure => {
-                forgetProgressSubscription(sender.id, jobId, subscription);
-                // A replacement subscription closes its predecessor silently.
-                if (closure) sendScanCleanupState(sender, {jobId: requireJobId(jobId), status: closure});
-            });
+            const unsubscribe = jobs.subscribe(
+                jobId,
+                actor,
+                (state) => {
+                    const publicProgress = publicState(state);
+                    if (publicProgress) {
+                        sendScanCleanupState(sender, publicProgress);
+                    }
+                },
+                (closure) => {
+                    forgetProgressSubscription(sender.id, jobId, subscription);
+                    // A replacement subscription closes its predecessor silently.
+                    if (closure) {
+                        sendScanCleanupState(sender, {jobId: requireJobId(jobId), status: closure});
+                    }
+                },
+            );
             subscription.unsubscribe = unsubscribe;
             const state = publicState(jobs.get(jobId, actor));
             if (!unsubscribe || !state) {
@@ -1045,10 +952,7 @@ export function createScanCleanupService(
             if (pruneOutputsInFlight !== null) {
                 return pruneOutputsInFlight;
             }
-            if (
-                pruneOutputsStartedAt !== null
-                && now - pruneOutputsStartedAt < SCAN_CLEANUP_OUTPUT_PRUNE_MIN_INTERVAL_MS
-            ) {
+            if (pruneOutputsStartedAt !== null && now - pruneOutputsStartedAt < SCAN_CLEANUP_OUTPUT_PRUNE_MIN_INTERVAL_MS) {
                 return Promise.resolve(0);
             }
             pruneOutputsStartedAt = now;
@@ -1061,7 +965,9 @@ export function createScanCleanupService(
         // completes while it is listening.
         async getPendingCompletedOutputs(sender) {
             const outputPaths = await getPendingScanCleanupCompletedOutputs();
-            for (const outputPath of outputPaths) grantScanCleanupOutputAccess(outputPath, [sender]);
+            for (const outputPath of outputPaths) {
+                grantScanCleanupOutputAccess(outputPath, [sender]);
+            }
             return outputPaths;
         },
         acknowledgeCompletedOutputs(outputPaths) {

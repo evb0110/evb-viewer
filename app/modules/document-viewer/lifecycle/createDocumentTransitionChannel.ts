@@ -3,20 +3,16 @@ export interface IDocumentTransition<TFence> {
     readonly isCurrent: () => boolean;
 }
 
-type TDocumentTransitionInput<
-    TFence,
-    TTransition extends IDocumentTransition<TFence>,
-> = Omit<TTransition, 'isCurrent'>;
+type TDocumentTransitionInput<TFence, TTransition extends IDocumentTransition<TFence>> = Omit<TTransition, 'isCurrent'>;
 
 /**
  * Delivers transitions serially while the owning lifecycle says their fence
  * is current. Fence coordinates belong to the owner; this channel only
  * preserves order and revalidates between subscribers.
  */
-export function createDocumentTransitionChannel<
-    TFence,
-    TTransition extends IDocumentTransition<TFence>,
->(isFenceCurrent: (fence: TFence) => boolean) {
+export function createDocumentTransitionChannel<TFence, TTransition extends IDocumentTransition<TFence>>(
+    isFenceCurrent: (fence: TFence) => boolean,
+) {
     const listeners = new Set<(transition: TTransition) => void | Promise<void>>();
     let disposed = false;
 

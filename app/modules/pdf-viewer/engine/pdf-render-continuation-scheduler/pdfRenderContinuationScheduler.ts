@@ -1,12 +1,6 @@
-import { BrowserLogger } from '@app/utils/browserLogger';
+import {BrowserLogger} from '@app/utils/browserLogger';
 
-export type TPdfRenderContinuationPriority =
-    | 'navigation-target'
-    | 'visible'
-    | 'visible-text'
-    | 'nearby'
-    | 'thumbnail'
-    | 'prefetch';
+export type TPdfRenderContinuationPriority = 'navigation-target' | 'visible' | 'visible-text' | 'nearby' | 'thumbnail' | 'prefetch';
 
 interface IContinuationRequest {
     key: string;
@@ -33,11 +27,11 @@ export interface IPdfRenderContinuationScheduler {
 
 const PRIORITY_WEIGHT: Record<TPdfRenderContinuationPriority, number> = {
     'navigation-target': 600,
-    'visible': 500,
+    visible: 500,
     'visible-text': 400,
-    'nearby': 300,
-    'thumbnail': 200,
-    'prefetch': 100,
+    nearby: 300,
+    thumbnail: 200,
+    prefetch: 100,
 };
 const FRAME_HEADROOM_BUDGET_MS = 8;
 // Hidden Electron renderers suspend animation frames entirely, so a
@@ -65,11 +59,14 @@ function createImmediateMacrotaskQueuer(): {
     queueTask: (callback: () => void) => void;
     cancelQueuedTasks: () => void;
 } {
-    const scheduling = typeof globalThis === 'undefined'
-        ? null
-        : (globalThis as typeof globalThis & {
-            scheduler?: { yield?: () => Promise<void> };
-        }).scheduler;
+    const scheduling =
+        typeof globalThis === 'undefined'
+            ? null
+            : (
+                  globalThis as typeof globalThis & {
+                      scheduler?: {yield?: () => Promise<void>};
+                  }
+              ).scheduler;
     if (typeof scheduling?.yield === 'function') {
         const yieldToMain = scheduling.yield.bind(scheduling);
         return {
@@ -108,8 +105,8 @@ function createImmediateMacrotaskQueuer(): {
                 }
             };
             // Avoid keeping Node/Vitest worker processes alive on idle ports.
-            (nextChannel.port1 as { unref?: () => void }).unref?.();
-            (nextChannel.port2 as { unref?: () => void }).unref?.();
+            (nextChannel.port1 as {unref?: () => void}).unref?.();
+            (nextChannel.port2 as {unref?: () => void}).unref?.();
             channel = nextChannel;
             return nextChannel;
         };
@@ -125,32 +122,26 @@ function createImmediateMacrotaskQueuer(): {
         };
     }
     return {
-        queueTask: callback => setTimeout(callback, 0),
+        queueTask: (callback) => setTimeout(callback, 0),
         cancelQueuedTasks: () => {},
     };
 }
 
 function createDefaultEnvironment(): IContinuationSchedulerEnvironment {
-    const scheduling = typeof navigator === 'undefined'
-        ? null
-        : (navigator as Navigator & {scheduling?: { isInputPending?: () => boolean };}).scheduling;
+    const scheduling =
+        typeof navigator === 'undefined' ? null : (navigator as Navigator & {scheduling?: {isInputPending?: () => boolean}}).scheduling;
     const macrotaskQueuer = createImmediateMacrotaskQueuer();
     return {
         isInputPending: () => scheduling?.isInputPending?.() === true,
         now: () => performance.now(),
         queueTask: macrotaskQueuer.queueTask,
         cancelQueuedTasks: macrotaskQueuer.cancelQueuedTasks,
-        queueFrameFallbackTask: callback => setTimeout(callback, BACKGROUND_FRAME_FALLBACK_DELAY_MS),
-        requestAnimationFrame: callback => (
+        queueFrameFallbackTask: (callback) => setTimeout(callback, BACKGROUND_FRAME_FALLBACK_DELAY_MS),
+        requestAnimationFrame: (callback) =>
             typeof window === 'undefined'
                 ? Number(setTimeout(() => callback(performance.now()), 0))
-                : window.requestAnimationFrame(callback)
-        ),
-        cancelAnimationFrame: handle => (
-            typeof window === 'undefined'
-                ? clearTimeout(handle)
-                : window.cancelAnimationFrame(handle)
-        ),
+                : window.requestAnimationFrame(callback),
+        cancelAnimationFrame: (handle) => (typeof window === 'undefined' ? clearTimeout(handle) : window.cancelAnimationFrame(handle)),
     };
 }
 
@@ -190,10 +181,9 @@ export function createPdfRenderContinuationScheduler(
     }
 
     function takeNext() {
-        const next = [...queuedByKey.values()].sort((left, right) => (
-            PRIORITY_WEIGHT[right.priority] - PRIORITY_WEIGHT[left.priority]
-            || left.sequence - right.sequence
-        ))[0];
+        const next = [...queuedByKey.values()].sort(
+            (left, right) => PRIORITY_WEIGHT[right.priority] - PRIORITY_WEIGHT[left.priority] || left.sequence - right.sequence,
+        )[0];
         if (!next) {
             return null;
         }
@@ -216,10 +206,7 @@ export function createPdfRenderContinuationScheduler(
             consecutiveFrameDeferrals = 0;
             return;
         }
-        const highestPriority = [...queuedByKey.values()].reduce(
-            (highest, item) => Math.max(highest, PRIORITY_WEIGHT[item.priority]),
-            0,
-        );
+        const highestPriority = [...queuedByKey.values()].reduce((highest, item) => Math.max(highest, PRIORITY_WEIGHT[item.priority]), 0);
         // Occluded Electron renderers can throttle animation frames to roughly
         // 1 Hz. Keep serialized foreground work on yielding host tasks and
         // reserve frame gating for nearby/background work.
@@ -233,9 +220,7 @@ export function createPdfRenderContinuationScheduler(
         pumpGeneration += 1;
         const generation = pumpGeneration;
         if (useFrame) {
-            armedFrameHandle = environment.requestAnimationFrame(
-                timestamp => runFramePump(timestamp, generation),
-            );
+            armedFrameHandle = environment.requestAnimationFrame((timestamp) => runFramePump(timestamp, generation));
             // The fallback is keyed to an epoch instead of the pump generation:
             // every headroom deferral re-arms a fresh generation, so a
             // generation-keyed fallback goes stale before it can fire whenever
@@ -302,15 +287,14 @@ export function createPdfRenderContinuationScheduler(
             return;
         }
         armedFrameHandle = null;
-        const next = [...queuedByKey.values()].sort((left, right) => (
-            PRIORITY_WEIGHT[right.priority] - PRIORITY_WEIGHT[left.priority]
-            || left.sequence - right.sequence
-        ))[0];
+        const next = [...queuedByKey.values()].sort(
+            (left, right) => PRIORITY_WEIGHT[right.priority] - PRIORITY_WEIGHT[left.priority] || left.sequence - right.sequence,
+        )[0];
         if (
-            next
-            && isBackgroundPriority(next.priority)
-            && consecutiveFrameDeferrals < FRAME_DEFERRAL_LIMIT
-            && (environment.isInputPending() || environment.now() - frameStartedAt >= FRAME_HEADROOM_BUDGET_MS)
+            next &&
+            isBackgroundPriority(next.priority) &&
+            consecutiveFrameDeferrals < FRAME_DEFERRAL_LIMIT &&
+            (environment.isInputPending() || environment.now() - frameStartedAt >= FRAME_HEADROOM_BUDGET_MS)
         ) {
             consecutiveFrameDeferrals += 1;
             scheduleNextPump();
@@ -328,7 +312,7 @@ export function createPdfRenderContinuationScheduler(
             return () => {};
         }
         const onAbort = () => cancel(request.key);
-        request.signal?.addEventListener('abort', onAbort, { once: true });
+        request.signal?.addEventListener('abort', onAbort, {once: true});
         queuedByKey.set(request.key, {
             ...request,
             sequence: nextSequence,

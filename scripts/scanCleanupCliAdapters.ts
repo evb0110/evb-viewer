@@ -1,41 +1,15 @@
-import {
-    spawn,
-    type ChildProcess,
-} from 'node:child_process';
-import {
-    constants as fsConstants,
-    existsSync,
-} from 'node:fs';
-import {
-    access,
-    mkdir,
-    readFile,
-    stat,
-    writeFile,
-} from 'node:fs/promises';
-import {
-    basename,
-    dirname,
-    join,
-    posix,
-} from 'node:path';
+import {spawn, type ChildProcess} from 'node:child_process';
+import {constants as fsConstants, existsSync} from 'node:fs';
+import {access, mkdir, readFile, stat, writeFile} from 'node:fs/promises';
+import {basename, dirname, join, posix} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import * as v from 'valibot';
-import {
-    constants as osConstants,
-    setPriority,
-} from 'node:os';
+import {constants as osConstants, setPriority} from 'node:os';
 import {decode as decodePng} from 'fast-png';
-import {
-    isNativeErrorEnvelope,
-    type TNativeErrorCode,
-} from '@contracts/nativeErrors';
+import {isNativeErrorEnvelope, type TNativeErrorCode} from '@contracts/nativeErrors';
 import {NATIVE_SCAN_CLEANUP_ENVELOPE_SCHEMA} from '@contracts/scan-cleanup/nativeProtocolV3';
 import type {IScanCleanupDetectionResult} from '@contracts/scan-cleanup/electronApiScanCleanup';
-import {
-    getCheckedWasmMemoryView,
-    WASM_REQUEST_ALLOCATION_ABI_VERSION,
-} from '@contracts/getCheckedWasmMemoryView';
+import {getCheckedWasmMemoryView, WASM_REQUEST_ALLOCATION_ABI_VERSION} from '@contracts/getCheckedWasmMemoryView';
 import {createScanCleanupRenderers} from '@evb/scan-cleanup/adapters/createScanCleanupRenderers';
 import {parseScanCleanupCompactManifest} from '@evb/scan-cleanup/core/compactManifest';
 import {
@@ -70,7 +44,7 @@ export interface IScanCleanupCompactDetectionVerdict {
 export function compactScanCleanupDetectionVerdicts(
     results: readonly IScanCleanupDetectionResult[],
 ): IScanCleanupCompactDetectionVerdict[] {
-    return results.map(result => ({
+    return results.map((result) => ({
         pageNumber: result.pageNumber,
         classification: result.classification,
         confidence: result.confidence,
@@ -79,9 +53,7 @@ export function compactScanCleanupDetectionVerdicts(
         reconciled: result.reconciled,
         clusterAgreement: result.clusterAgreement,
         documentPrior: result.documentPrior,
-        ...(result.splitDiagnostics === undefined
-            ? {}
-            : {splitDiagnostics: result.splitDiagnostics}),
+        ...(result.splitDiagnostics === undefined ? {} : {splitDiagnostics: result.splitDiagnostics}),
     }));
 }
 
@@ -108,38 +80,34 @@ export interface ICliRawMaskEvidence {
     relativePath: string;
 }
 
-export async function snapshotCliDiagnosticMasks(
-    manifestPath: string,
-    outputPages: readonly number[],
-    evidenceDirectory: string,
-) {
+export async function snapshotCliDiagnosticMasks(manifestPath: string, outputPages: readonly number[], evidenceDirectory: string) {
     const selected = new Set(outputPages);
     const pageSpecs = parseScanCleanupCompactManifest(await readFile(manifestPath, 'utf8'));
     await mkdir(join(evidenceDirectory, 'raw-masks'), {recursive: true});
     const evidence: ICliRawMaskEvidence[] = [];
-    for (const [
-        index,
-        pageSpec,
-    ] of pageSpecs.entries()) {
+    for (const [index, pageSpec] of pageSpecs.entries()) {
         const outputOrdinal = index + 1;
-        if (!selected.has(outputOrdinal)) continue;
+        if (!selected.has(outputOrdinal)) {
+            continue;
+        }
         const maskPath = compactScanCleanupBilevelMaskPath(pageSpec);
-        if (maskPath === undefined) continue;
+        if (maskPath === undefined) {
+            continue;
+        }
         const payload = await readFile(maskPath);
-        if (payload[0] !== 0x50 || payload[1] !== 0x34) continue;
+        if (payload[0] !== 0x50 || payload[1] !== 0x34) {
+            continue;
+        }
         // The evidence manifest is portable JSON, so its relative paths use
         // forward slashes on every platform.
-        const relativePath = posix.join(
-            'raw-masks',
-            `output-${String(outputOrdinal).padStart(4, '0')}.pbm`,
-        );
+        const relativePath = posix.join('raw-masks', `output-${String(outputOrdinal).padStart(4, '0')}.pbm`);
         await writeFile(join(evidenceDirectory, relativePath), payload);
         evidence.push({
             outputOrdinal,
             relativePath,
         });
     }
-    const missing = outputPages.filter(page => !evidence.some(item => item.outputOrdinal === page));
+    const missing = outputPages.filter((page) => !evidence.some((item) => item.outputOrdinal === page));
     if (missing.length > 0) {
         throw new Error(`Diagnostic mask pages have no raw PBM plane: ${missing.join(', ')}`);
     }
@@ -156,14 +124,11 @@ export function buildCliRawMaskEvidenceManifest(
         half: string;
     }>,
 ) {
-    const reportPageByOrdinal = new Map(reportPages.map(page => [
-        page.outputOrdinal,
-        page,
-    ]));
+    const reportPageByOrdinal = new Map(reportPages.map((page) => [page.outputOrdinal, page]));
     return {
         schemaVersion: 1,
         outputPdf,
-        pages: evidence.map(item => {
+        pages: evidence.map((item) => {
             const page = reportPageByOrdinal.get(item.outputOrdinal);
             if (page === undefined) {
                 throw new Error(`Diagnostic evidence cannot resolve output ordinal ${String(item.outputOrdinal)}`);
@@ -197,13 +162,7 @@ interface ICliPdfCombineWasmInput {
     data: Uint8Array;
 }
 
-const CLI_PDF_COMBINE_WASM_PATH = join(
-    dirname(fileURLToPath(import.meta.url)),
-    '..',
-    'public',
-    'wasm',
-    'evb-pdf-image-combine.wasm',
-);
+const CLI_PDF_COMBINE_WASM_PATH = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'wasm', 'evb-pdf-image-combine.wasm');
 const CLI_PDF_COMBINE_WASM_REQUEST_MAGIC = 'EPIC';
 const CLI_PDF_COMBINE_WASM_VERSION_PAGE_SPECS = 4;
 const CLI_PDF_COMBINE_WASM_PAGE_KIND_CODES: Record<TCliPdfCombineWasmPageKind, number> = {
@@ -212,26 +171,26 @@ const CLI_PDF_COMBINE_WASM_PAGE_KIND_CODES: Record<TCliPdfCombineWasmPageKind, n
     layered: 3,
     'layered-color': 4,
 };
-const CLI_PDF_COMBINE_WASM_REQUEST_HEADER_BYTES = 4 + (6 * 4);
-const CLI_PDF_COMBINE_WASM_PAGE_SPEC_HEADER_BYTES = 4 + (2 * 8) + (2 * 4);
+const CLI_PDF_COMBINE_WASM_REQUEST_HEADER_BYTES = 4 + 6 * 4;
+const CLI_PDF_COMBINE_WASM_PAGE_SPEC_HEADER_BYTES = 4 + 2 * 8 + 2 * 4;
 const CLI_WASM_IMAGE_SAMPLE_LIMIT = 200_000;
 let cliPdfCombineWasmExportsPromise: Promise<ICliPdfCombineWasmExports | null> | null = null;
 
 type TCliPdfCombineWasmPageInput =
     | {
-        kind: 'image';
-        imagePath: string;
-    }
+          kind: 'image';
+          imagePath: string;
+      }
     | {
-        kind: 'mask';
-        imagePath: string;
-    }
+          kind: 'mask';
+          imagePath: string;
+      }
     | {
-        kind: 'layered' | 'layered-color';
-        backgroundPath: string;
-        maskPath: string;
-        foregroundColor?: readonly [number, number, number];
-    };
+          kind: 'layered' | 'layered-color';
+          backgroundPath: string;
+          maskPath: string;
+          foregroundColor?: readonly [number, number, number];
+      };
 
 export interface ICliPdfCombineWasmPage {
     heightPoints: number;
@@ -255,10 +214,7 @@ function cliWasmInputPaths(page: ICliPdfCombineWasmPage) {
     if (input.kind === 'image' || input.kind === 'mask') {
         return [input.imagePath];
     }
-    return [
-        input.backgroundPath,
-        input.maskPath,
-    ];
+    return [input.backgroundPath, input.maskPath];
 }
 
 function cliWasmPageKind(page: ICliPdfCombineWasmPage) {
@@ -266,33 +222,33 @@ function cliWasmPageKind(page: ICliPdfCombineWasmPage) {
 }
 
 async function loadCliPdfCombineWasm() {
-    const pending = cliPdfCombineWasmExportsPromise ?? (async () => {
-        try {
-            const bytes = await readFile(CLI_PDF_COMBINE_WASM_PATH);
-            const instantiated = await WebAssembly.instantiate(bytes);
-            const exports = instantiated instanceof WebAssembly.Instance
-                ? instantiated.exports
-                : instantiated.instance.exports;
-            const value = exports as Partial<ICliPdfCombineWasmExports>;
-            if (
-                !(value.memory instanceof WebAssembly.Memory)
-                || typeof value.evb_wasm_request_allocation_abi_version !== 'function'
-                || value.evb_wasm_request_allocation_abi_version() !== WASM_REQUEST_ALLOCATION_ABI_VERSION
-                || typeof value.evb_pdf_image_combine_alloc !== 'function'
-                || typeof value.evb_pdf_image_combine_free !== 'function'
-                || typeof value.evb_pdf_image_combine_build_pdf !== 'function'
-                || typeof value.evb_pdf_image_combine_output_ptr !== 'function'
-                || typeof value.evb_pdf_image_combine_output_len !== 'function'
-                || typeof value.evb_pdf_image_combine_error_ptr !== 'function'
-                || typeof value.evb_pdf_image_combine_error_len !== 'function'
-            ) {
+    const pending =
+        cliPdfCombineWasmExportsPromise ??
+        (async () => {
+            try {
+                const bytes = await readFile(CLI_PDF_COMBINE_WASM_PATH);
+                const instantiated = await WebAssembly.instantiate(bytes);
+                const exports = instantiated instanceof WebAssembly.Instance ? instantiated.exports : instantiated.instance.exports;
+                const value = exports as Partial<ICliPdfCombineWasmExports>;
+                if (
+                    !(value.memory instanceof WebAssembly.Memory) ||
+                    typeof value.evb_wasm_request_allocation_abi_version !== 'function' ||
+                    value.evb_wasm_request_allocation_abi_version() !== WASM_REQUEST_ALLOCATION_ABI_VERSION ||
+                    typeof value.evb_pdf_image_combine_alloc !== 'function' ||
+                    typeof value.evb_pdf_image_combine_free !== 'function' ||
+                    typeof value.evb_pdf_image_combine_build_pdf !== 'function' ||
+                    typeof value.evb_pdf_image_combine_output_ptr !== 'function' ||
+                    typeof value.evb_pdf_image_combine_output_len !== 'function' ||
+                    typeof value.evb_pdf_image_combine_error_ptr !== 'function' ||
+                    typeof value.evb_pdf_image_combine_error_len !== 'function'
+                ) {
+                    return null;
+                }
+                return value as ICliPdfCombineWasmExports;
+            } catch {
                 return null;
             }
-            return value as ICliPdfCombineWasmExports;
-        } catch {
-            return null;
-        }
-    })();
+        })();
     cliPdfCombineWasmExportsPromise = pending;
     const exports = await pending;
     if (exports === null && cliPdfCombineWasmExportsPromise === pending) {
@@ -309,15 +265,16 @@ function cliWasmEncodedInput(path: string, data: Uint8Array) {
 }
 
 function cliWasmPageInputs(page: ICliPdfCombineWasmPage, dataByPath: Map<string, Uint8Array>) {
-    return cliWasmInputPaths(page).map(path => cliWasmEncodedInput(path, dataByPath.get(path)!));
+    return cliWasmInputPaths(page).map((path) => cliWasmEncodedInput(path, dataByPath.get(path)!));
 }
 
 function buildCliWasmPageRequest(page: ICliPdfCombineWasmPage, inputs: ICliPdfCombineWasmInput[]) {
     const kind = cliWasmPageKind(page);
-    const requestLength = CLI_PDF_COMBINE_WASM_REQUEST_HEADER_BYTES
-        + CLI_PDF_COMBINE_WASM_PAGE_SPEC_HEADER_BYTES
-        + inputs.reduce((total, input) => total + 8 + input.fileName.length + input.data.byteLength, 0)
-        + (kind === 'layered-color' ? 12 : 0);
+    const requestLength =
+        CLI_PDF_COMBINE_WASM_REQUEST_HEADER_BYTES +
+        CLI_PDF_COMBINE_WASM_PAGE_SPEC_HEADER_BYTES +
+        inputs.reduce((total, input) => total + 8 + input.fileName.length + input.data.byteLength, 0) +
+        (kind === 'layered-color' ? 12 : 0);
     const request = new Uint8Array(requestLength);
     const view = new DataView(request.buffer);
     let offset = 0;
@@ -344,18 +301,10 @@ function buildCliWasmPageRequest(page: ICliPdfCombineWasmPage, inputs: ICliPdfCo
         offset += input.data.byteLength;
     }
     if (kind === 'layered-color') {
-        const color = page.input.kind === 'layered-color'
-            ? page.input.foregroundColor ?? [
-                0,
-                0,
-                0,
-            ]
-            : [
-                0,
-                0,
-                0,
-            ];
-        for (const channel of color) offset = writeCliWasmU32(view, offset, channel);
+        const color = page.input.kind === 'layered-color' ? (page.input.foregroundColor ?? [0, 0, 0]) : [0, 0, 0];
+        for (const channel of color) {
+            offset = writeCliWasmU32(view, offset, channel);
+        }
     }
     return request;
 }
@@ -375,20 +324,17 @@ async function normalizeCliWasmMask(
         return inputPath;
     }
     const normalizedPath = join(temporaryDirectory, `wasm-mask-${String(pageIndex)}.pbm`);
-    await runCliNativeToolCommand(magickBinary, [
-        inputPath,
-        '-colorspace',
-        'Gray',
-        '-threshold',
-        '50%',
-        '-type',
-        'Bilevel',
-        normalizedPath,
-    ], options);
+    await runCliNativeToolCommand(
+        magickBinary,
+        [inputPath, '-colorspace', 'Gray', '-threshold', '50%', '-type', 'Bilevel', normalizedPath],
+        options,
+    );
     return normalizedPath;
 }
 
-interface ICliWasmImageTone { grayscale: boolean; }
+interface ICliWasmImageTone {
+    grayscale: boolean;
+}
 
 async function inspectCliWasmPngTone(inputPath: string): Promise<ICliWasmImageTone | null> {
     if (!inputPath.toLowerCase().endsWith('.png')) {
@@ -401,11 +347,8 @@ async function inspectCliWasmPngTone(inputPath: string): Promise<ICliWasmImageTo
     for (let pixel = 0; pixel < pixelCount; pixel += stride) {
         const offset = pixel * decoded.channels;
         if (
-            decoded.channels >= 3
-            && (
-                decoded.data[offset] !== decoded.data[offset + 1]
-                || decoded.data[offset] !== decoded.data[offset + 2]
-            )
+            decoded.channels >= 3 &&
+            (decoded.data[offset] !== decoded.data[offset + 1] || decoded.data[offset] !== decoded.data[offset + 2])
         ) {
             coloredPixels += 1;
         }
@@ -422,19 +365,12 @@ async function normalizeCliWasmImage(
     options: IScanCleanupRunCommandOptions,
 ): Promise<{
     imagePath: string;
-    kind: 'image' | 'mask'
+    kind: 'image' | 'mask';
 }> {
     const tone = await inspectCliWasmPngTone(inputPath);
     if (tone?.grayscale === true) {
         const normalizedPath = join(temporaryDirectory, `wasm-image-${String(pageIndex)}.pgm`);
-        await runCliNativeToolCommand(magickBinary, [
-            inputPath,
-            '-colorspace',
-            'Gray',
-            '-depth',
-            '8',
-            normalizedPath,
-        ], options);
+        await runCliNativeToolCommand(magickBinary, [inputPath, '-colorspace', 'Gray', '-depth', '8', normalizedPath], options);
         return {
             imagePath: normalizedPath,
             kind: 'image',
@@ -442,12 +378,7 @@ async function normalizeCliWasmImage(
     }
     if (tone !== null) {
         const normalizedPath = join(temporaryDirectory, `wasm-image-${String(pageIndex)}.ppm`);
-        await runCliNativeToolCommand(magickBinary, [
-            inputPath,
-            '-depth',
-            '8',
-            normalizedPath,
-        ], options);
+        await runCliNativeToolCommand(magickBinary, [inputPath, '-depth', '8', normalizedPath], options);
         return {
             imagePath: normalizedPath,
             kind: 'image',
@@ -472,29 +403,34 @@ export async function writeCliWasmPdfPage(
         return false;
     }
     const pageInput = page.input;
-    const input = pageInput.kind === 'image'
-        ? page.jpegQuality === undefined
-            ? pageInput
-            : await normalizeCliWasmImage(pageInput.imagePath, temporaryDirectory, magickBinary, pageIndex, options)
-        : pageInput.kind === 'mask'
-            ? {
-                ...pageInput,
-                imagePath: await normalizeCliWasmMask(pageInput.imagePath, temporaryDirectory, magickBinary, pageIndex, options),
-            }
-            : {
-                ...pageInput,
-                maskPath: await normalizeCliWasmMask(pageInput.maskPath, temporaryDirectory, magickBinary, pageIndex, options),
-            };
+    const input =
+        pageInput.kind === 'image'
+            ? page.jpegQuality === undefined
+                ? pageInput
+                : await normalizeCliWasmImage(pageInput.imagePath, temporaryDirectory, magickBinary, pageIndex, options)
+            : pageInput.kind === 'mask'
+              ? {
+                    ...pageInput,
+                    imagePath: await normalizeCliWasmMask(pageInput.imagePath, temporaryDirectory, magickBinary, pageIndex, options),
+                }
+              : {
+                    ...pageInput,
+                    maskPath: await normalizeCliWasmMask(pageInput.maskPath, temporaryDirectory, magickBinary, pageIndex, options),
+                };
     const normalizedPage: ICliPdfCombineWasmPage = {
         ...page,
         input,
     };
     const paths = cliWasmInputPaths(normalizedPage);
     const dataByPath = new Map<string, Uint8Array>();
-    for (const path of paths) dataByPath.set(path, await readFile(path));
+    for (const path of paths) {
+        dataByPath.set(path, await readFile(path));
+    }
     const request = buildCliWasmPageRequest(normalizedPage, cliWasmPageInputs(normalizedPage, dataByPath));
     const pointer = exports.evb_pdf_image_combine_alloc(request.byteLength);
-    if (pointer === 0) throw new Error('CLI PDF image combine WASM allocation failed');
+    if (pointer === 0) {
+        throw new Error('CLI PDF image combine WASM allocation failed');
+    }
     try {
         const requestMemory = getCheckedWasmMemoryView(
             exports.memory,
@@ -507,18 +443,17 @@ export async function writeCliWasmPdfPage(
         if (resultCode !== 0) {
             const errorPointer = exports.evb_pdf_image_combine_error_ptr();
             const errorLength = exports.evb_pdf_image_combine_error_len();
-            const error = errorLength === 0
-                ? `code ${String(resultCode)}`
-                : new TextDecoder().decode(readCliWasmBytes(exports, errorPointer, errorLength));
+            const error =
+                errorLength === 0
+                    ? `code ${String(resultCode)}`
+                    : new TextDecoder().decode(readCliWasmBytes(exports, errorPointer, errorLength));
             throw new Error(`CLI PDF image combine WASM failed: ${error}`);
         }
         const outputLength = exports.evb_pdf_image_combine_output_len();
-        if (outputLength === 0) throw new Error('CLI PDF image combine WASM returned an empty PDF');
-        await writeFile(outputPath, readCliWasmBytes(
-            exports,
-            exports.evb_pdf_image_combine_output_ptr(),
-            outputLength,
-        ));
+        if (outputLength === 0) {
+            throw new Error('CLI PDF image combine WASM returned an empty PDF');
+        }
+        await writeFile(outputPath, readCliWasmBytes(exports, exports.evb_pdf_image_combine_output_ptr(), outputLength));
         return true;
     } finally {
         exports.evb_pdf_image_combine_free(pointer, request.byteLength);
@@ -532,16 +467,22 @@ function terminateCliChild(child: ChildProcess) {
         return;
     }
     try {
-        if (process.platform === 'win32') child.kill('SIGTERM');
-        else process.kill(-pid, 'SIGTERM');
+        if (process.platform === 'win32') {
+            child.kill('SIGTERM');
+        } else {
+            process.kill(-pid, 'SIGTERM');
+        }
     } catch {
         child.kill('SIGTERM');
     }
     setTimeout(() => {
         if (child.exitCode === null && child.signalCode === null) {
             try {
-                if (process.platform === 'win32') child.kill('SIGKILL');
-                else process.kill(-pid, 'SIGKILL');
+                if (process.platform === 'win32') {
+                    child.kill('SIGKILL');
+                } else {
+                    process.kill(-pid, 'SIGKILL');
+                }
             } catch {
                 child.kill('SIGKILL');
             }
@@ -556,17 +497,23 @@ export async function runCliNativeToolCommand(
     args: string[],
     options: IScanCleanupRunCommandOptions = {},
 ): Promise<IScanCleanupProcessResult> {
-    if (options.signal?.aborted) throw options.signal.reason;
+    if (options.signal?.aborted) {
+        throw options.signal.reason;
+    }
     if (isPdfPageOpsWasmPath(command)) {
         let runnerPromise = cliPageOpsRunners.get(command);
         if (!runnerPromise) {
-            runnerPromise = loadPdfPageOpsWasmModule(command).then(mod => createPdfPageOpsWasmRunner(mod));
+            runnerPromise = loadPdfPageOpsWasmModule(command).then((mod) => createPdfPageOpsWasmRunner(mod));
             cliPageOpsRunners.set(command, runnerPromise);
         }
         const runner = await runnerPromise;
-        if (options.signal?.aborted) throw options.signal.reason;
+        if (options.signal?.aborted) {
+            throw options.signal.reason;
+        }
         const result = executeDesktopPageOpsCommand(runner, args);
-        if (options.signal?.aborted) throw options.signal.reason;
+        if (options.signal?.aborted) {
+            throw options.signal.reason;
+        }
         if (result.stdout.length > 0) {
             options.onStdout?.(result.stdout);
         }
@@ -577,11 +524,7 @@ export async function runCliNativeToolCommand(
             cwd: options.cwd,
             detached: process.platform !== 'win32',
             env: options.env ?? process.env,
-            stdio: [
-                'ignore',
-                'pipe',
-                'pipe',
-            ],
+            stdio: ['ignore', 'pipe', 'pipe'],
         });
         let stdout = '';
         let stderr = '';
@@ -594,7 +537,9 @@ export async function runCliNativeToolCommand(
             return next.length > limit ? next.slice(-limit) : next;
         };
         const cleanup = () => {
-            if (timer !== undefined) clearTimeout(timer);
+            if (timer !== undefined) {
+                clearTimeout(timer);
+            }
             options.signal?.removeEventListener('abort', onAbort);
         };
         const finish = (error: Error | null, result?: IScanCleanupProcessResult) => {
@@ -603,8 +548,11 @@ export async function runCliNativeToolCommand(
             }
             settled = true;
             cleanup();
-            if (error === null && result !== undefined) resolve(result);
-            else reject(error ?? new Error('Native command failed without a result'));
+            if (error === null && result !== undefined) {
+                resolve(result);
+            } else {
+                reject(error ?? new Error('Native command failed without a result'));
+            }
         };
         const onAbort = () => {
             terminateCliChild(child);
@@ -618,12 +566,10 @@ export async function runCliNativeToolCommand(
         child.stderr.on('data', (chunk: string) => {
             stderr = append(stderr, chunk, stderrLimit);
         });
-        child.once('error', error => finish(error));
+        child.once('error', (error) => finish(error));
         child.once('close', (code, signal) => {
             if (options.signal?.aborted) {
-                finish(options.signal.reason instanceof Error
-                    ? options.signal.reason
-                    : new Error('Native command aborted'));
+                finish(options.signal.reason instanceof Error ? options.signal.reason : new Error('Native command aborted'));
                 return;
             }
             if (timedOut) {
@@ -633,11 +579,13 @@ export async function runCliNativeToolCommand(
             const exitCode = code ?? -1;
             const allowedExitCodes = options.allowedExitCodes ?? [0];
             if (!allowedExitCodes.includes(exitCode)) {
-                finish(new Error(
-                    `${options.commandLabel ?? command} exited with code ${String(exitCode)}${
-                        signal === null ? '' : ` (${signal})`
-                    }: ${stderr.trim()}`,
-                ));
+                finish(
+                    new Error(
+                        `${options.commandLabel ?? command} exited with code ${String(exitCode)}${
+                            signal === null ? '' : ` (${signal})`
+                        }: ${stderr.trim()}`,
+                    ),
+                );
                 return;
             }
             if (options.rejectOnStdoutTruncation && stdout.length >= stdoutLimit) {
@@ -650,12 +598,13 @@ export async function runCliNativeToolCommand(
                 stderr,
             });
         });
-        const timer = options.timeoutMs === undefined
-            ? undefined
-            : setTimeout(() => {
-                timedOut = true;
-                terminateCliChild(child);
-            }, options.timeoutMs);
+        const timer =
+            options.timeoutMs === undefined
+                ? undefined
+                : setTimeout(() => {
+                      timedOut = true;
+                      terminateCliChild(child);
+                  }, options.timeoutMs);
         options.signal?.addEventListener('abort', onAbort, {once: true});
     });
 }
@@ -672,7 +621,7 @@ function throwCliProtocolError(error: Error | null) {
 
 function parseNativeError(stderr: string): {
     code: TNativeErrorCode;
-    message: string
+    message: string;
 } | null {
     for (const line of stderr.trim().split(/\r?\n/u).reverse()) {
         try {
@@ -698,24 +647,17 @@ export async function runCliScanCleanupSidecar(
         allowedPathRoot?: string;
     } = {},
 ) {
-    if (signal.aborted) throw signal.reason;
-    const child = spawn(binaryPath, [
-        '--manifest',
-        manifestPath,
-        ...(options.allowedPathRoot === undefined
-            ? []
-            : [
-                '--allowed-path-root',
-                options.allowedPathRoot,
-            ]),
-    ], {
-        detached: process.platform !== 'win32',
-        stdio: [
-            'ignore',
-            'pipe',
-            'pipe',
-        ],
-    });
+    if (signal.aborted) {
+        throw signal.reason;
+    }
+    const child = spawn(
+        binaryPath,
+        ['--manifest', manifestPath, ...(options.allowedPathRoot === undefined ? [] : ['--allowed-path-root', options.allowedPathRoot])],
+        {
+            detached: process.platform !== 'win32',
+            stdio: ['ignore', 'pipe', 'pipe'],
+        },
+    );
     if (options.priority === 'background' && child.pid !== undefined) {
         try {
             setPriority(child.pid, osConstants.priority.PRIORITY_BELOW_NORMAL);
@@ -724,15 +666,17 @@ export async function runCliScanCleanupSidecar(
         }
     }
     let terminalStatus = null as 'success' | 'failure' | null;
-    const nativeFailure: {value: {
-        code: TNativeErrorCode;
-        message: string
-    } | null} = {value: null};
+    const nativeFailure: {
+        value: {
+            code: TNativeErrorCode;
+            message: string;
+        } | null;
+    } = {value: null};
     let protocolError: Error | null = null;
     const protocol = createScanCleanupSidecarProtocolHandler({
         stdout: child.stdout,
         stderr: child.stderr,
-        onProtocolError: error => {
+        onProtocolError: (error) => {
             protocolError = error;
             terminateCliChild(child);
         },
@@ -750,12 +694,14 @@ export async function runCliScanCleanupSidecar(
                     continue;
                 }
                 terminalStatus = envelope.result.status;
-                if (envelope.result.status === 'failure') nativeFailure.value = envelope.result;
+                if (envelope.result.status === 'failure') {
+                    nativeFailure.value = envelope.result;
+                }
             } catch (error) {
                 protocol.failProtocol(error, line);
             }
         }
-    })().catch(error => protocol.failProtocol(error, '[progress stream]'));
+    })().catch((error) => protocol.failProtocol(error, '[progress stream]'));
     let aborting = false as boolean;
     const onAbort = () => {
         aborting = true;
@@ -765,15 +711,17 @@ export async function runCliScanCleanupSidecar(
     try {
         let result: {
             code: number | null;
-            signal: NodeJS.Signals | null
+            signal: NodeJS.Signals | null;
         };
         try {
             result = await new Promise((resolve, reject) => {
                 child.once('error', reject);
-                child.once('exit', (code, exitSignal) => resolve({
-                    code,
-                    signal: exitSignal,
-                }));
+                child.once('exit', (code, exitSignal) =>
+                    resolve({
+                        code,
+                        signal: exitSignal,
+                    }),
+                );
             });
         } catch (error) {
             throwCliProtocolError(protocolError);
@@ -781,16 +729,20 @@ export async function runCliScanCleanupSidecar(
         }
         await consumeProgress;
         throwCliProtocolError(protocolError);
-        if (aborting) throw signal.reason;
+        if (aborting) {
+            throw signal.reason;
+        }
         const failure = nativeFailure.value;
         if (failure !== null) {
             throw new Error(`${failure.code}: ${failure.message}`);
         }
         if (result.code !== 0) {
             const error = parseNativeError(protocol.stderr);
-            throw new Error(error === null
-                ? `evb-scan-cleanup exited unsuccessfully (code=${String(result.code)}, signal=${String(result.signal)})`
-                : `${error.code}: ${error.message}`);
+            throw new Error(
+                error === null
+                    ? `evb-scan-cleanup exited unsuccessfully (code=${String(result.code)}, signal=${String(result.signal)})`
+                    : `${error.code}: ${error.message}`,
+            );
         }
         if (terminalStatus !== 'success') {
             throw new Error('evb-scan-cleanup returned no terminal result envelope');
@@ -804,11 +756,15 @@ export async function runCliScanCleanupSidecar(
 }
 
 export async function requireCliPublishedRaster(path: string | undefined, pageNumber: number, role: string) {
-    if (path === undefined) throw new Error(`Page ${pageNumber} declared a ${role} without an output destination`);
+    if (path === undefined) {
+        throw new Error(`Page ${pageNumber} declared a ${role} without an output destination`);
+    }
     const stats = await stat(path).catch((error: NodeJS.ErrnoException) => {
         throw new Error(`Page ${pageNumber} ${role} is unavailable: ${error.message}`);
     });
-    if (!stats.isFile()) throw new Error(`Page ${pageNumber} ${role} is not a file: ${path}`);
+    if (!stats.isFile()) {
+        throw new Error(`Page ${pageNumber} ${role} is not a file: ${path}`);
+    }
     await access(path, fsConstants.R_OK).catch((error: NodeJS.ErrnoException) => {
         throw new Error(`Page ${pageNumber} ${role} is unreadable: ${error.message}`);
     });
@@ -839,12 +795,7 @@ function rustTargetTag() {
     return targets[process.platform]?.[architecture];
 }
 
-export function resolveCliNativeToolPath(
-    binaryName: string,
-    crateName: string,
-    currentDir: string,
-    envOverride?: string,
-) {
+export function resolveCliNativeToolPath(binaryName: string, crateName: string, currentDir: string, envOverride?: string) {
     if (crateName === 'pdf-page-ops' || binaryName === 'evb-pdf-page-ops') {
         return resolvePdfPageOpsWasmPath({
             currentDir,
@@ -852,23 +803,19 @@ export function resolveCliNativeToolPath(
             isPackaged: false,
         });
     }
-    const executableName = process.platform === 'win32' && !binaryName.toLowerCase().endsWith('.exe')
-        ? `${binaryName}.exe`
-        : binaryName;
+    const executableName = process.platform === 'win32' && !binaryName.toLowerCase().endsWith('.exe') ? `${binaryName}.exe` : binaryName;
     const candidates = [
         envOverride,
         join(currentDir, '.tmp', crateName, platformArchTag(), 'bin', executableName),
         join(currentDir, 'resources', crateName, platformArchTag(), 'bin', executableName),
         join(currentDir, 'resources', 'poppler', platformArchTag(), 'bin', executableName),
-        ...(rustTargetTag() === undefined
-            ? []
-            : [join(currentDir, 'native', 'target', rustTargetTag()!, 'release', executableName)]),
+        ...(rustTargetTag() === undefined ? [] : [join(currentDir, 'native', 'target', rustTargetTag()!, 'release', executableName)]),
         join(currentDir, 'native', 'target', 'release', executableName),
         `/opt/homebrew/bin/${binaryName}`,
         `/usr/local/bin/${binaryName}`,
         `/usr/bin/${binaryName}`,
     ];
-    return candidates.find(candidate => candidate !== undefined && existsSync(candidate)) ?? null;
+    return candidates.find((candidate) => candidate !== undefined && existsSync(candidate)) ?? null;
 }
 
 export function createCliRenderers(runCommand: TScanCleanupRunCommand) {

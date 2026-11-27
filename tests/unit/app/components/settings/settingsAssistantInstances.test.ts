@@ -1,16 +1,8 @@
 // @vitest-environment happy-dom
-import {
-    afterEach, beforeEach, describe, expect, it, vi,
-} from 'vitest';
-import {
-    createApp, defineComponent, h, nextTick,
-} from 'vue';
-import type {
-    IAssistantEvent, IAssistantInstanceConfig,
-} from '@contracts/assistant';
-import {
-    createAssistantInstance, createAssistantState,
-} from '@tests/helpers/createAgentAssistantStatus';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {createApp, defineComponent, h, nextTick} from 'vue';
+import type {IAssistantEvent, IAssistantInstanceConfig} from '@contracts/assistant';
+import {createAssistantInstance, createAssistantState} from '@tests/helpers/createAgentAssistantStatus';
 import SettingsAgentPanel from '@app/components/settings/SettingsAgentPanel.vue';
 
 const api = vi.hoisted(() => ({
@@ -20,27 +12,31 @@ const api = vi.hoisted(() => ({
     onAssistantEvent: vi.fn(),
     startAssistantLogin: vi.fn(),
 }));
-vi.mock('@app/utils/getAgentCapability', () => ({ getAgentCapability: () => api }));
-vi.mock('@app/composables/useTypedI18n', () => ({ useTypedI18n: () => ({ t: (key: string) => key }) }));
-vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
-const configs: IAssistantInstanceConfig[] = [{
-    id: 'codex',
-    driver: 'codex',
-    displayName: 'Work account',
-    enabled: true,
-    binaryPath: '/bin/custom-codex',
-    homePath: '/home/work',
-    shadowHomePath: '/home/shadow',
-    launchArgs: '',
-    launchArgsSecret: true,
-    launchArgsConfigured: true,
-    environment: [{
-        name: 'API_KEY',
-        value: '',
-        secret: true,
-        configured: true,
-    }],
-}];
+vi.mock('@app/utils/getAgentCapability', () => ({getAgentCapability: () => api}));
+vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
+const configs: IAssistantInstanceConfig[] = [
+    {
+        id: 'codex',
+        driver: 'codex',
+        displayName: 'Work account',
+        enabled: true,
+        binaryPath: '/bin/custom-codex',
+        homePath: '/home/work',
+        shadowHomePath: '/home/shadow',
+        launchArgs: '',
+        launchArgsSecret: true,
+        launchArgsConfigured: true,
+        environment: [
+            {
+                name: 'API_KEY',
+                value: '',
+                secret: true,
+                configured: true,
+            },
+        ],
+    },
+];
 let event: (value: IAssistantEvent) => void;
 const unmounts: Array<() => void> = [];
 const Button = defineComponent({
@@ -49,28 +45,31 @@ const Button = defineComponent({
         label: String,
         disabled: Boolean,
     },
-    setup: (props, {
-        attrs, slots,
-    }) => () => h('button', {
-        ...attrs,
-        type: 'button',
-        disabled: props.disabled,
-    }, [
-        props.label,
-        slots.default?.(),
-    ]),
+    setup:
+        (props, {attrs, slots}) =>
+        () =>
+            h(
+                'button',
+                {
+                    ...attrs,
+                    type: 'button',
+                    disabled: props.disabled,
+                },
+                [props.label, slots.default?.()],
+            ),
 });
 const Input = defineComponent({
     inheritAttrs: false,
-    props: { modelValue: String },
+    props: {modelValue: String},
     emits: ['update:modelValue'],
-    setup: (props, {
-        attrs, emit,
-    }) => () => h('input', {
-        ...attrs,
-        value: props.modelValue,
-        onInput: (e: Event) => emit('update:modelValue', (e.target as HTMLInputElement).value),
-    }),
+    setup:
+        (props, {attrs, emit}) =>
+        () =>
+            h('input', {
+                ...attrs,
+                value: props.modelValue,
+                onInput: (e: Event) => emit('update:modelValue', (e.target as HTMLInputElement).value),
+            }),
 });
 const Switch = defineComponent({
     inheritAttrs: false,
@@ -79,12 +78,19 @@ const Switch = defineComponent({
         label: String,
     },
     emits: ['update:modelValue'],
-    setup: (props, { emit }) => () => h('button', {
-        type: 'button',
-        'aria-label': props.label,
-        'aria-pressed': String(props.modelValue),
-        onClick: () => emit('update:modelValue', !props.modelValue),
-    }, props.label),
+    setup:
+        (props, {emit}) =>
+        () =>
+            h(
+                'button',
+                {
+                    type: 'button',
+                    'aria-label': props.label,
+                    'aria-pressed': String(props.modelValue),
+                    onClick: () => emit('update:modelValue', !props.modelValue),
+                },
+                props.label,
+            ),
 });
 const Select = defineComponent({
     props: {
@@ -92,27 +98,28 @@ const Select = defineComponent({
         items: Array,
     },
     emits: ['update:modelValue'],
-    setup: (props, {
-        emit, attrs,
-    }) => () => h('select', {
-        ...attrs,
-        value: props.modelValue,
-        onChange: (e: Event) => emit('update:modelValue', (e.target as HTMLSelectElement).value),
-    }, [
-        h('option', { value: 'codex' }, 'Codex'),
-        h('option', { value: 'claude' }, 'Claude'),
-    ]),
+    setup:
+        (props, {emit, attrs}) =>
+        () =>
+            h(
+                'select',
+                {
+                    ...attrs,
+                    value: props.modelValue,
+                    onChange: (e: Event) => emit('update:modelValue', (e.target as HTMLSelectElement).value),
+                },
+                [h('option', {value: 'codex'}, 'Codex'), h('option', {value: 'claude'}, 'Claude')],
+            ),
 });
 const Field = defineComponent({
     props: {
         label: String,
         hint: String,
     },
-    setup: (props, { slots }) => () => h('label', [
-        h('span', props.label),
-        slots.default?.(),
-        h('span', props.hint),
-    ]),
+    setup:
+        (props, {slots}) =>
+        () =>
+            h('label', [h('span', props.label), slots.default?.(), h('span', props.hint)]),
 });
 function mount() {
     const host = document.createElement('div');
@@ -122,18 +129,31 @@ function mount() {
         status: null,
         isBusy: false,
     });
-    app.component('UButton', Button); app.component('UInput', Input); app.component('USelect', Select);
-    app.component('USwitch', Switch); app.component('UCheckbox', Switch); app.component('UFormField', Field);
-    app.component('UIcon', defineComponent({ setup: () => () => h('span') }));
-    app.component('UModal', defineComponent({ setup: () => () => null }));
+    app.component('UButton', Button);
+    app.component('UInput', Input);
+    app.component('USelect', Select);
+    app.component('USwitch', Switch);
+    app.component('UCheckbox', Switch);
+    app.component('UFormField', Field);
+    app.component('UIcon', defineComponent({setup: () => () => h('span')}));
+    app.component('UModal', defineComponent({setup: () => () => null}));
     app.mount(host);
-    unmounts.push(() => { app.unmount(); host.remove(); });
+    unmounts.push(() => {
+        app.unmount();
+        host.remove();
+    });
     return host;
 }
-async function settle() { for (let i = 0; i < 8; i++) await nextTick(); }
+async function settle() {
+    for (let i = 0; i < 8; i++) {
+        await nextTick();
+    }
+}
 function click(host: HTMLElement, label: string) {
-    const target = [...host.querySelectorAll('button')].find(button => button.textContent === label);
-    if (!target) throw new Error('Missing button ' + label);
+    const target = [...host.querySelectorAll('button')].find((button) => button.textContent === label);
+    if (!target) {
+        throw new Error('Missing button ' + label);
+    }
     target.click();
 }
 beforeEach(() => {
@@ -143,18 +163,27 @@ beforeEach(() => {
         instances: configs,
         notices: [],
     });
-    api.getAssistantState.mockResolvedValue(createAssistantState({ instances: [createAssistantInstance({
-        label: 'Work account',
-        state: 'warning',
-        message: 'Actual probe warning',
-        canSignIn: true,
-    })] }));
-    api.saveAssistantInstances.mockImplementation(async instances => ({
+    api.getAssistantState.mockResolvedValue(
+        createAssistantState({
+            instances: [
+                createAssistantInstance({
+                    label: 'Work account',
+                    state: 'warning',
+                    message: 'Actual probe warning',
+                    canSignIn: true,
+                }),
+            ],
+        }),
+    );
+    api.saveAssistantInstances.mockImplementation(async (instances) => ({
         ok: true,
         instances,
         notices: ['Saved provider configuration'],
     }));
-    api.onAssistantEvent.mockImplementation(callback => { event = callback; return () => {}; });
+    api.onAssistantEvent.mockImplementation((callback) => {
+        event = callback;
+        return () => {};
+    });
     api.startAssistantLogin.mockResolvedValue({
         ok: true,
         state: createAssistantState(),
@@ -162,7 +191,7 @@ beforeEach(() => {
         verificationUrl: 'https://example.com/device',
     });
 });
-afterEach(() => unmounts.splice(0).forEach(unmount => unmount()));
+afterEach(() => unmounts.splice(0).forEach((unmount) => unmount()));
 
 describe('provider instance settings', () => {
     it('merges live statuses, preserves secret placeholders and submits empty configured secrets unchanged', async () => {
@@ -171,27 +200,33 @@ describe('provider instance settings', () => {
         expect(host.textContent).toContain('Actual probe warning');
         expect(host.textContent).toContain('/bin/codex');
         expect(host.querySelectorAll('input[type="password"]')).toHaveLength(2);
-        expect([...host.querySelectorAll<HTMLInputElement>('input[type="password"]')].every(input => input.value === '')).toBe(true);
+        expect([...host.querySelectorAll<HTMLInputElement>('input[type="password"]')].every((input) => input.value === '')).toBe(true);
         expect(host.textContent).toContain('assistant.secretConfigured');
         click(host, 'assistant.saveInstances');
         await settle();
-        expect(api.saveAssistantInstances).toHaveBeenCalledWith([expect.objectContaining({
-            launchArgs: '',
-            launchArgsSecret: true,
-            environment: [{
-                name: 'API_KEY',
-                value: '',
-                secret: true,
-                configured: true,
-            }],
-        })]);
+        expect(api.saveAssistantInstances).toHaveBeenCalledWith([
+            expect.objectContaining({
+                launchArgs: '',
+                launchArgsSecret: true,
+                environment: [
+                    {
+                        name: 'API_KEY',
+                        value: '',
+                        secret: true,
+                        configured: true,
+                    },
+                ],
+            }),
+        ]);
         expect(host.textContent).toContain('Saved provider configuration');
         event({
             type: 'instances',
-            instances: [createAssistantInstance({
-                state: 'error',
-                message: 'New real failure',
-            })],
+            instances: [
+                createAssistantInstance({
+                    state: 'error',
+                    message: 'New real failure',
+                }),
+            ],
         });
         await settle();
         expect(host.textContent).toContain('New real failure');
@@ -239,21 +274,23 @@ describe('provider instance settings', () => {
     it('preserves environment row element identity on removal and omits uiId when saving', async () => {
         api.getAssistantInstances.mockResolvedValue({
             ok: true,
-            instances: [{
-                ...configs[0]!,
-                environment: [
-                    {
-                        name: 'FIRST_VAR',
-                        value: 'one',
-                        secret: false,
-                    },
-                    {
-                        name: 'SECOND_VAR',
-                        value: 'two',
-                        secret: false,
-                    },
-                ],
-            }],
+            instances: [
+                {
+                    ...configs[0]!,
+                    environment: [
+                        {
+                            name: 'FIRST_VAR',
+                            value: 'one',
+                            secret: false,
+                        },
+                        {
+                            name: 'SECOND_VAR',
+                            value: 'two',
+                            secret: false,
+                        },
+                    ],
+                },
+            ],
             notices: [],
         });
         const host = mount();
@@ -265,7 +302,7 @@ describe('provider instance settings', () => {
         expect(rowsBefore).toHaveLength(3);
         const thirdNameInput = rowsBefore[2]!.querySelector<HTMLInputElement>('input[aria-label="assistant.environmentName"]')!;
         thirdNameInput.value = 'THIRD_VAR';
-        thirdNameInput.dispatchEvent(new Event('input', { bubbles: true }));
+        thirdNameInput.dispatchEvent(new Event('input', {bubbles: true}));
         await settle();
 
         const secondRowNode = rowsBefore[1]!;
@@ -294,6 +331,6 @@ describe('provider instance settings', () => {
                 secret: false,
             },
         ]);
-        expect(savedInstances[0]?.environment?.every(entry => !('uiId' in entry))).toBe(true);
+        expect(savedInstances[0]?.environment?.every((entry) => !('uiId' in entry))).toBe(true);
     });
 });

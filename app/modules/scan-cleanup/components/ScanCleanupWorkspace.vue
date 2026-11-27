@@ -35,7 +35,10 @@
             class="scan-cleanup-workspace app-scrollbar app-scroll-region--balanced"
             :aria-busy="isRunning"
         >
-            <fieldset class="scan-cleanup-options-rail app-scrollbar app-scroll-region--balanced" :disabled="isRunning">
+            <fieldset
+                class="scan-cleanup-options-rail app-scrollbar app-scroll-region--balanced"
+                :disabled="isRunning"
+            >
                 <ScanCleanupSettingsPanel
                     :alignment-items="alignmentItems"
                     :apply-scope-items="applyScopeItems"
@@ -154,7 +157,7 @@
                     @retry="retryPreview"
                     @invalidate-detail="clearPreviewDetail"
                     @request-detail="requestPreviewDetail"
-                        @update:view-mode="previewViewMode = $event"
+                    @update:view-mode="previewViewMode = $event"
                     @update:zone-editing="zoneEditing = $event"
                     @update:manual-split="updateCurrentManualSplit"
                     @update:manual-content-box="updateCurrentManualContentBox"
@@ -165,13 +168,12 @@
                 />
             </div>
         </div>
-
     </section>
 </template>
 
 <script setup lang="ts">
 import {whenever} from '@vueuse/core';
-import { useFailureToast } from '@app/composables/useFailureToast';
+import {useFailureToast} from '@app/composables/useFailureToast';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import type {TDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
@@ -213,7 +215,7 @@ import {
     updateScanCleanupPageOverrideRotation,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupSelectionOverrides';
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 const {
     sourcePath,
     currentPage = 1,
@@ -252,7 +254,7 @@ onMounted(() => emit('ready'));
 // not: toolbar ownership is the shell's existing signal that this workspace is
 // the visible tab.
 const workspaceActive = computed(() => sourcePath !== null && toolbarActive);
-const previewPane = ref<{scheduleDetailRequest: () => void;} | null>(null);
+const previewPane = ref<{scheduleDetailRequest: () => void} | null>(null);
 const workspaceSession = useScanCleanupWorkspaceSession({
     // Losing the source ends the session: detection and preview cancel instead
     // of queueing IPC against a working copy the main process has already
@@ -269,7 +271,7 @@ const workspaceSession = useScanCleanupWorkspaceSession({
     totalPages: () => totalPages,
     initialPreviewPage: () => sessionState?.previewPage,
     initialPreviewViewMode: () => sessionState?.previewViewMode,
-    saveViewState: state => emit('update:session-state', state),
+    saveViewState: (state) => emit('update:session-state', state),
 });
 const {
     alignmentItems,
@@ -286,25 +288,20 @@ const {
     values: settings,
     editDocumentSettings,
 } = workspaceSession.settings;
-const {
-    presentFailureToast,
-    presentNoticeToast,
-} = useFailureToast();
+const {presentFailureToast, presentNoticeToast} = useFailureToast();
 let toldSettingsLoadFailure: typeof documentSettingsLoadFailure.value = null;
 // Settings that did not load are told once, with Retry, when this workspace
 // is the one on screen; the rail keeps its defaults meanwhile.
-watch([
-    documentSettingsLoadFailure,
-    () => workspaceActive.value,
-], ([
-    failure,
-    active,
-]) => {
-    if (failure && active && failure !== toldSettingsLoadFailure) {
-        toldSettingsLoadFailure = failure;
-        presentFailureToast(failure);
-    }
-}, {immediate: true});
+watch(
+    [documentSettingsLoadFailure, () => workspaceActive.value],
+    ([failure, active]) => {
+        if (failure && active && failure !== toldSettingsLoadFailure) {
+            toldSettingsLoadFailure = failure;
+            presentFailureToast(failure);
+        }
+    },
+    {immediate: true},
+);
 const {
     applyLeaderOverrides,
     currentPageOverride,
@@ -385,52 +382,46 @@ const {
 // A failed analysis is told once, when this workspace is the one on screen: an
 // expected refusal as a warning, a defect with its Error ID. The toolbar keeps
 // the reason on its status line meanwhile.
-const EXPECTED_DETECTION_REFUSALS = new Set([
-    'insufficient-scratch',
-    'encrypted',
-    'needs-password',
-    'too-large',
-    'source-missing',
-]);
+const EXPECTED_DETECTION_REFUSALS = new Set(['insufficient-scratch', 'encrypted', 'needs-password', 'too-large', 'source-missing']);
 let toldDetectionError = '';
-watch([
-    detectionError,
-    () => workspaceActive.value,
-], ([
-    message,
-    active,
-]) => {
-    if (message === '') {
-        toldDetectionError = '';
-        return;
-    }
-    if (message === toldDetectionError) {
-        return;
-    }
-    // A cleanup queued behind this analysis reports the failure as its own,
-    // whether or not this workspace is on screen when it fails.
-    if (isRunning.value) {
+watch(
+    [detectionError, () => workspaceActive.value],
+    ([message, active]) => {
+        if (message === '') {
+            toldDetectionError = '';
+            return;
+        }
+        if (message === toldDetectionError) {
+            return;
+        }
+        // A cleanup queued behind this analysis reports the failure as its own,
+        // whether or not this workspace is on screen when it fails.
+        if (isRunning.value) {
+            toldDetectionError = message;
+            return;
+        }
+        if (!active) {
+            return;
+        }
         toldDetectionError = message;
-        return;
-    }
-    if (!active) {
-        return;
-    }
-    toldDetectionError = message;
-    if (EXPECTED_DETECTION_REFUSALS.has(detectionErrorCode.value ?? '')) {
-        presentNoticeToast({
-            tone: 'warning',
+        if (EXPECTED_DETECTION_REFUSALS.has(detectionErrorCode.value ?? '')) {
+            presentNoticeToast({
+                tone: 'warning',
+                title: t('scanCleanup.detectAll.failed'),
+                description: message,
+            });
+            return;
+        }
+        presentFailureToast({
+            failure: BrowserLogger.error('scan-cleanup', 'Scan cleanup page analysis failed', message, {
+                code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
+            }),
             title: t('scanCleanup.detectAll.failed'),
             description: message,
         });
-        return;
-    }
-    presentFailureToast({
-        failure: BrowserLogger.error('scan-cleanup', 'Scan cleanup page analysis failed', message, {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'}),
-        title: t('scanCleanup.detectAll.failed'),
-        description: message,
-    });
-}, {immediate: true});
+    },
+    {immediate: true},
+);
 // A failed detail tile leaves the cleaned base on screen and usable, so it is
 // told once as a toast, not inside the preview. A newer demand, a rendered
 // tile or a closed source clears the failure and with it its toast, so fast
@@ -438,7 +429,9 @@ watch([
 const toast = useToast();
 let toldDetailFailureId: string | null = null;
 function dismissDetailFailure() {
-    if (toldDetailFailureId !== null) toast.remove(toldDetailFailureId);
+    if (toldDetailFailureId !== null) {
+        toast.remove(toldDetailFailureId);
+    }
     toldDetailFailureId = null;
 }
 watch(previewDetailError, (failure) => {
@@ -449,12 +442,14 @@ watch(previewDetailError, (failure) => {
     const told = {
         title: t('scanCleanup.preview.detailUnavailable'),
         description: failure.message,
-        actions: [{
-            label: t('scanCleanup.preview.retry'),
-            color: 'neutral' as const,
-            variant: 'outline' as const,
-            onClick: () => previewPane.value?.scheduleDetailRequest(),
-        }],
+        actions: [
+            {
+                label: t('scanCleanup.preview.retry'),
+                color: 'neutral' as const,
+                variant: 'outline' as const,
+                onClick: () => previewPane.value?.scheduleDetailRequest(),
+            },
+        ],
     };
     if (EXPECTED_DETECTION_REFUSALS.has(failure.code)) {
         toldDetailFailureId = `scan-cleanup-detail-failure:${sourcePath}`;
@@ -465,7 +460,9 @@ watch(previewDetailError, (failure) => {
         });
         return;
     }
-    const receipt = BrowserLogger.error('scan-cleanup', 'Scan cleanup detail preview failed', failure.message, {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'});
+    const receipt = BrowserLogger.error('scan-cleanup', 'Scan cleanup detail preview failed', failure.message, {
+        code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
+    });
     toldDetailFailureId = receipt.eventId;
     presentFailureToast({
         ...told,
@@ -474,23 +471,18 @@ watch(previewDetailError, (failure) => {
 });
 onBeforeUnmount(dismissDetailFailure);
 const marginBoundaryVisible = ref(false);
-const {
-    activity,
-    activityTimeline,
-} = workspaceSession;
-const activePages = computed<ReadonlySet<number>>(() => (
-    isRunning.value && !waitingForDetection.value
-        ? runActivePages.value
-        : detectionActivePages.value
-));
+const {activity, activityTimeline} = workspaceSession;
+const activePages = computed<ReadonlySet<number>>(() =>
+    isRunning.value && !waitingForDetection.value ? runActivePages.value : detectionActivePages.value,
+);
 // Settings persist from one document to the next, so the rail names the ones
 // that differ from the defaults where they can be reset in one click.
-const changedSettings = computed(() => resolveScanCleanupNonDefaultSettings(settings)
-    .map(setting => formatScanCleanupSettingsBadge(t, setting.key, setting.value)));
+const changedSettings = computed(() =>
+    resolveScanCleanupNonDefaultSettings(settings).map((setting) => formatScanCleanupSettingsBadge(t, setting.key, setting.value)),
+);
 const zoneEditing = ref(false);
 
-const allScopeDefaultOverride = computed(() => settings.pageOverrideDefaults
-    ?? createScanCleanupPageOverride());
+const allScopeDefaultOverride = computed(() => settings.pageOverrideDefaults ?? createScanCleanupPageOverride());
 
 function resetSettingsToDefaults() {
     if (isRunning.value) {
@@ -500,11 +492,13 @@ function resetSettingsToDefaults() {
     editDocumentSettings([], () => resetScanCleanupOptionsToDefaults(settings));
 }
 
-const scopePageNumbers = computed<readonly number[]>(() => settingsScope.value === 'all'
-    ? []
-    : settingsScope.value === 'page'
-        ? [selectionLeader.value]
-        : [...selectedPages.value].sort((left, right) => left - right));
+const scopePageNumbers = computed<readonly number[]>(() =>
+    settingsScope.value === 'all'
+        ? []
+        : settingsScope.value === 'page'
+          ? [selectionLeader.value]
+          : [...selectedPages.value].sort((left, right) => left - right),
+);
 function getPageOverride(page: number) {
     return getScanCleanupPageOverride(
         settings.pageOverrides,
@@ -516,82 +510,91 @@ function getPageOverride(page: number) {
 function existingOverridePages() {
     return Object.keys(settings.pageOverrides)
         .map(Number)
-        .filter(page => Number.isSafeInteger(page) && page >= 1 && page <= previewTotalPages.value);
+        .filter((page) => Number.isSafeInteger(page) && page >= 1 && page <= previewTotalPages.value);
 }
 
-const scopePageOverrides = computed(() => scopePageNumbers.value.map(page => getPageOverride(page)));
+const scopePageOverrides = computed(() => scopePageNumbers.value.map((page) => getPageOverride(page)));
 
-function resolveAllPageOverrideValue<T>(
-    defaultValue: T,
-    read: (override: ReturnType<typeof getScanCleanupPageOverride>) => T,
-) {
-    const values = [settings.pageOverrideDefaults === undefined
-        ? defaultValue
-        : read(allScopeDefaultOverride.value)];
+function resolveAllPageOverrideValue<T>(defaultValue: T, read: (override: ReturnType<typeof getScanCleanupPageOverride>) => T) {
+    const values = [settings.pageOverrideDefaults === undefined ? defaultValue : read(allScopeDefaultOverride.value)];
     for (const page of existingOverridePages()) {
         values.push(read(getPageOverride(page)));
     }
     return resolveScanCleanupMixedValue(values);
 }
 const scopeCustomizedCounts = computed(() => {
-    const customizedPages = new Set(Object.keys(settings.pageOverrides)
-        .map(Number)
-        .filter(page => Number.isInteger(page) && page >= 1 && page <= previewTotalPages.value)
-        .filter(page => !isScanCleanupPageOverrideInherited(settings.pageOverrides, getPageOverride(page))));
+    const customizedPages = new Set(
+        Object.keys(settings.pageOverrides)
+            .map(Number)
+            .filter((page) => Number.isInteger(page) && page >= 1 && page <= previewTotalPages.value)
+            .filter((page) => !isScanCleanupPageOverrideInherited(settings.pageOverrides, getPageOverride(page))),
+    );
     return {
-        all: isDefaultScanCleanupPageOverride(allScopeDefaultOverride.value)
-            ? customizedPages.size
-            : previewTotalPages.value,
+        all: isDefaultScanCleanupPageOverride(allScopeDefaultOverride.value) ? customizedPages.size : previewTotalPages.value,
         page: customizedPages.has(selectionLeader.value) ? 1 : 0,
-        selected: [...selectedPages.value].filter(page => customizedPages.has(page)).length,
+        selected: [...selectedPages.value].filter((page) => customizedPages.has(page)).length,
     };
 });
-const scopeLayout = computed(() => settingsScope.value === 'all'
-    ? resolveScanCleanupMixedValue([settings.layoutMode])
-    : resolveScanCleanupMixedValue(scopePageOverrides.value.map(override => override.layoutOverride)));
-const scopeRotation = computed(() => settingsScope.value === 'all'
-    ? resolveScanCleanupMixedValue([allScopeDefaultOverride.value.rotationDegrees])
-    : resolveScanCleanupMixedValue(scopePageOverrides.value.map(override => override.rotationDegrees)));
-const scopeOutputModeOverride = computed(() => settingsScope.value === 'all'
-    ? resolveAllPageOverrideValue(undefined, override => override.outputModeOverride)
-    : resolveScanCleanupMixedValue(scopePageOverrides.value.map(override => override.outputModeOverride)));
-const scopeExcluded = computed(() => settingsScope.value === 'all'
-    ? resolveScanCleanupMixedValue([allScopeDefaultOverride.value.excluded])
-    : resolveScanCleanupMixedValue(scopePageOverrides.value.map(override => override.excluded)));
-const scopeManualSplit = computed(() => settingsScope.value === 'all'
-    ? resolveAllPageOverrideValue(null, override => override.manualSplit)
-    : resolveScanCleanupMixedValue(scopePageOverrides.value.map(override => override.manualSplit)));
-const scopeManualSkew = computed(() => settingsScope.value === 'all'
-    ? resolveAllPageOverrideValue(undefined, override => override.manualSkewDegrees)
-    : resolveScanCleanupMixedValue(scopePageOverrides.value.map(override => override.manualSkewDegrees)));
-const scopeDetectedSkewDegrees = computed(() => settingsScope.value === 'page'
-    ? previewMetadataByPage.get(selectionLeader.value)?.detectedSkewDegrees
-    : undefined);
-const scopeContentBoxes = computed(() => settingsScope.value === 'all'
-    ? resolveAllPageOverrideValue({}, override => override.manualContentBoxes ?? {})
-    : resolveScanCleanupMixedValue(scopePageOverrides.value.map(override => override.manualContentBoxes ?? {})));
-const scopeMargins = computed(() => settingsScope.value === 'all'
-    ? resolveScanCleanupMixedValue([resolveScanCleanupMarginsMm(
-        settings.marginsMm,
-        allScopeDefaultOverride.value,
-    )])
-    : resolveScanCleanupMixedValue(scopePageOverrides.value
-        .map(override => resolveScanCleanupMarginsMm(settings.marginsMm, override))));
-const scopePlacementAlignment = computed(() => settingsScope.value === 'all'
-    ? resolveScanCleanupMixedValue(([
-        'full',
-        'left',
-        'right',
-    ] as const).map(half => resolveScanCleanupOutputPlacement(
-        settings.pageAlignment,
-        allScopeDefaultOverride.value,
-        half,
-    )))
-    : resolveScanCleanupMixedValue(scopePageOverrides.value.flatMap(override => ([
-        'full',
-        'left',
-        'right',
-    ] as const).map(half => resolveScanCleanupOutputPlacement(settings.pageAlignment, override, half)))));
+const scopeLayout = computed(() =>
+    settingsScope.value === 'all'
+        ? resolveScanCleanupMixedValue([settings.layoutMode])
+        : resolveScanCleanupMixedValue(scopePageOverrides.value.map((override) => override.layoutOverride)),
+);
+const scopeRotation = computed(() =>
+    settingsScope.value === 'all'
+        ? resolveScanCleanupMixedValue([allScopeDefaultOverride.value.rotationDegrees])
+        : resolveScanCleanupMixedValue(scopePageOverrides.value.map((override) => override.rotationDegrees)),
+);
+const scopeOutputModeOverride = computed(() =>
+    settingsScope.value === 'all'
+        ? resolveAllPageOverrideValue(undefined, (override) => override.outputModeOverride)
+        : resolveScanCleanupMixedValue(scopePageOverrides.value.map((override) => override.outputModeOverride)),
+);
+const scopeExcluded = computed(() =>
+    settingsScope.value === 'all'
+        ? resolveScanCleanupMixedValue([allScopeDefaultOverride.value.excluded])
+        : resolveScanCleanupMixedValue(scopePageOverrides.value.map((override) => override.excluded)),
+);
+const scopeManualSplit = computed(() =>
+    settingsScope.value === 'all'
+        ? resolveAllPageOverrideValue(null, (override) => override.manualSplit)
+        : resolveScanCleanupMixedValue(scopePageOverrides.value.map((override) => override.manualSplit)),
+);
+const scopeManualSkew = computed(() =>
+    settingsScope.value === 'all'
+        ? resolveAllPageOverrideValue(undefined, (override) => override.manualSkewDegrees)
+        : resolveScanCleanupMixedValue(scopePageOverrides.value.map((override) => override.manualSkewDegrees)),
+);
+const scopeDetectedSkewDegrees = computed(() =>
+    settingsScope.value === 'page' ? previewMetadataByPage.get(selectionLeader.value)?.detectedSkewDegrees : undefined,
+);
+const scopeContentBoxes = computed(() =>
+    settingsScope.value === 'all'
+        ? resolveAllPageOverrideValue({}, (override) => override.manualContentBoxes ?? {})
+        : resolveScanCleanupMixedValue(scopePageOverrides.value.map((override) => override.manualContentBoxes ?? {})),
+);
+const scopeMargins = computed(() =>
+    settingsScope.value === 'all'
+        ? resolveScanCleanupMixedValue([resolveScanCleanupMarginsMm(settings.marginsMm, allScopeDefaultOverride.value)])
+        : resolveScanCleanupMixedValue(
+              scopePageOverrides.value.map((override) => resolveScanCleanupMarginsMm(settings.marginsMm, override)),
+          ),
+);
+const scopePlacementAlignment = computed(() =>
+    settingsScope.value === 'all'
+        ? resolveScanCleanupMixedValue(
+              (['full', 'left', 'right'] as const).map((half) =>
+                  resolveScanCleanupOutputPlacement(settings.pageAlignment, allScopeDefaultOverride.value, half),
+              ),
+          )
+        : resolveScanCleanupMixedValue(
+              scopePageOverrides.value.flatMap((override) =>
+                  (['full', 'left', 'right'] as const).map((half) =>
+                      resolveScanCleanupOutputPlacement(settings.pageAlignment, override, half),
+                  ),
+              ),
+          ),
+);
 const scopeMarginsLinked = computed(() => documentMarginsLinked.value);
 // Only the Page and Selected scopes mark a control as overridden: All edits the
 // defaults that every page without its own setting follows.
@@ -628,8 +631,7 @@ const scopeOverrideCounts = computed(() => {
         if (override.marginsMm && !areScanCleanupMarginsMmEqual(override.marginsMm, settings.marginsMm)) {
             counts.margins += 1;
         }
-        if (Object.values(override.placementOverrides ?? {})
-            .some(alignment => alignment !== settings.pageAlignment)) {
+        if (Object.values(override.placementOverrides ?? {}).some((alignment) => alignment !== settings.pageAlignment)) {
             counts.placement += 1;
         }
     }
@@ -637,8 +639,7 @@ const scopeOverrideCounts = computed(() => {
 });
 const hasScopeOverrides = computed(() => {
     if (settingsScope.value === 'all') {
-        return Object.keys(settings.pageOverrides).length > 0
-            || !isDefaultScanCleanupPageOverride(allScopeDefaultOverride.value);
+        return Object.keys(settings.pageOverrides).length > 0 || !isDefaultScanCleanupPageOverride(allScopeDefaultOverride.value);
     }
     for (const page of scopePageNumbers.value) {
         if (settings.pageOverrides[String(page)] !== undefined) {
@@ -647,57 +648,66 @@ const hasScopeOverrides = computed(() => {
     }
     return false;
 });
-const scopeLayoutItems = computed(() => settingsScope.value === 'all'
-    ? layoutItems.value
-    : [
-        ...(scopeLayout.value.mixed ? [{
-            value: 'mixed' as const,
-            label: t('scanCleanup.settings.mixed'),
-            disabled: true,
-        }] : []),
-        {
-            value: 'auto' as const,
-            label: t('scanCleanup.pages.override.auto'),
-        },
-        {
-            value: 'single' as const,
-            label: t('scanCleanup.pages.override.single'),
-        },
-        {
-            value: 'spread' as const,
-            label: t('scanCleanup.pages.override.spread'),
-        },
-        {
-            value: 'keep-left' as const,
-            label: t('scanCleanup.pages.override.keepLeft'),
-        },
-        {
-            value: 'keep-right' as const,
-            label: t('scanCleanup.pages.override.keepRight'),
-        },
-    ]);
+const scopeLayoutItems = computed(() =>
+    settingsScope.value === 'all'
+        ? layoutItems.value
+        : [
+              ...(scopeLayout.value.mixed
+                  ? [
+                        {
+                            value: 'mixed' as const,
+                            label: t('scanCleanup.settings.mixed'),
+                            disabled: true,
+                        },
+                    ]
+                  : []),
+              {
+                  value: 'auto' as const,
+                  label: t('scanCleanup.pages.override.auto'),
+              },
+              {
+                  value: 'single' as const,
+                  label: t('scanCleanup.pages.override.single'),
+              },
+              {
+                  value: 'spread' as const,
+                  label: t('scanCleanup.pages.override.spread'),
+              },
+              {
+                  value: 'keep-left' as const,
+                  label: t('scanCleanup.pages.override.keepLeft'),
+              },
+              {
+                  value: 'keep-right' as const,
+                  label: t('scanCleanup.pages.override.keepRight'),
+              },
+          ],
+);
 const scopeRotationItems = computed(() => [
-    ...(scopeRotation.value.mixed ? [{
-        value: 'mixed' as const,
-        label: t('scanCleanup.settings.mixed'),
-        disabled: true,
-    }] : []),
-    ...([
-        0,
-        90,
-        180,
-        270,
-    ] as const).map(value => ({
+    ...(scopeRotation.value.mixed
+        ? [
+              {
+                  value: 'mixed' as const,
+                  label: t('scanCleanup.settings.mixed'),
+                  disabled: true,
+              },
+          ]
+        : []),
+    ...([0, 90, 180, 270] as const).map((value) => ({
         value: String(value),
         label: t('scanCleanup.settings.rotationDegrees', {value}),
     })),
 ]);
 const scopeOutputModeOverrideItems = computed(() => [
-    ...(scopeOutputModeOverride.value.mixed ? [{
-        value: 'mixed-values' as const,
-        label: t('scanCleanup.settings.mixed'),
-        disabled: true,
-    }] : []),
+    ...(scopeOutputModeOverride.value.mixed
+        ? [
+              {
+                  value: 'mixed-values' as const,
+                  label: t('scanCleanup.settings.mixed'),
+                  disabled: true,
+              },
+          ]
+        : []),
     {
         value: 'auto' as const,
         label: t('scanCleanup.pages.outputModeFollowDocument'),
@@ -724,33 +734,21 @@ const previewOutputMode = computed<TScanCleanupOutputMode | undefined>(() =>
         options: settings,
         pageOverride: currentPageOverride.value,
         detectedOutputMode: recommendedOutputModeByPage.value.get(previewPage.value),
-        renderedOutputMode: previewResultCurrent.value && previewResult.value?.pageNumber === previewPage.value
-            ? previewResult.value.outputs[0]?.metadata.outputMode
-                ?? previewResult.value.pageMetadata.recommendedOutputMode
-            : undefined,
-    }));
+        renderedOutputMode:
+            previewResultCurrent.value && previewResult.value?.pageNumber === previewPage.value
+                ? (previewResult.value.outputs[0]?.metadata.outputMode ?? previewResult.value.pageMetadata.recommendedOutputMode)
+                : undefined,
+    }),
+);
 const applyScopeItems = computed(() => {
-    const actions = ([
+    const actions = (
         [
-            'all',
-            'allPages',
-        ],
-        [
-            'from-here',
-            'fromHere',
-        ],
-        [
-            'every-other',
-            'everyOther',
-        ],
-        ...(selectedPages.value.size >= 2 ? [[
-            'selected',
-            'selectedPages',
-        ] as const] : []),
-    ] as const).map(([
-        scope,
-        label,
-    ]) => ({
+            ['all', 'allPages'],
+            ['from-here', 'fromHere'],
+            ['every-other', 'everyOther'],
+            ...(selectedPages.value.size >= 2 ? [['selected', 'selectedPages'] as const] : []),
+        ] as const
+    ).map(([scope, label]) => ({
         label: t(`scanCleanup.settings.applyScopes.${label}`),
         onSelect: () => applyLeaderOverrides(scope),
     }));
@@ -794,10 +792,7 @@ function done() {
     emit('done');
 }
 
-function updateDocumentSetting(
-    key: keyof IScanCleanupOptions,
-    value: IScanCleanupOptions[keyof IScanCleanupOptions],
-) {
+function updateDocumentSetting(key: keyof IScanCleanupOptions, value: IScanCleanupOptions[keyof IScanCleanupOptions]) {
     editDocumentSettings([], () => Object.assign(settings, {[key]: value}));
 }
 
@@ -815,26 +810,17 @@ function handleScopeLayout(value: string | number) {
         updateScopeLayout(layout as IScanCleanupOptions['layoutMode']);
         return;
     }
-    if (scopeLayoutItems.value.some(item => item.value === layout && !('disabled' in item && item.disabled === true))) {
+    if (scopeLayoutItems.value.some((item) => item.value === layout && !('disabled' in item && item.disabled === true))) {
         updateScopeLayout(layout as TScanCleanupPageLayoutOverride);
     }
 }
 
 function handleScopeOutputMode(value: string | number) {
     const outputMode = String(value);
-    if ([
-        'auto',
-        'bw',
-        'mixed',
-        'grayscale',
-        'color',
-    ].includes(outputMode)) {
-        updateScopeOverrides(current => {
+    if (['auto', 'bw', 'mixed', 'grayscale', 'color'].includes(outputMode)) {
+        updateScopeOverrides((current) => {
             if (outputMode === 'auto') {
-                const {
-                    outputModeOverride: _outputModeOverride,
-                    ...withoutOutputMode
-                } = current;
+                const {outputModeOverride: _outputModeOverride, ...withoutOutputMode} = current;
                 return withoutOutputMode;
             }
             return {
@@ -847,20 +833,15 @@ function handleScopeOutputMode(value: string | number) {
 
 function handleScopeRotation(value: string | number) {
     const rotation = Number(value) as TScanCleanupPageRotation;
-    if ([
-        0,
-        90,
-        180,
-        270,
-    ].includes(rotation)) {
-        updateScopeOverrides(current => updateScanCleanupPageOverrideRotation(current, rotation));
+    if ([0, 90, 180, 270].includes(rotation)) {
+        updateScopeOverrides((current) => updateScanCleanupPageOverrideRotation(current, rotation));
     }
 }
 
 function handleScopeInclusion(value: string | number) {
     if (value === 'included' || value === 'excluded') {
         const excluded = value === 'excluded';
-        updateScopeOverrides(current => ({
+        updateScopeOverrides((current) => ({
             ...current,
             excluded,
         }));
@@ -868,7 +849,7 @@ function handleScopeInclusion(value: string | number) {
 }
 
 function resetScopeManualSplit() {
-    updateScopeOverrides(current => ({
+    updateScopeOverrides((current) => ({
         ...current,
         manualSplit: null,
     }));
@@ -879,14 +860,14 @@ function resetScopeManualSkew() {
 }
 
 function updateScopeManualSkew(value: number | undefined) {
-    updateScopeOverrides(current => ({
+    updateScopeOverrides((current) => ({
         ...current,
         ...(value === undefined ? {manualSkewDegrees: undefined} : {manualSkewDegrees: value}),
     }));
 }
 
 function resetScopeContentBoxes() {
-    updateScopeOverrides(current => ({
+    updateScopeOverrides((current) => ({
         ...current,
         manualContentBoxes: {},
     }));
@@ -982,5 +963,4 @@ whenever(isRunning, () => {
     min-height: 0;
     overflow: hidden;
 }
-
 </style>

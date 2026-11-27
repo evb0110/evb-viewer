@@ -6,7 +6,10 @@
         <div class="scan-cleanup-toolbar-zone scan-cleanup-toolbar-zone-left">
             <!-- On a phone the toolbar buttons show only their icons; the
                  name stays for assistive tech and the tooltip says it. -->
-            <AppTooltip :text="t('scanCleanup.done')" usefulness="no-text">
+            <AppTooltip
+                :text="t('scanCleanup.done')"
+                usefulness="no-text"
+            >
                 <UButton
                     class="scan-cleanup-toolbar-done"
                     type="button"
@@ -19,7 +22,10 @@
                     @click="emit('done')"
                 />
             </AppTooltip>
-            <AppTooltip :text="t('scanCleanup.description')" usefulness="always">
+            <AppTooltip
+                :text="t('scanCleanup.description')"
+                usefulness="always"
+            >
                 <h2 class="scan-cleanup-toolbar-title">{{ t('scanCleanup.workspaceTitle') }}</h2>
             </AppTooltip>
         </div>
@@ -37,8 +43,15 @@
                 <template v-else>
                     <div class="scan-cleanup-toolbar-status-slot">
                         <template v-if="runError">
-                            <AppTooltip :text="runError" usefulness="overflow">
-                                <span class="scan-cleanup-toolbar-error" role="alert" tabindex="0">
+                            <AppTooltip
+                                :text="runError"
+                                usefulness="overflow"
+                            >
+                                <span
+                                    class="scan-cleanup-toolbar-error"
+                                    role="alert"
+                                    tabindex="0"
+                                >
                                     {{ runError }}
                                 </span>
                             </AppTooltip>
@@ -54,8 +67,16 @@
                                 @click="emit('dismiss-run-error')"
                             />
                         </template>
-                        <AppTooltip v-else-if="detectionError" :text="detectionError" usefulness="overflow">
-                            <span class="scan-cleanup-toolbar-error" role="alert" tabindex="0">
+                        <AppTooltip
+                            v-else-if="detectionError"
+                            :text="detectionError"
+                            usefulness="overflow"
+                        >
+                            <span
+                                class="scan-cleanup-toolbar-error"
+                                role="alert"
+                                tabindex="0"
+                            >
                                 {{ detectionError }}
                             </span>
                         </AppTooltip>
@@ -65,16 +86,29 @@
                             v-else-if="!canRun && runDisabledReason"
                             class="scan-cleanup-toolbar-estimate"
                             data-run-disabled-reason
-                        >{{ runDisabledReason }}</span>
-                        <span v-else-if="outputEstimate" class="scan-cleanup-toolbar-estimate">
+                            >{{ runDisabledReason }}</span
+                        >
+                        <span
+                            v-else-if="outputEstimate"
+                            class="scan-cleanup-toolbar-estimate"
+                        >
                             {{ outputEstimate }}
                         </span>
-                        <span v-else class="scan-cleanup-toolbar-status-placeholder" aria-hidden="true">&nbsp;</span>
+                        <span
+                            v-else
+                            class="scan-cleanup-toolbar-status-placeholder"
+                            aria-hidden="true"
+                            >&nbsp;</span
+                        >
                     </div>
                 </template>
             </div>
             <div class="scan-cleanup-toolbar-trailing-slot">
-                <AppTooltip v-if="meterVisible && isDetecting && !isRunning" :text="detectionCancelLabel" usefulness="always">
+                <AppTooltip
+                    v-if="meterVisible && isDetecting && !isRunning"
+                    :text="detectionCancelLabel"
+                    usefulness="always"
+                >
                     <UButton
                         :class="SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_CLASS"
                         type="button"
@@ -93,9 +127,17 @@
 
         <div class="scan-cleanup-toolbar-zone scan-cleanup-toolbar-zone-right">
             <div class="scan-cleanup-toolbar-primary-slot">
-                <AppTooltip v-if="isRunning" :text="cancelLabel" usefulness="no-text">
+                <AppTooltip
+                    v-if="isRunning"
+                    :text="cancelLabel"
+                    usefulness="no-text"
+                >
                     <UButton
-                        :class="[SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_CLASS, 'scan-cleanup-toolbar-cancel-run', {'is-canceling': cancelRequested && !finishing}]"
+                        :class="[
+                            SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_CLASS,
+                            'scan-cleanup-toolbar-cancel-run',
+                            {'is-canceling': cancelRequested && !finishing},
+                        ]"
                         type="button"
                         color="neutral"
                         variant="outline"
@@ -181,12 +223,12 @@ const {t} = useTypedI18n();
 const meterVisible = computed(() => activity !== null && (activity.run || runError === ''));
 // Cancelling detection is not destructive: pages already detected keep their
 // results, so the control names that outcome instead of a bare “Cancel”.
-const cancelLabel = computed(() => t(finishing
-    ? 'scanCleanup.finishing'
-    : cancelRequested ? 'scanCleanup.canceling' : 'scanCleanup.cancel'));
-const detectionCancelLabel = computed(() => t(detectionCancelRequested
-    ? 'scanCleanup.detectAll.canceling'
-    : 'scanCleanup.detectAll.cancelDetection'));
+const cancelLabel = computed(() =>
+    t(finishing ? 'scanCleanup.finishing' : cancelRequested ? 'scanCleanup.canceling' : 'scanCleanup.cancel'),
+);
+const detectionCancelLabel = computed(() =>
+    t(detectionCancelRequested ? 'scanCleanup.detectAll.canceling' : 'scanCleanup.detectAll.cancelDetection'),
+);
 </script>
 
 <style lang="scss" scoped>

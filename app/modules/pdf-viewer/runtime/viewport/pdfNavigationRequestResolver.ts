@@ -1,6 +1,6 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import { clamp } from 'es-toolkit/math';
-import type { IAnnotationMarkerRect } from '@app/types/annotations';
+import {clamp} from 'es-toolkit/math';
+import type {IAnnotationMarkerRect} from '@app/types/annotations';
 import type {
     IPdfSemanticAnchor,
     IPdfViewportGeometry,
@@ -11,7 +11,7 @@ import {
     createTextLayerRangeForSearchMatch,
     createTextLayerRangeForSearchOccurrence,
 } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
-import { resolveBookmarkDestinationTarget } from '@app/utils/pdfOutlineHelpers';
+import {resolveBookmarkDestinationTarget} from '@app/utils/pdfOutlineHelpers';
 
 export interface IResolvedPdfNavigationTarget {
     page: number;
@@ -24,9 +24,7 @@ function rangeMatchesSearchText(range: Range | null, text: string, matchCase: bo
     }
     const rangeText = range.toString().normalize('NFC');
     const targetText = text.normalize('NFC');
-    return matchCase
-        ? rangeText === targetText
-        : rangeText.toLocaleLowerCase() === targetText.toLocaleLowerCase();
+    return matchCase ? rangeText === targetText : rangeText.toLocaleLowerCase() === targetText.toLocaleLowerCase();
 }
 
 function normalizedPointRect(top: number): IAnnotationMarkerRect {
@@ -64,17 +62,19 @@ export async function resolvePdfNavigationTarget(
             rect: null,
         };
     }
-    if (!pdfDocument) throw new DOMException('Named destination requires a PDF document', 'AbortError');
+    if (!pdfDocument) {
+        throw new DOMException('Named destination requires a PDF document', 'AbortError');
+    }
     const destination = await resolveBookmarkDestinationTarget(pdfDocument, target.destination, signal);
     if (signal?.aborted) {
         throw new DOMException('PDF navigation was superseded', 'AbortError');
     }
-    if (!destination) throw new DOMException('Named destination could not be resolved', 'AbortError');
+    if (!destination) {
+        throw new DOMException('Named destination could not be resolved', 'AbortError');
+    }
     return {
         page: destination.page,
-        rect: typeof destination.pageYRatio === 'number'
-            ? normalizedPointRect(destination.pageYRatio)
-            : null,
+        rect: typeof destination.pageYRatio === 'number' ? normalizedPointRect(destination.pageYRatio) : null,
     };
 }
 
@@ -89,8 +89,7 @@ export function resolvePdfNavigationAnchor(
     const rect = target.rect;
     if (request.alignment === 'rect-center' && rect) {
         const pageHeight = geometry?.pageRects[target.page - 1]?.height ?? 0;
-        const revealStart = request.source === 'annotation' && geometry
-            && rect.height * pageHeight > geometry.viewportHeight;
+        const revealStart = request.source === 'annotation' && geometry && rect.height * pageHeight > geometry.viewportHeight;
         return {
             page: target.page,
             pageXFraction: clamp(rect.left + rect.width / 2, 0, 1),
@@ -135,34 +134,37 @@ export function resolveTextAnchorRect(
     if (target.searchRange) {
         const exactRange = createTextLayerRangeForSearchMatch(textLayer, target.searchRange);
         const matchCase = target.searchOptions?.matchCase ?? false;
-        const pageLocalRange = !target.searchOptions?.useRegex
-            && Number.isSafeInteger(target.pageMatchIndex)
-            && Number.isSafeInteger(target.expectedPageMatchCount)
-            ? createTextLayerRangeForSearchOccurrence(textLayer, target)
-            : null;
-        const range = pageLocalRange && rangeMatchesSearchText(pageLocalRange, target.text, matchCase)
-            ? pageLocalRange
-            : rangeMatchesSearchText(exactRange, target.text, matchCase)
-                ? exactRange
-                : target.searchOptions?.useRegex ? null : createTextLayerRangeForSearchOccurrence(textLayer, {
-                    text: target.text,
-                    pageMatchIndex: target.pageMatchIndex,
-                    searchQuery: target.searchQuery,
-                    searchOptions: target.searchOptions,
-                });
-        const rects = range
-            ? Array.from(range.getClientRects()).filter(rect => rect.width > 0 || rect.height > 0)
-            : [];
-        const rect = rects.length > 0
-            ? {
-                left: Math.min(...rects.map(item => item.left)),
-                top: Math.min(...rects.map(item => item.top)),
-                right: Math.max(...rects.map(item => item.right)),
-                bottom: Math.max(...rects.map(item => item.bottom)),
-                width: Math.max(...rects.map(item => item.right)) - Math.min(...rects.map(item => item.left)),
-                height: Math.max(...rects.map(item => item.bottom)) - Math.min(...rects.map(item => item.top)),
-            }
-            : range?.getBoundingClientRect();
+        const pageLocalRange =
+            !target.searchOptions?.useRegex &&
+            Number.isSafeInteger(target.pageMatchIndex) &&
+            Number.isSafeInteger(target.expectedPageMatchCount)
+                ? createTextLayerRangeForSearchOccurrence(textLayer, target)
+                : null;
+        const range =
+            pageLocalRange && rangeMatchesSearchText(pageLocalRange, target.text, matchCase)
+                ? pageLocalRange
+                : rangeMatchesSearchText(exactRange, target.text, matchCase)
+                  ? exactRange
+                  : target.searchOptions?.useRegex
+                    ? null
+                    : createTextLayerRangeForSearchOccurrence(textLayer, {
+                          text: target.text,
+                          pageMatchIndex: target.pageMatchIndex,
+                          searchQuery: target.searchQuery,
+                          searchOptions: target.searchOptions,
+                      });
+        const rects = range ? Array.from(range.getClientRects()).filter((rect) => rect.width > 0 || rect.height > 0) : [];
+        const rect =
+            rects.length > 0
+                ? {
+                      left: Math.min(...rects.map((item) => item.left)),
+                      top: Math.min(...rects.map((item) => item.top)),
+                      right: Math.max(...rects.map((item) => item.right)),
+                      bottom: Math.max(...rects.map((item) => item.bottom)),
+                      width: Math.max(...rects.map((item) => item.right)) - Math.min(...rects.map((item) => item.left)),
+                      height: Math.max(...rects.map((item) => item.bottom)) - Math.min(...rects.map((item) => item.top)),
+                  }
+                : range?.getBoundingClientRect();
         if (rect && (rect.width > 0 || rect.height > 0)) {
             const pageRect = page.getBoundingClientRect();
             if (pageRect.width > 0 && pageRect.height > 0) {
@@ -220,7 +222,5 @@ export function isPdfNavigationReady(
         const textLayer = pageElement?.querySelector<HTMLElement>('.text-layer, .textLayer');
         return textLayer?.dataset.pdfTextLayerReady === 'true';
     }
-    return Boolean(pageElement?.querySelector(
-        '.pdf-annotation-editor-layer, .annotation-editor-layer, .annotationEditorLayer',
-    ));
+    return Boolean(pageElement?.querySelector('.pdf-annotation-editor-layer, .annotation-editor-layer, .annotationEditorLayer'));
 }

@@ -1,25 +1,16 @@
-import {
-    computed,
-    ref,
-    shallowRef,
-} from 'vue';
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {computed, ref, shallowRef} from 'vue';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 import type {IPlacedImageEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {createPdfAnnotationStampImageResolver} from '@app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationStampImageResolver';
-import type {
-    IPdfDocument,
-    IPdfPage,
-} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type {IPdfDocument, IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import pdfjsRuntime from '@app/services/pdfjs/runtimeLib';
 
-const {mockResolveStampImageDataUrl} = vi.hoisted(() => ({mockResolveStampImageDataUrl: vi.fn<() => string | null>(() => 'data:image/png;base64,stamp')}));
-vi.mock('@app/modules/pdf-viewer/runtime/annotations/resolvePdfJsStampImageDataUrl', () => ({resolvePdfJsStampImageDataUrl: mockResolveStampImageDataUrl}));
+const {mockResolveStampImageDataUrl} = vi.hoisted(() => ({
+    mockResolveStampImageDataUrl: vi.fn<() => string | null>(() => 'data:image/png;base64,stamp'),
+}));
+vi.mock('@app/modules/pdf-viewer/runtime/annotations/resolvePdfJsStampImageDataUrl', () => ({
+    resolvePdfJsStampImageDataUrl: mockResolveStampImageDataUrl,
+}));
 
 const entity = {
     kind: 'placed-image',
@@ -101,7 +92,7 @@ describe('createPdfAnnotationStampImageResolver document ownership', () => {
         const decoded = Promise.withResolvers<unknown>();
         const resolved = new Map<string, unknown>();
         const get = vi.fn((_id: string, callback: (value: unknown) => void) => {
-            void decoded.promise.then(value => {
+            void decoded.promise.then((value) => {
                 resolved.set(objectId, value);
                 callback(value);
             });
@@ -113,20 +104,12 @@ describe('createPdfAnnotationStampImageResolver document ownership', () => {
         const page: IPdfPage & {commonObjs: typeof objs} = {
             pageNumber: 1,
             rotate: 0,
-            view: [
-                0,
-                0,
-                100,
-                100,
-            ],
+            view: [0, 0, 100, 100],
             objs: objectId.startsWith('g_') ? new Map() : objs,
             commonObjs: objs,
             getOperatorList: vi.fn(async () => ({
                 fnArray: [pdfjsRuntime.OPS.dependency],
-                argsArray: [[
-                    objectId,
-                    objectId,
-                ]],
+                argsArray: [[objectId, objectId]],
             })),
             getViewport: vi.fn(),
             getTextContent: vi.fn(),
@@ -175,15 +158,10 @@ describe('createPdfAnnotationStampImageResolver document ownership', () => {
             objectId: 'g_img_1',
             decodeFails: false,
         },
-    ])('waits for $objectId after the operator list with decoded-null $decodeFails', async ({
-        objectId,
-        decodeFails,
-    }) => {
+    ])('waits for $objectId after the operator list with decoded-null $decodeFails', async ({objectId, decodeFails}) => {
         const fixture = createDeferredImagePage(objectId);
         const resolveImage = createPdfAnnotationStampImageResolver(fixture);
-        mockResolveStampImageDataUrl.mockImplementation(() => fixture.resolved.get(objectId)
-            ? 'data:image/png;base64,stamp'
-            : null);
+        mockResolveStampImageDataUrl.mockImplementation(() => (fixture.resolved.get(objectId) ? 'data:image/png;base64,stamp' : null));
         const first = resolveImage(entity);
         const duplicate = resolveImage(entity);
         await vi.waitFor(() => expect(fixture.get).toHaveBeenCalledOnce());

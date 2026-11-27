@@ -1,11 +1,11 @@
-import { AsyncLocalStorage } from 'node:async_hooks';
-import { randomUUID } from 'node:crypto';
-import { createAbortError } from '@contracts/isAbortError';
-import { isTimeoutError } from '@contracts/isTimeoutError';
-import { createMainOperationShuttingDownError } from '@contracts/mainOperationErrors';
+import {AsyncLocalStorage} from 'node:async_hooks';
+import {randomUUID} from 'node:crypto';
+import {createAbortError} from '@contracts/isAbortError';
+import {isTimeoutError} from '@contracts/isTimeoutError';
+import {createMainOperationShuttingDownError} from '@contracts/mainOperationErrors';
 import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
-import { createLogger } from '@electron/utils/createLogger';
-import { runDetached } from '@electron/utils/runDetached';
+import {createLogger} from '@electron/utils/createLogger';
+import {runDetached} from '@electron/utils/runDetached';
 import {waitForBoundedOperation} from '@node-runtime/waitForBoundedOperation';
 
 export type TMainOperationKind = 'critical-write' | 'abortable-work' | 'resource-cleanup';
@@ -87,7 +87,9 @@ export interface ICanceledMainOperation {
  * only party that can say whether it still does, and it hands that check to
  * every cancellation round rather than being trusted to have checked once.
  */
-export interface IClosingWorkingCopyOwnership {isRegistrationCurrent: () => boolean;}
+export interface IClosingWorkingCopyOwnership {
+    isRegistrationCurrent: () => boolean;
+}
 
 export interface IMainOperationSnapshot {
     id: string;
@@ -118,9 +120,7 @@ const cancellationSignals = new AsyncLocalStorage<AbortSignal>();
 const log = createLogger('main-operation-lifecycle');
 let shutdownAdmissionMessage: string | null = null;
 
-export function registerMainOperation(
-    registration: IMainOperationRegistration,
-): IRegisteredMainOperation {
+export function registerMainOperation(registration: IMainOperationRegistration): IRegisteredMainOperation {
     if (shutdownAdmissionMessage !== null) {
         throw createMainOperationShuttingDownError(shutdownAdmissionMessage);
     }
@@ -169,12 +169,8 @@ export function registerMainOperation(
             return;
         }
         const parentReason = cancellationSignal?.reason;
-        const reason = parentReason instanceof Error
-            ? parentReason.message
-            : 'IPC invoke canceled';
-        const abortReason = parentReason instanceof Error && isTimeoutError(parentReason)
-            ? parentReason
-            : createAbortError(reason);
+        const reason = parentReason instanceof Error ? parentReason.message : 'IPC invoke canceled';
+        const abortReason = parentReason instanceof Error && isTimeoutError(parentReason) ? parentReason : createAbortError(reason);
         requestOperationCancel(record, reason, abortReason);
     };
     if (cancellationSignal?.aborted) {
@@ -198,10 +194,7 @@ export function registerMainOperation(
     };
 }
 
-export function runWithMainOperationCancellationSignal<TResult>(
-    signal: AbortSignal,
-    callback: () => TResult,
-): TResult {
+export function runWithMainOperationCancellationSignal<TResult>(signal: AbortSignal, callback: () => TResult): TResult {
     return cancellationSignals.run(signal, callback);
 }
 
@@ -213,22 +206,15 @@ export function beginMainOperationShutdown(message = 'Main process is shutting d
     shutdownAdmissionMessage ??= message;
 }
 
-function requestOperationCancel(
-    operation: IMainOperationRecord,
-    reason: string,
-    abortReason: Error = createAbortError(reason),
-) {
+function requestOperationCancel(operation: IMainOperationRecord, reason: string, abortReason: Error = createAbortError(reason)) {
     if (!operation.controller.signal.aborted) {
         operation.controller.abort(abortReason);
     }
     if (operation.cancel) {
-        runDetached(
-            () => operation.cancel?.(reason),
-            {
-                label: `cancel ${operation.kind} operation ${operation.id}`,
-                logger: log,
-            },
-        );
+        runDetached(() => operation.cancel?.(reason), {
+            label: `cancel ${operation.kind} operation ${operation.id}`,
+            logger: log,
+        });
     }
 }
 
@@ -280,10 +266,10 @@ export function cancelUserCancellableMainOperations(input: {
     };
     for (const operation of operations.values()) {
         if (
-            operation.userCancel?.scope !== input.scope
-            || operation.userCancel.ownerWebContentsId !== input.ownerWebContentsId
-            || operation.workingCopyPath === undefined
-            || (normalizePathForLookup(operation.workingCopyPath) || operation.workingCopyPath) !== normalizedWorkingCopyPath
+            operation.userCancel?.scope !== input.scope ||
+            operation.userCancel.ownerWebContentsId !== input.ownerWebContentsId ||
+            operation.workingCopyPath === undefined ||
+            (normalizePathForLookup(operation.workingCopyPath) || operation.workingCopyPath) !== normalizedWorkingCopyPath
         ) {
             continue;
         }
@@ -339,9 +325,9 @@ export function cancelMainOperationsForClosingWorkingCopy(
     const canceled: ICanceledMainOperation[] = [];
     for (const operation of operations.values()) {
         if (
-            operation.workingCopyPath === undefined
-            || (normalizePathForLookup(operation.workingCopyPath) || operation.workingCopyPath) !== normalizedWorkingCopyPath
-            || !isCancellableForClosingWorkingCopy(operation)
+            operation.workingCopyPath === undefined ||
+            (normalizePathForLookup(operation.workingCopyPath) || operation.workingCopyPath) !== normalizedWorkingCopyPath ||
+            !isCancellableForClosingWorkingCopy(operation)
         ) {
             continue;
         }
@@ -365,11 +351,12 @@ export function cancelMainOperationsForClosingWorkingCopy(
 export function snapshotCancellableWorkingCopyDependents(workingCopyPath: string): IMainOperationSnapshot[] {
     const normalizedWorkingCopyPath = normalizePathForLookup(workingCopyPath) || workingCopyPath;
     return [...operations.values()]
-        .filter(operation => (
-            operation.workingCopyPath !== undefined
-            && (normalizePathForLookup(operation.workingCopyPath) || operation.workingCopyPath) === normalizedWorkingCopyPath
-            && isCancellableForClosingWorkingCopy(operation)
-        ))
+        .filter(
+            (operation) =>
+                operation.workingCopyPath !== undefined &&
+                (normalizePathForLookup(operation.workingCopyPath) || operation.workingCopyPath) === normalizedWorkingCopyPath &&
+                isCancellableForClosingWorkingCopy(operation),
+        )
         .map(toMainOperationSnapshot);
 }
 
@@ -392,7 +379,7 @@ export async function waitForMainOperationsSettled(
         };
     }
     const outcome = await waitForBoundedOperation(
-        Promise.allSettled(canceledOperations.map(operation => operation.settled)).then(() => 'settled' as const),
+        Promise.allSettled(canceledOperations.map((operation) => operation.settled)).then(() => 'settled' as const),
         {
             timeoutMs: options.timeoutMs,
             timeoutResult: 'timeout' as const,
@@ -408,10 +395,10 @@ export async function waitForMainOperationsSettled(
             pending: [],
         };
     }
-    const pendingIds = new Set(canceledOperations.map(operation => operation.id));
+    const pendingIds = new Set(canceledOperations.map((operation) => operation.id));
     return {
         settled: false,
-        pending: snapshotMainOperations().filter(operation => pendingIds.has(operation.id)),
+        pending: snapshotMainOperations().filter((operation) => pendingIds.has(operation.id)),
     };
 }
 
@@ -419,8 +406,7 @@ export async function drainCriticalMainOperations(options: {timeoutMs: number}):
     completed: boolean;
     pending: IMainOperationSnapshot[];
 }> {
-    const criticalWrites = [...operations.values()]
-        .filter(operation => operation.kind === 'critical-write');
+    const criticalWrites = [...operations.values()].filter((operation) => operation.kind === 'critical-write');
     if (criticalWrites.length === 0) {
         return {
             completed: true,
@@ -429,7 +415,7 @@ export async function drainCriticalMainOperations(options: {timeoutMs: number}):
     }
 
     const completed = await waitForBoundedOperation(
-        Promise.allSettled(criticalWrites.map(operation => operation.done)).then(() => true),
+        Promise.allSettled(criticalWrites.map((operation) => operation.done)).then(() => true),
         {
             timeoutMs: options.timeoutMs,
             timeoutResult: false,
@@ -439,8 +425,7 @@ export async function drainCriticalMainOperations(options: {timeoutMs: number}):
 
     return {
         completed,
-        pending: snapshotMainOperations()
-            .filter(operation => operation.kind === 'critical-write'),
+        pending: snapshotMainOperations().filter((operation) => operation.kind === 'critical-write'),
     };
 }
 

@@ -1,25 +1,15 @@
-import { captureFailureForPresentation } from '@app/utils/failureReporter';
-import { useFailureToast } from '@app/composables/useFailureToast';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
-import type { TPdfSource } from '@app/types/pdfUi';
-import type { TDocumentRef } from '@contracts/documentRef';
-import { parseDocumentRef } from '@contracts/documentRef';
-import {
-    getDocumentRefBaseName,
-    getDocumentRefDisplayLabel,
-    isBrowserDocumentRef,
-} from '@app/utils/documentRef';
-import { formatBytes } from '@app/utils/formatters';
-import { isBrowserExtensionPage } from '@app/utils/isBrowserExtensionPage';
-import {
-    getDocumentFilesCapability,
-    getDocumentWindowCapability,
-} from '@app/utils/platformDocuments';
-import { isPathPdfSource as isNativePathPdfSource } from '@app/modules/pdf-viewer/public';
+import {captureFailureForPresentation} from '@app/utils/failureReporter';
+import {useFailureToast} from '@app/composables/useFailureToast';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import type {ComputedRef, Ref} from 'vue';
+import type {TPdfSource} from '@app/types/pdfUi';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {parseDocumentRef} from '@contracts/documentRef';
+import {getDocumentRefBaseName, getDocumentRefDisplayLabel, isBrowserDocumentRef} from '@app/utils/documentRef';
+import {formatBytes} from '@app/utils/formatters';
+import {isBrowserExtensionPage} from '@app/utils/isBrowserExtensionPage';
+import {getDocumentFilesCapability, getDocumentWindowCapability} from '@app/utils/platformDocuments';
+import {isPathPdfSource as isNativePathPdfSource} from '@app/modules/pdf-viewer/public';
 
 type TSaveDotState = 'idle' | 'saving' | 'failed' | 'dirty' | 'clean';
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
@@ -57,11 +47,8 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         hasSaveFailure,
         handleSave,
     } = deps;
-    const {
-        t,
-        locale,
-    } = useTypedI18n();
-    const { presentFailureToast } = useFailureToast();
+    const {t, locale} = useTypedI18n();
+    const {presentFailureToast} = useFailureToast();
     const documentFiles = getDocumentFilesCapability();
     const statusFileName = computed(() => {
         const path = originalPath.value ?? workingCopyPath.value;
@@ -100,27 +87,27 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         return typeof path === 'string' && path.trim().length > 0 ? path : null;
     });
     const statFileSizeBytes = ref<number | null>(null);
-    watch(measurableFilePath, async (path) => {
-        if (!path) {
-            statFileSizeBytes.value = null;
-            return;
-        }
-        try {
-            const { size } = await documentFiles.statFile(path);
-            if (measurableFilePath.value === path) {
-                statFileSizeBytes.value = size;
-            }
-        } catch {
-            if (measurableFilePath.value === path) {
+    watch(
+        measurableFilePath,
+        async (path) => {
+            if (!path) {
                 statFileSizeBytes.value = null;
+                return;
             }
-        }
-    }, { immediate: true });
-    const statusFileSizeBytes = computed(() => (
-        inMemoryFileSizeBytes.value
-        ?? knownFileSizeBytes?.value
-        ?? statFileSizeBytes.value
-    ));
+            try {
+                const {size} = await documentFiles.statFile(path);
+                if (measurableFilePath.value === path) {
+                    statFileSizeBytes.value = size;
+                }
+            } catch {
+                if (measurableFilePath.value === path) {
+                    statFileSizeBytes.value = null;
+                }
+            }
+        },
+        {immediate: true},
+    );
+    const statusFileSizeBytes = computed(() => inMemoryFileSizeBytes.value ?? knownFileSizeBytes?.value ?? statFileSizeBytes.value);
     // With no document the metrics describe nothing, so the bar leaves them out.
     const statusFileSizeLabel = computed(() => {
         if (!hasDocument.value) {
@@ -129,10 +116,12 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         if (statusFileSizeBytes.value === null) {
             return t('status.fileSizeUnknown');
         }
-        return t('status.fileSizeValue', { size: formatBytes(statusFileSizeBytes.value, {
-            t,
-            locale: locale.value,
-        }) });
+        return t('status.fileSizeValue', {
+            size: formatBytes(statusFileSizeBytes.value, {
+                t,
+                locale: locale.value,
+            }),
+        });
     });
     const statusZoomLabel = computed(() => {
         if (!hasDocument.value) {
@@ -141,7 +130,7 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         if (isDocumentVisualPending?.value) {
             return t('status.zoomUnknown');
         }
-        return t('status.zoomValue', { zoom: Math.round(effectiveZoom.value * 100) });
+        return t('status.zoomValue', {zoom: Math.round(effectiveZoom.value * 100)});
     });
     const statusSaveDotState = computed<TSaveDotState>(() => {
         if (!pdfSrc.value) {
@@ -161,12 +150,9 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         return 'clean';
     });
     const statusSaveDotClass = computed(() => `is-${statusSaveDotState.value}`);
-    const statusSaveDotCanSave = computed(() => (
-        !!pdfSrc.value
-        && (canSave.value || statusSaveDotState.value === 'failed')
-        && !isAnySaving.value
-        && !isHistoryBusy.value
-    ));
+    const statusSaveDotCanSave = computed(
+        () => !!pdfSrc.value && (canSave.value || statusSaveDotState.value === 'failed') && !isAnySaving.value && !isHistoryBusy.value,
+    );
     const statusSaveDotTooltip = computed(() => {
         if (statusSaveDotState.value === 'idle') {
             return t('status.noFileOpen');
@@ -212,9 +198,7 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         if (statusCanShowInFolder.value) {
             return t('status.showInFolder');
         }
-        return path && isBrowserDocumentRef(path)
-            ? t('status.showInFolderUnavailableWeb')
-            : t('status.noFileOpen');
+        return path && isBrowserDocumentRef(path) ? t('status.showInFolderUnavailableWeb') : t('status.noFileOpen');
     });
 
     async function handleStatusSaveClick() {
@@ -231,13 +215,16 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         }
 
         try {
-            if (!await getDocumentWindowCapability().showItemInFolder(path)) {
+            if (!(await getDocumentWindowCapability().showItemInFolder(path))) {
                 throw new Error('File manager did not reveal the file');
             }
         } catch (error) {
             BrowserLogger.warn('workspace', 'Status-bar reveal failed', error);
             presentFailureToast({
-                ...captureFailureForPresentation({code: 'RENDERER_WORKSPACE_OPERATION_FAILED', local: {source: 'workspace', message: 'Status-bar reveal failed', cause: error}}),
+                ...captureFailureForPresentation({
+                    code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                    local: {source: 'workspace', message: 'Status-bar reveal failed', cause: error},
+                }),
                 title: t('errors.workspace.revealInFolderFailed'),
             });
         }

@@ -1,10 +1,4 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 
 interface IMenuItemLike {
     id?: string;
@@ -48,12 +42,12 @@ const mocks = vi.hoisted(() => ({
     sendActionToFirstResponder: vi.fn(),
     config: {isMac: false},
     appListeners: new Map<string, (...args: unknown[]) => void>(),
-    createWindow: ((_id: number, _title: string): IMenuPerWindowStateTestWindow => {
+    createWindow: (_id: number, _title: string): IMenuPerWindowStateTestWindow => {
         throw new Error('createWindow mock not initialized');
-    }),
-    focusWindow: ((_window: IMenuPerWindowStateTestWindow | null): void => {
+    },
+    focusWindow: (_window: IMenuPerWindowStateTestWindow | null): void => {
         throw new Error('focusWindow mock not initialized');
-    }),
+    },
 }));
 
 vi.mock('electron', () => {
@@ -138,8 +132,7 @@ vi.mock('electron', () => {
 
 vi.mock('@electron/window/registry', () => ({
     getAllRegisteredAppWindows: () => mocks.windows,
-    getWindowByIdFromRegistry: (windowId: number) =>
-        mocks.windows.find(window => window.id === windowId) ?? null,
+    getWindowByIdFromRegistry: (windowId: number) => mocks.windows.find((window) => window.id === windowId) ?? null,
 }));
 
 vi.mock('@electron/recentFiles', () => ({getRecentFilesSync: () => []}));
@@ -148,14 +141,8 @@ vi.mock('@electron/te', () => ({te: (key: string) => key}));
 
 vi.mock('@electron/config', () => ({config: mocks.config}));
 
-const {
-    activateApplicationMenuItem,
-    decodeApplicationMenuItemQuery,
-    setupMenu,
-    setMenuDocumentState,
-    setMenuTabCount,
-    refreshMenu,
-} = await import('@electron/menu');
+const {activateApplicationMenuItem, decodeApplicationMenuItemQuery, setupMenu, setMenuDocumentState, setMenuTabCount, refreshMenu} =
+    await import('@electron/menu');
 
 interface IApplicationMenuItemLike {
     id: string | undefined;
@@ -199,8 +186,9 @@ function toApplicationMenu(template: IMenuItemLike[]): IApplicationMenuLike {
     });
     return {
         items,
-        getMenuItemById: id => items.find(item => item.id === id)
-            ?? items.reduce<IApplicationMenuItemLike | null>((found, item) => found ?? item.submenu?.getMenuItemById(id) ?? null, null),
+        getMenuItemById: (id) =>
+            items.find((item) => item.id === id) ??
+            items.reduce<IApplicationMenuItemLike | null>((found, item) => found ?? item.submenu?.getMenuItemById(id) ?? null, null),
     };
 }
 
@@ -215,62 +203,62 @@ async function waitForMenuClickTasks() {
 }
 
 function isSaveEnabled(template: IMenuItemLike[]) {
-    const fileMenu = template.find(item => item.label === 'menu.file');
+    const fileMenu = template.find((item) => item.label === 'menu.file');
     const submenu = Array.isArray(fileMenu?.submenu) ? fileMenu.submenu : [];
-    const saveItem = submenu.find(item => item.label === 'menu.save');
+    const saveItem = submenu.find((item) => item.label === 'menu.save');
     return Boolean(saveItem?.enabled);
 }
 
 function isSaveAsEnabled(template: IMenuItemLike[]) {
-    const fileMenu = template.find(item => item.label === 'menu.file');
+    const fileMenu = template.find((item) => item.label === 'menu.file');
     const submenu = Array.isArray(fileMenu?.submenu) ? fileMenu.submenu : [];
-    const saveAsItem = submenu.find(item => item.label === 'menu.saveAs');
+    const saveAsItem = submenu.find((item) => item.label === 'menu.saveAs');
     return Boolean(saveAsItem?.enabled);
 }
 
 function isRepairSaveEnabled(template: IMenuItemLike[]) {
-    const fileMenu = template.find(item => item.label === 'menu.file');
+    const fileMenu = template.find((item) => item.label === 'menu.file');
     const submenu = Array.isArray(fileMenu?.submenu) ? fileMenu.submenu : [];
-    const repairSaveItem = submenu.find(item => item.label === 'menu.repairAndSave');
+    const repairSaveItem = submenu.find((item) => item.label === 'menu.repairAndSave');
     return Boolean(repairSaveItem?.enabled);
 }
 
 function isOptimizePdfEnabled(template: IMenuItemLike[]) {
-    const fileMenu = template.find(item => item.label === 'menu.file');
+    const fileMenu = template.find((item) => item.label === 'menu.file');
     const submenu = Array.isArray(fileMenu?.submenu) ? fileMenu.submenu : [];
-    const optimizeItem = submenu.find(item => item.label === 'menu.optimizePdfForInteraction');
+    const optimizeItem = submenu.find((item) => item.label === 'menu.optimizePdfForInteraction');
     return Boolean(optimizeItem?.enabled);
 }
 
 function getFileMenuSubmenu(template: IMenuItemLike[]) {
-    const fileMenu = template.find(item => item.label === 'menu.file');
+    const fileMenu = template.find((item) => item.label === 'menu.file');
     return Array.isArray(fileMenu?.submenu) ? fileMenu.submenu : [];
 }
 
 function getExportMenuSubmenu(template: IMenuItemLike[]) {
-    const exportMenu = getFileMenuSubmenu(template).find(item => item.label === 'menu.export');
+    const exportMenu = getFileMenuSubmenu(template).find((item) => item.label === 'menu.export');
     return Array.isArray(exportMenu?.submenu) ? exportMenu.submenu : [];
 }
 
 function isMoveToNewWindowEnabled(template: IMenuItemLike[]) {
-    const windowMenu = template.find(item => item.label === 'menu.window');
+    const windowMenu = template.find((item) => item.label === 'menu.window');
     const submenu = Array.isArray(windowMenu?.submenu) ? windowMenu.submenu : [];
-    const moveItem = submenu.find(item => item.label === 'menu.moveActiveTabToNewWindow');
+    const moveItem = submenu.find((item) => item.label === 'menu.moveActiveTabToNewWindow');
     return Boolean(moveItem?.enabled);
 }
 
 function getEditMenuSubmenu(template: IMenuItemLike[]) {
-    const editMenu = template.find(item => item.label === 'menu.edit');
+    const editMenu = template.find((item) => item.label === 'menu.edit');
     return Array.isArray(editMenu?.submenu) ? editMenu.submenu : [];
 }
 
 function getViewMenuSubmenu(template: IMenuItemLike[]) {
-    const viewMenu = template.find(item => item.label === 'menu.view');
+    const viewMenu = template.find((item) => item.label === 'menu.view');
     return Array.isArray(viewMenu?.submenu) ? viewMenu.submenu : [];
 }
 
 function getPagesMenuSubmenu(template: IMenuItemLike[]) {
-    const pagesMenu = template.find(item => item.label === 'menu.pages');
+    const pagesMenu = template.find((item) => item.label === 'menu.pages');
     return Array.isArray(pagesMenu?.submenu) ? pagesMenu.submenu : [];
 }
 
@@ -285,10 +273,7 @@ describe('menu per-window document state', () => {
         const firstWindow = mocks.createWindow(1, 'First Window');
         const secondWindow = mocks.createWindow(2, 'Second Window');
 
-        mocks.windows.push(
-            firstWindow,
-            secondWindow,
-        );
+        mocks.windows.push(firstWindow, secondWindow);
 
         mocks.focusWindow(firstWindow);
         setupMenu();
@@ -346,7 +331,7 @@ describe('menu per-window document state', () => {
         expect(isSaveAsEnabled(template)).toBe(true);
         expect(isRepairSaveEnabled(template)).toBe(true);
         expect(isOptimizePdfEnabled(template)).toBe(true);
-        expect(fileSubmenu.find(item => item.label === 'menu.print')?.enabled).toBe(true);
+        expect(fileSubmenu.find((item) => item.label === 'menu.print')?.enabled).toBe(true);
     });
 
     it('tracks save-as availability separately from document and save state', () => {
@@ -408,10 +393,7 @@ describe('menu per-window document state', () => {
         const firstWindow = mocks.createWindow(1, 'First Window');
         const secondWindow = mocks.createWindow(2, 'Second Window');
 
-        mocks.windows.push(
-            firstWindow,
-            secondWindow,
-        );
+        mocks.windows.push(firstWindow, secondWindow);
 
         mocks.focusWindow(firstWindow);
         setupMenu();
@@ -434,14 +416,10 @@ describe('menu per-window document state', () => {
         setupMenu();
 
         const roles = getEditMenuSubmenu(getLastMenuTemplate())
-            .map(item => item.role)
+            .map((item) => item.role)
             .filter(Boolean);
 
-        expect(roles).toEqual(expect.arrayContaining([
-            'cut',
-            'copy',
-            'paste',
-        ]));
+        expect(roles).toEqual(expect.arrayContaining(['cut', 'copy', 'paste']));
     });
 
     it('installs the built native application menu instead of clearing it', () => {
@@ -465,8 +443,7 @@ describe('menu per-window document state', () => {
         setupMenu();
         setMenuDocumentState(1, true);
 
-        const printCurrentPageItem = getFileMenuSubmenu(getLastMenuTemplate())
-            .find(item => item.label === 'menu.printCurrentPage');
+        const printCurrentPageItem = getFileMenuSubmenu(getLastMenuTemplate()).find((item) => item.label === 'menu.printCurrentPage');
 
         expect(printCurrentPageItem?.enabled).toBe(true);
         printCurrentPageItem?.click?.({}, window);
@@ -487,8 +464,7 @@ describe('menu per-window document state', () => {
             continuousScroll: true,
         });
 
-        const item = getViewMenuSubmenu(getLastMenuTemplate())
-            .find(candidate => candidate.label === 'zoom.continuousScroll');
+        const item = getViewMenuSubmenu(getLastMenuTemplate()).find((candidate) => candidate.label === 'zoom.continuousScroll');
         expect(item).toMatchObject({
             enabled: true,
             type: 'checkbox',
@@ -515,8 +491,8 @@ describe('menu per-window document state', () => {
         });
 
         const viewItems = getViewMenuSubmenu(getLastMenuTemplate());
-        expect(viewItems.find(item => item.label === 'menu.rotateViewClockwise')).toMatchObject({enabled: true});
-        expect(viewItems.find(item => item.label === 'menu.rotateViewCounterclockwise')).toMatchObject({enabled: true});
+        expect(viewItems.find((item) => item.label === 'menu.rotateViewClockwise')).toMatchObject({enabled: true});
+        expect(viewItems.find((item) => item.label === 'menu.rotateViewCounterclockwise')).toMatchObject({enabled: true});
         expect(getPagesMenuSubmenu(getLastMenuTemplate())).toHaveLength(0);
 
         expect(activateApplicationMenuItem({id: 'rotate-view-clockwise'})).toMatchObject({activated: true});
@@ -540,8 +516,8 @@ describe('menu per-window document state', () => {
         });
 
         const viewItems = getViewMenuSubmenu(getLastMenuTemplate());
-        expect(viewItems.find(item => item.label === 'menu.zoomIn')?.enabled).toBe(false);
-        expect(viewItems.find(item => item.label === 'zoom.continuousScroll')?.enabled).toBe(false);
+        expect(viewItems.find((item) => item.label === 'menu.zoomIn')?.enabled).toBe(false);
+        expect(viewItems.find((item) => item.label === 'zoom.continuousScroll')?.enabled).toBe(false);
     });
 
     it('routes undo to the focused text input instead of the document action', async () => {
@@ -553,8 +529,7 @@ describe('menu per-window document state', () => {
         setupMenu();
         setMenuDocumentState(1, true);
 
-        const undoItem = getEditMenuSubmenu(getLastMenuTemplate())
-            .find(item => item.label === 'menu.undo');
+        const undoItem = getEditMenuSubmenu(getLastMenuTemplate()).find((item) => item.label === 'menu.undo');
         undoItem?.click?.({}, window);
         await waitForMenuClickTasks();
 
@@ -568,8 +543,7 @@ describe('menu per-window document state', () => {
         mocks.windows.push(focusedWindow, menuWindow);
         mocks.focusWindow(focusedWindow);
         setupMenu();
-        const item = getEditMenuSubmenu(getLastMenuTemplate())
-            .find(candidate => candidate.label === 'menu.selectAll');
+        const item = getEditMenuSubmenu(getLastMenuTemplate()).find((candidate) => candidate.label === 'menu.selectAll');
         expect(item).toBeDefined();
         item?.click?.({}, menuWindow);
         expect(menuWindow.webContents.sendInputEvent).toHaveBeenCalledWith({
@@ -586,8 +560,7 @@ describe('menu per-window document state', () => {
         mocks.focusWindow(window);
         setupMenu();
         window.webContents.isDestroyed.mockReturnValue(true);
-        const item = getEditMenuSubmenu(getLastMenuTemplate())
-            .find(candidate => candidate.label === 'menu.selectAll');
+        const item = getEditMenuSubmenu(getLastMenuTemplate()).find((candidate) => candidate.label === 'menu.selectAll');
         item?.click?.({}, window);
         expect(window.webContents.sendInputEvent).not.toHaveBeenCalled();
     });
@@ -604,8 +577,7 @@ describe('menu per-window document state', () => {
         setupMenu();
         setMenuDocumentState(1, true);
 
-        const undoItem = getEditMenuSubmenu(getLastMenuTemplate())
-            .find(item => item.label === 'menu.undo');
+        const undoItem = getEditMenuSubmenu(getLastMenuTemplate()).find((item) => item.label === 'menu.undo');
         undoItem?.click?.({}, window);
         await waitForMenuClickTasks();
 
@@ -622,8 +594,7 @@ describe('menu per-window document state', () => {
         setupMenu();
         setMenuDocumentState(1, true);
 
-        const undoItem = getEditMenuSubmenu(getLastMenuTemplate())
-            .find(item => item.label === 'menu.undo');
+        const undoItem = getEditMenuSubmenu(getLastMenuTemplate()).find((item) => item.label === 'menu.undo');
         undoItem?.click?.({}, window);
         await waitForMenuClickTasks();
 
@@ -644,10 +615,10 @@ describe('menu per-window document state', () => {
         });
 
         const viewItems = getViewMenuSubmenu(getLastMenuTemplate());
-        expect(viewItems.find(item => item.label === 'menu.editorPanes')).toBeUndefined();
-        expect(viewItems.filter(item => item.label === 'menu.newPaneRight')).toHaveLength(1);
-        expect(viewItems.filter(item => item.label === 'menu.newPaneDown')).toHaveLength(1);
-        expect(viewItems.some(item => item.label?.includes('focusPane'))).toBe(false);
+        expect(viewItems.find((item) => item.label === 'menu.editorPanes')).toBeUndefined();
+        expect(viewItems.filter((item) => item.label === 'menu.newPaneRight')).toHaveLength(1);
+        expect(viewItems.filter((item) => item.label === 'menu.newPaneDown')).toHaveLength(1);
+        expect(viewItems.some((item) => item.label?.includes('focusPane'))).toBe(false);
 
         setMenuDocumentState(1, {
             hasDocument: false,
@@ -656,8 +627,8 @@ describe('menu per-window document state', () => {
         });
 
         const disabledViewItems = getViewMenuSubmenu(getLastMenuTemplate());
-        expect(disabledViewItems.find(item => item.label === 'menu.newPaneRight')?.enabled).toBe(false);
-        expect(disabledViewItems.find(item => item.label === 'menu.newPaneDown')?.enabled).toBe(false);
+        expect(disabledViewItems.find((item) => item.label === 'menu.newPaneRight')?.enabled).toBe(false);
+        expect(disabledViewItems.find((item) => item.label === 'menu.newPaneDown')?.enabled).toBe(false);
     });
 
     it('keeps developer tools in the View menu after pane commands', () => {
@@ -667,7 +638,7 @@ describe('menu per-window document state', () => {
         setupMenu();
 
         const viewItems = getViewMenuSubmenu(getLastMenuTemplate());
-        const devToolsIndex = viewItems.findIndex(item => item.role === 'toggleDevTools');
+        const devToolsIndex = viewItems.findIndex((item) => item.role === 'toggleDevTools');
 
         expect(devToolsIndex).toBeGreaterThan(0);
         expect(viewItems[devToolsIndex - 2]?.label).toBe('menu.newPaneDown');
@@ -685,7 +656,7 @@ describe('menu per-window document state', () => {
             canSave: false,
             supportsPdfMutation: false,
         });
-        expect(getLastMenuTemplate().find(item => item.label === 'menu.pages')).toBeUndefined();
+        expect(getLastMenuTemplate().find((item) => item.label === 'menu.pages')).toBeUndefined();
 
         setMenuDocumentState(1, {
             hasDocument: true,
@@ -696,9 +667,9 @@ describe('menu per-window document state', () => {
             totalPages: 3,
         });
         let pagesItems = getPagesMenuSubmenu(getLastMenuTemplate());
-        expect(pagesItems.find(item => item.label === 'menu.deleteSelectedPages')?.enabled).toBe(false);
-        expect(pagesItems.find(item => item.label === 'menu.rotateClockwise')?.enabled).toBe(false);
-        expect(pagesItems.find(item => item.label === 'menu.insertPages')?.enabled).toBe(true);
+        expect(pagesItems.find((item) => item.label === 'menu.deleteSelectedPages')?.enabled).toBe(false);
+        expect(pagesItems.find((item) => item.label === 'menu.rotateClockwise')?.enabled).toBe(false);
+        expect(pagesItems.find((item) => item.label === 'menu.insertPages')?.enabled).toBe(true);
 
         setMenuDocumentState(1, {
             hasDocument: true,
@@ -709,8 +680,8 @@ describe('menu per-window document state', () => {
             totalPages: 3,
         });
         pagesItems = getPagesMenuSubmenu(getLastMenuTemplate());
-        expect(pagesItems.find(item => item.label === 'menu.deleteSelectedPages')?.enabled).toBe(true);
-        expect(pagesItems.find(item => item.label === 'menu.extractSelectedPages')?.enabled).toBe(true);
+        expect(pagesItems.find((item) => item.label === 'menu.deleteSelectedPages')?.enabled).toBe(true);
+        expect(pagesItems.find((item) => item.label === 'menu.extractSelectedPages')?.enabled).toBe(true);
 
         setMenuDocumentState(1, {
             hasDocument: true,
@@ -721,7 +692,7 @@ describe('menu per-window document state', () => {
             totalPages: 3,
         });
         pagesItems = getPagesMenuSubmenu(getLastMenuTemplate());
-        expect(pagesItems.find(item => item.label === 'menu.deleteSelectedPages')?.enabled).toBe(false);
+        expect(pagesItems.find((item) => item.label === 'menu.deleteSelectedPages')?.enabled).toBe(false);
     });
 
     it('reports current fit and page-layout state with native radio items', () => {
@@ -740,15 +711,15 @@ describe('menu per-window document state', () => {
         });
 
         const viewItems = getViewMenuSubmenu(getLastMenuTemplate());
-        expect(viewItems.find(item => item.label === 'menu.fitWidth')).toMatchObject({
+        expect(viewItems.find((item) => item.label === 'menu.fitWidth')).toMatchObject({
             type: 'radio',
             checked: true,
         });
-        expect(viewItems.find(item => item.label === 'menu.facingPages')).toMatchObject({
+        expect(viewItems.find((item) => item.label === 'menu.facingPages')).toMatchObject({
             type: 'radio',
             checked: true,
         });
-        expect(viewItems.find(item => item.label === 'menu.singlePage')?.checked).toBe(false);
+        expect(viewItems.find((item) => item.label === 'menu.singlePage')?.checked).toBe(false);
     });
 
     it('omits inapplicable exports and assistant controls', () => {
@@ -767,13 +738,10 @@ describe('menu per-window document state', () => {
         });
 
         const fileItems = getFileMenuSubmenu(getLastMenuTemplate());
-        const exportMenu = fileItems.find(item => item.label === 'menu.export');
+        const exportMenu = fileItems.find((item) => item.label === 'menu.export');
         const exportItems = Array.isArray(exportMenu?.submenu) ? exportMenu.submenu : [];
-        expect(exportItems.map((item: IMenuItemLike) => item.label)).toEqual([
-            'menu.exportImages',
-            'menu.exportMultiPageTiff',
-        ]);
-        expect(getViewMenuSubmenu(getLastMenuTemplate()).find(item => item.label === 'menu.assistant')).toBeUndefined();
+        expect(exportItems.map((item: IMenuItemLike) => item.label)).toEqual(['menu.exportImages', 'menu.exportMultiPageTiff']);
+        expect(getViewMenuSubmenu(getLastMenuTemplate()).find((item) => item.label === 'menu.assistant')).toBeUndefined();
     });
 
     it('keeps native DOCX export enabled as Cancel while it is running', () => {
@@ -788,7 +756,9 @@ describe('menu per-window document state', () => {
             supportsExportDocx: true,
             canExportDocx: true,
         });
-        expect(getExportMenuSubmenu(getLastMenuTemplate()).find((item: IMenuItemLike) => item.label === 'menu.exportDocx')).toMatchObject({enabled: true});
+        expect(getExportMenuSubmenu(getLastMenuTemplate()).find((item: IMenuItemLike) => item.label === 'menu.exportDocx')).toMatchObject({
+            enabled: true,
+        });
 
         setMenuDocumentState(1, {
             hasDocument: true,
@@ -797,7 +767,9 @@ describe('menu per-window document state', () => {
             canExportDocx: true,
             isExportingDocx: true,
         });
-        expect(getExportMenuSubmenu(getLastMenuTemplate()).find((item: IMenuItemLike) => item.label === 'ocr.cancel')).toMatchObject({enabled: true});
+        expect(getExportMenuSubmenu(getLastMenuTemplate()).find((item: IMenuItemLike) => item.label === 'ocr.cancel')).toMatchObject({
+            enabled: true,
+        });
     });
 
     it('uses active-tab applicability for close and window transfer commands', () => {
@@ -814,7 +786,7 @@ describe('menu per-window document state', () => {
             canTransferActiveTab: false,
         });
 
-        expect(getFileMenuSubmenu(getLastMenuTemplate()).find(item => item.label === 'menu.closeTab')?.enabled).toBe(false);
+        expect(getFileMenuSubmenu(getLastMenuTemplate()).find((item) => item.label === 'menu.closeTab')?.enabled).toBe(false);
         expect(isMoveToNewWindowEnabled(getLastMenuTemplate())).toBe(false);
     });
 });
@@ -827,10 +799,7 @@ describe('automation menu item activation', () => {
         mocks.config.isMac = false;
     });
 
-    it.each([
-        false,
-        true,
-    ])('runs the item a key resolves to in the first window when none is focused (macOS %s)', (isMac) => {
+    it.each([false, true])('runs the item a key resolves to in the first window when none is focused (macOS %s)', (isMac) => {
         mocks.config.isMac = isMac;
         const firstWindow = mocks.createWindow(1, 'First');
         const secondWindow = mocks.createWindow(2, 'Second');
@@ -858,7 +827,7 @@ describe('automation menu item activation', () => {
         setMenuDocumentState(1, true);
         const deferred: Array<() => void> = [];
 
-        expect(activateApplicationMenuItem({accelerator: 'CmdOrCtrl+W'}, run => deferred.push(run))).toEqual({
+        expect(activateApplicationMenuItem({accelerator: 'CmdOrCtrl+W'}, (run) => deferred.push(run))).toEqual({
             activated: true,
             label: 'menu.closeTab',
             windowId: 1,
@@ -866,7 +835,7 @@ describe('automation menu item activation', () => {
         expect(firstWindow.webContents.send).not.toHaveBeenCalled();
 
         mocks.focusWindow(secondWindow);
-        deferred.forEach(run => run());
+        deferred.forEach((run) => run());
         expect(firstWindow.webContents.send).toHaveBeenCalledWith('menu:closeTab');
         expect(secondWindow.webContents.send).not.toHaveBeenCalled();
     });
@@ -879,21 +848,21 @@ describe('automation menu item activation', () => {
         setMenuDocumentState(1, true);
         const deferred: Array<() => void> = [];
 
-        activateApplicationMenuItem({accelerator: 'CmdOrCtrl+W'}, run => deferred.push(run));
+        activateApplicationMenuItem({accelerator: 'CmdOrCtrl+W'}, (run) => deferred.push(run));
         firstWindow.isDestroyed = () => true;
         mocks.focusWindow(secondWindow);
-        deferred.splice(0).forEach(run => run());
+        deferred.splice(0).forEach((run) => run());
         expect(firstWindow.webContents.send).not.toHaveBeenCalled();
         expect(secondWindow.webContents.send).not.toHaveBeenCalled();
 
         setMenuDocumentState(2, true);
-        activateApplicationMenuItem({accelerator: 'CmdOrCtrl+W'}, run => deferred.push(run));
+        activateApplicationMenuItem({accelerator: 'CmdOrCtrl+W'}, (run) => deferred.push(run));
         // sendToWindow checks the renderer before its own try, so this throw
         // reaches the deferred run's guard.
         secondWindow.webContents.isDestroyed.mockImplementation(() => {
             throw new Error('renderer gone');
         });
-        expect(() => deferred.splice(0).forEach(run => run())).not.toThrow();
+        expect(() => deferred.splice(0).forEach((run) => run())).not.toThrow();
         expect(secondWindow.webContents.isDestroyed).toHaveBeenCalled();
         expect(secondWindow.webContents.send).not.toHaveBeenCalled();
     });
@@ -966,10 +935,12 @@ describe('automation menu item activation', () => {
 
     it('accepts a query naming exactly one of id or accelerator', () => {
         expect(decodeApplicationMenuItemQuery({id: 'new-pane-right'})).toEqual({id: 'new-pane-right'});
-        expect(() => decodeApplicationMenuItemQuery({
-            id: 'new-pane-right',
-            accelerator: 'Ctrl+W',
-        })).toThrow();
+        expect(() =>
+            decodeApplicationMenuItemQuery({
+                id: 'new-pane-right',
+                accelerator: 'Ctrl+W',
+            }),
+        ).toThrow();
         expect(() => decodeApplicationMenuItemQuery({id: ''})).toThrow();
         expect(() => decodeApplicationMenuItemQuery('Ctrl+W')).toThrow();
     });

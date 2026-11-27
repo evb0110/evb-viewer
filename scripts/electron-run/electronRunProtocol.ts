@@ -1,4 +1,4 @@
-import { isJsonRecord } from '@scripts/electron-run/isJsonRecord';
+import {isJsonRecord} from '@scripts/electron-run/isJsonRecord';
 
 const ELECTRON_RUN_COMMANDS = [
     'ping',
@@ -25,11 +25,9 @@ const ELECTRON_RUN_COMMANDS = [
     'shutdown',
 ] as const;
 
-export type TElectronRunCommand = typeof ELECTRON_RUN_COMMANDS[number];
+export type TElectronRunCommand = (typeof ELECTRON_RUN_COMMANDS)[number];
 
 const ELECTRON_RUN_COMMAND_SET: ReadonlySet<string> = new Set<TElectronRunCommand>(ELECTRON_RUN_COMMANDS);
-
-
 
 export function isElectronRunCommand(value: unknown): value is TElectronRunCommand {
     return typeof value === 'string' && ELECTRON_RUN_COMMAND_SET.has(value);

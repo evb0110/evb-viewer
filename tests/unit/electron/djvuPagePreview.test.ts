@@ -1,19 +1,10 @@
-import { join } from 'node:path';
-import { escapeRegExp } from 'es-toolkit/string';
+import {join} from 'node:path';
+import {escapeRegExp} from 'es-toolkit/string';
 import type * as TDdjvuConversionModule from '@electron/features/djvu/main/ddjvuConversion';
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 
 const mocks = vi.hoisted(() => {
-    const tinyPpm = Buffer.concat([
-        Buffer.from('P6\n3 2\n255\n', 'ascii'),
-        Buffer.alloc(3 * 2 * 3),
-    ]);
+    const tinyPpm = Buffer.concat([Buffer.from('P6\n3 2\n255\n', 'ascii'), Buffer.alloc(3 * 2 * 3)]);
     return {
         tinyPpm,
         convertDjvuPageToImage: vi.fn(async (_inputPath: string, outputPath: string) => ({
@@ -26,7 +17,7 @@ const mocks = vi.hoisted(() => {
             read: async (buffer: Uint8Array, offset: number, length: number, position: number) => {
                 const bytesRead = Math.max(0, Math.min(length, tinyPpm.byteLength - position));
                 buffer.set(tinyPpm.subarray(position, position + bytesRead), offset);
-                return { bytesRead };
+                return {bytesRead};
             },
             stat: async () => ({
                 ctimeMs: 1,
@@ -59,23 +50,21 @@ vi.mock('fs/promises', () => ({
     })),
     mkdtemp: mocks.mkdtemp,
     open: mocks.open,
-    readFile: (path: string, ...args: unknown[]) => path.endsWith('.evb-scratch-record')
-        ? Promise.reject(Object.assign(new Error('no scratch record'), { code: 'ENOENT' }))
-        : Reflect.apply(mocks.readFile, undefined, [
-            path,
-            ...args,
-        ]),
+    readFile: (path: string, ...args: unknown[]) =>
+        path.endsWith('.evb-scratch-record')
+            ? Promise.reject(Object.assign(new Error('no scratch record'), {code: 'ENOENT'}))
+            : Reflect.apply(mocks.readFile, undefined, [path, ...args]),
     rm: mocks.rm,
     stat: mocks.stat,
 }));
-vi.mock('@electron/features/djvu/main/djvuEnginePool', () => ({ runDjvuEngine: mocks.runDjvuEngine }));
-vi.mock('@electron/native-tools/runNativeToolCommand', () => ({ runNativeToolCommand: mocks.runNativeToolCommand }));
+vi.mock('@electron/features/djvu/main/djvuEnginePool', () => ({runDjvuEngine: mocks.runDjvuEngine}));
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runNativeToolCommand}));
 vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => ({
     isNativePdfImageCombineDisabled: mocks.isNativePdfImageCombineDisabled,
     resolveNativePdfImageCombinePath: () => '/tools/evb-pdf-image-combine',
 }));
-vi.mock('@electron/features/djvu/main/ddjvuConversion', async importOriginal => ({
-    ...await importOriginal<typeof TDdjvuConversionModule>(),
+vi.mock('@electron/features/djvu/main/ddjvuConversion', async (importOriginal) => ({
+    ...(await importOriginal<typeof TDdjvuConversionModule>()),
     convertDjvuPageToImage: mocks.convertDjvuPageToImage,
 }));
 
@@ -101,10 +90,7 @@ describe('DjVu page preview helpers (DjVuLibre WASM)', () => {
         mocks.mkdtemp.mockResolvedValue('/tmp/djvu-preview-test');
         mocks.readFile.mockResolvedValue(mocks.tinyPpm);
         mocks.runNativeToolCommand.mockResolvedValue(undefined);
-        mocks.runDjvuEngine.mockImplementation(async (request: {
-            type: string;
-            pageNumbers?: readonly number[];
-        }) => {
+        mocks.runDjvuEngine.mockImplementation(async (request: {type: string; pageNumbers?: readonly number[]}) => {
             if (request.type === 'getDocInfo') {
                 return {
                     pageCount: 1,
@@ -115,7 +101,7 @@ describe('DjVu page preview helpers (DjVuLibre WASM)', () => {
             }
             if (request.type === 'getPageSizes') {
                 const count = request.pageNumbers?.length ?? 1;
-                return Array.from({ length: count }, () => ({
+                return Array.from({length: count}, () => ({
                     width: 100,
                     height: 200,
                     dpi: 300,
@@ -131,7 +117,7 @@ describe('DjVu page preview helpers (DjVuLibre WASM)', () => {
     });
 
     it('raises unsafe full-resolution preview requests to the minimum subsample floor', async () => {
-        mocks.runDjvuEngine.mockImplementation(async (request: { type: string }) => {
+        mocks.runDjvuEngine.mockImplementation(async (request: {type: string}) => {
             if (request.type === 'getDocInfo') {
                 return {
                     pageCount: 1,
@@ -140,14 +126,16 @@ describe('DjVu page preview helpers (DjVuLibre WASM)', () => {
                     files: [],
                 };
             }
-            return [{
-                width: 10_000,
-                height: 10_000,
-                dpi: 300,
-            }];
+            return [
+                {
+                    width: 10_000,
+                    height: 10_000,
+                    dpi: 300,
+                },
+            ];
         });
 
-        await renderDjvuPagePreview('/tmp/book.djvu', 1, { subsample: 1 });
+        await renderDjvuPagePreview('/tmp/book.djvu', 1, {subsample: 1});
 
         expect(mocks.convertDjvuPageToImage).toHaveBeenCalledWith(
             '/tmp/book.djvu',
@@ -162,7 +150,7 @@ describe('DjVu page preview helpers (DjVuLibre WASM)', () => {
     });
 
     it('ignores over-native target size for previews', async () => {
-        mocks.runDjvuEngine.mockImplementation(async (request: { type: string }) => {
+        mocks.runDjvuEngine.mockImplementation(async (request: {type: string}) => {
             if (request.type === 'getDocInfo') {
                 return {
                     pageCount: 1,
@@ -171,26 +159,28 @@ describe('DjVu page preview helpers (DjVuLibre WASM)', () => {
                     files: [],
                 };
             }
-            return [{
-                width: 1293,
-                height: 1966,
-                dpi: 300,
-            }];
+            return [
+                {
+                    width: 1293,
+                    height: 1966,
+                    dpi: 300,
+                },
+            ];
         });
 
-        await renderDjvuPagePreview('/tmp/book.djvu', 1, { targetWidthPx: 2484 });
+        await renderDjvuPagePreview('/tmp/book.djvu', 1, {targetWidthPx: 2484});
 
         expect(mocks.convertDjvuPageToImage).toHaveBeenCalledWith(
             '/tmp/book.djvu',
             expect.stringMatching(new RegExp(`^${escapeRegExp(join('/tmp/djvu-preview-test', 'page-1-'))}.+\\.ppm$`, 'u')),
             1,
             expect.stringMatching(/^djvu-preview-page-1-/u),
-            { format: 'ppm' },
+            {format: 'ppm'},
         );
     });
 
     it('downsamples viewport previews directly in the DjVuLibre engine', async () => {
-        mocks.runDjvuEngine.mockImplementation(async (request: { type: string }) => {
+        mocks.runDjvuEngine.mockImplementation(async (request: {type: string}) => {
             if (request.type === 'getDocInfo') {
                 return {
                     pageCount: 1,
@@ -199,14 +189,16 @@ describe('DjVu page preview helpers (DjVuLibre WASM)', () => {
                     files: [],
                 };
             }
-            return [{
-                width: 1293,
-                height: 1966,
-                dpi: 300,
-            }];
+            return [
+                {
+                    width: 1293,
+                    height: 1966,
+                    dpi: 300,
+                },
+            ];
         });
 
-        await renderDjvuPagePreview('/tmp/book.djvu', 1, { targetWidthPx: 400 });
+        await renderDjvuPagePreview('/tmp/book.djvu', 1, {targetWidthPx: 400});
 
         expect(mocks.convertDjvuPageToImage).toHaveBeenCalledWith(
             '/tmp/book.djvu',
@@ -222,14 +214,16 @@ describe('DjVu page preview helpers (DjVuLibre WASM)', () => {
     });
 
     it('reuses the page metrics loaded at open instead of probing per preview', async () => {
-        mocks.runDjvuEngine.mockResolvedValueOnce([{
-            width: 1293,
-            height: 1966,
-            dpi: 300,
-        }]);
+        mocks.runDjvuEngine.mockResolvedValueOnce([
+            {
+                width: 1293,
+                height: 1966,
+                dpi: 300,
+            },
+        ]);
         await getDjvuPageSizesForViewing('/tmp/book.djvu', 1);
 
-        await renderDjvuPagePreview('/tmp/book.djvu', 1, { targetWidthPx: 400 });
+        await renderDjvuPagePreview('/tmp/book.djvu', 1, {targetWidthPx: 400});
 
         expect(mocks.runDjvuEngine).toHaveBeenCalledOnce();
     });
@@ -262,24 +256,17 @@ describe('DjVu page preview helpers (DjVuLibre WASM)', () => {
 
         const selectedWindows: number[] = [];
         for await (const window of getDjvuPageSizeWindowsForViewing('/tmp/huge.djvu', 2050, {
-            pageNumbers: [
-                2050,
-                5,
-                6,
-            ],
+            pageNumbers: [2050, 5, 6],
         })) {
             selectedWindows.push(window.firstPage);
         }
-        expect(selectedWindows).toEqual([
-            5,
-            2050,
-        ]);
+        expect(selectedWindows).toEqual([5, 2050]);
     });
 
     it('refuses dense page-size arrays above the bounded compatibility ceiling', async () => {
-        await expect(
-            getDjvuPageSizesForViewing('/tmp/too-many.djvu', DJVU_PAGE_SIZE_ARRAY_MAX_PAGES + 1),
-        ).rejects.toBeInstanceOf(DjvuPageSizeArrayLimitError);
+        await expect(getDjvuPageSizesForViewing('/tmp/too-many.djvu', DJVU_PAGE_SIZE_ARRAY_MAX_PAGES + 1)).rejects.toBeInstanceOf(
+            DjvuPageSizeArrayLimitError,
+        );
     });
 
     it('invalidates cached page metrics when the file revision changes at the same path', async () => {
@@ -307,14 +294,12 @@ describe('DjVu page preview helpers (DjVuLibre WASM)', () => {
             size: targetPath?.endsWith('.ppm') ? 256 * 1024 * 1024 : 100,
         }));
 
-        await expect(renderDjvuPagePreview('/tmp/book.djvu', 1))
-            .rejects.toThrow('DjVu preview output exceeds safe read limit');
+        await expect(renderDjvuPagePreview('/tmp/book.djvu', 1)).rejects.toThrow('DjVu preview output exceeds safe read limit');
     });
 
     it('fails recoverably when native PNG preview encoding is disabled', async () => {
         mocks.isNativePdfImageCombineDisabled.mockReturnValue(true);
 
-        await expect(renderDjvuPagePreview('/tmp/book.djvu', 1))
-            .rejects.toThrow('Native DjVu preview encoding is unavailable');
+        await expect(renderDjvuPagePreview('/tmp/book.djvu', 1)).rejects.toThrow('Native DjVu preview encoding is unavailable');
     });
 });

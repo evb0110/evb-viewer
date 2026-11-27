@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import {readFileSync} from 'node:fs';
 import path from 'node:path';
 import stylelint from 'stylelint';
 
@@ -9,7 +9,8 @@ const IMPORTANT_ALLOWANCE_WINDOW_LINES = 8;
 const STYLE_ASSET_FILE_PATTERN = /^_?[a-z0-9]+(?:-[a-z0-9]+)*\.(?:css|scss)$/u;
 const CUSTOM_PROPERTY_DECLARATION_PATTERN = /(?:^|[^A-Za-z0-9_-])['"]?(--[A-Za-z0-9_-]+)['"]?\s*:/gu;
 const VALIDATED_CUSTOM_PROPERTY_PATTERN = /^(?:--app-|--ui-|--radius-|--toolbar-control-height$)/u;
-const KNOWN_EXTERNAL_UI_TOKENS = new Set(`
+const KNOWN_EXTERNAL_UI_TOKENS = new Set(
+    `
 --ui-bg
 --ui-bg-accented
 --ui-bg-elevated
@@ -45,18 +46,16 @@ const KNOWN_EXTERNAL_UI_TOKENS = new Set(`
 --ui-text-muted
 --ui-text-toned
 --ui-warning
-`.trim().split('\n'));
+`
+        .trim()
+        .split('\n'),
+);
 
 function collectDeclaredCustomProperties(source) {
-    return new Set(Array.from(
-        source.matchAll(CUSTOM_PROPERTY_DECLARATION_PATTERN),
-        match => match[1],
-    ).filter(Boolean));
+    return new Set(Array.from(source.matchAll(CUSTOM_PROPERTY_DECLARATION_PATTERN), (match) => match[1]).filter(Boolean));
 }
 
-const CANONICAL_APP_TOKENS = collectDeclaredCustomProperties(
-    readFileSync(new URL('./app/assets/css/main.css', import.meta.url), 'utf8'),
-);
+const CANONICAL_APP_TOKENS = collectDeclaredCustomProperties(readFileSync(new URL('./app/assets/css/main.css', import.meta.url), 'utf8'));
 
 function collectVarReferences(value) {
     const references = [];
@@ -102,15 +101,15 @@ function collectVarReferences(value) {
 
 const knownCustomPropertiesRule = () => (root, result) => {
     const localTokens = new Set();
-    root.walkDecls(/^--/u, declaration => localTokens.add(declaration.prop));
+    root.walkDecls(/^--/u, (declaration) => localTokens.add(declaration.prop));
     root.walkDecls((declaration) => {
         for (const reference of collectVarReferences(declaration.value)) {
             if (
-                !VALIDATED_CUSTOM_PROPERTY_PATTERN.test(reference.name)
-                || reference.hasFallback
-                || CANONICAL_APP_TOKENS.has(reference.name)
-                || localTokens.has(reference.name)
-                || KNOWN_EXTERNAL_UI_TOKENS.has(reference.name)
+                !VALIDATED_CUSTOM_PROPERTY_PATTERN.test(reference.name) ||
+                reference.hasFallback ||
+                CANONICAL_APP_TOKENS.has(reference.name) ||
+                localTokens.has(reference.name) ||
+                KNOWN_EXTERNAL_UI_TOKENS.has(reference.name)
             ) {
                 continue;
             }
@@ -139,7 +138,7 @@ const importantPolicyRule = () => (root, result) => {
 
         const line = declaration.source?.start?.line ?? 1;
         const allowed = allowanceLines.some(
-            allowanceLine => allowanceLine <= line && allowanceLine >= line - IMPORTANT_ALLOWANCE_WINDOW_LINES,
+            (allowanceLine) => allowanceLine <= line && allowanceLine >= line - IMPORTANT_ALLOWANCE_WINDOW_LINES,
         );
         if (!allowed) {
             stylelint.utils.report({
@@ -163,8 +162,8 @@ const styleAssetConventionsRule = () => (root, result) => {
     const assetRoot = repoPath.startsWith('app/assets/css/')
         ? 'app/assets/css/'
         : repoPath.startsWith('landing/app/assets/css/')
-            ? 'landing/app/assets/css/'
-            : null;
+          ? 'landing/app/assets/css/'
+          : null;
     if (!assetRoot || repoPath.startsWith('app/assets/css/vendor/')) {
         return;
     }
@@ -198,16 +197,14 @@ export const stylelintCustomPlugins = [
 
 const RAW_DIMENSION_VALUE_PATTERN = /^-?(?!0(?:\.0+)?(?:\D|$))\d*\.?\d+(?:px|rem|em)\b/u;
 const RAW_LAYOUT_VALUE_RULES = {
-    '/^(?:width|height|min-width|max-width|min-height|max-height|inline-size|block-size|min-inline-size|max-inline-size|min-block-size|max-block-size|padding(?:-(?:top|right|bottom|left|inline|block)(?:-(?:start|end))?)?|margin(?:-(?:top|right|bottom|left|inline|block)(?:-(?:start|end))?)?|gap|row-gap|column-gap|top|right|bottom|left|inset(?:-(?:inline|block)(?:-(?:start|end))?)?|border-radius)$/': [RAW_DIMENSION_VALUE_PATTERN],
+    '/^(?:width|height|min-width|max-width|min-height|max-height|inline-size|block-size|min-inline-size|max-inline-size|min-block-size|max-block-size|padding(?:-(?:top|right|bottom|left|inline|block)(?:-(?:start|end))?)?|margin(?:-(?:top|right|bottom|left|inline|block)(?:-(?:start|end))?)?|gap|row-gap|column-gap|top|right|bottom|left|inset(?:-(?:inline|block)(?:-(?:start|end))?)?|border-radius)$/':
+        [RAW_DIMENSION_VALUE_PATTERN],
     'font-size': [/^\d*\.?\d+(?:px|rem|em)\b/u],
     'z-index': [/^-?\d+\b/u],
 };
 
 export default {
-    extends: [
-        'stylelint-config-standard-scss',
-        'stylelint-config-recommended-vue/scss',
-    ],
+    extends: ['stylelint-config-standard-scss', 'stylelint-config-recommended-vue/scss'],
     plugins: stylelintCustomPlugins,
     ignoreFiles: ['app/assets/css/vendor/**/*.css'],
     rules: {
@@ -232,7 +229,6 @@ export default {
 
         // Don't enforce precision limits
         'number-max-precision': null,
-
     },
     overrides: [
         {
@@ -251,10 +247,7 @@ export default {
         {
             // Both entry stylesheets are hand-written Tailwind 4 token sheets
             // (`@theme`, `#__nuxt`), so they share one exception list.
-            files: [
-                'app/assets/css/**/*.{css,scss}',
-                'landing/app/assets/css/**/*.{css,scss}',
-            ],
+            files: ['app/assets/css/**/*.{css,scss}', 'landing/app/assets/css/**/*.{css,scss}'],
             rules: {
                 'scss/at-rule-no-unknown': null,
                 'hue-degree-notation': null,
@@ -271,11 +264,16 @@ export default {
             },
         },
         {
-            files: [
-                'app/assets/css/pdfjs-overrides.scss',
-            ],
+            files: ['app/assets/css/pdfjs-overrides.scss'],
             rules: {
                 [IMPORTANT_POLICY_RULE]: null,
+            },
+        },
+        {
+            files: ['**/*.css'],
+            rules: {
+                'media-query-no-invalid': true,
+                'declaration-property-value-no-unknown': true,
             },
         },
     ],

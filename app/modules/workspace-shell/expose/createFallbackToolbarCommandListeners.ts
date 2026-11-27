@@ -5,12 +5,12 @@ import type {IWorkspaceExpose} from '@app/types/workspaceExpose';
 // Toolbar events the shell's fallback toolbar and the window's More tools
 // forward to the active workspace, which they resolve when the event arrives.
 const TOOLBAR_COMMANDS = {
-    'save': 'handleSave',
+    save: 'handleSave',
     'save-as': 'handleSaveAs',
-    'print': 'handlePrint',
+    print: 'handlePrint',
     'print-current-page': 'handlePrintCurrentPage',
-    'undo': 'handleUndo',
-    'redo': 'handleRedo',
+    undo: 'handleUndo',
+    redo: 'handleRedo',
     'export-docx': 'handleExportDocx',
     'fit-width': 'handleFitWidth',
     'fit-height': 'handleFitHeight',
@@ -19,13 +19,15 @@ const TOOLBAR_COMMANDS = {
     'enable-drag': 'handleEnableDragMode',
     'disable-drag': 'handleDisableDragMode',
     'capture-region': 'handleCaptureRegion',
-    'crop': 'handleCrop',
+    crop: 'handleCrop',
     'quick-note': 'handleQuickNote',
 } as const satisfies Record<string, keyof IWorkspaceExpose>;
 
 export function createFallbackToolbarCommandListeners(activeWorkspace: Readonly<Ref<IWorkspaceExpose | null>>) {
     function run(commandName: string, args: readonly unknown[] = []) {
-        const command = (activeWorkspace.value as Record<string, ((...commandArgs: unknown[]) => unknown) | undefined> | null)?.[commandName];
+        const command = (activeWorkspace.value as Record<string, ((...commandArgs: unknown[]) => unknown) | undefined> | null)?.[
+            commandName
+        ];
         const result = command?.(...args);
         if (result instanceof Promise) {
             guardAsync(result, {
@@ -37,13 +39,9 @@ export function createFallbackToolbarCommandListeners(activeWorkspace: Readonly<
     }
 
     return {
-        listeners: Object.fromEntries(Object.entries(TOOLBAR_COMMANDS).map(([
-            eventName,
-            commandName,
-        ]) => [
-            eventName,
-            (...args: unknown[]) => run(commandName, args),
-        ])),
+        listeners: Object.fromEntries(
+            Object.entries(TOOLBAR_COMMANDS).map(([eventName, commandName]) => [eventName, (...args: unknown[]) => run(commandName, args)]),
+        ),
         run,
     };
 }

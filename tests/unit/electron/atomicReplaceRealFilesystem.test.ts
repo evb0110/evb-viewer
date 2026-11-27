@@ -1,34 +1,12 @@
 import type * as TFsPromisesOriginalModule from 'fs/promises';
 
 import {constants} from 'node:fs';
-import {
-    copyFile,
-    link,
-    mkdtemp,
-    chmod,
-    readFile,
-    readdir,
-    readlink,
-    rename,
-    rm,
-    symlink,
-    writeFile,
-    stat,
-} from 'node:fs/promises';
+import {copyFile, link, mkdtemp, chmod, readFile, readdir, readlink, rename, rm, symlink, writeFile, stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {capturePathSaveWitness} from '@electron/file-access/originalPathSaveWitness';
-import {
-    atomicReplace,
-    recoverWindowsAtomicReplace,
-} from '@electron/utils/atomicReplace';
+import {atomicReplace, recoverWindowsAtomicReplace} from '@electron/utils/atomicReplace';
 
 vi.mock('fs/promises', {spy: true});
 
@@ -49,22 +27,23 @@ describe('atomicReplace real filesystem policy', () => {
         const source = join(root, '.next.tmp');
         await writeFile(destination, 'old manifest');
         await writeFile(source, 'new manifest');
-        const [
-            destinationWitness,
-            sourceWitness,
-        ] = await Promise.all([
+        const [destinationWitness, sourceWitness] = await Promise.all([
             capturePathSaveWitness(destination),
             capturePathSaveWitness(source),
         ]);
         const journal = `${destination}.evb-atomic-replace.json`;
-        const writeJournal = () => writeFile(journal, JSON.stringify({
-            version: 1,
-            sourcePath: source,
-            destinationPath: destination,
-            backupPath: `${destination}.bak-gone`,
-            destinationSnapshot: destinationWitness!.getSnapshotForJournal(),
-            sourceSnapshot: sourceWitness!.getSnapshotForJournal(),
-        }));
+        const writeJournal = () =>
+            writeFile(
+                journal,
+                JSON.stringify({
+                    version: 1,
+                    sourcePath: source,
+                    destinationPath: destination,
+                    backupPath: `${destination}.bak-gone`,
+                    destinationSnapshot: destinationWitness!.getSnapshotForJournal(),
+                    sourceSnapshot: sourceWitness!.getSnapshotForJournal(),
+                }),
+            );
         // The new file was published and its backup removed; only the journal remains.
         await rm(destination);
         await rename(source, destination);
@@ -91,9 +70,9 @@ describe('atomicReplace real filesystem policy', () => {
         await writeFile(referentPath, 'referent bytes');
         await symlink(referentPath, destinationPath);
 
-        await expect(atomicReplace(sourcePath, destinationPath))
-            .rejects
-            .toThrow(`Invalid file path: symlink path segment is not allowed (${destinationPath})`);
+        await expect(atomicReplace(sourcePath, destinationPath)).rejects.toThrow(
+            `Invalid file path: symlink path segment is not allowed (${destinationPath})`,
+        );
         await expect(readlink(destinationPath)).resolves.toBe(referentPath);
         await expect(readFile(referentPath, 'utf8')).resolves.toBe('referent bytes');
         await expect(readFile(sourcePath, 'utf8')).resolves.toBe('new bytes');
@@ -139,11 +118,9 @@ describe('atomicReplace real filesystem policy', () => {
         await expect(readFile(destinationPath, 'utf8')).resolves.toBe('source bytes');
     });
 
-    it.skipIf(process.platform === 'win32').each([
-        false,
-        true,
-    ])(
-        'keeps old private bytes when chmod is refused (durable=%s)', async (durable) => {
+    it.skipIf(process.platform === 'win32').each([false, true])(
+        'keeps old private bytes when chmod is refused (durable=%s)',
+        async (durable) => {
             root = await mkdtemp(join(tmpdir(), 'evb-atomic-replace-mode-refused-'));
             const destinationPath = join(root, 'private.pdf');
             const stagingPath = join(root, 'staging.pdf');
@@ -198,9 +175,7 @@ describe('atomicReplace real filesystem policy', () => {
             mode: 0o000,
             linked: true,
         },
-    ])('durably replaces an unreadable destination (%j)', async ({
-        mode, linked,
-    }) => {
+    ])('durably replaces an unreadable destination (%j)', async ({mode, linked}) => {
         root = await mkdtemp(join(tmpdir(), 'evb-atomic-replace-unreadable-'));
         const destinationPath = join(root, 'destination.pdf');
         const stagingPath = join(root, 'staging.pdf');
@@ -209,8 +184,11 @@ describe('atomicReplace real filesystem policy', () => {
         await chmod(destinationPath, mode);
         await writeFile(sourcePath, 'new bytes');
         await chmod(sourcePath, 0o644);
-        if (linked) await link(sourcePath, stagingPath);
-        else await writeFile(stagingPath, 'new bytes', {mode: 0o644});
+        if (linked) {
+            await link(sourcePath, stagingPath);
+        } else {
+            await writeFile(stagingPath, 'new bytes', {mode: 0o644});
+        }
 
         await atomicReplace(stagingPath, destinationPath);
 
@@ -253,43 +231,34 @@ describe('atomicReplace real filesystem policy', () => {
         await expect(readFile(destinationPath, 'utf8')).resolves.toBe('new bytes');
     });
 
-    it.skipIf(process.platform === 'win32').each([
-        'copy',
-        'rename',
-    ])(
-        'removes the detached copy after failed %s', async (failure) => {
-            root = await mkdtemp(join(tmpdir(), 'evb-atomic-replace-detach-failure-'));
-            const sourcePath = join(root, 'source.pdf');
-            const stagingPath = join(root, 'staging.pdf');
-            const destinationPath = join(root, 'destination.pdf');
-            await writeFile(sourcePath, 'private new document');
-            await chmod(sourcePath, 0o644);
-            await link(sourcePath, stagingPath);
-            await writeFile(destinationPath, 'old bytes');
-            await chmod(destinationPath, 0o600);
-            const fs = await import('fs/promises');
-            const refused = Object.assign(new Error('detach refused'), {code: 'EPERM'});
-            if (failure === 'copy') {
-                vi.mocked(fs.copyFile).mockImplementationOnce(async (_source, destination) => {
-                    await writeFile(destination, 'partial private document');
-                    throw refused;
-                });
-            } else {
-                vi.mocked(fs.rename).mockRejectedValueOnce(refused);
-            }
+    it.skipIf(process.platform === 'win32').each(['copy', 'rename'])('removes the detached copy after failed %s', async (failure) => {
+        root = await mkdtemp(join(tmpdir(), 'evb-atomic-replace-detach-failure-'));
+        const sourcePath = join(root, 'source.pdf');
+        const stagingPath = join(root, 'staging.pdf');
+        const destinationPath = join(root, 'destination.pdf');
+        await writeFile(sourcePath, 'private new document');
+        await chmod(sourcePath, 0o644);
+        await link(sourcePath, stagingPath);
+        await writeFile(destinationPath, 'old bytes');
+        await chmod(destinationPath, 0o600);
+        const fs = await import('fs/promises');
+        const refused = Object.assign(new Error('detach refused'), {code: 'EPERM'});
+        if (failure === 'copy') {
+            vi.mocked(fs.copyFile).mockImplementationOnce(async (_source, destination) => {
+                await writeFile(destination, 'partial private document');
+                throw refused;
+            });
+        } else {
+            vi.mocked(fs.rename).mockRejectedValueOnce(refused);
+        }
 
-            await expect(atomicReplace(stagingPath, destinationPath)).rejects.toBe(refused);
+        await expect(atomicReplace(stagingPath, destinationPath)).rejects.toBe(refused);
 
-            await expect(readFile(destinationPath, 'utf8')).resolves.toBe('old bytes');
-            expect((await stat(destinationPath)).mode & 0o777).toBe(0o600);
-            await expect(readFile(sourcePath, 'utf8')).resolves.toBe('private new document');
-            expect((await stat(sourcePath)).mode & 0o777).toBe(0o644);
-            await expect(readFile(stagingPath, 'utf8')).resolves.toBe('private new document');
-            expect((await readdir(root)).sort()).toEqual([
-                'destination.pdf',
-                'source.pdf',
-                'staging.pdf',
-            ]);
-        },
-    );
+        await expect(readFile(destinationPath, 'utf8')).resolves.toBe('old bytes');
+        expect((await stat(destinationPath)).mode & 0o777).toBe(0o600);
+        await expect(readFile(sourcePath, 'utf8')).resolves.toBe('private new document');
+        expect((await stat(sourcePath)).mode & 0o777).toBe(0o644);
+        await expect(readFile(stagingPath, 'utf8')).resolves.toBe('private new document');
+        expect((await readdir(root)).sort()).toEqual(['destination.pdf', 'source.pdf', 'staging.pdf']);
+    });
 });

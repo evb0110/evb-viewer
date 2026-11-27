@@ -1,5 +1,5 @@
-import { range } from 'es-toolkit/math';
-import type { TOcrPageRange } from '@app/utils/ocr/ocrTypes';
+import {range} from 'es-toolkit/math';
+import type {TOcrPageRange} from '@app/utils/ocr/ocrTypes';
 
 /** Keep renderer-side page lists small. Larger contiguous scopes stay scalar. */
 export const OCR_PAGE_SELECTION_EXPANSION_LIMIT = 5_000;
@@ -12,22 +12,21 @@ interface IOcrPageScopeRange {
 export type TOcrPageSelectionScope =
     | number[]
     | {
-        kind: 'all';
-        pageCount: number;
-    }
+          kind: 'all';
+          pageCount: number;
+      }
     | {
-        kind: 'range';
-        firstPage: number;
-        lastPage: number;
-    }
+          kind: 'range';
+          firstPage: number;
+          lastPage: number;
+      }
     | {
-        kind: 'ranges';
-        ranges: IOcrPageScopeRange[];
-    };
+          kind: 'ranges';
+          ranges: IOcrPageScopeRange[];
+      };
 
 function mergePageRanges(ranges: IOcrPageScopeRange[]) {
-    const ordered = [...ranges].sort((left, right) =>
-        left.firstPage - right.firstPage || left.lastPage - right.lastPage);
+    const ordered = [...ranges].sort((left, right) => left.firstPage - right.firstPage || left.lastPage - right.lastPage);
     const merged: IOcrPageScopeRange[] = [];
     for (const current of ordered) {
         const previous = merged.at(-1);
@@ -50,10 +49,7 @@ function getScopePageCount(scope: TOcrPageSelectionScope) {
     if (scope.kind === 'range') {
         return scope.lastPage - scope.firstPage + 1;
     }
-    return scope.ranges.reduce(
-        (count, pageRange) => count + pageRange.lastPage - pageRange.firstPage + 1,
-        0,
-    );
+    return scope.ranges.reduce((count, pageRange) => count + pageRange.lastPage - pageRange.firstPage + 1, 0);
 }
 
 /**
@@ -81,7 +77,7 @@ export function parseOcrPageSelection(
     }
 
     const ranges: IOcrPageScopeRange[] = [];
-    const parts = customRange.split(',').map(part => part.trim());
+    const parts = customRange.split(',').map((part) => part.trim());
     const singlePagePattern = /^\d+$/u;
     const pageRangePattern = /^(\d+)\s*-\s*(\d+)$/u;
     for (const part of parts) {
@@ -116,10 +112,7 @@ export function parseOcrPageSelection(
     if (mergedRanges.length === 0) {
         return [];
     }
-    const pageCount = mergedRanges.reduce(
-        (count, pageRange) => count + pageRange.lastPage - pageRange.firstPage + 1,
-        0,
-    );
+    const pageCount = mergedRanges.reduce((count, pageRange) => count + pageRange.lastPage - pageRange.firstPage + 1, 0);
     if (pageCount > OCR_PAGE_SELECTION_EXPANSION_LIMIT) {
         if (mergedRanges.length === 1) {
             const [pageRange] = mergedRanges;
@@ -136,29 +129,16 @@ export function parseOcrPageSelection(
         };
     }
 
-    return mergedRanges.flatMap(pageRange =>
-        range(pageRange.firstPage, pageRange.lastPage + 1));
+    return mergedRanges.flatMap((pageRange) => range(pageRange.firstPage, pageRange.lastPage + 1));
 }
 
-export function parsePageRange(
-    rangeType: TOcrPageRange,
-    customRange: string,
-    currentPage: number,
-    totalPages: number,
-): number[] {
-    const selection = parseOcrPageSelection(
-        rangeType,
-        customRange,
-        currentPage,
-        totalPages,
-    );
+export function parsePageRange(rangeType: TOcrPageRange, customRange: string, currentPage: number, totalPages: number): number[] {
+    const selection = parseOcrPageSelection(rangeType, customRange, currentPage, totalPages);
     if (Array.isArray(selection)) {
         return selection;
     }
     if (selection.kind === 'all') {
-        return selection.pageCount <= OCR_PAGE_SELECTION_EXPANSION_LIMIT
-            ? range(1, selection.pageCount + 1)
-            : [];
+        return selection.pageCount <= OCR_PAGE_SELECTION_EXPANSION_LIMIT ? range(1, selection.pageCount + 1) : [];
     }
     if (selection.kind === 'range') {
         return selection.lastPage - selection.firstPage + 1 <= OCR_PAGE_SELECTION_EXPANSION_LIMIT
@@ -166,6 +146,6 @@ export function parsePageRange(
             : [];
     }
     return getScopePageCount(selection) <= OCR_PAGE_SELECTION_EXPANSION_LIMIT
-        ? selection.ranges.flatMap(pageRange => range(pageRange.firstPage, pageRange.lastPage + 1))
+        ? selection.ranges.flatMap((pageRange) => range(pageRange.firstPage, pageRange.lastPage + 1))
         : [];
 }

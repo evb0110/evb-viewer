@@ -17,7 +17,7 @@ vi.mock('electron', () => ({
     dialog: {},
     webContents: {fromId: () => undefined},
 }));
-vi.mock('@electron/utils/appTempDir', async original => ({...await original<typeof TAppTempDir>(), getAppTempDir: () => state.root}));
+vi.mock('@electron/utils/appTempDir', async (original) => ({...(await original<typeof TAppTempDir>()), getAppTempDir: () => state.root}));
 vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedWritePath: async (path: string) => path}));
 vi.mock('@electron/features/page-ops/main/qpdf', () => ({
     getPdfPageCount: async (path: string) => (await PDFDocument.load(await readFile(path))).getPageCount(),
@@ -32,11 +32,13 @@ vi.mock('@electron/pdf/pdfAppendBase', () => ({rewritePdfWithQpdf: (...args: unk
 const fixtures = resolve('native/pdf-page-ops/tests/fixtures/damaged-recovery');
 afterEach(async () => {
     await store.setDocumentStoreRootForTests(null);
-    if (state.root) await rm(state.root, {recursive: true, force: true});
+    if (state.root) {
+        await rm(state.root, {recursive: true, force: true});
+    }
     vi.clearAllMocks();
 });
 
-it.each([false, true])('desktop recovery keeps the user file and rolls back a refused retry: %s', async refuseRetry => {
+it.each([false, true])('desktop recovery keeps the user file and rolls back a refused retry: %s', async (refuseRetry) => {
     state.root = await mkdtemp(join(tmpdir(), 'page-recovery-'));
     state.refuseRetry = refuseRetry;
     await store.setDocumentStoreRootForTests(join(state.root, 'store'));
@@ -57,7 +59,9 @@ it.each([false, true])('desktop recovery keeps the user file and rolls back a re
     });
     state.repairs.mockImplementation(async (_source: string, target: string) => copyFile(join(fixtures, 'healthy.pdf'), target));
     const sender = Object.assign(new EventEmitter(), {id: 7, isDestroyed: () => false});
-    const pending = pageOpsMainBindings.delete({sender: cast(sender), senderId: 7}, entry.ref, [1], 2, {expectedDocumentRevisionToken: before});
+    const pending = pageOpsMainBindings.delete({sender: cast(sender), senderId: 7}, entry.ref, [1], 2, {
+        expectedDocumentRevisionToken: before,
+    });
     if (refuseRetry) {
         await expect(pending).rejects.toThrow('not at its xref offset');
         expect(store.documentRevisionToken(entry)).toBe(before);

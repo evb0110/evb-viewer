@@ -1,11 +1,6 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { effectScope } from 'vue';
-import { useDocumentPasswordPrompt } from '@app/modules/workspace-shell/composables/useDocumentPasswordPrompt';
+import {afterEach, describe, expect, it} from 'vitest';
+import {effectScope} from 'vue';
+import {useDocumentPasswordPrompt} from '@app/modules/workspace-shell/composables/useDocumentPasswordPrompt';
 
 describe('useDocumentPasswordPrompt', () => {
     afterEach(() => {
@@ -40,10 +35,7 @@ describe('useDocumentPasswordPrompt', () => {
         await expect(firstAttempt).resolves.toBe('wrong');
         expect(prompt.open.value).toBe(true);
 
-        const retryAttempt = prompt.requestPassword(
-            'protected.pdf',
-            'That password is incorrect. Try again.',
-        );
+        const retryAttempt = prompt.requestPassword('protected.pdf', 'That password is incorrect. Try again.');
         expect(prompt.open.value).toBe(true);
         expect(prompt.checking.value).toBe(false);
         expect(prompt.errorMessage.value).toBe('That password is incorrect. Try again.');

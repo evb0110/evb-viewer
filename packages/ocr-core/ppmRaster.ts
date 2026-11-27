@@ -56,7 +56,9 @@ export function encodePnm(width: number, height: number, channels: 1 | 3, pixels
 /** The size in the header `createPpmRaster` and Poppler write. */
 export function readPnmSize(image: Uint8Array) {
     const match = /^P[56]\n(\d+) (\d+)\n255\n/u.exec(new TextDecoder().decode(image.subarray(0, 32)));
-    if (!match) throw new Error('OCR page raster is not a binary PGM or PPM');
+    if (!match) {
+        throw new Error('OCR page raster is not a binary PGM or PPM');
+    }
     return {
         width: Number(match[1]),
         height: Number(match[2]),

@@ -1,17 +1,9 @@
-import type {
-    IAnnotationCommentSummary,
-    IShapeAnnotation,
-    TDrawableShapeType,
-} from '@app/types/annotations';
+import type {IAnnotationCommentSummary, IShapeAnnotation, TDrawableShapeType} from '@app/types/annotations';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {IPdfNativeAnnotationIdentityBinding} from '@contracts/electronApiDocuments';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {createEpochMs} from '@contracts/timestamps';
-import type {
-    AnnotationEntity,
-    AnnotationId,
-    IShapeEntity,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {AnnotationEntity, AnnotationId, IShapeEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 import {
     asAnnotationId,
@@ -19,14 +11,8 @@ import {
     mintAnnotationId,
     toLegacyShapeAnnotation,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import {
-    AnnotationStore,
-    type IAnnotationSaveFrontier,
-} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
-import {
-    annotationCommentSource,
-    buildSerializationPlan,
-} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
+import {AnnotationStore, type IAnnotationSaveFrontier} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
+import {annotationCommentSource, buildSerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import {normalizePdfJsAnnotationId} from '@app/utils/pdfAnnotationRefs';
 import {getAllShapePoints} from '@app/modules/pdf-viewer/engine/pdf-shape-strokes/getAllShapePoints';
 
@@ -60,7 +46,6 @@ export interface IAnnotationSaveSession {
     readonly affectedPageIndices: readonly number[] | null;
 }
 
-
 function shapeToolFromLegacyShape(shape: IShapeAnnotation): TDrawableShapeType {
     if (shape.type === 'polyline') {
         return 'draw';
@@ -71,48 +56,36 @@ function shapeToolFromLegacyShape(shape: IShapeAnnotation): TDrawableShapeType {
     if (shape.type === 'line' && shape.lineEndStyle === 'closedArrow') {
         return 'arrow';
     }
-    return shape.type === 'rectangle' || shape.type === 'circle' || shape.type === 'line'
-        ? shape.type
-        : 'draw';
+    return shape.type === 'rectangle' || shape.type === 'circle' || shape.type === 'line' ? shape.type : 'draw';
 }
 
-export function toCanonicalShapeEntity(
-    shape: IShapeAnnotation,
-    id: AnnotationId = mintAnnotationId(),
-): IShapeEntity {
+export function toCanonicalShapeEntity(shape: IShapeAnnotation, id: AnnotationId = mintAnnotationId()): IShapeEntity {
     const pdfRef = normalizedPdfRef(shape.annotationId);
     const tool = shapeToolFromLegacyShape(shape);
-    const linePoints = tool === 'line' || tool === 'arrow'
-        ? [
-            {
-                x: shape.x,
-                y: shape.y,
-            },
-            {
-                x: shape.x2 ?? shape.x + shape.width,
-                y: shape.y2 ?? shape.y + shape.height,
-            },
-        ]
-        : null;
+    const linePoints =
+        tool === 'line' || tool === 'arrow'
+            ? [
+                  {
+                      x: shape.x,
+                      y: shape.y,
+                  },
+                  {
+                      x: shape.x2 ?? shape.x + shape.width,
+                      y: shape.y2 ?? shape.y + shape.height,
+                  },
+              ]
+            : null;
     const geometryPoints = shape.points ?? linePoints;
     // A freehand stroke split at a page exit keeps its first path in `points`;
     // its bounds cover every path.
     const allGeometryPoints = shape.points
         ? getAllShapePoints(shape)
-        : geometryPoints ?? shape.strokes?.flatMap(stroke => stroke) ?? [];
+        : (geometryPoints ?? shape.strokes?.flatMap((stroke) => stroke) ?? []);
     const hasPointBounds = allGeometryPoints.length > 0;
-    const geometryLeft = hasPointBounds
-        ? Math.min(...allGeometryPoints.map(point => point.x))
-        : shape.x;
-    const geometryTop = hasPointBounds
-        ? Math.min(...allGeometryPoints.map(point => point.y))
-        : shape.y;
-    const geometryRight = hasPointBounds
-        ? Math.max(...allGeometryPoints.map(point => point.x))
-        : null;
-    const geometryBottom = hasPointBounds
-        ? Math.max(...allGeometryPoints.map(point => point.y))
-        : null;
+    const geometryLeft = hasPointBounds ? Math.min(...allGeometryPoints.map((point) => point.x)) : shape.x;
+    const geometryTop = hasPointBounds ? Math.min(...allGeometryPoints.map((point) => point.y)) : shape.y;
+    const geometryRight = hasPointBounds ? Math.max(...allGeometryPoints.map((point) => point.x)) : null;
+    const geometryBottom = hasPointBounds ? Math.max(...allGeometryPoints.map((point) => point.y)) : null;
     return {
         kind: 'shape',
         identity: {
@@ -123,12 +96,8 @@ export function toCanonicalShapeEntity(
         revision: 0,
         persistedRevision: pdfRef ? 0 : -1,
         deleted: false,
-        createdAt: shape.createdAt === null || shape.createdAt === undefined
-            ? null
-            : createEpochMs(Math.trunc(shape.createdAt)),
-        modifiedAt: shape.modifiedAt === null || shape.modifiedAt === undefined
-            ? null
-            : createEpochMs(Math.trunc(shape.modifiedAt)),
+        createdAt: shape.createdAt === null || shape.createdAt === undefined ? null : createEpochMs(Math.trunc(shape.createdAt)),
+        modifiedAt: shape.modifiedAt === null || shape.modifiedAt === undefined ? null : createEpochMs(Math.trunc(shape.modifiedAt)),
         author: shape.author ?? null,
         tool,
         ...(shape.pdfSubtype == null ? {} : {pdfSubtype: shape.pdfSubtype}),
@@ -158,20 +127,24 @@ export function toCanonicalShapeEntity(
 export class AnnotationApplication {
     readonly store: AnnotationStore;
 
-    constructor(readonly documentKey: string, store = new AnnotationStore()) {
+    constructor(
+        readonly documentKey: string,
+        store = new AnnotationStore(),
+    ) {
         this.store = store;
     }
 
     listReadModels(): readonly IAnnotationReadModel[] {
-        return this.store.list({includeDeleted: true}).map(entity => ({
+        return this.store.list({includeDeleted: true}).map((entity) => ({
             annotationId: entity.identity.id,
             kind: entity.kind,
             pageIndex: entity.pageIndex,
-            text: entity.kind === 'text-box'
-                ? entity.text
-                : entity.kind === 'note'
-                    ? entity.contents
-                    : entity.kind === 'text-markup'
+            text:
+                entity.kind === 'text-box'
+                    ? entity.text
+                    : entity.kind === 'note'
+                      ? entity.contents
+                      : entity.kind === 'text-markup'
                         ? entity.contents
                         : '',
             deleted: entity.deleted,
@@ -207,70 +180,74 @@ export class AnnotationApplication {
             const stableKey: IAnnotationCommentSummary['stableKey'] = entity.identity.pdfRef
                 ? `ann:${entity.pageIndex}:${entity.identity.pdfRef}`
                 : `ann:${entity.pageIndex}:${entity.identity.id}`;
-            const markerRect = entity.kind === 'text-box'
-                ? structuredClone(entity.rect)
-                : entity.kind === 'note'
-                    ? structuredClone(entity.position)
-                    : entity.kind === 'text-markup'
+            const markerRect =
+                entity.kind === 'text-box'
+                    ? structuredClone(entity.rect)
+                    : entity.kind === 'note'
+                      ? structuredClone(entity.position)
+                      : entity.kind === 'text-markup'
                         ? structuredClone(entity.quadPoints[0] ?? null)
                         : structuredClone(entity.rect);
-            const text = entity.kind === 'text-box'
-                ? entity.text
-                : entity.kind === 'note'
-                    ? entity.contents
-                    : entity.kind === 'text-markup'
+            const text =
+                entity.kind === 'text-box'
+                    ? entity.text
+                    : entity.kind === 'note'
+                      ? entity.contents
+                      : entity.kind === 'text-markup'
                         ? entity.contents
                         : '';
-            const subtype = entity.kind === 'text-markup'
-                ? entity.subtype
-                : entity.kind === 'note'
-                    ? 'Text'
-                    : entity.kind === 'text-box'
+            const subtype =
+                entity.kind === 'text-markup'
+                    ? entity.subtype
+                    : entity.kind === 'note'
+                      ? 'Text'
+                      : entity.kind === 'text-box'
                         ? 'FreeText'
                         : entity.kind === 'shape'
-                            ? entity.tool === 'arrow' ? 'Arrow' : entity.pdfSubtype ?? shapeCommentSubtypes[entity.tool]
-                            : 'Stamp';
-            return [{
-                source,
-                appAnnotationId: entity.identity.id,
-                annotationKind: entity.kind,
-                id: externalId,
-                stableKey,
-                pageIndex: entity.pageIndex,
-                pageNumber: entity.pageIndex + 1,
-                text,
-                ...(entity.kind === 'text-markup'
-                    ? {previewText: entity.selectedText ?? null}
-                    : {}),
-                subtype,
-                author: entity.author,
-                createdAt: entity.createdAt,
-                modifiedAt: entity.modifiedAt,
-                color: entity.kind === 'text-box'
-                    || entity.kind === 'note'
-                    || entity.kind === 'text-markup'
-                    ? entity.color
-                    : entity.kind === 'shape' ? entity.strokeColor : null,
-                ...(entity.kind === 'shape' ? {
-                    fillColor: entity.fill,
-                    strokeWidth: entity.strokeWidth,
-                    opacity: entity.opacity,
-                } : {}),
-                ...(entity.kind === 'text-markup' ? {opacity: entity.opacity} : {}),
-                ...(entity.kind === 'note' ? {open: entity.open} : {}),
-                ...(isReadOnlyAnnotation(entity) ? {readOnly: true} : {}),
-                uid: null,
-                annotationId: entity.identity.pdfRef ?? null,
-                annotationName: null,
-                hasNote: entity.kind === 'note' || entity.kind === 'text-markup' && text.length > 0,
-                markerRect,
-                ...(entity.replies
-                    ? {replies: entity.replies.map(reply => ({...reply}))}
-                    : {}),
-                ...(entity.kind === 'text-markup'
-                    ? {markupGeometry: structuredClone(entity.quadPoints)}
-                    : {}),
-            } satisfies IAnnotationCommentSummary];
+                          ? entity.tool === 'arrow'
+                              ? 'Arrow'
+                              : (entity.pdfSubtype ?? shapeCommentSubtypes[entity.tool])
+                          : 'Stamp';
+            return [
+                {
+                    source,
+                    appAnnotationId: entity.identity.id,
+                    annotationKind: entity.kind,
+                    id: externalId,
+                    stableKey,
+                    pageIndex: entity.pageIndex,
+                    pageNumber: entity.pageIndex + 1,
+                    text,
+                    ...(entity.kind === 'text-markup' ? {previewText: entity.selectedText ?? null} : {}),
+                    subtype,
+                    author: entity.author,
+                    createdAt: entity.createdAt,
+                    modifiedAt: entity.modifiedAt,
+                    color:
+                        entity.kind === 'text-box' || entity.kind === 'note' || entity.kind === 'text-markup'
+                            ? entity.color
+                            : entity.kind === 'shape'
+                              ? entity.strokeColor
+                              : null,
+                    ...(entity.kind === 'shape'
+                        ? {
+                              fillColor: entity.fill,
+                              strokeWidth: entity.strokeWidth,
+                              opacity: entity.opacity,
+                          }
+                        : {}),
+                    ...(entity.kind === 'text-markup' ? {opacity: entity.opacity} : {}),
+                    ...(entity.kind === 'note' ? {open: entity.open} : {}),
+                    ...(isReadOnlyAnnotation(entity) ? {readOnly: true} : {}),
+                    uid: null,
+                    annotationId: entity.identity.pdfRef ?? null,
+                    annotationName: null,
+                    hasNote: entity.kind === 'note' || (entity.kind === 'text-markup' && text.length > 0),
+                    markerRect,
+                    ...(entity.replies ? {replies: entity.replies.map((reply) => ({...reply}))} : {}),
+                    ...(entity.kind === 'text-markup' ? {markupGeometry: structuredClone(entity.quadPoints)} : {}),
+                } satisfies IAnnotationCommentSummary,
+            ];
         });
     }
 
@@ -285,9 +262,10 @@ export class AnnotationApplication {
         if (!pdfRef) {
             return null;
         }
-        return this.store.list({includeDeleted: true})
-            .find(entity => normalizedPdfRef(entity.identity.pdfRef) === pdfRef)
-            ?.identity.id ?? null;
+        return (
+            this.store.list({includeDeleted: true}).find((entity) => normalizedPdfRef(entity.identity.pdfRef) === pdfRef)?.identity.id ??
+            null
+        );
     }
 
     annotationIdForShape(shape: Pick<IShapeAnnotation, 'id' | 'annotationId'>): AnnotationId | null {
@@ -297,10 +275,9 @@ export class AnnotationApplication {
         }
         const pdfRef = normalizedPdfRef(shape.annotationId);
         return pdfRef
-            ? this.store.list({includeDeleted: true})
-                .find(entity => entity.kind === 'shape'
-                    && normalizedPdfRef(entity.identity.pdfRef) === pdfRef)
-                ?.identity.id ?? null
+            ? (this.store
+                  .list({includeDeleted: true})
+                  .find((entity) => entity.kind === 'shape' && normalizedPdfRef(entity.identity.pdfRef) === pdfRef)?.identity.id ?? null)
             : null;
     }
 
@@ -311,20 +288,19 @@ export class AnnotationApplication {
     beginSave(documentRevisionToken: TDocumentRevisionToken | null = null): IAnnotationSaveSession {
         const frontier = this.store.beginSave(documentRevisionToken);
         // The plan crash recovery stores as drafts, and replays as the same pending changes.
-        const dirty = this.store.pendingChanges().map(change => change.entity);
+        const dirty = this.store.pendingChanges().map((change) => change.entity);
         // Only an objectless note restores its recovery graph.
-        const pageLocal = dirty.every(entity => entity.deleted || Boolean(entity.identity.pdfRef) || (
-            entity.kind === 'note' ? !entity.recoveryData : entity.kind !== 'placed-image' || 'kind' in entity.image
-        ));
+        const pageLocal = dirty.every(
+            (entity) =>
+                entity.deleted ||
+                Boolean(entity.identity.pdfRef) ||
+                (entity.kind === 'note' ? !entity.recoveryData : entity.kind !== 'placed-image' || 'kind' in entity.image),
+        );
         return {
             frontier,
-            plan: buildSerializationPlan(
-                frontier,
-                dirty,
-                this.store.list({includeDeleted: true}),
-            ),
+            plan: buildSerializationPlan(frontier, dirty, this.store.list({includeDeleted: true})),
             affectedPageIndices: pageLocal
-                ? [...new Set(dirty.map(entity => entity.pageIndex))].sort((left, right) => left - right)
+                ? [...new Set(dirty.map((entity) => entity.pageIndex))].sort((left, right) => left - right)
                 : null,
         };
     }
@@ -335,12 +311,7 @@ export class AnnotationApplication {
         identityBindings: readonly IPdfNativeAnnotationIdentityBinding[] = [],
         preserveSavedBaseline = false,
     ) {
-        this.store.markPersisted(
-            session.frontier,
-            identityBindings,
-            currentDocumentRevisionToken,
-            preserveSavedBaseline,
-        );
+        this.store.markPersisted(session.frontier, identityBindings, currentDocumentRevisionToken, preserveSavedBaseline);
     }
 
     /** Reports whether this authority still owned the failed save's frontier. */
@@ -354,6 +325,4 @@ export class AnnotationApplication {
     ) {
         this.store.assertSaveFrontierCurrent(session.frontier, currentDocumentRevisionToken);
     }
-
-
 }

@@ -10,8 +10,5 @@ const DJVU_PREVIEW_WORKING_BYTES = 64 * 1024 * 1024;
  * largest page a preview renders, within the broker's memory.
  */
 export function resolveDjvuPreviewResidentBytes(capacity: {estimatedResidentBytes: number}) {
-    return Math.min(
-        capacity.estimatedResidentBytes,
-        2 * DJVU_PREVIEW_MAX_PIXELS * 3 + DJVU_PREVIEW_WORKING_BYTES,
-    );
+    return Math.min(capacity.estimatedResidentBytes, 2 * DJVU_PREVIEW_MAX_PIXELS * 3 + DJVU_PREVIEW_WORKING_BYTES);
 }

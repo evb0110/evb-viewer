@@ -1,24 +1,10 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import type {IpcRenderer} from 'electron';
-import {
-    isReactive,
-    reactive,
-} from 'vue';
-import type {
-    IScanCleanupOptions,
-    IScanCleanupPreviewResult,
-} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {isReactive, reactive} from 'vue';
+import type {IScanCleanupOptions, IScanCleanupPreviewResult} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import {
-    requireJobId,
-    requireRequestId,
-} from '@contracts/shared';
+import {requireJobId, requireRequestId} from '@contracts/shared';
 import {
     FULL_SCAN_CLEANUP_SUPPORT,
     SCAN_CLEANUP_PLATFORM_FEATURE,
@@ -51,23 +37,27 @@ const plainOptions: IScanCleanupOptions = {
     },
     despeckle: true,
     skipBlankPages: false,
-    pageOverrides: {'2': {
-        rotationDegrees: 90,
-        layoutOverride: 'spread',
-        excluded: false,
-        manualSplit: {
-            xNormalized: 0.43,
+    pageOverrides: {
+        '2': {
             rotationDegrees: 90,
+            layoutOverride: 'spread',
+            excluded: false,
+            manualSplit: {
+                xNormalized: 0.43,
+                rotationDegrees: 90,
+            },
+            manualContentBoxes: {
+                left: {
+                    xNormalized: 0.03,
+                    yNormalized: 0.05,
+                    widthNormalized: 0.4,
+                    heightNormalized: 0.8,
+                    rotationDegrees: 90,
+                },
+            },
+            placementOverrides: {left: 'bottom-right'},
         },
-        manualContentBoxes: {left: {
-            xNormalized: 0.03,
-            yNormalized: 0.05,
-            widthNormalized: 0.4,
-            heightNormalized: 0.8,
-            rotationDegrees: 90,
-        }},
-        placementOverrides: {left: 'bottom-right'},
-    }},
+    },
 };
 
 const documentPrior = {
@@ -99,74 +89,66 @@ function previewResult(): IScanCleanupPreviewResult {
             reconciled: true,
             clusterAgreement: 0.87,
         },
-        outputs: [{
-            imageData: new Uint8Array([2]),
-            metadata: {
-                half: 'left',
-                layoutClassification: 'two-page-spread',
-                layoutConfidence: 0.87,
-                sourceRegion: {
-                    xPx: 0,
-                    yPx: 0,
-                    widthPx: 1224,
-                    heightPx: 1700,
+        outputs: [
+            {
+                imageData: new Uint8Array([2]),
+                metadata: {
+                    half: 'left',
+                    layoutClassification: 'two-page-spread',
+                    layoutConfidence: 0.87,
+                    sourceRegion: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 1224,
+                        heightPx: 1700,
+                    },
+                    contentBox: null,
+                    cropRect: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 1224,
+                        heightPx: 1700,
+                    },
+                    appliedMargins: {
+                        leftPx: 0,
+                        topPx: 0,
+                        rightPx: 0,
+                        bottomPx: 0,
+                    },
+                    outputWidthPx: 1224,
+                    outputHeightPx: 1700,
+                    canvasWidthPx: 1224,
+                    canvasHeightPx: 1700,
+                    canvasPolicy: 'strict-maximum',
+                    canvasOverflow: false,
+                    matchedCanvasTargetWidthPx: 1224,
+                    matchedCanvasTargetHeightPx: 1700,
+                    matchedCanvasTargetWidthPoints: null,
+                    matchedCanvasTargetHeightPoints: null,
+                    matchedCanvasContentWidthPx: null,
+                    matchedCanvasContentHeightPx: null,
+                    matchedCanvasOpticalContentLeftPx: null,
+                    matchedCanvasOpticalContentRightPx: null,
+                    placementOffsetXPx: 0,
+                    placementOffsetYPx: 0,
+                    forwardTransform: {
+                        matrix: [
+                            [1, 0, 0],
+                            [0, 1, 0],
+                            [0, 0, 1],
+                        ],
+                    },
+                    cutterXPx: 1224,
+                    inputWidthPx: 2400,
+                    inputHeightPx: 1700,
+                    rotationDegrees: 90,
+                    canvasScope: 'document',
+                    resamplePasses: 1,
+                    rasterScaleLimited: false,
+                    warnings: [],
                 },
-                contentBox: null,
-                cropRect: {
-                    xPx: 0,
-                    yPx: 0,
-                    widthPx: 1224,
-                    heightPx: 1700,
-                },
-                appliedMargins: {
-                    leftPx: 0,
-                    topPx: 0,
-                    rightPx: 0,
-                    bottomPx: 0,
-                },
-                outputWidthPx: 1224,
-                outputHeightPx: 1700,
-                canvasWidthPx: 1224,
-                canvasHeightPx: 1700,
-                canvasPolicy: 'strict-maximum',
-                canvasOverflow: false,
-                matchedCanvasTargetWidthPx: 1224,
-                matchedCanvasTargetHeightPx: 1700,
-                matchedCanvasTargetWidthPoints: null,
-                matchedCanvasTargetHeightPoints: null,
-                matchedCanvasContentWidthPx: null,
-                matchedCanvasContentHeightPx: null,
-                matchedCanvasOpticalContentLeftPx: null,
-                matchedCanvasOpticalContentRightPx: null,
-                placementOffsetXPx: 0,
-                placementOffsetYPx: 0,
-                forwardTransform: {matrix: [
-                    [
-                        1,
-                        0,
-                        0,
-                    ],
-                    [
-                        0,
-                        1,
-                        0,
-                    ],
-                    [
-                        0,
-                        0,
-                        1,
-                    ],
-                ]},
-                cutterXPx: 1224,
-                inputWidthPx: 2400,
-                inputHeightPx: 1700,
-                rotationDegrees: 90,
-                canvasScope: 'document',
-                resamplePasses: 1,
-                rasterScaleLimited: false,
-                warnings: [],
             },
-        }],
+        ],
     };
 }
 
@@ -217,10 +199,7 @@ const responses: {[TChannel in TScanCleanupChannel]: unknown} = {
 describe('scan-cleanup IPC structured-clone contract', () => {
     it('encodes legacy requests for structured clone and forwards main responses', async () => {
         const reactiveOptions = reactive(structuredClone(plainOptions));
-        const documentPriorByPage = reactive(new Map([[
-            2,
-            documentPrior,
-        ]]));
+        const documentPriorByPage = reactive(new Map([[2, documentPrior]]));
         const reactiveDocumentPrior = documentPriorByPage.get(2)!;
         const reactiveOwner = reactive({...owner});
         expect(isReactive(reactiveDocumentPrior)).toBe(true);
@@ -237,7 +216,9 @@ describe('scan-cleanup IPC structured-clone contract', () => {
         const encodedByChannel = new Map<string, unknown[]>();
         const ipcRenderer = {
             invoke: vi.fn(async (channel: string, ...args: unknown[]) => {
-                if (!(channel in responses)) throw new Error(`Unexpected scan-cleanup IPC channel: ${channel}`);
+                if (!(channel in responses)) {
+                    throw new Error(`Unexpected scan-cleanup IPC channel: ${channel}`);
+                }
                 const boundaryPayload = structuredClone(args);
                 encodedByChannel.set(channel, boundaryPayload);
                 return structuredClone(responses[channel as TScanCleanupChannel]);
@@ -246,11 +227,9 @@ describe('scan-cleanup IPC structured-clone contract', () => {
             removeListener: vi.fn(),
             send: vi.fn(),
         } satisfies Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener' | 'send'>;
-        const client = createPlatformFeaturePreloadClient(
-            ipcRenderer,
-            SCAN_CLEANUP_PLATFORM_FEATURE,
-            {getSupport: () => FULL_SCAN_CLEANUP_SUPPORT},
-        );
+        const client = createPlatformFeaturePreloadClient(ipcRenderer, SCAN_CLEANUP_PLATFORM_FEATURE, {
+            getSupport: () => FULL_SCAN_CLEANUP_SUPPORT,
+        });
 
         const forwardedResponses = await Promise.all([
             client.preview({
@@ -286,10 +265,7 @@ describe('scan-cleanup IPC structured-clone contract', () => {
                 ...reactiveOwner,
                 sourcePdfPath: '/documents/source.pdf',
                 options: reactiveOptions,
-                sourcePageNumbers: [
-                    requirePageNumber(2),
-                    requirePageNumber(4),
-                ],
+                sourcePageNumbers: [requirePageNumber(2), requirePageNumber(4)],
             }),
             client.cancel(requireJobId('cleanup-1'), reactiveOwner),
             client.getJobState(requireJobId('cleanup-1'), reactiveOwner),

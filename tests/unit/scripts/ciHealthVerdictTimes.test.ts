@@ -1,12 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    formatVerdictTimesReport,
-    summarizeVerdictTimes,
-} from '@scripts/ci/ci-health.mjs';
+import {describe, expect, it} from 'vitest';
+import {formatVerdictTimesReport, summarizeVerdictTimes} from '@scripts/ci/ci-health.mjs';
 
 const HOUR_MS = 60 * 60 * 1000;
 const NOW = Date.parse('2026-09-19T00:00:00Z');
@@ -43,28 +36,31 @@ function recordRun({
 
 describe('ci-health verdict times', () => {
     it('measures push to completed verdict from the run timestamps alone', () => {
-        const {current} = summarizeVerdictTimes([
-            recordRun({
-                hoursAgo: 20,
-                minutes: 10,
-                sha: 'a',
-            }),
-            recordRun({
-                hoursAgo: 16,
-                minutes: 12,
-                sha: 'b',
-            }),
-            recordRun({
-                hoursAgo: 12,
-                minutes: 14,
-                sha: 'c',
-            }),
-            recordRun({
-                hoursAgo: 8,
-                minutes: 40,
-                sha: 'd',
-            }),
-        ], SCOPE);
+        const {current} = summarizeVerdictTimes(
+            [
+                recordRun({
+                    hoursAgo: 20,
+                    minutes: 10,
+                    sha: 'a',
+                }),
+                recordRun({
+                    hoursAgo: 16,
+                    minutes: 12,
+                    sha: 'b',
+                }),
+                recordRun({
+                    hoursAgo: 12,
+                    minutes: 14,
+                    sha: 'c',
+                }),
+                recordRun({
+                    hoursAgo: 8,
+                    minutes: 40,
+                    sha: 'd',
+                }),
+            ],
+            SCOPE,
+        );
 
         expect(current.candidates).toBe(4);
         expect(current.medianMinutes).toBe(12);
@@ -75,26 +71,29 @@ describe('ci-health verdict times', () => {
     // A cancelled run says nothing, so averaging it in would report the time
     // CI took to produce no answer as the time to a verdict.
     it('excludes cancelled runs from the times and counts them separately', () => {
-        const {current} = summarizeVerdictTimes([
-            recordRun({
-                hoursAgo: 20,
-                minutes: 10,
-                sha: 'a',
-            }),
-            recordRun({
-                conclusion: 'cancelled',
-                hoursAgo: 18,
-                minutes: 90,
-                sha: 'b',
-            }),
-            recordRun({
-                conclusion: null,
-                hoursAgo: 2,
-                minutes: 3,
-                sha: 'c',
-                status: 'in_progress',
-            }),
-        ], SCOPE);
+        const {current} = summarizeVerdictTimes(
+            [
+                recordRun({
+                    hoursAgo: 20,
+                    minutes: 10,
+                    sha: 'a',
+                }),
+                recordRun({
+                    conclusion: 'cancelled',
+                    hoursAgo: 18,
+                    minutes: 90,
+                    sha: 'b',
+                }),
+                recordRun({
+                    conclusion: null,
+                    hoursAgo: 2,
+                    minutes: 3,
+                    sha: 'c',
+                    status: 'in_progress',
+                }),
+            ],
+            SCOPE,
+        );
 
         expect(current.candidates).toBe(1);
         expect(current.medianMinutes).toBe(10);
@@ -104,19 +103,22 @@ describe('ci-health verdict times', () => {
     // A rerun hours later must not be reported as a slow verdict for the
     // commit whose first run already answered.
     it('counts each candidate once, through the first verdict its sha reached', () => {
-        const {current} = summarizeVerdictTimes([
-            recordRun({
-                conclusion: 'failure',
-                hoursAgo: 20,
-                minutes: 11,
-                sha: 'a',
-            }),
-            recordRun({
-                hoursAgo: 4,
-                minutes: 13,
-                sha: 'a',
-            }),
-        ], SCOPE);
+        const {current} = summarizeVerdictTimes(
+            [
+                recordRun({
+                    conclusion: 'failure',
+                    hoursAgo: 20,
+                    minutes: 11,
+                    sha: 'a',
+                }),
+                recordRun({
+                    hoursAgo: 4,
+                    minutes: 13,
+                    sha: 'a',
+                }),
+            ],
+            SCOPE,
+        );
 
         expect(current.candidates).toBe(1);
         expect(current.medianMinutes).toBe(11);
@@ -124,37 +126,40 @@ describe('ci-health verdict times', () => {
     });
 
     it('reports the longest red streak in commits and the share of red candidates', () => {
-        const {current} = summarizeVerdictTimes([
-            recordRun({
-                conclusion: 'failure',
-                hoursAgo: 20,
-                minutes: 10,
-                sha: 'a',
-            }),
-            recordRun({
-                conclusion: 'failure',
-                hoursAgo: 18,
-                minutes: 10,
-                sha: 'b',
-            }),
-            recordRun({
-                conclusion: 'failure',
-                hoursAgo: 16,
-                minutes: 10,
-                sha: 'c',
-            }),
-            recordRun({
-                hoursAgo: 14,
-                minutes: 10,
-                sha: 'd',
-            }),
-            recordRun({
-                conclusion: 'failure',
-                hoursAgo: 12,
-                minutes: 10,
-                sha: 'e',
-            }),
-        ], SCOPE);
+        const {current} = summarizeVerdictTimes(
+            [
+                recordRun({
+                    conclusion: 'failure',
+                    hoursAgo: 20,
+                    minutes: 10,
+                    sha: 'a',
+                }),
+                recordRun({
+                    conclusion: 'failure',
+                    hoursAgo: 18,
+                    minutes: 10,
+                    sha: 'b',
+                }),
+                recordRun({
+                    conclusion: 'failure',
+                    hoursAgo: 16,
+                    minutes: 10,
+                    sha: 'c',
+                }),
+                recordRun({
+                    hoursAgo: 14,
+                    minutes: 10,
+                    sha: 'd',
+                }),
+                recordRun({
+                    conclusion: 'failure',
+                    hoursAgo: 12,
+                    minutes: 10,
+                    sha: 'e',
+                }),
+            ],
+            SCOPE,
+        );
 
         expect(current.longestRedStreak).toBe(3);
         expect(current.redShare).toBeCloseTo(0.8, 5);
@@ -164,49 +169,58 @@ describe('ci-health verdict times', () => {
     // before the window keeps colouring its first hours until something green
     // lands. Here that is hour 13 of 24.
     it('counts an hour as green only while the newest verdict behind it is green', () => {
-        const {current} = summarizeVerdictTimes([
-            recordRun({
-                conclusion: 'failure',
-                hoursAgo: 30,
-                minutes: 0,
-                sha: 'a',
-            }),
-            recordRun({
-                hoursAgo: 11,
-                minutes: 0,
-                sha: 'b',
-            }),
-        ], SCOPE);
+        const {current} = summarizeVerdictTimes(
+            [
+                recordRun({
+                    conclusion: 'failure',
+                    hoursAgo: 30,
+                    minutes: 0,
+                    sha: 'a',
+                }),
+                recordRun({
+                    hoursAgo: 11,
+                    minutes: 0,
+                    sha: 'b',
+                }),
+            ],
+            SCOPE,
+        );
 
         expect(current.hoursWithoutGreenShare).toBeCloseTo(12 / 24, 5);
     });
 
     it('leaves hours with no verdict behind them out of the denominator', () => {
-        const {current} = summarizeVerdictTimes([recordRun({
-            hoursAgo: 6,
-            minutes: 0,
-            sha: 'a',
-        })], SCOPE);
+        const {current} = summarizeVerdictTimes(
+            [
+                recordRun({
+                    hoursAgo: 6,
+                    minutes: 0,
+                    sha: 'a',
+                }),
+            ],
+            SCOPE,
+        );
 
         expect(current.hoursWithoutGreenShare).toBe(0);
     });
 
     it('measures the previous equal window the same way so a trend is visible', () => {
-        const {
-            current, previous,
-        } = summarizeVerdictTimes([
-            recordRun({
-                conclusion: 'failure',
-                hoursAgo: 40,
-                minutes: 32,
-                sha: 'old',
-            }),
-            recordRun({
-                hoursAgo: 6,
-                minutes: 11,
-                sha: 'new',
-            }),
-        ], SCOPE);
+        const {current, previous} = summarizeVerdictTimes(
+            [
+                recordRun({
+                    conclusion: 'failure',
+                    hoursAgo: 40,
+                    minutes: 32,
+                    sha: 'old',
+                }),
+                recordRun({
+                    hoursAgo: 6,
+                    minutes: 11,
+                    sha: 'new',
+                }),
+            ],
+            SCOPE,
+        );
 
         expect(previous.candidates).toBe(1);
         expect(previous.medianMinutes).toBe(32);
@@ -227,24 +241,37 @@ describe('ci-health verdict times', () => {
             p90Minutes: null,
             redShare: null,
         });
-        expect(formatVerdictTimesReport({
-            current,
-            previous: current,
-        }, {
-            branch: 'main',
-            workflow: 'ci.yml',
-        })).toContain('n/a');
+        expect(
+            formatVerdictTimesReport(
+                {
+                    current,
+                    previous: current,
+                },
+                {
+                    branch: 'main',
+                    workflow: 'ci.yml',
+                },
+            ),
+        ).toContain('n/a');
     });
 
     it('prints both windows on one line each', () => {
-        const report = formatVerdictTimesReport(summarizeVerdictTimes([recordRun({
-            hoursAgo: 6,
-            minutes: 11,
-            sha: 'new',
-        })], SCOPE), {
-            branch: 'main',
-            workflow: 'ci.yml',
-        });
+        const report = formatVerdictTimesReport(
+            summarizeVerdictTimes(
+                [
+                    recordRun({
+                        hoursAgo: 6,
+                        minutes: 11,
+                        sha: 'new',
+                    }),
+                ],
+                SCOPE,
+            ),
+            {
+                branch: 'main',
+                workflow: 'ci.yml',
+            },
+        );
 
         expect(report).toContain('Verdict times: ci.yml push runs on main');
         expect(report).toMatch(/current .*11\.0m/u);

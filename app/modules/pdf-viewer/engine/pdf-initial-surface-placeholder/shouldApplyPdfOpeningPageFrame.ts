@@ -1,4 +1,4 @@
-import type { TDocumentOpenSurfacePhase } from '@app/modules/document-viewer/public';
+import type {TDocumentOpenSurfacePhase} from '@app/modules/document-viewer/public';
 
 interface IShouldApplyPdfOpeningPageFrameInput {
     activeGeneration: number;
@@ -7,11 +7,11 @@ interface IShouldApplyPdfOpeningPageFrameInput {
 }
 
 export function shouldApplyPdfOpeningPageFrame(input: IShouldApplyPdfOpeningPageFrameInput) {
-    return input.frameGeneration === input.activeGeneration
-        && (
-            input.phase === 'pending'
-            || input.phase === 'geometry-committed'
-            || input.phase === 'canvas-committed'
-            || input.phase === 'viewport-committed'
-        );
+    return (
+        input.frameGeneration === input.activeGeneration &&
+        (input.phase === 'pending' ||
+            input.phase === 'geometry-committed' ||
+            input.phase === 'canvas-committed' ||
+            input.phase === 'viewport-committed')
+    );
 }

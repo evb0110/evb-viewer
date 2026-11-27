@@ -73,7 +73,11 @@
                     >
                         <ScanCleanupScissorsIcon class="size-5" />
                     </UButton>
-                    <span v-if="scanCleanupTrigger.running" class="scan-cleanup-running-dot" aria-hidden="true" />
+                    <span
+                        v-if="scanCleanupTrigger.running"
+                        class="scan-cleanup-running-dot"
+                        aria-hidden="true"
+                    />
                 </span>
             </AppTooltip>
         </template>
@@ -137,38 +141,25 @@
 </template>
 
 <script setup lang="ts">
-import { useCanUseScanCleanup } from '@app/composables/useCanUseScanCleanup';
+import {useCanUseScanCleanup} from '@app/composables/useCanUseScanCleanup';
 
-import type { TDocumentRef } from '@contracts/documentRef';
-import type {
-    TFitMode,
-    TPdfViewMode,
-    TZoomMode,
-} from '@contracts/shared';
-import { PdfPageDropdown } from '@app/modules/pdf-viewer/public/component-exports/pdfPageDropdown';
-import { PdfToolbar } from '@app/modules/pdf-viewer/public/component-exports/pdfToolbar';
-import { PdfZoomDropdown } from '@app/modules/pdf-viewer/public/component-exports/pdfZoomDropdown';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TFitMode, TPdfViewMode, TZoomMode} from '@contracts/shared';
+import {PdfPageDropdown} from '@app/modules/pdf-viewer/public/component-exports/pdfPageDropdown';
+import {PdfToolbar} from '@app/modules/pdf-viewer/public/component-exports/pdfToolbar';
+import {PdfZoomDropdown} from '@app/modules/pdf-viewer/public/component-exports/pdfZoomDropdown';
 import ToolbarButton from '@app/components/ToolbarButton.vue';
-import { useWorkspaceToolbarPageModel } from '@app/modules/workspace-shell/composables/useWorkspaceToolbarPageModel';
-import type { TOcrPopupPresenter } from '@app/modules/ocr-panel/public/runtime';
-import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
-import type {
-    IDocumentNavigationTicket,
-    TDocumentPageLabelLookup,
-} from '@app/modules/document-viewer/public';
-import {
-    describeScanCleanupTrigger,
-    ScanCleanupScissorsIcon,
-} from '@app/modules/scan-cleanup/public/runtime';
-import { getReaderCommandToolbarIcon } from '@app/utils/readerCommandIcons';
-import { createReaderToolbarSurface } from '@app/utils/readerCommandSurface';
-import { resolveWorkspaceViewerViewMode } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
+import {useWorkspaceToolbarPageModel} from '@app/modules/workspace-shell/composables/useWorkspaceToolbarPageModel';
+import type {TOcrPopupPresenter} from '@app/modules/ocr-panel/public/runtime';
+import type {IWorkspaceToolbarSnapshot} from '@app/types/workspaceExpose';
+import type {IDocumentNavigationTicket, TDocumentPageLabelLookup} from '@app/modules/document-viewer/public';
+import {describeScanCleanupTrigger, ScanCleanupScissorsIcon} from '@app/modules/scan-cleanup/public/runtime';
+import {getReaderCommandToolbarIcon} from '@app/utils/readerCommandIcons';
+import {createReaderToolbarSurface} from '@app/utils/readerCommandSurface';
+import {resolveWorkspaceViewerViewMode} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 
-const OcrPopup = defineAsyncComponent(
-    () => import('@app/modules/ocr-panel/public')
-        .then(componentModule => componentModule.OcrPopup),
-);
-const { t } = useTypedI18n();
+const OcrPopup = defineAsyncComponent(() => import('@app/modules/ocr-panel/public').then((componentModule) => componentModule.OcrPopup));
+const {t} = useTypedI18n();
 
 const {
     canToggleSidebar = undefined,
@@ -230,15 +221,15 @@ const emit = defineEmits<{
     'open-file': [];
     'open-settings': [];
     'open-scan-cleanup': [];
-    'save': [];
+    save: [];
     'save-as': [];
-    'print': [];
+    print: [];
     'print-current-page': [];
     'export-docx': [];
     'ocr-export-docx': [selectedLanguages: string[]];
     'ocr-cancel-docx-export': [];
-    'undo': [];
-    'redo': [];
+    undo: [];
+    redo: [];
     'toggle-sidebar': [];
     'fit-width': [];
     'fit-height': [];
@@ -246,7 +237,7 @@ const emit = defineEmits<{
     'enable-drag': [];
     'disable-drag': [];
     'capture-region': [];
-    'crop': [];
+    crop: [];
     'quick-note': [];
     'toggle-fullscreen': [];
     'go-to-page': [page: number];
@@ -254,44 +245,40 @@ const emit = defineEmits<{
 
 const toolbarHasPdf = computed(() => hasPdf ?? snapshot.hasPdf);
 const canUseScanCleanup = useCanUseScanCleanup();
-const toolbarSurface = computed(() => createReaderToolbarSurface({
-    ocr: canUseOcr,
-    scanCleanup: canUseScanCleanup.value,
-}));
+const toolbarSurface = computed(() =>
+    createReaderToolbarSurface({
+        ocr: canUseOcr,
+        scanCleanup: canUseScanCleanup.value,
+    }),
+);
 const toolbarDocumentBusy = computed(() => documentBusy ?? isOpeningDocument);
 const toolbarCanToggleSidebar = computed(() => canToggleSidebar ?? true);
-const toolbarControlsDisabled = computed(() => (
-    controlsDisabled
-    ?? (!toolbarHasPdf.value || toolbarDocumentBusy.value || snapshot.totalPages <= 0)
-));
-const pageNavigationDisabled = computed(() => (
-    toolbarDocumentBusy.value ? false : toolbarControlsDisabled.value
-));
+const toolbarControlsDisabled = computed(
+    () => controlsDisabled ?? (!toolbarHasPdf.value || toolbarDocumentBusy.value || snapshot.totalPages <= 0),
+);
+const pageNavigationDisabled = computed(() => (toolbarDocumentBusy.value ? false : toolbarControlsDisabled.value));
 const pageDropdownTotalPages = computed(() => pageDropdownTotalPagesProp ?? snapshot.totalPages);
 const ocrIsExportingDocx = computed(() => ocrIsExportingDocxProp ?? snapshot.isExportingDocx);
 const scanCleanupTrigger = computed(() => describeScanCleanupTrigger(ocrWorkingCopyPath, snapshot.totalPages, t));
 
 const zoom = computed({
     get: () => snapshot.zoom,
-    set: value => emit('update:zoom', value),
+    set: (value) => emit('update:zoom', value),
 });
 const effectiveZoom = computed(() => snapshot.effectiveZoom);
 const zoomMode = computed({
     get: () => snapshot.zoomMode,
-    set: value => emit('update:zoomMode', value),
+    set: (value) => emit('update:zoomMode', value),
 });
 const fitMode = computed({
     get: () => snapshot.fitMode,
-    set: value => emit('update:fitMode', value),
+    set: (value) => emit('update:fitMode', value),
 });
 const viewMode = computed({
     get: () => snapshot.viewMode,
-    set: value => emit('update:viewMode', value),
+    set: (value) => emit('update:viewMode', value),
 });
-const effectiveViewMode = computed(() => resolveWorkspaceViewerViewMode(
-    snapshot.viewerCapabilities,
-    snapshot.viewMode,
-));
+const effectiveViewMode = computed(() => resolveWorkspaceViewerViewMode(snapshot.viewerCapabilities, snapshot.viewMode));
 const {
     currentPage,
     navigationPage,
@@ -300,7 +287,7 @@ const {
     sourcePage: () => snapshot.currentPage,
     physicalPage: () => physicalPage ?? snapshot.currentPage,
     navigationTicket: () => navigationTicket,
-    goToPage: page => emit('go-to-page', page),
+    goToPage: (page) => emit('go-to-page', page),
 });
 
 function handleOcrPopupOpenUpdate(open: boolean) {
@@ -410,7 +397,6 @@ function handleGoToPage(page: number) {
 function handleOpenOcr() {
     emit('update:ocrPopupOpen', true);
 }
-
 </script>
 
 <style scoped>

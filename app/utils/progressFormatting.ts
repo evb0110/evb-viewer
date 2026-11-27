@@ -1,4 +1,4 @@
-import { clamp } from 'es-toolkit/math';
+import {clamp} from 'es-toolkit/math';
 
 export function displayProcessedCount(processed: number, total: number) {
     if (total <= 0) {
@@ -24,7 +24,5 @@ export function formatElapsedClock(durationMs: number) {
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor(totalSeconds / 60) % 60;
     const seconds = String(totalSeconds % 60).padStart(2, '0');
-    return hours > 0
-        ? `${String(hours)}:${String(minutes).padStart(2, '0')}:${seconds}`
-        : `${String(minutes)}:${seconds}`;
+    return hours > 0 ? `${String(hours)}:${String(minutes).padStart(2, '0')}:${seconds}` : `${String(minutes)}:${seconds}`;
 }

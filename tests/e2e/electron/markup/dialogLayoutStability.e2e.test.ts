@@ -1,25 +1,8 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    onTestFinished,
-} from 'vitest';
-import {
-    existsSync,
-    mkdtempSync,
-    readFileSync,
-    rmSync,
-    writeFileSync,
-} from 'node:fs';
+import {afterEach, describe, expect, it, onTestFinished} from 'vitest';
+import {existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {
-    join, resolve,
-} from 'node:path';
-import type {
-    ConsoleMessage,
-    Page,
-} from 'puppeteer-core';
+import {join, resolve} from 'node:path';
+import type {ConsoleMessage, Page} from 'puppeteer-core';
 import {electronFileLogDir} from '@scripts/electron-run/electronRunSessionPaths';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 import {LOCALE_MESSAGES} from '@i18n-app';
@@ -30,12 +13,7 @@ import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/creat
 import {moveTabToNewWindow} from '@tests/e2e/electron/helpers/moveTabToNewWindow';
 import {createPasswordProtectedFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
 import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import {
-    openPdfInApp,
-    triggerOpenPathInApp,
-    waitForPdfLoaded,
-    waitForViewerInteractive,
-} from '@tests/e2e/electron/helpers/viewerCore';
+import {openPdfInApp, triggerOpenPathInApp, waitForPdfLoaded, waitForViewerInteractive} from '@tests/e2e/electron/helpers/viewerCore';
 
 const DIALOG_TIMEOUT_MS = 45_000;
 const DIALOG_VIEWPORT = {
@@ -78,28 +56,32 @@ async function clickPoint(page: Page, point: IPoint | null, what: string) {
 
 async function waitForDialogSettled(page: Page) {
     // Modals scale and fade in; measure the settled box.
-    await page.waitForFunction(() => {
-        const dialog = document.querySelector('[role="dialog"]');
-        return dialog !== null
-            && getComputedStyle(dialog).opacity === '1'
-            && dialog.getAnimations({subtree: true}).every(animation => animation.playState !== 'running');
-    }, {timeout: DIALOG_TIMEOUT_MS});
+    await page.waitForFunction(
+        () => {
+            const dialog = document.querySelector('[role="dialog"]');
+            return (
+                dialog !== null &&
+                getComputedStyle(dialog).opacity === '1' &&
+                dialog.getAnimations({subtree: true}).every((animation) => animation.playState !== 'running')
+            );
+        },
+        {timeout: DIALOG_TIMEOUT_MS},
+    );
 }
 
 async function openPrintDialog(page: Page) {
     const point = await page.evaluate(() => {
-        const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label="Print"]'))
-            .find((candidate) => {
-                const rect = candidate.getBoundingClientRect();
-                return rect.width > 0 && rect.height > 0 && getComputedStyle(candidate).visibility !== 'hidden';
-            });
+        const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label="Print"]')).find((candidate) => {
+            const rect = candidate.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0 && getComputedStyle(candidate).visibility !== 'hidden';
+        });
         if (!button) {
             return null;
         }
         const rect = button.getBoundingClientRect();
         return {
-            x: rect.left + (rect.width / 2),
-            y: rect.top + (rect.height / 2),
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
         };
     });
     await clickPoint(page, point, 'Visible Print toolbar button');
@@ -111,17 +93,18 @@ async function openPrintDialog(page: Page) {
 }
 
 async function readPrintDialogLayout(page: Page): Promise<IPrintDialogLayout> {
-    await page.evaluate(() => new Promise(resolveFrame => requestAnimationFrame(() => requestAnimationFrame(resolveFrame))));
+    await page.evaluate(() => new Promise((resolveFrame) => requestAnimationFrame(() => requestAnimationFrame(resolveFrame))));
     return page.evaluate(() => {
         const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
         if (!dialog) {
             throw new Error('Print dialog is not open');
         }
         const paragraphs = Array.from(dialog.querySelectorAll<HTMLElement>('p'));
-        const layoutHeading = paragraphs.find(paragraph => paragraph.textContent?.trim() === 'Layout');
-        const cancel = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button'))
-            .find(button => button.textContent?.trim() === 'Cancel');
-        const summary = paragraphs.find(paragraph => /^(Printing|Enter a valid)/u.test(paragraph.textContent?.trim() ?? ''));
+        const layoutHeading = paragraphs.find((paragraph) => paragraph.textContent?.trim() === 'Layout');
+        const cancel = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button')).find(
+            (button) => button.textContent?.trim() === 'Cancel',
+        );
+        const summary = paragraphs.find((paragraph) => /^(Printing|Enter a valid)/u.test(paragraph.textContent?.trim() ?? ''));
         if (!layoutHeading || !cancel || !summary) {
             throw new Error('Print dialog lost its layout heading, summary or Cancel button');
         }
@@ -183,8 +166,8 @@ function readIpcHandlerRejections(sessionName: string, channel: string) {
     const lines = readFileSync(logPath, 'utf8').split('\n');
     lines.pop();
     return lines
-        .map(line => line.replace(/\r$/u, ''))
-        .filter(line => line.trim().length > 0)
+        .map((line) => line.replace(/\r$/u, ''))
+        .filter((line) => line.trim().length > 0)
         .map((line) => {
             const record = decodeLogRecord(line);
             if (!record) {
@@ -192,7 +175,7 @@ function readIpcHandlerRejections(sessionName: string, channel: string) {
             }
             return record;
         })
-        .filter(record => record.msg === 'IPC handler rejected' && record.data?.channel === channel);
+        .filter((record) => record.msg === 'IPC handler rejected' && record.data?.channel === channel);
 }
 
 const malformedFixtureDirectories: string[] = [];
@@ -226,14 +209,20 @@ async function setSavedLocale(page: Page, locale: TAppLocale) {
 async function readUpdateDialogAfterStart(target: Page, description: string) {
     await target.waitForFunction(() => document.querySelector('#evb-startup-overlay') === null, {timeout: DIALOG_TIMEOUT_MS});
     await target.evaluate(() => (window as IE2EWindow).electronAPI?.updates.getState());
-    return target.evaluate((text: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] p'))
-        .some(element => element.getClientRects().length > 0 && element.innerText.trim() === text), description);
+    return target.evaluate(
+        (text: string) =>
+            Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] p')).some(
+                (element) => element.getClientRects().length > 0 && element.innerText.trim() === text,
+            ),
+        description,
+    );
 }
 
 async function readFailureToast(page: Page) {
     return page.evaluate(() => {
-        const toast = Array.from(document.querySelectorAll<HTMLElement>('.app-toast-failure'))
-            .find(candidate => candidate.getBoundingClientRect().width > 0);
+        const toast = Array.from(document.querySelectorAll<HTMLElement>('.app-toast-failure')).find(
+            (candidate) => candidate.getBoundingClientRect().width > 0,
+        );
         if (!toast) {
             return null;
         }
@@ -241,16 +230,23 @@ async function readFailureToast(page: Page) {
             text: toast.innerText,
             errorId: toast.querySelector<HTMLElement>('.app-toast-error-id')?.innerText.trim() ?? '',
             buttons: Array.from(toast.querySelectorAll<HTMLButtonElement>('button'))
-                .filter(button => button.getBoundingClientRect().width > 0)
-                .map(button => button.innerText.trim())
+                .filter((button) => button.getBoundingClientRect().width > 0)
+                .map((button) => button.innerText.trim())
                 .filter(Boolean),
         };
     });
 }
 
 async function clickToastButton(page: Page, label: string) {
-    await clickFoundAsUser(page, (text: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button'))
-        .find(candidate => candidate.innerText.trim() === text && candidate.getBoundingClientRect().width > 0), label, {description: `${label} toast button`});
+    await clickFoundAsUser(
+        page,
+        (text: string) =>
+            Array.from(document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button')).find(
+                (candidate) => candidate.innerText.trim() === text && candidate.getBoundingClientRect().width > 0,
+            ),
+        label,
+        {description: `${label} toast button`},
+    );
 }
 
 describe('Electron E2E - dialog layout stability', () => {
@@ -270,672 +266,869 @@ describe('Electron E2E - dialog layout stability', () => {
         }
     });
 
-    it('starts without claiming an update or opening an update dialog', async () => {
-        const {page} = sessionFixture.getSession();
-        const evidenceDirectory = mkdtempSync(join(tmpdir(), 'evb-update-startup-'));
-        console.log(`Update startup artifacts: ${evidenceDirectory}`);
-        await readUpdateDialogAfterStart(page, LOCALE_MESSAGES.en.updates.unsupportedDescription);
-        await page.evaluate(() => new Promise(resolveFrame => requestAnimationFrame(() => requestAnimationFrame(resolveFrame))));
-        const dialogOpen = await readUpdateDialogAfterStart(page, LOCALE_MESSAGES.en.updates.unsupportedDescription);
-        const status = await page.evaluate(() => (window as IE2EWindow).electronAPI?.updates.getState());
-        const dialogs = await page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
-            .filter(dialog => dialog.getClientRects().length > 0).map(dialog => dialog.innerText));
-        await page.screenshot({path: join(evidenceDirectory, 'fresh-start.png')});
-        writeFileSync(join(evidenceDirectory, 'observations.json'), JSON.stringify({
-            status,
-            dialogOpen,
-            dialogs,
-        }, null, 2));
-        expect(status).toBeDefined();
-        expect(status?.requestedHere).not.toBe(true);
-        expect(dialogOpen).toBe(false);
-        expect(dialogs).toEqual([]);
-    }, DIALOG_TIMEOUT_MS * 2);
+    it(
+        'starts without claiming an update or opening an update dialog',
+        async () => {
+            const {page} = sessionFixture.getSession();
+            const evidenceDirectory = mkdtempSync(join(tmpdir(), 'evb-update-startup-'));
+            console.log(`Update startup artifacts: ${evidenceDirectory}`);
+            await readUpdateDialogAfterStart(page, LOCALE_MESSAGES.en.updates.unsupportedDescription);
+            await page.evaluate(() => new Promise((resolveFrame) => requestAnimationFrame(() => requestAnimationFrame(resolveFrame))));
+            const dialogOpen = await readUpdateDialogAfterStart(page, LOCALE_MESSAGES.en.updates.unsupportedDescription);
+            const status = await page.evaluate(() => (window as IE2EWindow).electronAPI?.updates.getState());
+            const dialogs = await page.evaluate(() =>
+                Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
+                    .filter((dialog) => dialog.getClientRects().length > 0)
+                    .map((dialog) => dialog.innerText),
+            );
+            await page.screenshot({path: join(evidenceDirectory, 'fresh-start.png')});
+            writeFileSync(
+                join(evidenceDirectory, 'observations.json'),
+                JSON.stringify(
+                    {
+                        status,
+                        dialogOpen,
+                        dialogs,
+                    },
+                    null,
+                    2,
+                ),
+            );
+            expect(status).toBeDefined();
+            expect(status?.requestedHere).not.toBe(true);
+            expect(dialogOpen).toBe(false);
+            expect(dialogs).toEqual([]);
+        },
+        DIALOG_TIMEOUT_MS * 2,
+    );
 
-    it('keeps its controls in place when the page range is chosen and rejected', async () => {
-        const session: IElectronE2ESession = sessionFixture.getSession();
-        const {page} = session;
-        await page.setViewport(DIALOG_VIEWPORT);
+    it(
+        'keeps its controls in place when the page range is chosen and rejected',
+        async () => {
+            const session: IElectronE2ESession = sessionFixture.getSession();
+            const {page} = session;
+            await page.setViewport(DIALOG_VIEWPORT);
 
-        const fixturePath = resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'generated-text.pdf');
-        await openPdfInApp(page, fixturePath, DIALOG_TIMEOUT_MS);
-        await waitForPdfLoaded(page, DIALOG_TIMEOUT_MS);
-        await waitForViewerInteractive(page, DIALOG_TIMEOUT_MS);
-        await openPrintDialog(page);
-
-        const initial = await readPrintDialogLayout(page);
-        expect(initial.summaryText).toMatch(/^Printing/u);
-
-        const rangeLabel = await page.evaluate(() => {
-            const radio = document.querySelector<HTMLElement>('[role="dialog"] [role="radio"][value="range"]');
-            const label = radio ? document.querySelector<HTMLElement>(`label[for="${CSS.escape(radio.id)}"]`) : null;
-            if (!label) {
-                return null;
-            }
-            const rect = label.getBoundingClientRect();
-            return {
-                x: rect.left + Math.min(rect.width / 2, 30),
-                y: rect.top + (rect.height / 2),
-            };
-        });
-        await clickPoint(page, rangeLabel, 'Page range label');
-        await page.waitForSelector('[role="dialog"] [role="radio"][value="range"][aria-checked="true"]', {timeout: DIALOG_TIMEOUT_MS});
-        expectSameGeometry(await readPrintDialogLayout(page), initial);
-
-        const rangeInput = await page.$('[role="dialog"] input[aria-label="Page range"]');
-        const inputBox = await rangeInput?.boundingBox();
-        await clickPoint(page, inputBox ? {
-            x: inputBox.x + 10,
-            y: inputBox.y + (inputBox.height / 2),
-        } : null, 'Page range input');
-        await page.keyboard.type('abc');
-        await page.keyboard.press('Tab');
-        await page.waitForSelector('[role="dialog"] input[aria-label="Page range"][aria-invalid="true"]', {timeout: DIALOG_TIMEOUT_MS});
-
-        const rejected = await readPrintDialogLayout(page);
-        expect(rejected.summaryText).toBe('Enter a valid page range.');
-        expectSameGeometry(rejected, initial);
-    }, DIALOG_TIMEOUT_MS * 2);
-
-    it('keeps the password prompt on screen at one size after a wrong password', async () => {
-        const session: IElectronE2ESession = sessionFixture.getSession();
-        const {page} = session;
-        await page.setViewport(DIALOG_VIEWPORT);
-
-        const fixturePath = await createPasswordProtectedFixturePdf(`dialog-layout-password-${Date.now()}.pdf`);
-        await triggerOpenPathInApp(page, fixturePath, DIALOG_TIMEOUT_MS);
-        await page.waitForSelector('[role="dialog"] input[type="password"]', {
-            timeout: DIALOG_TIMEOUT_MS,
-            visible: true,
-        });
-        await waitForDialogSettled(page);
-
-        await startDialogFrameSampler(page);
-        await page.type('[role="dialog"] input[type="password"]', 'wrong-password');
-        await page.keyboard.press('Enter');
-        await page.waitForSelector('[role="dialog"] [data-slot="error"]', {timeout: DIALOG_TIMEOUT_MS});
-        await waitForDialogSettled(page);
-        const frames = await stopDialogFrameSampler(page);
-
-        expect(frames.length).toBeGreaterThan(0);
-        expect(frames.filter(frame => !frame.present || frame.opacity < 0.999)).toEqual([]);
-        const heights = frames.map(frame => frame.height ?? 0);
-        expect(Math.max(...heights) - Math.min(...heights)).toBeLessThanOrEqual(LAYOUT_TOLERANCE_PX);
-        expect(await page.evaluate(() => document.activeElement?.getAttribute('type'))).toBe('password');
-
-        await page.keyboard.type('frame-secret');
-        await page.keyboard.press('Enter');
-        await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
-        await waitForPdfLoaded(page, DIALOG_TIMEOUT_MS);
-        await page.waitForSelector('.workspace-host[data-workspace-active="true"] .page_container--rendered canvas', {
-            timeout: DIALOG_TIMEOUT_MS,
-            visible: true,
-        });
-
-        // Cancelling the prompt is ordinary use too.
-        const cancelledPath = await createPasswordProtectedFixturePdf(`dialog-layout-password-cancel-${Date.now()}.pdf`);
-        await triggerOpenPathInApp(page, cancelledPath, DIALOG_TIMEOUT_MS);
-        await page.waitForSelector('[role="dialog"] input[type="password"]', {
-            timeout: DIALOG_TIMEOUT_MS,
-            visible: true,
-        });
-        await waitForDialogSettled(page);
-        await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
-            .find(candidate => candidate.textContent?.trim() === label), 'Cancel', {description: 'Password prompt Cancel button'});
-        await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
-
-        // A well-formed encrypted PDF needs a password; that is not a failure (#970).
-        expect(readIpcHandlerRejections(session.name, 'pdf:openingGeometry')).toEqual([]);
-    }, DIALOG_TIMEOUT_MS * 3);
-
-    it('keeps a closed update status closed in a new window and after a renderer reload', async () => {
-        const {page} = sessionFixture.getSession();
-        const messages = LOCALE_MESSAGES.en;
-        const evidenceDirectory = mkdtempSync(join(tmpdir(), 'evb-update-restore-'));
-        console.log(`Update restore artifacts: ${evidenceDirectory}`);
-        type TUpdateFaultWindow = IE2EWindow & {__emitUpdateStatusForAutomation?: (status: unknown) => void};
-        const fixturePath = resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'generated-text.pdf');
-        let destination: Page | null = null;
-        try {
-            await page.waitForSelector('button[aria-label="Settings"]', {visible: true});
-            // Settings offers the check only while the status is supported, and an
-            // unpackaged Linux build starts unsupported. The fixture replays an
-            // idle status through the renderer; the check itself is real.
-            await page.evaluate(() => (window as TUpdateFaultWindow).__emitUpdateStatusForAutomation?.({
-                phase: 'idle',
-                origin: 'auto',
-                version: null,
-                percent: null,
-                message: null,
-            }));
-            await clickFoundAsUser(page, () => document.querySelector<HTMLButtonElement>('button[aria-label="Settings"]'),
-                undefined, {description: 'Settings button'});
-            await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('.settings-section button'))
-                .find(button => button.textContent?.trim() === label), messages.settings.checkForUpdates,
-            {description: 'Check for updates button'});
-            await page.waitForFunction((description: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] p'))
-                .some(element => element.getClientRects().length > 0 && element.innerText.trim() === description),
-            {timeout: DIALOG_TIMEOUT_MS}, messages.updates.unsupportedDescription);
-            await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
-                .find(button => button.textContent?.trim() === label), messages.settings.close, {description: 'Close update status'});
-            await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
-
+            const fixturePath = resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'generated-text.pdf');
             await openPdfInApp(page, fixturePath, DIALOG_TIMEOUT_MS);
             await waitForPdfLoaded(page, DIALOG_TIMEOUT_MS);
-            destination = await moveTabToNewWindow(page, {
-                tabTitle: 'generated-text',
-                menuLabel: messages.menu.moveTabToNewWindow,
-                timeoutMs: DIALOG_TIMEOUT_MS,
+            await waitForViewerInteractive(page, DIALOG_TIMEOUT_MS);
+            await openPrintDialog(page);
+
+            const initial = await readPrintDialogLayout(page);
+            expect(initial.summaryText).toMatch(/^Printing/u);
+
+            const rangeLabel = await page.evaluate(() => {
+                const radio = document.querySelector<HTMLElement>('[role="dialog"] [role="radio"][value="range"]');
+                const label = radio ? document.querySelector<HTMLElement>(`label[for="${CSS.escape(radio.id)}"]`) : null;
+                if (!label) {
+                    return null;
+                }
+                const rect = label.getBoundingClientRect();
+                return {
+                    x: rect.left + Math.min(rect.width / 2, 30),
+                    y: rect.top + rect.height / 2,
+                };
             });
-            const newWindow = await readUpdateDialogAfterStart(destination, messages.updates.unsupportedDescription);
-            await destination.screenshot({path: join(evidenceDirectory, 'new-window.png')});
+            await clickPoint(page, rangeLabel, 'Page range label');
+            await page.waitForSelector('[role="dialog"] [role="radio"][value="range"][aria-checked="true"]', {timeout: DIALOG_TIMEOUT_MS});
+            expectSameGeometry(await readPrintDialogLayout(page), initial);
 
-            await page.reload({waitUntil: 'domcontentloaded'});
-            await page.waitForSelector('.tab-list [role="tab"]', {visible: true});
-            const reload = await readUpdateDialogAfterStart(page, messages.updates.unsupportedDescription);
-            await page.screenshot({path: join(evidenceDirectory, 'after-reload.png')});
+            const rangeInput = await page.$('[role="dialog"] input[aria-label="Page range"]');
+            const inputBox = await rangeInput?.boundingBox();
+            await clickPoint(
+                page,
+                inputBox
+                    ? {
+                          x: inputBox.x + 10,
+                          y: inputBox.y + inputBox.height / 2,
+                      }
+                    : null,
+                'Page range input',
+            );
+            await page.keyboard.type('abc');
+            await page.keyboard.press('Tab');
+            await page.waitForSelector('[role="dialog"] input[aria-label="Page range"][aria-invalid="true"]', {timeout: DIALOG_TIMEOUT_MS});
 
-            writeFileSync(join(evidenceDirectory, 'observations.json'), JSON.stringify({
-                newWindow,
-                reload,
-            }, null, 2));
-            // The check ran in this window and its result was closed; neither a
-            // new window nor a renderer start may open it again.
-            expect({
-                newWindow,
-                reload,
-            }).toEqual({
-                newWindow: false,
-                reload: false,
+            const rejected = await readPrintDialogLayout(page);
+            expect(rejected.summaryText).toBe('Enter a valid page range.');
+            expectSameGeometry(rejected, initial);
+        },
+        DIALOG_TIMEOUT_MS * 2,
+    );
+
+    it(
+        'keeps the password prompt on screen at one size after a wrong password',
+        async () => {
+            const session: IElectronE2ESession = sessionFixture.getSession();
+            const {page} = session;
+            await page.setViewport(DIALOG_VIEWPORT);
+
+            const fixturePath = await createPasswordProtectedFixturePdf(`dialog-layout-password-${Date.now()}.pdf`);
+            await triggerOpenPathInApp(page, fixturePath, DIALOG_TIMEOUT_MS);
+            await page.waitForSelector('[role="dialog"] input[type="password"]', {
+                timeout: DIALOG_TIMEOUT_MS,
+                visible: true,
             });
-        } catch (error) {
-            await page.screenshot({path: join(evidenceDirectory, 'failure.png')});
-            throw error;
-        } finally {
-            if (destination && !destination.isClosed()) {
-                await destination.close();
-            }
-        }
-    }, DIALOG_TIMEOUT_MS * 4);
+            await waitForDialogSettled(page);
 
-    it('shows a live check result only in the window whose person asked', async () => {
-        const {page} = sessionFixture.getSession();
-        const messages = LOCALE_MESSAGES.en;
-        const evidenceDirectory = mkdtempSync(join(tmpdir(), 'evb-update-live-'));
-        console.log(`Update live result artifacts: ${evidenceDirectory}`);
-        type TUpdateFaultWindow = IE2EWindow & {__emitUpdateStatusForAutomation?: (status: unknown) => void};
-        const fixturePath = resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'generated-text.pdf');
-        let destination: Page | null = null;
-        try {
-            await openPdfInApp(page, fixturePath, DIALOG_TIMEOUT_MS);
+            await startDialogFrameSampler(page);
+            await page.type('[role="dialog"] input[type="password"]', 'wrong-password');
+            await page.keyboard.press('Enter');
+            await page.waitForSelector('[role="dialog"] [data-slot="error"]', {timeout: DIALOG_TIMEOUT_MS});
+            await waitForDialogSettled(page);
+            const frames = await stopDialogFrameSampler(page);
+
+            expect(frames.length).toBeGreaterThan(0);
+            expect(frames.filter((frame) => !frame.present || frame.opacity < 0.999)).toEqual([]);
+            const heights = frames.map((frame) => frame.height ?? 0);
+            expect(Math.max(...heights) - Math.min(...heights)).toBeLessThanOrEqual(LAYOUT_TOLERANCE_PX);
+            expect(await page.evaluate(() => document.activeElement?.getAttribute('type'))).toBe('password');
+
+            await page.keyboard.type('frame-secret');
+            await page.keyboard.press('Enter');
+            await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
             await waitForPdfLoaded(page, DIALOG_TIMEOUT_MS);
-            // The second window exists before the check, so it is the one that
-            // would also open a dialog if the result were shown everywhere.
-            destination = await moveTabToNewWindow(page, {
-                tabTitle: 'generated-text',
-                menuLabel: messages.menu.moveTabToNewWindow,
-                timeoutMs: DIALOG_TIMEOUT_MS,
+            await page.waitForSelector('.workspace-host[data-workspace-active="true"] .page_container--rendered canvas', {
+                timeout: DIALOG_TIMEOUT_MS,
+                visible: true,
             });
-            await page.waitForSelector('button[aria-label="Settings"]', {visible: true});
-            // Settings offers the check only while the status is supported; an
-            // unpackaged Linux build starts unsupported, so the fixture idles this
-            // window first. The check itself is real.
-            await page.evaluate(() => (window as TUpdateFaultWindow).__emitUpdateStatusForAutomation?.({
-                phase: 'idle',
-                origin: 'auto',
-                version: null,
-                percent: null,
-                message: null,
-            }));
-            await clickFoundAsUser(page, () => document.querySelector<HTMLButtonElement>('button[aria-label="Settings"]'),
-                undefined, {description: 'Settings button'});
-            await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('.settings-section button'))
-                .find(button => button.textContent?.trim() === label), messages.settings.checkForUpdates,
-            {description: 'Check for updates button'});
-            await page.waitForFunction((description: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] p'))
-                .some(element => element.getClientRects().length > 0 && element.innerText.trim() === description),
-            {timeout: DIALOG_TIMEOUT_MS}, messages.updates.unsupportedDescription);
-            // The other window's push is read after the asking window shows its
-            // result; a dialog it would open is in place by then.
-            const askingWindow = await readUpdateDialogAfterStart(page, messages.updates.unsupportedDescription);
-            const otherWindow = await readUpdateDialogAfterStart(destination, messages.updates.unsupportedDescription);
-            await page.screenshot({path: join(evidenceDirectory, 'asking-window.png')});
-            await destination.screenshot({path: join(evidenceDirectory, 'other-window.png')});
-            writeFileSync(join(evidenceDirectory, 'observations.json'), JSON.stringify({
-                askingWindow,
-                otherWindow,
-            }, null, 2));
-            expect({
-                askingWindow,
-                otherWindow,
-            }).toEqual({
-                askingWindow: true,
-                otherWindow: false,
-            });
-            await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
-                .find(button => button.textContent?.trim() === label), messages.settings.close, {description: 'Close update status'});
-            await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
-        } catch (error) {
-            await page.screenshot({path: join(evidenceDirectory, 'failure.png')});
-            throw error;
-        } finally {
-            if (destination && !destination.isClosed()) {
-                await destination.close();
-            }
-        }
-    }, DIALOG_TIMEOUT_MS * 4);
 
-    it('keeps a progress dialog the person closed closed until the download finishes', async () => {
-        const {page} = sessionFixture.getSession();
-        const messages = LOCALE_MESSAGES.en;
-        const evidenceDirectory = mkdtempSync(join(tmpdir(), 'evb-update-progress-'));
-        console.log(`Update progress artifacts: ${evidenceDirectory}`);
-        type TUpdateFaultWindow = IE2EWindow & {__emitUpdateStatusForAutomation?: (status: unknown) => void};
-        // This build has no updater behind the download, so the existing status
-        // fixture replays the owner's pushes to the window that asked.
-        const emitAskedResult = (status: Record<string, unknown>) => page.evaluate((payload: Record<string, unknown>) => (window as TUpdateFaultWindow).__emitUpdateStatusForAutomation?.(payload), {
-            origin: 'manual',
-            version: '9.9.9',
-            percent: null,
-            message: null,
-            requestedHere: true,
-            ...status,
-        });
-        const isDialogOpen = async () => {
-            await page.evaluate(() => (window as IE2EWindow).electronAPI?.updates.getState());
-            return page.evaluate(() => Boolean(document.querySelector('[role="dialog"]')));
-        };
-        const observations: Record<string, boolean> = {};
-        try {
-            await page.waitForSelector('button[aria-label="Settings"]', {visible: true});
-            await emitAskedResult({phase: 'available'});
-            await page.waitForFunction((text: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] p'))
-                .some(element => element.innerText.trim() === text),
-            {timeout: DIALOG_TIMEOUT_MS}, messages.updates.availableDescription.replace('{version}', '9.9.9'));
-            await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
-                .find(button => button.textContent?.trim() === label), messages.updates.downloadAction, {description: 'Download and Install button'});
-            await emitAskedResult({
-                phase: 'downloading',
-                percent: 10,
+            // Cancelling the prompt is ordinary use too.
+            const cancelledPath = await createPasswordProtectedFixturePdf(`dialog-layout-password-cancel-${Date.now()}.pdf`);
+            await triggerOpenPathInApp(page, cancelledPath, DIALOG_TIMEOUT_MS);
+            await page.waitForSelector('[role="dialog"] input[type="password"]', {
+                timeout: DIALOG_TIMEOUT_MS,
+                visible: true,
             });
-            await page.waitForFunction((text: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] p'))
-                .some(element => element.innerText.trim() === text),
-            {timeout: DIALOG_TIMEOUT_MS}, messages.updates.downloadingDescription.replace('{version}', '9.9.9').replace('{percent}', '10'));
-            await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
-                .find(button => button.textContent?.trim() === label), messages.settings.close, {description: 'Close progress dialog'});
+            await waitForDialogSettled(page);
+            await clickFoundAsUser(
+                page,
+                (label: string) =>
+                    Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find(
+                        (candidate) => candidate.textContent?.trim() === label,
+                    ),
+                'Cancel',
+                {description: 'Password prompt Cancel button'},
+            );
             await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
-            // Progress keeps arriving for the download the person closed.
-            await emitAskedResult({
-                phase: 'downloading',
-                percent: 40,
-            });
-            observations.reopenedAt40 = await isDialogOpen();
-            await emitAskedResult({
-                phase: 'downloading',
-                percent: 80,
-            });
-            observations.reopenedAt80 = await isDialogOpen();
-            // The finished download still presents its ready dialog.
-            await emitAskedResult({
-                phase: 'downloaded',
-                percent: 100,
-            });
-            await page.waitForFunction((text: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] p'))
-                .some(element => element.innerText.trim() === text),
-            {timeout: DIALOG_TIMEOUT_MS}, messages.updates.readyDescription.replace('{version}', '9.9.9'));
-            observations.readyShown = true;
-            writeFileSync(join(evidenceDirectory, 'observations.json'), JSON.stringify(observations, null, 2));
-            expect(observations).toEqual({
-                reopenedAt40: false,
-                reopenedAt80: false,
-                readyShown: true,
-            });
-            await page.keyboard.press('Escape');
-            await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
-        } catch (error) {
-            await page.screenshot({path: join(evidenceDirectory, 'failure.png')});
-            writeFileSync(join(evidenceDirectory, 'observations.json'), JSON.stringify(observations, null, 2));
-            throw error;
-        }
-    }, DIALOG_TIMEOUT_MS * 4);
 
-    it('localizes updater failure reasons after a trusted check in all nine locales', async () => {
-        const {page} = sessionFixture.getSession();
-        const evidenceDirectory = mkdtempSync(join(tmpdir(), 'evb-update-reasons-'));
-        const observations: Array<{
-            locale: string;
-            reason: string;
-            text: string
-        }> = [];
-        type TUpdateFaultWindow = IE2EWindow & {__emitUpdateStatusForAutomation?: (status: unknown) => void};
-        const cases = [
-            [
-                'check-timed-out',
-                'checkTimedOut',
-                'error',
-            ],
-            [
-                'network-unavailable',
-                'networkUnavailable',
-                'error',
-            ],
-            [
-                'feed-unavailable',
-                'feedUnavailable',
-                'error',
-            ],
-            [
-                'download-failed',
-                'downloadFailed',
-                'error',
-            ],
-            [
-                'install-preparation-failed',
-                'installPreparationFailed',
-                'error',
-            ],
-            [
-                'runtime-unsupported',
-                'unsupportedDescription',
-                'unsupported',
-            ],
-            [
-                'store-updates',
-                'storeUpdates',
-                'unsupported',
-            ],
-            [
-                'signed-build-required',
-                'signedBuildRequired',
-                'unsupported',
-            ],
-        ] as const;
-        console.log(`Updater reason artifacts: ${evidenceDirectory}`);
-        try {
-            // Closing writes through to the shared owner, for both the footer
-            // action and Escape. Fixture statuses still enter the real subscription.
-            await setSavedLocale(page, 'en');
-            await page.waitForSelector('button[aria-label="Settings"]', {visible: true});
-            await page.evaluate(() => (window as TUpdateFaultWindow).__emitUpdateStatusForAutomation?.({
-                phase: 'idle',
-                origin: 'auto',
-                version: null,
-                percent: null,
-                message: null,
-            }));
-            await clickFoundAsUser(page, () => document.querySelector<HTMLButtonElement>('button[aria-label="Settings"]'),
-                undefined, {description: 'Settings button'});
-            await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('.settings-section button'))
-                .find(button => button.textContent?.trim() === label),
-            LOCALE_MESSAGES.en.settings.checkForUpdates, {description: 'Check for updates button'});
-            await page.waitForSelector('[role="dialog"]', {visible: true});
-            const closedDialogs: Array<{
-                action: string;
-                reopened: boolean
-            }> = [];
-            for (const action of [
-                'Close',
-                'Escape',
-            ] as const) {
-                if (action === 'Escape') {
-                    await page.evaluate(() => (window as TUpdateFaultWindow).__emitUpdateStatusForAutomation?.({
-                        phase: 'unsupported',
-                        origin: 'manual',
-                        version: null,
-                        percent: null,
-                        message: null,
-                        requestedHere: true,
-                    }));
-                    await page.waitForSelector('[role="dialog"]', {visible: true});
-                }
-                if (action === 'Close') {
-                    await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
-                        .find(button => button.textContent?.trim() === 'Close'), undefined, {description: 'Close update dialog'});
-                } else {
-                    await page.keyboard.press('Escape');
-                }
-                await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
-                const previousLanguage = action === 'Close' ? 'English' : 'Русский';
-                const nextLanguage = action === 'Close' ? 'Русский' : 'English';
-                await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('.settings-grid button[aria-haspopup="listbox"]'))
-                    .find(button => button.textContent?.trim() === label), previousLanguage, {description: 'Interface language selector'});
-                await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'))
-                    .find(option => option.textContent?.trim() === label), nextLanguage, {description: `${nextLanguage} interface language`});
-                const settingsLabel = action === 'Close' ? LOCALE_MESSAGES.ru.toolbar.settings : LOCALE_MESSAGES.en.toolbar.settings;
-                await page.waitForSelector(`button[aria-label="${settingsLabel}"]`, {visible: true});
-                const reopened = await page.evaluate(() => Boolean(document.querySelector('[role="dialog"]')));
-                closedDialogs.push({
-                    action,
-                    reopened,
-                });
-                writeFileSync(join(evidenceDirectory, 'closed-dialogs.json'), JSON.stringify(closedDialogs, null, 2));
-                await page.screenshot({path: join(evidenceDirectory, `closed-${action}-after-language.png`)});
-                // Dismiss a reopened baseline modal so both independent actions
-                // can be observed; the final assertion still rejects that outcome.
-                if (reopened) {
-                    await page.keyboard.press('Escape');
-                    await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
-                }
-            }
-            expect(closedDialogs).toEqual([
-                {
-                    action: 'Close',
-                    reopened: false,
-                },
-                {
-                    action: 'Escape',
-                    reopened: false,
-                },
-            ]);
-            for (const phase of [
-                'checking',
-                'available',
-                'unsupported',
-            ] as const) {
-                await page.evaluate((phase: string) => (window as TUpdateFaultWindow).__emitUpdateStatusForAutomation?.({
-                    phase,
-                    origin: 'manual',
-                    version: '9.9.9',
-                    percent: null,
-                    message: null,
-                    requestedHere: true,
-                }), phase);
-                await page.waitForSelector('[role="dialog"]', {visible: true});
-                await page.keyboard.press('Escape');
-                await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
-                console.log(`Update dialog Escape removed the ${phase} modal`);
-            }
-            // Saved preferences and the existing preload status hook are fixtures.
-            // Linux dev cannot run the signed standalone updater. Each check still
-            // uses trusted input and real IPC before the controlled result arrives.
-            for (const locale of [
-                'ru',
-                'en',
-                'fr',
-                'de',
-                'es',
-                'it',
-                'pt',
-                'pt-BR',
-                'nl',
-            ] as const) {
-                const messages = LOCALE_MESSAGES[locale];
-                for (const [
-                    reason,
-                    key,
-                    phase,
-                ] of (locale === 'ru' ? cases : cases.slice(0, 1))) {
-                    // Each controlled native result starts with a fresh renderer;
-                    // an unsupported runtime cannot become supported in place.
-                    await setSavedLocale(page, locale);
-                    // Settle hydration before the fixture enables this unsupported runtime's Check button.
-                    await readUpdateDialogAfterStart(page, messages.updates.unsupportedDescription);
-                    await page.waitForSelector(`button[aria-label="${messages.toolbar.settings}"]`, {visible: true});
-                    await page.evaluate(() => (window as TUpdateFaultWindow).__emitUpdateStatusForAutomation?.({
+            // A well-formed encrypted PDF needs a password; that is not a failure (#970).
+            expect(readIpcHandlerRejections(session.name, 'pdf:openingGeometry')).toEqual([]);
+        },
+        DIALOG_TIMEOUT_MS * 3,
+    );
+
+    it(
+        'keeps a closed update status closed in a new window and after a renderer reload',
+        async () => {
+            const {page} = sessionFixture.getSession();
+            const messages = LOCALE_MESSAGES.en;
+            const evidenceDirectory = mkdtempSync(join(tmpdir(), 'evb-update-restore-'));
+            console.log(`Update restore artifacts: ${evidenceDirectory}`);
+            type TUpdateFaultWindow = IE2EWindow & {__emitUpdateStatusForAutomation?: (status: unknown) => void};
+            const fixturePath = resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'generated-text.pdf');
+            let destination: Page | null = null;
+            try {
+                await page.waitForSelector('button[aria-label="Settings"]', {visible: true});
+                // Settings offers the check only while the status is supported, and an
+                // unpackaged Linux build starts unsupported. The fixture replays an
+                // idle status through the renderer; the check itself is real.
+                await page.evaluate(() =>
+                    (window as TUpdateFaultWindow).__emitUpdateStatusForAutomation?.({
                         phase: 'idle',
                         origin: 'auto',
                         version: null,
                         percent: null,
                         message: null,
-                    }));
-                    await clickFoundAsUser(page, (label: string) => document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`),
-                        messages.toolbar.settings, {description: 'Settings button'});
-                    await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('.settings-section button'))
-                        .find(button => button.textContent?.trim() === label), messages.settings.checkForUpdates,
-                    {description: 'Check for updates button'});
-                    await page.waitForFunction((description: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] p'))
-                        .some(element => element.getClientRects().length > 0 && element.innerText.trim() === description),
-                    {timeout: DIALOG_TIMEOUT_MS}, messages.updates.unsupportedDescription);
-                    const raw = `Timed out while checking for updates. [${reason}]`;
-                    await page.evaluate((payload: {
-                        phase: string;
-                        reason: string;
-                        message: string
-                    }) => {
-                        const emit = (window as TUpdateFaultWindow).__emitUpdateStatusForAutomation;
-                        if (!emit) {
-                            throw new Error('Existing updater status fixture is unavailable');
-                        }
-                        emit({
-                            ...payload,
-                            origin: 'manual',
-                            version: '9.9.9',
-                            percent: null,
-                            requestedHere: true,
-                        });
-                    }, {
-                        phase,
-                        reason,
-                        message: raw,
-                    });
-                    const localized = messages.updates[key].replace('{version}', '9.9.9');
-                    const expected = phase === 'error'
-                        ? messages.updates.errorDescription.replace('{message}', localized) : localized;
-                    const selector = phase === 'error' ? '.app-toast-failure-reason' : '[role="dialog"] p';
-                    await page.waitForFunction((query: string, localized: string, raw: string) => Array.from(document.querySelectorAll<HTMLElement>(query))
-                        .some(element => element.getClientRects().length > 0
-                            && (element.innerText.trim() === localized || element.innerText.includes(raw))),
-                    {timeout: DIALOG_TIMEOUT_MS}, selector, expected, raw);
-                    const text = await page.evaluate((query: string) => Array.from(document.querySelectorAll<HTMLElement>(query))
-                        .filter(element => element.getClientRects().length > 0).at(-1)?.innerText.trim() ?? '', selector);
-                    observations.push({
-                        locale,
-                        reason,
-                        text,
-                    });
-                    writeFileSync(join(evidenceDirectory, 'observations.json'), JSON.stringify(observations, null, 2));
-                    await page.screenshot({path: join(evidenceDirectory, `${locale}-${reason}.png`)});
-                    expect(text).toBe(expected);
-                    expect(text).not.toContain(raw);
-                    if (phase === 'error') {
-                        if (reason === 'check-timed-out') {
-                            await clickToastButton(page, messages.errors.runtime.copy);
-                            await page.waitForFunction((label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button'))
-                                .some(button => button.innerText.trim() === label), {timeout: DIALOG_TIMEOUT_MS}, messages.errors.runtime.copied);
-                            expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(raw);
-                        } else {
-                            await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button[aria-label]'))
-                                .find(button => button.getClientRects().length > 0), undefined, {description: 'Dismiss update failure'});
-                        }
-                        await page.waitForFunction(() => !Array.from(document.querySelectorAll<HTMLElement>('.app-toast-failure'))
-                            .some(element => element.getClientRects().length > 0), {timeout: DIALOG_TIMEOUT_MS});
-                    } else {
-                        await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
-                            .find(button => button.textContent?.trim() === label), messages.settings.close, {description: 'Close update status'});
-                    }
-                    await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
+                    }),
+                );
+                await clickFoundAsUser(page, () => document.querySelector<HTMLButtonElement>('button[aria-label="Settings"]'), undefined, {
+                    description: 'Settings button',
+                });
+                await clickFoundAsUser(
+                    page,
+                    (label: string) =>
+                        Array.from(document.querySelectorAll<HTMLButtonElement>('.settings-section button')).find(
+                            (button) => button.textContent?.trim() === label,
+                        ),
+                    messages.settings.checkForUpdates,
+                    {description: 'Check for updates button'},
+                );
+                await page.waitForFunction(
+                    (description: string) =>
+                        Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] p')).some(
+                            (element) => element.getClientRects().length > 0 && element.innerText.trim() === description,
+                        ),
+                    {timeout: DIALOG_TIMEOUT_MS},
+                    messages.updates.unsupportedDescription,
+                );
+                await clickFoundAsUser(
+                    page,
+                    (label: string) =>
+                        Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find(
+                            (button) => button.textContent?.trim() === label,
+                        ),
+                    messages.settings.close,
+                    {description: 'Close update status'},
+                );
+                await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
+
+                await openPdfInApp(page, fixturePath, DIALOG_TIMEOUT_MS);
+                await waitForPdfLoaded(page, DIALOG_TIMEOUT_MS);
+                destination = await moveTabToNewWindow(page, {
+                    tabTitle: 'generated-text',
+                    menuLabel: messages.menu.moveTabToNewWindow,
+                    timeoutMs: DIALOG_TIMEOUT_MS,
+                });
+                const newWindow = await readUpdateDialogAfterStart(destination, messages.updates.unsupportedDescription);
+                await destination.screenshot({path: join(evidenceDirectory, 'new-window.png')});
+
+                await page.reload({waitUntil: 'domcontentloaded'});
+                await page.waitForSelector('.tab-list [role="tab"]', {visible: true});
+                const reload = await readUpdateDialogAfterStart(page, messages.updates.unsupportedDescription);
+                await page.screenshot({path: join(evidenceDirectory, 'after-reload.png')});
+
+                writeFileSync(
+                    join(evidenceDirectory, 'observations.json'),
+                    JSON.stringify(
+                        {
+                            newWindow,
+                            reload,
+                        },
+                        null,
+                        2,
+                    ),
+                );
+                // The check ran in this window and its result was closed; neither a
+                // new window nor a renderer start may open it again.
+                expect({
+                    newWindow,
+                    reload,
+                }).toEqual({
+                    newWindow: false,
+                    reload: false,
+                });
+            } catch (error) {
+                await page.screenshot({path: join(evidenceDirectory, 'failure.png')});
+                throw error;
+            } finally {
+                if (destination && !destination.isClosed()) {
+                    await destination.close();
                 }
             }
-        } catch (error) {
-            await page.screenshot({path: join(evidenceDirectory, 'failure.png')});
-            writeFileSync(join(evidenceDirectory, 'failure.html'), await page.content());
-            throw error;
-        } finally {
-            await setSavedLocale(page, 'en');
-        }
-    }, DIALOG_TIMEOUT_MS * 6);
+        },
+        DIALOG_TIMEOUT_MS * 4,
+    );
 
-    it('labels a failure toast in the saved interface language', async () => {
-        const session: IElectronE2ESession = sessionFixture.getSession();
-        const {page} = session;
-        await page.setViewport(DIALOG_VIEWPORT);
-        const malformedPath = createTruncatedPdf();
-        const invalidProgress: string[] = [];
-        const observeProgress = (message: ConsoleMessage) => {
-            const text = message.text();
-            if (text.includes('ProgressRoot') && text.includes('Invalid prop')) {
-                invalidProgress.push(text);
+    it(
+        'shows a live check result only in the window whose person asked',
+        async () => {
+            const {page} = sessionFixture.getSession();
+            const messages = LOCALE_MESSAGES.en;
+            const evidenceDirectory = mkdtempSync(join(tmpdir(), 'evb-update-live-'));
+            console.log(`Update live result artifacts: ${evidenceDirectory}`);
+            type TUpdateFaultWindow = IE2EWindow & {__emitUpdateStatusForAutomation?: (status: unknown) => void};
+            const fixturePath = resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'generated-text.pdf');
+            let destination: Page | null = null;
+            try {
+                await openPdfInApp(page, fixturePath, DIALOG_TIMEOUT_MS);
+                await waitForPdfLoaded(page, DIALOG_TIMEOUT_MS);
+                // The second window exists before the check, so it is the one that
+                // would also open a dialog if the result were shown everywhere.
+                destination = await moveTabToNewWindow(page, {
+                    tabTitle: 'generated-text',
+                    menuLabel: messages.menu.moveTabToNewWindow,
+                    timeoutMs: DIALOG_TIMEOUT_MS,
+                });
+                await page.waitForSelector('button[aria-label="Settings"]', {visible: true});
+                // Settings offers the check only while the status is supported; an
+                // unpackaged Linux build starts unsupported, so the fixture idles this
+                // window first. The check itself is real.
+                await page.evaluate(() =>
+                    (window as TUpdateFaultWindow).__emitUpdateStatusForAutomation?.({
+                        phase: 'idle',
+                        origin: 'auto',
+                        version: null,
+                        percent: null,
+                        message: null,
+                    }),
+                );
+                await clickFoundAsUser(page, () => document.querySelector<HTMLButtonElement>('button[aria-label="Settings"]'), undefined, {
+                    description: 'Settings button',
+                });
+                await clickFoundAsUser(
+                    page,
+                    (label: string) =>
+                        Array.from(document.querySelectorAll<HTMLButtonElement>('.settings-section button')).find(
+                            (button) => button.textContent?.trim() === label,
+                        ),
+                    messages.settings.checkForUpdates,
+                    {description: 'Check for updates button'},
+                );
+                await page.waitForFunction(
+                    (description: string) =>
+                        Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] p')).some(
+                            (element) => element.getClientRects().length > 0 && element.innerText.trim() === description,
+                        ),
+                    {timeout: DIALOG_TIMEOUT_MS},
+                    messages.updates.unsupportedDescription,
+                );
+                // The other window's push is read after the asking window shows its
+                // result; a dialog it would open is in place by then.
+                const askingWindow = await readUpdateDialogAfterStart(page, messages.updates.unsupportedDescription);
+                const otherWindow = await readUpdateDialogAfterStart(destination, messages.updates.unsupportedDescription);
+                await page.screenshot({path: join(evidenceDirectory, 'asking-window.png')});
+                await destination.screenshot({path: join(evidenceDirectory, 'other-window.png')});
+                writeFileSync(
+                    join(evidenceDirectory, 'observations.json'),
+                    JSON.stringify(
+                        {
+                            askingWindow,
+                            otherWindow,
+                        },
+                        null,
+                        2,
+                    ),
+                );
+                expect({
+                    askingWindow,
+                    otherWindow,
+                }).toEqual({
+                    askingWindow: true,
+                    otherWindow: false,
+                });
+                await clickFoundAsUser(
+                    page,
+                    (label: string) =>
+                        Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find(
+                            (button) => button.textContent?.trim() === label,
+                        ),
+                    messages.settings.close,
+                    {description: 'Close update status'},
+                );
+                await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
+            } catch (error) {
+                await page.screenshot({path: join(evidenceDirectory, 'failure.png')});
+                throw error;
+            } finally {
+                if (destination && !destination.isClosed()) {
+                    await destination.close();
+                }
             }
-        };
-        page.on('console', observeProgress);
-        onTestFinished(() => { page.off('console', observeProgress); });
+        },
+        DIALOG_TIMEOUT_MS * 4,
+    );
 
-        try {
-            await setSavedLocale(page, 'ru');
+    it(
+        'keeps a progress dialog the person closed closed until the download finishes',
+        async () => {
+            const {page} = sessionFixture.getSession();
+            const messages = LOCALE_MESSAGES.en;
+            const evidenceDirectory = mkdtempSync(join(tmpdir(), 'evb-update-progress-'));
+            console.log(`Update progress artifacts: ${evidenceDirectory}`);
+            type TUpdateFaultWindow = IE2EWindow & {__emitUpdateStatusForAutomation?: (status: unknown) => void};
+            // This build has no updater behind the download, so the existing status
+            // fixture replays the owner's pushes to the window that asked.
+            const emitAskedResult = (status: Record<string, unknown>) =>
+                page.evaluate(
+                    (payload: Record<string, unknown>) => (window as TUpdateFaultWindow).__emitUpdateStatusForAutomation?.(payload),
+                    {
+                        origin: 'manual',
+                        version: '9.9.9',
+                        percent: null,
+                        message: null,
+                        requestedHere: true,
+                        ...status,
+                    },
+                );
+            const isDialogOpen = async () => {
+                await page.evaluate(() => (window as IE2EWindow).electronAPI?.updates.getState());
+                return page.evaluate(() => Boolean(document.querySelector('[role="dialog"]')));
+            };
+            const observations: Record<string, boolean> = {};
+            try {
+                await page.waitForSelector('button[aria-label="Settings"]', {visible: true});
+                await emitAskedResult({phase: 'available'});
+                await page.waitForFunction(
+                    (text: string) =>
+                        Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] p')).some(
+                            (element) => element.innerText.trim() === text,
+                        ),
+                    {timeout: DIALOG_TIMEOUT_MS},
+                    messages.updates.availableDescription.replace('{version}', '9.9.9'),
+                );
+                await clickFoundAsUser(
+                    page,
+                    (label: string) =>
+                        Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find(
+                            (button) => button.textContent?.trim() === label,
+                        ),
+                    messages.updates.downloadAction,
+                    {description: 'Download and Install button'},
+                );
+                await emitAskedResult({
+                    phase: 'downloading',
+                    percent: 10,
+                });
+                await page.waitForFunction(
+                    (text: string) =>
+                        Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] p')).some(
+                            (element) => element.innerText.trim() === text,
+                        ),
+                    {timeout: DIALOG_TIMEOUT_MS},
+                    messages.updates.downloadingDescription.replace('{version}', '9.9.9').replace('{percent}', '10'),
+                );
+                await clickFoundAsUser(
+                    page,
+                    (label: string) =>
+                        Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find(
+                            (button) => button.textContent?.trim() === label,
+                        ),
+                    messages.settings.close,
+                    {description: 'Close progress dialog'},
+                );
+                await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
+                // Progress keeps arriving for the download the person closed.
+                await emitAskedResult({
+                    phase: 'downloading',
+                    percent: 40,
+                });
+                observations.reopenedAt40 = await isDialogOpen();
+                await emitAskedResult({
+                    phase: 'downloading',
+                    percent: 80,
+                });
+                observations.reopenedAt80 = await isDialogOpen();
+                // The finished download still presents its ready dialog.
+                await emitAskedResult({
+                    phase: 'downloaded',
+                    percent: 100,
+                });
+                await page.waitForFunction(
+                    (text: string) =>
+                        Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] p')).some(
+                            (element) => element.innerText.trim() === text,
+                        ),
+                    {timeout: DIALOG_TIMEOUT_MS},
+                    messages.updates.readyDescription.replace('{version}', '9.9.9'),
+                );
+                observations.readyShown = true;
+                writeFileSync(join(evidenceDirectory, 'observations.json'), JSON.stringify(observations, null, 2));
+                expect(observations).toEqual({
+                    reopenedAt40: false,
+                    reopenedAt80: false,
+                    readyShown: true,
+                });
+                await page.keyboard.press('Escape');
+                await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
+            } catch (error) {
+                await page.screenshot({path: join(evidenceDirectory, 'failure.png')});
+                writeFileSync(join(evidenceDirectory, 'observations.json'), JSON.stringify(observations, null, 2));
+                throw error;
+            }
+        },
+        DIALOG_TIMEOUT_MS * 4,
+    );
+
+    it(
+        'localizes updater failure reasons after a trusted check in all nine locales',
+        async () => {
+            const {page} = sessionFixture.getSession();
+            const evidenceDirectory = mkdtempSync(join(tmpdir(), 'evb-update-reasons-'));
+            const observations: Array<{
+                locale: string;
+                reason: string;
+                text: string;
+            }> = [];
+            type TUpdateFaultWindow = IE2EWindow & {__emitUpdateStatusForAutomation?: (status: unknown) => void};
+            const cases = [
+                ['check-timed-out', 'checkTimedOut', 'error'],
+                ['network-unavailable', 'networkUnavailable', 'error'],
+                ['feed-unavailable', 'feedUnavailable', 'error'],
+                ['download-failed', 'downloadFailed', 'error'],
+                ['install-preparation-failed', 'installPreparationFailed', 'error'],
+                ['runtime-unsupported', 'unsupportedDescription', 'unsupported'],
+                ['store-updates', 'storeUpdates', 'unsupported'],
+                ['signed-build-required', 'signedBuildRequired', 'unsupported'],
+            ] as const;
+            console.log(`Updater reason artifacts: ${evidenceDirectory}`);
+            try {
+                // Closing writes through to the shared owner, for both the footer
+                // action and Escape. Fixture statuses still enter the real subscription.
+                await setSavedLocale(page, 'en');
+                await page.waitForSelector('button[aria-label="Settings"]', {visible: true});
+                await page.evaluate(() =>
+                    (window as TUpdateFaultWindow).__emitUpdateStatusForAutomation?.({
+                        phase: 'idle',
+                        origin: 'auto',
+                        version: null,
+                        percent: null,
+                        message: null,
+                    }),
+                );
+                await clickFoundAsUser(page, () => document.querySelector<HTMLButtonElement>('button[aria-label="Settings"]'), undefined, {
+                    description: 'Settings button',
+                });
+                await clickFoundAsUser(
+                    page,
+                    (label: string) =>
+                        Array.from(document.querySelectorAll<HTMLButtonElement>('.settings-section button')).find(
+                            (button) => button.textContent?.trim() === label,
+                        ),
+                    LOCALE_MESSAGES.en.settings.checkForUpdates,
+                    {description: 'Check for updates button'},
+                );
+                await page.waitForSelector('[role="dialog"]', {visible: true});
+                const closedDialogs: Array<{
+                    action: string;
+                    reopened: boolean;
+                }> = [];
+                for (const action of ['Close', 'Escape'] as const) {
+                    if (action === 'Escape') {
+                        await page.evaluate(() =>
+                            (window as TUpdateFaultWindow).__emitUpdateStatusForAutomation?.({
+                                phase: 'unsupported',
+                                origin: 'manual',
+                                version: null,
+                                percent: null,
+                                message: null,
+                                requestedHere: true,
+                            }),
+                        );
+                        await page.waitForSelector('[role="dialog"]', {visible: true});
+                    }
+                    if (action === 'Close') {
+                        await clickFoundAsUser(
+                            page,
+                            () =>
+                                Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find(
+                                    (button) => button.textContent?.trim() === 'Close',
+                                ),
+                            undefined,
+                            {description: 'Close update dialog'},
+                        );
+                    } else {
+                        await page.keyboard.press('Escape');
+                    }
+                    await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
+                    const previousLanguage = action === 'Close' ? 'English' : 'Русский';
+                    const nextLanguage = action === 'Close' ? 'Русский' : 'English';
+                    await clickFoundAsUser(
+                        page,
+                        (label: string) =>
+                            Array.from(document.querySelectorAll<HTMLButtonElement>('.settings-grid button[aria-haspopup="listbox"]')).find(
+                                (button) => button.textContent?.trim() === label,
+                            ),
+                        previousLanguage,
+                        {description: 'Interface language selector'},
+                    );
+                    await clickFoundAsUser(
+                        page,
+                        (label: string) =>
+                            Array.from(document.querySelectorAll<HTMLElement>('[role="option"]')).find(
+                                (option) => option.textContent?.trim() === label,
+                            ),
+                        nextLanguage,
+                        {description: `${nextLanguage} interface language`},
+                    );
+                    const settingsLabel = action === 'Close' ? LOCALE_MESSAGES.ru.toolbar.settings : LOCALE_MESSAGES.en.toolbar.settings;
+                    await page.waitForSelector(`button[aria-label="${settingsLabel}"]`, {visible: true});
+                    const reopened = await page.evaluate(() => Boolean(document.querySelector('[role="dialog"]')));
+                    closedDialogs.push({
+                        action,
+                        reopened,
+                    });
+                    writeFileSync(join(evidenceDirectory, 'closed-dialogs.json'), JSON.stringify(closedDialogs, null, 2));
+                    await page.screenshot({path: join(evidenceDirectory, `closed-${action}-after-language.png`)});
+                    // Dismiss a reopened baseline modal so both independent actions
+                    // can be observed; the final assertion still rejects that outcome.
+                    if (reopened) {
+                        await page.keyboard.press('Escape');
+                        await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
+                    }
+                }
+                expect(closedDialogs).toEqual([
+                    {
+                        action: 'Close',
+                        reopened: false,
+                    },
+                    {
+                        action: 'Escape',
+                        reopened: false,
+                    },
+                ]);
+                for (const phase of ['checking', 'available', 'unsupported'] as const) {
+                    await page.evaluate(
+                        (phase: string) =>
+                            (window as TUpdateFaultWindow).__emitUpdateStatusForAutomation?.({
+                                phase,
+                                origin: 'manual',
+                                version: '9.9.9',
+                                percent: null,
+                                message: null,
+                                requestedHere: true,
+                            }),
+                        phase,
+                    );
+                    await page.waitForSelector('[role="dialog"]', {visible: true});
+                    await page.keyboard.press('Escape');
+                    await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
+                    console.log(`Update dialog Escape removed the ${phase} modal`);
+                }
+                // Saved preferences and the existing preload status hook are fixtures.
+                // Linux dev cannot run the signed standalone updater. Each check still
+                // uses trusted input and real IPC before the controlled result arrives.
+                for (const locale of ['ru', 'en', 'fr', 'de', 'es', 'it', 'pt', 'pt-BR', 'nl'] as const) {
+                    const messages = LOCALE_MESSAGES[locale];
+                    for (const [reason, key, phase] of locale === 'ru' ? cases : cases.slice(0, 1)) {
+                        // Each controlled native result starts with a fresh renderer;
+                        // an unsupported runtime cannot become supported in place.
+                        await setSavedLocale(page, locale);
+                        // Settle hydration before the fixture enables this unsupported runtime's Check button.
+                        await readUpdateDialogAfterStart(page, messages.updates.unsupportedDescription);
+                        await page.waitForSelector(`button[aria-label="${messages.toolbar.settings}"]`, {visible: true});
+                        await page.evaluate(() =>
+                            (window as TUpdateFaultWindow).__emitUpdateStatusForAutomation?.({
+                                phase: 'idle',
+                                origin: 'auto',
+                                version: null,
+                                percent: null,
+                                message: null,
+                            }),
+                        );
+                        await clickFoundAsUser(
+                            page,
+                            (label: string) => document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`),
+                            messages.toolbar.settings,
+                            {description: 'Settings button'},
+                        );
+                        await clickFoundAsUser(
+                            page,
+                            (label: string) =>
+                                Array.from(document.querySelectorAll<HTMLButtonElement>('.settings-section button')).find(
+                                    (button) => button.textContent?.trim() === label,
+                                ),
+                            messages.settings.checkForUpdates,
+                            {description: 'Check for updates button'},
+                        );
+                        await page.waitForFunction(
+                            (description: string) =>
+                                Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] p')).some(
+                                    (element) => element.getClientRects().length > 0 && element.innerText.trim() === description,
+                                ),
+                            {timeout: DIALOG_TIMEOUT_MS},
+                            messages.updates.unsupportedDescription,
+                        );
+                        const raw = `Timed out while checking for updates. [${reason}]`;
+                        await page.evaluate(
+                            (payload: {phase: string; reason: string; message: string}) => {
+                                const emit = (window as TUpdateFaultWindow).__emitUpdateStatusForAutomation;
+                                if (!emit) {
+                                    throw new Error('Existing updater status fixture is unavailable');
+                                }
+                                emit({
+                                    ...payload,
+                                    origin: 'manual',
+                                    version: '9.9.9',
+                                    percent: null,
+                                    requestedHere: true,
+                                });
+                            },
+                            {
+                                phase,
+                                reason,
+                                message: raw,
+                            },
+                        );
+                        const localized = messages.updates[key].replace('{version}', '9.9.9');
+                        const expected = phase === 'error' ? messages.updates.errorDescription.replace('{message}', localized) : localized;
+                        const selector = phase === 'error' ? '.app-toast-failure-reason' : '[role="dialog"] p';
+                        await page.waitForFunction(
+                            (query: string, localized: string, raw: string) =>
+                                Array.from(document.querySelectorAll<HTMLElement>(query)).some(
+                                    (element) =>
+                                        element.getClientRects().length > 0 &&
+                                        (element.innerText.trim() === localized || element.innerText.includes(raw)),
+                                ),
+                            {timeout: DIALOG_TIMEOUT_MS},
+                            selector,
+                            expected,
+                            raw,
+                        );
+                        const text = await page.evaluate(
+                            (query: string) =>
+                                Array.from(document.querySelectorAll<HTMLElement>(query))
+                                    .filter((element) => element.getClientRects().length > 0)
+                                    .at(-1)
+                                    ?.innerText.trim() ?? '',
+                            selector,
+                        );
+                        observations.push({
+                            locale,
+                            reason,
+                            text,
+                        });
+                        writeFileSync(join(evidenceDirectory, 'observations.json'), JSON.stringify(observations, null, 2));
+                        await page.screenshot({path: join(evidenceDirectory, `${locale}-${reason}.png`)});
+                        expect(text).toBe(expected);
+                        expect(text).not.toContain(raw);
+                        if (phase === 'error') {
+                            if (reason === 'check-timed-out') {
+                                await clickToastButton(page, messages.errors.runtime.copy);
+                                await page.waitForFunction(
+                                    (label: string) =>
+                                        Array.from(document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button')).some(
+                                            (button) => button.innerText.trim() === label,
+                                        ),
+                                    {timeout: DIALOG_TIMEOUT_MS},
+                                    messages.errors.runtime.copied,
+                                );
+                                expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(raw);
+                            } else {
+                                await clickFoundAsUser(
+                                    page,
+                                    () =>
+                                        Array.from(
+                                            document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button[aria-label]'),
+                                        ).find((button) => button.getClientRects().length > 0),
+                                    undefined,
+                                    {description: 'Dismiss update failure'},
+                                );
+                            }
+                            await page.waitForFunction(
+                                () =>
+                                    !Array.from(document.querySelectorAll<HTMLElement>('.app-toast-failure')).some(
+                                        (element) => element.getClientRects().length > 0,
+                                    ),
+                                {timeout: DIALOG_TIMEOUT_MS},
+                            );
+                        } else {
+                            await clickFoundAsUser(
+                                page,
+                                (label: string) =>
+                                    Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find(
+                                        (button) => button.textContent?.trim() === label,
+                                    ),
+                                messages.settings.close,
+                                {description: 'Close update status'},
+                            );
+                        }
+                        await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
+                    }
+                }
+            } catch (error) {
+                await page.screenshot({path: join(evidenceDirectory, 'failure.png')});
+                writeFileSync(join(evidenceDirectory, 'failure.html'), await page.content());
+                throw error;
+            } finally {
+                await setSavedLocale(page, 'en');
+            }
+        },
+        DIALOG_TIMEOUT_MS * 6,
+    );
+
+    it(
+        'labels a failure toast in the saved interface language',
+        async () => {
+            const session: IElectronE2ESession = sessionFixture.getSession();
+            const {page} = session;
+            await page.setViewport(DIALOG_VIEWPORT);
+            const malformedPath = createTruncatedPdf();
+            const invalidProgress: string[] = [];
+            const observeProgress = (message: ConsoleMessage) => {
+                const text = message.text();
+                if (text.includes('ProgressRoot') && text.includes('Invalid prop')) {
+                    invalidProgress.push(text);
+                }
+            };
+            page.on('console', observeProgress);
+            onTestFinished(() => {
+                page.off('console', observeProgress);
+            });
+
+            try {
+                await setSavedLocale(page, 'ru');
+                await triggerOpenPathInApp(page, malformedPath, DIALOG_TIMEOUT_MS);
+                await expect
+                    .poll(async () => (await readFailureToast(page))?.text ?? '', {timeout: DIALOG_TIMEOUT_MS})
+                    .toContain('Не удалось открыть файл');
+                const russian = await readFailureToast(page);
+                expect(russian?.errorId).toMatch(/^Идентификатор ошибки: [0-9a-f]{8}$/u);
+                expect(russian?.buttons).toContain('Копировать подробности');
+                expect(russian?.text).not.toContain('Error ID');
+                expect(russian?.text).not.toContain('Copy details');
+                await clickToastButton(page, 'Копировать подробности');
+                await expect
+                    .poll(async () => (await readFailureToast(page))?.buttons ?? [], {timeout: DIALOG_TIMEOUT_MS})
+                    .toContain('Скопировано');
+            } catch (error) {
+                // Later tests share this session; leave it in English.
+                await setSavedLocale(page, 'en').catch(() => undefined);
+                throw error;
+            }
+
+            // English control: the same failure in English reads in English.
+            await setSavedLocale(page, 'en');
             await triggerOpenPathInApp(page, malformedPath, DIALOG_TIMEOUT_MS);
-            await expect.poll(async () => (await readFailureToast(page))?.text ?? '', {timeout: DIALOG_TIMEOUT_MS})
-                .toContain('Не удалось открыть файл');
-            const russian = await readFailureToast(page);
-            expect(russian?.errorId).toMatch(/^Идентификатор ошибки: [0-9a-f]{8}$/u);
-            expect(russian?.buttons).toContain('Копировать подробности');
-            expect(russian?.text).not.toContain('Error ID');
-            expect(russian?.text).not.toContain('Copy details');
-            await clickToastButton(page, 'Копировать подробности');
-            await expect.poll(async () => (await readFailureToast(page))?.buttons ?? [], {timeout: DIALOG_TIMEOUT_MS})
-                .toContain('Скопировано');
-        } catch (error) {
-            // Later tests share this session; leave it in English.
-            await setSavedLocale(page, 'en').catch(() => undefined);
-            throw error;
-        }
+            await expect
+                .poll(async () => (await readFailureToast(page))?.text ?? '', {timeout: DIALOG_TIMEOUT_MS})
+                .toContain('Failed to open file');
+            const english = await readFailureToast(page);
+            expect(english?.errorId).toMatch(/^Error ID: [0-9a-f]{8}$/u);
+            expect(english?.buttons).toContain('Copy details');
+            await clickToastButton(page, 'Copy details');
+            await expect.poll(async () => (await readFailureToast(page))?.buttons ?? [], {timeout: DIALOG_TIMEOUT_MS}).toContain('Copied');
 
-        // English control: the same failure in English reads in English.
-        await setSavedLocale(page, 'en');
-        await triggerOpenPathInApp(page, malformedPath, DIALOG_TIMEOUT_MS);
-        await expect.poll(async () => (await readFailureToast(page))?.text ?? '', {timeout: DIALOG_TIMEOUT_MS})
-            .toContain('Failed to open file');
-        const english = await readFailureToast(page);
-        expect(english?.errorId).toMatch(/^Error ID: [0-9a-f]{8}$/u);
-        expect(english?.buttons).toContain('Copy details');
-        await clickToastButton(page, 'Copy details');
-        await expect.poll(async () => (await readFailureToast(page))?.buttons ?? [], {timeout: DIALOG_TIMEOUT_MS})
-            .toContain('Copied');
+            console.info('Failure toast progress diagnostics:', invalidProgress);
+            expect(invalidProgress).toEqual([]);
 
-        console.info('Failure toast progress diagnostics:', invalidProgress);
-        expect(invalidProgress).toEqual([]);
+            // A good PDF still opens afterwards.
+            await openPdfInApp(page, resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'generated-text.pdf'), DIALOG_TIMEOUT_MS);
+            await waitForPdfLoaded(page, DIALOG_TIMEOUT_MS);
+            await waitForViewerInteractive(page, DIALOG_TIMEOUT_MS);
+        },
+        DIALOG_TIMEOUT_MS * 4,
+    );
 
-        // A good PDF still opens afterwards.
-        await openPdfInApp(page, resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'generated-text.pdf'), DIALOG_TIMEOUT_MS);
-        await waitForPdfLoaded(page, DIALOG_TIMEOUT_MS);
-        await waitForViewerInteractive(page, DIALOG_TIMEOUT_MS);
-    }, DIALOG_TIMEOUT_MS * 4);
+    it(
+        'shows the external MCP status in Settings while the assistant panel is off',
+        async () => {
+            const session: IElectronE2ESession = sessionFixture.getSession();
+            const {page} = session;
+            await setSavedLocale(page, 'en');
+            await page.waitForSelector('button[aria-label="Settings"]', {visible: true});
+            await clickFoundAsUser(page, () => document.querySelector<HTMLButtonElement>('button[aria-label="Settings"]'), undefined, {
+                description: 'Settings button',
+            });
+            // The assistant card is the stacked one; the MCP card is the other.
+            const mcpCardSelector = '.settings-agent-card:not(.settings-agent-card--stack)';
+            await page.waitForSelector(mcpCardSelector, {visible: true});
 
-    it('shows the external MCP status in Settings while the assistant panel is off', async () => {
-        const session: IElectronE2ESession = sessionFixture.getSession();
-        const {page} = session;
-        await setSavedLocale(page, 'en');
-        await page.waitForSelector('button[aria-label="Settings"]', {visible: true});
-        await clickFoundAsUser(page, () => document.querySelector<HTMLButtonElement>('button[aria-label="Settings"]'),
-            undefined, {description: 'Settings button'});
-        // The assistant card is the stacked one; the MCP card is the other.
-        const mcpCardSelector = '.settings-agent-card:not(.settings-agent-card--stack)';
-        await page.waitForSelector(mcpCardSelector, {visible: true});
+            const readMcpCard = () =>
+                page.evaluate(
+                    (selector) => ({
+                        label: document.querySelector(`${selector} .settings-agent-status-label`)?.textContent?.trim() ?? '',
+                        primaryDisabled:
+                            (document.querySelector(`${selector} .settings-agent-actions button`) as HTMLButtonElement | null)?.disabled ??
+                            true,
+                    }),
+                    mcpCardSelector,
+                );
+            const checkingStatus = LOCALE_MESSAGES.en.settings.agentMcpStatusStarting;
+            await expect.poll(async () => (await readMcpCard()).label, {timeout: DIALOG_TIMEOUT_MS}).not.toBe(checkingStatus);
+            expect(await readMcpCard()).toMatchObject({primaryDisabled: false});
 
-        const readMcpCard = () => page.evaluate(selector => ({
-            label: document.querySelector(`${selector} .settings-agent-status-label`)?.textContent?.trim() ?? '',
-            primaryDisabled: (document.querySelector(`${selector} .settings-agent-actions button`) as HTMLButtonElement | null)?.disabled ?? true,
-        }), mcpCardSelector);
-        const checkingStatus = LOCALE_MESSAGES.en.settings.agentMcpStatusStarting;
-        await expect.poll(async () => (await readMcpCard()).label, {timeout: DIALOG_TIMEOUT_MS})
-            .not.toBe(checkingStatus);
-        expect(await readMcpCard()).toMatchObject({primaryDisabled: false});
-
-        await clickFoundAsUser(page, (label: string) => document.querySelector<HTMLButtonElement>(
-            `button[aria-label="${label}"]`,
-        ), LOCALE_MESSAGES.en.settings.agentMcpRefresh, {description: 'MCP refresh button'});
-        // Refresh is busy until its status request settles, which disables the primary action.
-        await expect.poll(async () => (await readMcpCard()).primaryDisabled, {timeout: DIALOG_TIMEOUT_MS})
-            .toBe(false);
-        expect(await readMcpCard()).toMatchObject({label: expect.not.stringContaining(checkingStatus)});
-    }, DIALOG_TIMEOUT_MS * 2);
+            await clickFoundAsUser(
+                page,
+                (label: string) => document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`),
+                LOCALE_MESSAGES.en.settings.agentMcpRefresh,
+                {description: 'MCP refresh button'},
+            );
+            // Refresh is busy until its status request settles, which disables the primary action.
+            await expect.poll(async () => (await readMcpCard()).primaryDisabled, {timeout: DIALOG_TIMEOUT_MS}).toBe(false);
+            expect(await readMcpCard()).toMatchObject({label: expect.not.stringContaining(checkingStatus)});
+        },
+        DIALOG_TIMEOUT_MS * 2,
+    );
 });

@@ -1,7 +1,4 @@
-import {
-    isRecord,
-    isStringArray,
-} from '@contracts/runtimeGuards';
+import {isRecord, isStringArray} from '@contracts/runtimeGuards';
 
 /** Exact native argv and launch directory carried by Electron's single-instance lock. */
 export interface ISecondInstanceLaunch {
@@ -10,7 +7,5 @@ export interface ISecondInstanceLaunch {
 }
 
 export function isSecondInstanceLaunch(value: unknown): value is ISecondInstanceLaunch {
-    return isRecord(value)
-        && isStringArray(value.argv)
-        && typeof value.workingDirectory === 'string';
+    return isRecord(value) && isStringArray(value.argv) && typeof value.workingDirectory === 'string';
 }

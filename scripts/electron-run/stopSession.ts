@@ -1,9 +1,5 @@
-import {
-    mkdirSync,
-    unlinkSync,
-    writeFileSync,
-} from 'node:fs';
-import { delay } from 'es-toolkit/promise';
+import {mkdirSync, unlinkSync, writeFileSync} from 'node:fs';
+import {delay} from 'es-toolkit/promise';
 import {
     cleanupOrphanedProjectNuxtRoots,
     hasOtherAliveSessionUsingNuxt,
@@ -11,10 +7,7 @@ import {
     readNuxtOwnerCheck,
     readNuxtSessionShareMetadata,
 } from '@scripts/electron-run/electronRunNuxtServer';
-import {
-    isProcessAlive,
-    waitForProcessExit,
-} from '@scripts/electron-run/electronRunProcessTree';
+import {isProcessAlive, waitForProcessExit} from '@scripts/electron-run/electronRunProcessTree';
 import {
     findSessionOwnedElectronPids,
     isVerifiedSessionProcess,
@@ -37,9 +30,9 @@ import {
     sessionPreserveWorkspaceCheckpointMarkerPath,
 } from '@scripts/electron-run/electronRunSessionPaths';
 import {cleanupSessionAppTempIfUnowned} from '@scripts/electron-run/electronRunSessionCleanup';
-import type { ISessionInfo } from '@scripts/electron-run/electronRunSessionTypes';
-import { sendCommandToSession } from '@scripts/electron-run/sendCommand';
-import { clearAutomationWorkspaceCrashCheckpoint } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
+import type {ISessionInfo} from '@scripts/electron-run/electronRunSessionTypes';
+import {sendCommandToSession} from '@scripts/electron-run/sendCommand';
+import {clearAutomationWorkspaceCrashCheckpoint} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 
 const SESSION_CONTROLLER_SHUTDOWN_TIMEOUT_MS = 9_000;
 const SESSION_SHUTDOWN_COMMAND_TIMEOUT_MS = 2_000;
@@ -89,18 +82,19 @@ async function stopSessionController(info: ISessionInfo, name: string, keepNuxt?
     if (!isProcessAlive(info.pid)) {
         return true;
     }
-    if (!isVerifiedSessionProcess(info.pid, {
-        kind: 'controller',
-        sessionName: name,
-    })) {
+    if (
+        !isVerifiedSessionProcess(info.pid, {
+            kind: 'controller',
+            sessionName: name,
+        })
+    ) {
         // A controller that exited during the identity probe is stopped, not
         // unverifiable, and must not retain the session artifacts.
         if (!isProcessAlive(info.pid)) {
             return true;
         }
         console.warn(
-            `[Session '${name}'] Refused to stop controller PID ${info.pid}: `
-            + 'process identity did not match session ownership.',
+            `[Session '${name}'] Refused to stop controller PID ${info.pid}: ` + 'process identity did not match session ownership.',
         );
         return false;
     }
@@ -201,10 +195,16 @@ async function stopNuxtForSessionInfo(info: ISessionInfo, name: string, keepNuxt
 }
 
 function removeSessionStopFiles(name: string, preserveWorkspaceCheckpoint: boolean) {
-    try { unlinkSync(sessionFilePath(name)); } catch {}
-    try { unlinkSync(sessionKeepNuxtMarkerPath(name)); } catch {}
+    try {
+        unlinkSync(sessionFilePath(name));
+    } catch {}
+    try {
+        unlinkSync(sessionKeepNuxtMarkerPath(name));
+    } catch {}
     if (!preserveWorkspaceCheckpoint) {
-        try { unlinkSync(sessionPreserveWorkspaceCheckpointMarkerPath(name)); } catch {}
+        try {
+            unlinkSync(sessionPreserveWorkspaceCheckpointMarkerPath(name));
+        } catch {}
     }
 }
 
@@ -253,9 +253,7 @@ export async function stopSingleSession(
         }
         if (!preserveWorkspaceCheckpoint) {
             if (!cleanupSessionAppTempIfUnowned(name)) {
-                throw new Error(
-                    `Session '${name}' app temp cleanup was refused because a session-owned Electron process is still alive.`,
-                );
+                throw new Error(`Session '${name}' app temp cleanup was refused because a session-owned Electron process is still alive.`);
             }
             clearAutomationWorkspaceCrashCheckpoint(name);
         }
@@ -267,24 +265,18 @@ export async function stopSingleSession(
             mkdirSync(sessionDir(name), {recursive: true});
             writeFileSync(sessionPreserveWorkspaceCheckpointMarkerPath(name), String(Date.now()));
         }
-        const electronStoppedByCrash = options.crashElectronBeforeStop === true
-            ? await stopSessionElectron(info, name, true)
-            : null;
+        const electronStoppedByCrash = options.crashElectronBeforeStop === true ? await stopSessionElectron(info, name, true) : null;
         const stageOutcomes = {
             'electron crash': electronStoppedByCrash ?? true,
             controller: await stopSessionController(info, name, options.keepNuxt),
-            electron: electronStoppedByCrash === null
-                ? await stopSessionElectron(info, name)
-                : true,
+            electron: electronStoppedByCrash === null ? await stopSessionElectron(info, name) : true,
             nuxt: await stopNuxtForSessionInfo(info, name, options.keepNuxt),
         };
         const outcomes = Object.values(stageOutcomes);
         if (!shouldRemoveSessionStopArtifacts(outcomes)) {
             retainSessionStopArtifacts(name, info);
             const refusedStages = Object.entries(stageOutcomes)
-                .filter(([
-                    , stopped,
-                ]) => !stopped)
+                .filter(([, stopped]) => !stopped)
                 .map(([stage]) => stage)
                 .join(', ');
             throw new Error(
@@ -315,9 +307,7 @@ export async function stopSingleSession(
             if (info) {
                 retainSessionStopArtifacts(name, info);
             }
-            throw new Error(
-                `Session '${name}' startup-controller stop was refused; session artifacts were retained.`,
-            );
+            throw new Error(`Session '${name}' startup-controller stop was refused; session artifacts were retained.`);
         }
     }
     const startingCleanup = await cleanupSessionStartingAttempt(name, {
@@ -336,9 +326,7 @@ export async function stopSingleSession(
             if (info) {
                 retainSessionStopArtifacts(name, info);
             }
-            throw new Error(
-                `Session '${name}' app temp cleanup was refused because a session-owned Electron process is still alive.`,
-            );
+            throw new Error(`Session '${name}' app temp cleanup was refused because a session-owned Electron process is still alive.`);
         }
         clearAutomationWorkspaceCrashCheckpoint(name);
     }
@@ -355,21 +343,23 @@ async function stopAllSessions() {
         console.log('No sessions found.');
         return;
     }
-    for (const name of names) await stopSingleSession(name);
+    for (const name of names) {
+        await stopSingleSession(name);
+    }
     await killExistingNuxt();
     await cleanupOrphanedProjectNuxtRoots('stop all sessions');
     console.log('All sessions stopped.');
 }
 
-export async function stopSession(options: {
-    stopAll?: boolean;
-    keepNuxt?: boolean
-} = {}) {
+export async function stopSession(
+    options: {
+        stopAll?: boolean;
+        keepNuxt?: boolean;
+    } = {},
+) {
     if (options.stopAll) {
         await stopAllSessions();
     } else {
-        await stopSingleSession(getCurrentSessionName(), options.keepNuxt === undefined
-            ? {}
-            : {keepNuxt: options.keepNuxt});
+        await stopSingleSession(getCurrentSessionName(), options.keepNuxt === undefined ? {} : {keepNuxt: options.keepNuxt});
     }
 }

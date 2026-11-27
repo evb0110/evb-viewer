@@ -1,5 +1,8 @@
 <template>
-    <main ref="workspaceMainRef" class="workspace-main">
+    <main
+        ref="workspaceMainRef"
+        class="workspace-main"
+    >
         <!-- Phone widths only: the open sidebar covers the page, and a tap
         beside it closes it. -->
         <div
@@ -20,13 +23,16 @@
             :inert="showSidebar ? undefined : true"
             @transitionend="handleWrapperTransitionEnd"
         >
-            <div class="sidebar-wrapper__content" :style="sidebarContentStyle">
+            <div
+                class="sidebar-wrapper__content"
+                :style="sidebarContentStyle"
+            >
                 <slot name="sidebar" />
             </div>
             <div
                 v-show="showSidebar || isSliding"
                 class="sidebar-resizer"
-                :class="{ 'is-active': isResizingSidebar }"
+                :class="{'is-active': isResizingSidebar}"
                 role="separator"
                 tabindex="0"
                 aria-orientation="vertical"
@@ -45,14 +51,11 @@
 </template>
 
 <script setup lang="ts">
-import type { CSSProperties } from 'vue';
-import {
-    useResizeObserver,
-    useTimeoutFn,
-} from '@vueuse/core';
-import { SIDEBAR_SLIDE_END_FALLBACK_MARGIN_MS } from '@app/constants/timeouts';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { SIDEBAR } from '@app/constants/pdfLayout';
+import type {CSSProperties} from 'vue';
+import {useResizeObserver, useTimeoutFn} from '@vueuse/core';
+import {SIDEBAR_SLIDE_END_FALLBACK_MARGIN_MS} from '@app/constants/timeouts';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {SIDEBAR} from '@app/constants/pdfLayout';
 
 const {
     isResizingSidebar,
@@ -75,20 +78,17 @@ const emit = defineEmits<{
     'container-resize': [width: number];
     'slide-start': [];
     'slide-end': [];
-    'dismiss': [];
+    dismiss: [];
 }>();
 const workspaceMainRef = useTemplateRef<HTMLElement>('workspaceMainRef');
 const sidebarWrapperRef = useTemplateRef<HTMLElement>('sidebarWrapperRef');
 const sidebarPresentationStyle = computed<CSSProperties>(() => {
-    const {
-        width,
-        ...rest
-    } = sidebarWrapperStyle ?? {};
+    const {width, ...rest} = sidebarWrapperStyle ?? {};
     return showSidebar
         ? {
-            ...rest,
-            ...(width !== undefined ? {width} : {}),
-        }
+              ...rest,
+              ...(width !== undefined ? {width} : {}),
+          }
         : rest;
 });
 /**
@@ -98,9 +98,7 @@ const sidebarPresentationStyle = computed<CSSProperties>(() => {
  * out once per toggle instead of on every frame, and a closed panel cannot
  * measure as visible.
  */
-const sidebarContentStyle = computed<CSSProperties>(() => (
-    showSidebar ? {width: `${String(sidebarContentWidth)}px`} : {}
-));
+const sidebarContentStyle = computed<CSSProperties>(() => (showSidebar ? {width: `${String(sidebarContentWidth)}px`} : {}));
 
 /**
  * A transition that never fires `transitionend` (a hidden host, a display
@@ -113,10 +111,9 @@ const sidebarContentStyle = computed<CSSProperties>(() => (
 // slide so the panel is covered behind a border rather than cut off raw.
 const isSliding = ref(false);
 let slideEndFallbackDelayMs = SIDEBAR_SLIDE_END_FALLBACK_MARGIN_MS;
-const {
-    start: startSlideEndFallback,
-    stop: stopSlideEndFallback,
-} = useTimeoutFn(finishSlide, () => slideEndFallbackDelayMs, {immediate: false});
+const {start: startSlideEndFallback, stop: stopSlideEndFallback} = useTimeoutFn(finishSlide, () => slideEndFallbackDelayMs, {
+    immediate: false,
+});
 
 function parseCssTimeMs(value: string) {
     const trimmed = value.trim();
@@ -130,7 +127,7 @@ function parseCssTimeMs(value: string) {
 }
 
 function resolveWidthTransitionMs(style: CSSStyleDeclaration) {
-    const properties = style.transitionProperty.split(',').map(property => property.trim());
+    const properties = style.transitionProperty.split(',').map((property) => property.trim());
     const durations = style.transitionDuration.split(',').map(parseCssTimeMs);
     const delays = style.transitionDelay.split(',').map(parseCssTimeMs);
     // Shorter transition value lists repeat cyclically over the property list.
@@ -163,20 +160,23 @@ function handleWrapperTransitionEnd(event: TransitionEvent) {
 // before the first animated frame reaches its ResizeObserver. The wrapper's
 // transition does not depend on the open state, so the current computed style
 // already describes the slide that is about to start.
-watch(() => showSidebar, () => {
-    const wrapper = sidebarWrapperRef.value;
-    const slideMs = wrapper ? resolveWidthTransitionMs(window.getComputedStyle(wrapper)) : 0;
-    if (slideMs <= 0) {
-        finishSlide();
-        return;
-    }
-    if (!isSliding.value) {
-        isSliding.value = true;
-        emit('slide-start');
-    }
-    slideEndFallbackDelayMs = slideMs + SIDEBAR_SLIDE_END_FALLBACK_MARGIN_MS;
-    startSlideEndFallback();
-});
+watch(
+    () => showSidebar,
+    () => {
+        const wrapper = sidebarWrapperRef.value;
+        const slideMs = wrapper ? resolveWidthTransitionMs(window.getComputedStyle(wrapper)) : 0;
+        if (slideMs <= 0) {
+            finishSlide();
+            return;
+        }
+        if (!isSliding.value) {
+            isSliding.value = true;
+            emit('slide-start');
+        }
+        slideEndFallbackDelayMs = slideMs + SIDEBAR_SLIDE_END_FALLBACK_MARGIN_MS;
+        startSlideEndFallback();
+    },
+);
 
 onBeforeUnmount(finishSlide);
 
@@ -200,54 +200,36 @@ const RESIZE_KEY_DELTAS: Readonly<Record<string, number>> = {
 };
 function handleResizeKeyDown(event: KeyboardEvent) {
     const delta = RESIZE_KEY_DELTAS[event.key];
-    if (delta === undefined || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (delta === undefined || event.altKey || event.ctrlKey || event.metaKey) {
+        return;
+    }
     event.preventDefault();
     emit('resize-by', delta);
 }
 
 watch(
-    () => [
-        showSidebar,
-        sidebarWrapperStyle?.width,
-        isResizingSidebar,
-    ] as const,
-    ([
-        nextShowSidebar,
-        nextWidth,
-        nextResizing,
-    ], previousState) => {
-        const [
-            prevShowSidebar,
-            prevWidth,
-            prevResizing,
-        ] = previousState ?? [
-            nextShowSidebar,
-            nextWidth,
-            nextResizing,
-        ];
-        if (
-            nextShowSidebar === prevShowSidebar
-            && nextWidth === prevWidth
-            && nextResizing === prevResizing
-        ) {
+    () => [showSidebar, sidebarWrapperStyle?.width, isResizingSidebar] as const,
+    ([nextShowSidebar, nextWidth, nextResizing], previousState) => {
+        const [prevShowSidebar, prevWidth, prevResizing] = previousState ?? [nextShowSidebar, nextWidth, nextResizing];
+        if (nextShowSidebar === prevShowSidebar && nextWidth === prevWidth && nextResizing === prevResizing) {
             return;
         }
         BrowserLogger.diagnostic('pdf-nav', `[sidebar-host] show=${nextShowSidebar} width=${String(nextWidth)} resizing=${nextResizing}`, {
             showSidebar: {
                 previous: prevShowSidebar,
-                next: nextShowSidebar, 
+                next: nextShowSidebar,
             },
             sidebarWidth: {
                 previous: prevWidth ?? null,
-                next: nextWidth ?? null, 
+                next: nextWidth ?? null,
             },
             isResizingSidebar: {
                 previous: prevResizing,
-                next: nextResizing, 
+                next: nextResizing,
             },
         });
     },
-    { immediate: true },
+    {immediate: true},
 );
 </script>
 

@@ -1,6 +1,6 @@
-import type { IPdfValidationResult } from '@contracts/pdfConformance';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TEpochMs } from '@contracts/timestamps';
+import type {IPdfValidationResult} from '@contracts/pdfConformance';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TEpochMs} from '@contracts/timestamps';
 
 export interface IPdfValidationSourceRevision {
     readonly documentId: TDocumentRef;
@@ -27,7 +27,9 @@ function cacheSuccessfulValidation(key: string, validation: IPdfValidationResult
     successfulValidations.set(key, validation);
     while (successfulValidations.size > MAX_VALIDATED_REVISIONS) {
         const oldestKey = successfulValidations.keys().next().value;
-        if (oldestKey === undefined) break;
+        if (oldestKey === undefined) {
+            break;
+        }
         successfulValidations.delete(oldestKey);
     }
 }
@@ -38,7 +40,7 @@ export async function validatePdfRevision(
     purpose: TPdfValidationPurpose = 'full',
 ): Promise<{
     validation: IPdfValidationResult;
-    cacheResult: TPdfValidationCacheResult
+    cacheResult: TPdfValidationCacheResult;
 }> {
     if (revision === null) {
         return {
@@ -73,7 +75,9 @@ export async function validatePdfRevision(
             cacheResult: 'miss',
         };
     } finally {
-        if (pendingValidations.get(key) === task) pendingValidations.delete(key);
+        if (pendingValidations.get(key) === task) {
+            pendingValidations.delete(key);
+        }
     }
 }
 

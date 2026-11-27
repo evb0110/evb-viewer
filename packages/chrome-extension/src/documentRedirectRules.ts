@@ -3,21 +3,21 @@ type THeaderInfo = chrome.declarativeNetRequest.HeaderInfo;
 
 // Chrome downloads a response it was told to download, so the viewer leaves
 // those alone, as Chrome's own PDF viewer does.
-const NOT_AN_ATTACHMENT: THeaderInfo[] = [{
-    header: 'content-disposition',
-    values: ['attachment*'],
-}];
+const NOT_AN_ATTACHMENT: THeaderInfo[] = [
+    {
+        header: 'content-disposition',
+        values: ['attachment*'],
+    },
+];
 
 function contentTypes(...types: string[]): THeaderInfo[] {
-    return [{
-        header: 'content-type',
-        // Matching is case-insensitive; `*` admits parameters such as a charset.
-        values: types.flatMap(type => [
-            type,
-            `${type};*`,
-            `${type} *`,
-        ]),
-    }];
+    return [
+        {
+            header: 'content-type',
+            // Matching is case-insensitive; `*` admits parameters such as a charset.
+            values: types.flatMap((type) => [type, `${type};*`, `${type} *`]),
+        },
+    ];
 }
 
 function redirectRule(id: number, openPageUrl: string, condition: Partial<chrome.declarativeNetRequest.RuleCondition>): TRule {

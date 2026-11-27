@@ -4,7 +4,7 @@ import {
     SEARCH_REGEX_QUERY_MAX_LENGTH,
     SEARCH_REGEX_MAX_EXECUTION_MS,
 } from '@contracts/search';
-import { getErrorMessage } from '@contracts/getErrorMessage';
+import {getErrorMessage} from '@contracts/getErrorMessage';
 import type {
     IAssembledSearchablePageText,
     IPdfSearchUtf16Range,
@@ -13,11 +13,8 @@ import type {
     ISearchablePageTextItem,
     TPdfSearchUtf16Offset,
 } from '@contracts/search';
-import type { IOcrWord } from '@contracts/shared';
-import {
-    buildOcrTextLayerItemText,
-    isLastOcrWordInLine,
-} from '@contracts/ocrText';
+import type {IOcrWord} from '@contracts/shared';
+import {buildOcrTextLayerItemText, isLastOcrWordInLine} from '@contracts/ocrText';
 
 const SEARCH_LINE_HYPHENATION = /\u00AD|-[\p{Zs}\t]*(?:\r\n?|\n)[\p{Zs}\t]*/gu;
 
@@ -123,15 +120,15 @@ function assembleSearchablePageSpans(items: readonly ISearchablePageTextItem[]) 
         const endOffset = Math.min(boundaries[itemIndex + 1]!, text.length);
         return startOffset < endOffset
             ? {
-                itemIndex,
-                startOffset,
-                endOffset,
-            }
+                  itemIndex,
+                  startOffset,
+                  endOffset,
+              }
             : {
-                itemIndex,
-                startOffset: 0,
-                endOffset: 0,
-            };
+                  itemIndex,
+                  startOffset: 0,
+                  endOffset: 0,
+              };
     });
 
     return {
@@ -150,10 +147,7 @@ function assembleSearchablePageSpans(items: readonly ISearchablePageTextItem[]) 
 export function assembleSearchablePageTextItems(
     items: readonly ISearchablePageTextItem[],
 ): Pick<IAssembledSearchablePageText, 'text' | 'itemOffsets'> {
-    const {
-        text,
-        itemOffsets,
-    } = assembleSearchablePageSpans(items);
+    const {text, itemOffsets} = assembleSearchablePageSpans(items);
     return {
         text,
         itemOffsets,
@@ -161,16 +155,9 @@ export function assembleSearchablePageTextItems(
 }
 
 /** The page text with each character's range in the concatenated item texts. */
-export function assembleSearchablePageText(
-    items: readonly ISearchablePageTextItem[],
-): IAssembledSearchablePageText {
+export function assembleSearchablePageText(items: readonly ISearchablePageTextItem[]): IAssembledSearchablePageText {
     const assembled = assembleSearchablePageSpans(items);
-    const {
-        leadingSpaces,
-        rawBoundaries,
-        removed,
-        text,
-    } = assembled;
+    const {leadingSpaces, rawBoundaries, removed, text} = assembled;
     const sourceOffsets: IPdfSearchUtf16Range[] = [];
     let span = 0;
     let sourceCursor = 0;
@@ -210,14 +197,8 @@ const MIN_REPEATED_PAGE_TEXT_SEGMENT_LENGTH = 48;
 const MIN_TWO_COPY_PAGE_TEXT_SEGMENT_LENGTH = 160;
 const MAX_REPEATED_PAGE_TEXT_COPIES = 16;
 
-export function collapseRepeatedPdfSearchPageText(
-    text: string,
-    isCopyInPlace: (copyStart: number) => boolean = () => true,
-) {
-    const maxRepeatCount = Math.min(
-        MAX_REPEATED_PAGE_TEXT_COPIES,
-        Math.floor(text.length / MIN_REPEATED_PAGE_TEXT_SEGMENT_LENGTH),
-    );
+export function collapseRepeatedPdfSearchPageText(text: string, isCopyInPlace: (copyStart: number) => boolean = () => true) {
+    const maxRepeatCount = Math.min(MAX_REPEATED_PAGE_TEXT_COPIES, Math.floor(text.length / MIN_REPEATED_PAGE_TEXT_SEGMENT_LENGTH));
 
     for (let repeatCount = maxRepeatCount; repeatCount >= 2; repeatCount -= 1) {
         if (text.length % repeatCount !== 0) {
@@ -225,9 +206,7 @@ export function collapseRepeatedPdfSearchPageText(
         }
 
         const segmentLength = text.length / repeatCount;
-        const minSegmentLength = repeatCount === 2
-            ? MIN_TWO_COPY_PAGE_TEXT_SEGMENT_LENGTH
-            : MIN_REPEATED_PAGE_TEXT_SEGMENT_LENGTH;
+        const minSegmentLength = repeatCount === 2 ? MIN_TWO_COPY_PAGE_TEXT_SEGMENT_LENGTH : MIN_REPEATED_PAGE_TEXT_SEGMENT_LENGTH;
         if (segmentLength < minSegmentLength) {
             continue;
         }
@@ -246,16 +225,21 @@ export function collapseRepeatedPdfSearchPageText(
 }
 
 export function buildOcrTextLayerIndexText(words: readonly IOcrWord[]) {
-    return assembleSearchablePageTextItems(words.map((word, index) => ({
-        text: buildOcrTextLayerItemText(word),
-        separatorAfter: isLastOcrWordInLine(words, index) ? 'line' : 'none',
-        origin: word,
-    }))).text;
+    return assembleSearchablePageTextItems(
+        words.map((word, index) => ({
+            text: buildOcrTextLayerItemText(word),
+            separatorAfter: isLastOcrWordInLine(words, index) ? 'line' : 'none',
+            origin: word,
+        })),
+    ).text;
 }
 
 // Each run of whitespace in a literal query matches any run of page whitespace.
 function literalSearchPattern(query: string) {
-    return query.split(/\p{White_Space}+/u).map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join(String.raw`\p{White_Space}+`);
+    return query
+        .split(/\p{White_Space}+/u)
+        .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        .join(String.raw`\p{White_Space}+`);
 }
 
 export class SearchRegexLimitError extends Error {
@@ -267,7 +251,7 @@ export class SearchRegexLimitError extends Error {
     }
 }
 
-const SEARCH_WORD_CHARACTER_CLASS = '\\p{L}\\p{N}\\p{M}_\'’';
+const SEARCH_WORD_CHARACTER_CLASS = "\\p{L}\\p{N}\\p{M}_'’";
 // The regex dialect every shell searches with is the desktop matcher's
 // (Rust `regex`) default: Unicode \d, \w, \s and \b, and . for any
 // character but a line feed. JavaScript gives \d, \w and \b ASCII meanings
@@ -303,12 +287,13 @@ function toUnicodeSearchRegex(pattern: string) {
                     index = end;
                 }
             }
-            const complement = unicode.startsWith('\\P{')
-                ? `\\p${unicode.slice(2)}`
-                : escape === 'W' ? UNICODE_REGEX_WORD : undefined;
+            const complement = unicode.startsWith('\\P{') ? `\\p${unicode.slice(2)}` : escape === 'W' ? UNICODE_REGEX_WORD : undefined;
             if (complement !== undefined) {
-                if (classOpen < 0) output += `[^${complement}]`;
-                else classComplements.push(complement);
+                if (classOpen < 0) {
+                    output += `[^${complement}]`;
+                } else {
+                    classComplements.push(complement);
+                }
             } else if (classOpen < 0) {
                 output += unicode;
             } else if (escape === 'b' || escape === 'B') {
@@ -327,7 +312,7 @@ function toUnicodeSearchRegex(pattern: string) {
             const open = classOpen;
             classOpen = -1;
             if (classComplements.length > 0) {
-                const excluded = `${members ? `(?!${members})` : ''}${classComplements.map(member => `(?=[${member}])`).join('')}`;
+                const excluded = `${members ? `(?!${members})` : ''}${classComplements.map((member) => `(?=[${member}])`).join('')}`;
                 const replacement = `(?:${negated ? excluded : `(?!${excluded})`}[\\s\\S])`;
                 classComplements = [];
                 output = output.slice(0, open) + replacement;
@@ -347,10 +332,7 @@ function applyWholeWordBoundary(pattern: string) {
     return `(?<![${SEARCH_WORD_CHARACTER_CLASS}])(?:${pattern})(?![${SEARCH_WORD_CHARACTER_CLASS}])`;
 }
 
-export function buildPdfSearchRegex(
-    query: string,
-    options: IResolvedSearchMatchOptions,
-) {
+export function buildPdfSearchRegex(query: string, options: IResolvedSearchMatchOptions) {
     if (options.useRegex) {
         assertSafePdfSearchRegex(query, options);
     }
@@ -364,7 +346,9 @@ interface IRegexGroupSafety {
     hasQuantifier: boolean;
 }
 
-interface IClosedRegexGroupSafety extends IRegexGroupSafety {endIndex: number;}
+interface IClosedRegexGroupSafety extends IRegexGroupSafety {
+    endIndex: number;
+}
 
 const MAX_REGEX_QUANTIFIERS = 3;
 
@@ -431,9 +415,7 @@ function getRegexAtomBefore(pattern: string, quantifierIndex: number) {
         return null;
     }
 
-    const startIndex = pattern[endIndex - 1] === '\\'
-        ? endIndex - 1
-        : endIndex;
+    const startIndex = pattern[endIndex - 1] === '\\' ? endIndex - 1 : endIndex;
     return {
         startIndex,
         source: pattern.slice(startIndex, quantifierIndex),
@@ -456,7 +438,7 @@ function isUnsafeSearchRegexPattern(pattern: string) {
     let quantifierCount = 0;
     let previousQuantifiedAtom: {
         startIndex: number;
-        source: string
+        source: string;
     } | null = null;
     let previousQuantifierEnd = -1;
 
@@ -530,11 +512,7 @@ function isUnsafeSearchRegexPattern(pattern: string) {
             }
 
             const atom = getRegexAtomBefore(pattern, index);
-            if (
-                atom
-                && previousQuantifiedAtom
-                && previousQuantifierEnd === atom.startIndex
-            ) {
+            if (atom && previousQuantifiedAtom && previousQuantifierEnd === atom.startIndex) {
                 return true;
             }
             previousQuantifiedAtom = atom;
@@ -559,10 +537,7 @@ function isUnsafeSearchRegexPattern(pattern: string) {
     return false;
 }
 
-export function assertSafePdfSearchRegex(
-    query: string,
-    options: Pick<IResolvedSearchMatchOptions, 'matchCase' | 'wholeWord'>,
-) {
+export function assertSafePdfSearchRegex(query: string, options: Pick<IResolvedSearchMatchOptions, 'matchCase' | 'wholeWord'>) {
     try {
         // Validate class syntax before complements are moved into branches.
         new RegExp(query, 'u');
@@ -605,7 +580,7 @@ const SEARCH_LIGATURE_FOLDS: Readonly<Record<string, string>> = {
     '\uFB06': 'st',
     // Long s, as early printed books and their OCR spell it.
     '\u017F': 's',
-    '\u2019': '\'', // Typographic apostrophe; the left quote, ayin in transliteration, stays apart.
+    '\u2019': "'", // Typographic apostrophe; the left quote, ayin in transliteration, stays apart.
 };
 
 interface INormalizedSearchText {
@@ -625,7 +600,7 @@ function normalizedTextByteLength(text: string) {
     let bytes = 0;
     for (const character of text) {
         const point = character.codePointAt(0)!;
-        bytes += point <= 0x7F ? 1 : point <= 0x7FF ? 2 : point <= 0xFFFF ? 3 : 4;
+        bytes += point <= 0x7f ? 1 : point <= 0x7ff ? 2 : point <= 0xffff ? 3 : 4;
     }
     return bytes;
 }
@@ -635,10 +610,7 @@ function normalizedTextByteLength(text: string) {
  * composition plus the presentation ligatures commonly emitted by PDF fonts
  * and long s.
  */
-export function normalizeSearchText(
-    text: string,
-    maxOutputBytes = SEARCH_MAX_NORMALIZED_PAGE_TEXT_BYTES,
-) {
+export function normalizeSearchText(text: string, maxOutputBytes = SEARCH_MAX_NORMALIZED_PAGE_TEXT_BYTES) {
     let outputBytes = 0;
     const foldedParts: string[] = [];
     for (const character of text) {
@@ -664,9 +636,7 @@ function normalizeSearchTextWithOffsets(text: string): INormalizedSearchText {
     const compositionPattern = /(?:[\u1100-\u1112][\u1161-\u1175][\u11A8-\u11C2]?|[\uAC00-\uD7A3][\u11A8-\u11C2]|\P{M})\p{M}*|\p{M}+/gu;
     let normalizedBytes = 0;
 
-    for (const {
-        0: source, index: sourceStart,
-    } of text.matchAll(compositionPattern)) {
+    for (const {0: source, index: sourceStart} of text.matchAll(compositionPattern)) {
         const sourceEnd = sourceStart + source.length;
         const normalized = normalizeSearchText(source);
         normalizedBytes += normalizedTextByteLength(normalized);
@@ -691,28 +661,20 @@ export function mapAssembledSearchablePageTextRange(
     assembled: IAssembledSearchablePageText,
     range: IPdfSearchUtf16Range,
 ): IPdfSearchUtf16Range | null {
-    if (
-        range.startOffset < 0
-        || range.endOffset <= range.startOffset
-        || range.endOffset > assembled.text.length
-    ) {
+    if (range.startOffset < 0 || range.endOffset <= range.startOffset || range.endOffset > assembled.text.length) {
         return null;
     }
     const start = assembled.sourceOffsets[range.startOffset];
     const end = assembled.sourceOffsets[range.endOffset - 1];
     return start && end
         ? {
-            startOffset: start.startOffset,
-            endOffset: end.endOffset,
-        }
+              startOffset: start.startOffset,
+              endOffset: end.endOffset,
+          }
         : null;
 }
 
-export function findPdfSearchMatches(
-    text: string,
-    matcherOrQuery: RegExp | string,
-    options?: ISearchMatchOptions,
-) {
+export function findPdfSearchMatches(text: string, matcherOrQuery: RegExp | string, options?: ISearchMatchOptions) {
     return [...iteratePdfSearchMatches(text, matcherOrQuery, options)];
 }
 
@@ -728,28 +690,23 @@ export function* iteratePdfSearchMatches(
             wholeWord: Boolean(options.wholeWord),
         });
     }
-    const normalizedText = typeof matcherOrQuery === 'string'
-        ? normalizeSearchTextWithOffsets(text)
-        : null;
-    const sourceMatcher = typeof matcherOrQuery === 'string'
-        ? buildPdfSearchRegex(normalizeSearchText(matcherOrQuery), {
-            matchCase: Boolean(options?.matchCase),
-            wholeWord: Boolean(options?.wholeWord),
-            useRegex: Boolean(options?.useRegex),
-        })
-        : matcherOrQuery;
+    const normalizedText = typeof matcherOrQuery === 'string' ? normalizeSearchTextWithOffsets(text) : null;
+    const sourceMatcher =
+        typeof matcherOrQuery === 'string'
+            ? buildPdfSearchRegex(normalizeSearchText(matcherOrQuery), {
+                  matchCase: Boolean(options?.matchCase),
+                  wholeWord: Boolean(options?.wholeWord),
+                  useRegex: Boolean(options?.useRegex),
+              })
+            : matcherOrQuery;
     const matcher = new RegExp(sourceMatcher.source, `${sourceMatcher.flags.replace('g', '')}g`);
 
     const matchedText = normalizedText?.text ?? text;
     onMatchingStarted?.();
-    const regexDeadline = options?.useRegex === true
-        ? Date.now() + (options.regexBudgetMs ?? SEARCH_REGEX_MAX_EXECUTION_MS)
-        : null;
+    const regexDeadline = options?.useRegex === true ? Date.now() + (options.regexBudgetMs ?? SEARCH_REGEX_MAX_EXECUTION_MS) : null;
     for (;;) {
         if (regexDeadline !== null && Date.now() >= regexDeadline) {
-            throw new SearchRegexLimitError(
-                `Search regex exceeded the ${SEARCH_REGEX_MAX_EXECUTION_MS}ms page budget`,
-            );
+            throw new SearchRegexLimitError(`Search regex exceeded the ${SEARCH_REGEX_MAX_EXECUTION_MS}ms page budget`);
         }
         const match = matcher.exec(matchedText);
         if (match === null) {

@@ -1,13 +1,7 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { computed } from 'vue';
-import { usePdfViewerMouseInteractions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerMouseInteractions';
-import { pdfViewportScrollActivity } from '@app/modules/pdf-viewer/runtime/composables/pdf/pdfViewportScrollActivity';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {computed} from 'vue';
+import {usePdfViewerMouseInteractions} from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerMouseInteractions';
+import {pdfViewportScrollActivity} from '@app/modules/pdf-viewer/runtime/composables/pdf/pdfViewportScrollActivity';
 
 function createMouseEvent(target: EventTarget | null = null) {
     const event = new Event('contextmenu') as MouseEvent;
@@ -28,11 +22,14 @@ describe('usePdfViewerMouseInteractions', () => {
     });
 
     it('always suppresses the browser context menu inside the viewer', () => {
-        vi.stubGlobal('HTMLElement', class HTMLElementStub {
-            closest() {
-                return null;
-            }
-        });
+        vi.stubGlobal(
+            'HTMLElement',
+            class HTMLElementStub {
+                closest() {
+                    return null;
+                }
+            },
+        );
         const handleViewerContextMenuAnnotation = vi.fn();
         const interactions = usePdfViewerMouseInteractions({
             isSnipActive: () => false,
@@ -54,11 +51,14 @@ describe('usePdfViewerMouseInteractions', () => {
     });
 
     it('still suppresses the browser context menu during snipping without delegating', () => {
-        vi.stubGlobal('HTMLElement', class HTMLElementStub {
-            closest() {
-                return null;
-            }
-        });
+        vi.stubGlobal(
+            'HTMLElement',
+            class HTMLElementStub {
+                closest() {
+                    return null;
+                }
+            },
+        );
         const handleViewerContextMenuAnnotation = vi.fn();
         const interactions = usePdfViewerMouseInteractions({
             isSnipActive: () => true,
@@ -80,11 +80,14 @@ describe('usePdfViewerMouseInteractions', () => {
     });
 
     it('stops pan drag on mouseup inside the viewer', () => {
-        vi.stubGlobal('HTMLElement', class HTMLElementStub {
-            closest() {
-                return null;
-            }
-        });
+        vi.stubGlobal(
+            'HTMLElement',
+            class HTMLElementStub {
+                closest() {
+                    return null;
+                }
+            },
+        );
         const stopDrag = vi.fn();
         const interactions = usePdfViewerMouseInteractions({
             isSnipActive: () => false,
@@ -107,7 +110,9 @@ describe('usePdfViewerMouseInteractions', () => {
     it('does not start viewer drag from a canonical annotation layer target', () => {
         class ElementStub {
             addEventListener() {}
-            dispatchEvent() { return true; }
+            dispatchEvent() {
+                return true;
+            }
             removeEventListener() {}
             closest(selector: string) {
                 return selector.includes('.pdf-annotation-editor-layer') ? {} : null;

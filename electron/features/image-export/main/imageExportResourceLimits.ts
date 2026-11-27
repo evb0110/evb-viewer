@@ -1,7 +1,4 @@
-import {
-    stat,
-    statfs,
-} from 'fs/promises';
+import {stat, statfs} from 'fs/promises';
 import type {IExportPageSize} from '@pdf-core/imageExportResolution';
 export {IMAGE_EXPORT_MAX_NETPBM_READ_BYTES} from '@pdf-core/imageExportResolution';
 export type {IExportPageSize} from '@pdf-core/imageExportResolution';
@@ -32,26 +29,13 @@ export function assertImageExportOutputPathBudget(paths: readonly string[] | num
     }
 }
 
-export function estimateImageExportStagedBytes(
-    pageCount: number,
-    renderDpi: number,
-    pageSizes: readonly IExportPageSize[],
-) {
-    const longestSidePts = pageSizes.reduce(
-        (longestSide, pageSize) => Math.max(longestSide, pageSize.widthPts, pageSize.heightPts),
-        0,
-    );
-    if (
-        !Number.isSafeInteger(pageCount)
-        || pageCount < 1
-        || !Number.isFinite(renderDpi)
-        || renderDpi <= 0
-        || longestSidePts <= 0
-    ) {
+export function estimateImageExportStagedBytes(pageCount: number, renderDpi: number, pageSizes: readonly IExportPageSize[]) {
+    const longestSidePts = pageSizes.reduce((longestSide, pageSize) => Math.max(longestSide, pageSize.widthPts, pageSize.heightPts), 0);
+    if (!Number.isSafeInteger(pageCount) || pageCount < 1 || !Number.isFinite(renderDpi) || renderDpi <= 0 || longestSidePts <= 0) {
         return IMAGE_EXPORT_MAX_STAGED_BYTES;
     }
 
-    const pixelsPerSide = Math.max(1, Math.ceil(longestSidePts * renderDpi / POINTS_PER_INCH));
+    const pixelsPerSide = Math.max(1, Math.ceil((longestSidePts * renderDpi) / POINTS_PER_INCH));
     const pageBytes = pixelsPerSide * pixelsPerSide * 4;
     if (!Number.isSafeInteger(pageBytes)) {
         return IMAGE_EXPORT_MAX_STAGED_BYTES;
@@ -74,10 +58,12 @@ export async function assertImageExportFreeSpace(directory: string, projectedByt
     }
 }
 
-export async function validateRenderedImagePageFiles(pageFiles: Array<{
-    page: number;
-    path: string;
-}>) {
+export async function validateRenderedImagePageFiles(
+    pageFiles: Array<{
+        page: number;
+        path: string;
+    }>,
+) {
     let renderedBytes = 0;
     for (const pageFile of pageFiles) {
         const fileStat = await stat(pageFile.path);
@@ -92,11 +78,7 @@ export async function validateRenderedImagePageFiles(pageFiles: Array<{
 }
 
 /** Add one staged file to an accumulator shared by the required scope. */
-export async function addStagedImageFileBytes(
-    currentBytes: number,
-    path: string,
-    errorMessage: string,
-) {
+export async function addStagedImageFileBytes(currentBytes: number, path: string, errorMessage: string) {
     const nextBytes = currentBytes + (await stat(path)).size;
     if (nextBytes > IMAGE_EXPORT_MAX_STAGED_BYTES) {
         throw new RangeError(errorMessage);

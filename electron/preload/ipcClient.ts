@@ -1,9 +1,6 @@
-import { getErrorMessage } from '@electron/utils/error';
-import type {
-    IpcRenderer,
-    IpcRendererEvent,
-} from 'electron';
-import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
+import {getErrorMessage} from '@electron/utils/error';
+import type {IpcRenderer, IpcRendererEvent} from 'electron';
+import type {TMenuEventUnsubscribe} from '@contracts/electronApiCommon';
 import type {IIpcInvokeSpec} from '@contracts/ipcMain';
 import type {
     TAnyDefinedPlatformFeature,
@@ -14,15 +11,14 @@ import type {
 import {createRequestId} from '@contracts/shared';
 import {isAbortError} from '@contracts/isAbortError';
 import {isRecord} from '@contracts/runtimeGuards';
-import {
-    CORE_IPC_SEND_CHANNELS,
-    IPC_INVOKE_CANCEL_REASON_FIELD,
-    IPC_INVOKE_REQUEST_ID_FIELD,
-} from '@electron/platform-ipc/coreContract';
+import {CORE_IPC_SEND_CHANNELS, IPC_INVOKE_CANCEL_REASON_FIELD, IPC_INVOKE_REQUEST_ID_FIELD} from '@electron/platform-ipc/coreContract';
 
-type TNoArgEventChannel<TEventMap extends {[TChannel in keyof TEventMap]: unknown}> = Extract<{
-    [TChannel in keyof TEventMap]: TEventMap[TChannel] extends undefined ? TChannel : never;
-}[keyof TEventMap], string>;
+type TNoArgEventChannel<TEventMap extends {[TChannel in keyof TEventMap]: unknown}> = Extract<
+    {
+        [TChannel in keyof TEventMap]: TEventMap[TChannel] extends undefined ? TChannel : never;
+    }[keyof TEventMap],
+    string
+>;
 
 type TPayloadEventChannel<TEventMap extends {[TChannel in keyof TEventMap]: unknown}> = Exclude<
     Extract<keyof TEventMap, string>,
@@ -50,9 +46,8 @@ function logDecodedEventValidationFailure(
     decoderError: unknown,
     failureStates: Map<string, IDecodedEventFailureState>,
 ) {
-    const decoderErrorMessage = decoderError === undefined
-        ? 'decoder returned null'
-        : getErrorMessage(decoderError) || 'unknown decoder error';
+    const decoderErrorMessage =
+        decoderError === undefined ? 'decoder returned null' : getErrorMessage(decoderError) || 'unknown decoder error';
     const now = Date.now();
     const previous = failureStates.get(channel);
     if (previous && now - previous.lastLoggedAt < DECODED_EVENT_FAILURE_LOG_INTERVAL_MS) {
@@ -102,9 +97,7 @@ class PlatformIpcInvokeError extends Error {
     override readonly cause: unknown;
 
     constructor(channel: string, cause: unknown) {
-        const message = cause instanceof Error && getErrorMessage(cause)
-            ? getErrorMessage(cause)
-            : `IPC invoke failed for ${channel}`;
+        const message = cause instanceof Error && getErrorMessage(cause) ? getErrorMessage(cause) : `IPC invoke failed for ${channel}`;
         super(message);
         this.name = 'PlatformIpcInvokeError';
         this.channel = channel;
@@ -122,16 +115,9 @@ export async function invokeWithChannelContext<TResult>(
     let unsubscribe: (() => void) | undefined;
     const timeoutMs = options?.invokeTimeoutMsByChannel?.[channel];
     const timed = typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0;
-    const requestId = timed || options?.subscribeToAbort
-        ? createRequestId('ipc-invoke')
-        : null;
+    const requestId = timed || options?.subscribeToAbort ? createRequestId('ipc-invoke') : null;
     try {
-        const invokeArgs = requestId === null
-            ? args
-            : [
-                ...args,
-                {[IPC_INVOKE_REQUEST_ID_FIELD]: requestId},
-            ];
+        const invokeArgs = requestId === null ? args : [...args, {[IPC_INVOKE_REQUEST_ID_FIELD]: requestId}];
         const invokePromise = ipcRenderer.invoke(channel, ...invokeArgs) as Promise<TResult>;
         if (requestId === null) {
             return await invokePromise;
@@ -146,9 +132,9 @@ export async function invokeWithChannelContext<TResult>(
                             CORE_IPC_SEND_CHANNELS.ipcInvokeCanceled,
                             timedOut
                                 ? {
-                                    [IPC_INVOKE_REQUEST_ID_FIELD]: requestId,
-                                    [IPC_INVOKE_CANCEL_REASON_FIELD]: 'timeout',
-                                }
+                                      [IPC_INVOKE_REQUEST_ID_FIELD]: requestId,
+                                      [IPC_INVOKE_CANCEL_REASON_FIELD]: 'timeout',
+                                  }
                                 : {[IPC_INVOKE_REQUEST_ID_FIELD]: requestId},
                         );
                     } catch {
@@ -180,17 +166,14 @@ export function createIpcInvoker<TMap extends {[TChannel in keyof TMap]: IIpcInv
     ipcRenderer: Pick<IpcRenderer, 'invoke' | 'send'>,
     options?: IIpcInvokerOptions<Extract<keyof TMap, string>>,
 ) {
-    return async function invoke<TChannel extends Extract<keyof TMap, string>>(
-        channel: TChannel,
-        ...args: TMap[TChannel]['args']
-    ) {
+    return async function invoke<TChannel extends Extract<keyof TMap, string>>(channel: TChannel, ...args: TMap[TChannel]['args']) {
         return invokeWithChannelContext<TMap[TChannel]['result']>(ipcRenderer, channel, args, options);
     };
 }
 
-export function createTypedIpcEventSubscriber<
-    TEventMap extends {[TChannel in keyof TEventMap]: unknown},
->(ipcRenderer: Partial<Pick<IpcRenderer, 'on' | 'removeListener' | 'send'>>) {
+export function createTypedIpcEventSubscriber<TEventMap extends {[TChannel in keyof TEventMap]: unknown}>(
+    ipcRenderer: Partial<Pick<IpcRenderer, 'on' | 'removeListener' | 'send'>>,
+) {
     type TEventCallback = (event: IpcRendererEvent, payload: unknown) => void;
     interface IChannelSubscription {
         callbacks: Set<TEventCallback>;
@@ -201,10 +184,7 @@ export function createTypedIpcEventSubscriber<
     const decodedEventFailureStates = new Map<string, IDecodedEventFailureState>();
 
     function subscribe(channel: string, callback: TEventCallback): TMenuEventUnsubscribe {
-        if (
-            typeof ipcRenderer.on !== 'function'
-            || typeof ipcRenderer.removeListener !== 'function'
-        ) {
+        if (typeof ipcRenderer.on !== 'function' || typeof ipcRenderer.removeListener !== 'function') {
             return () => undefined;
         }
 
@@ -244,17 +224,13 @@ export function createTypedIpcEventSubscriber<
     }
 
     const shared: ISharedIpcEventSubscriber = {
-        onPayloadUnchecked: (channel, callback) =>
-            subscribe(channel, (_event, payload) => callback(payload)),
+        onPayloadUnchecked: (channel, callback) => subscribe(channel, (_event, payload) => callback(payload)),
     };
 
     return {
         shared,
 
-        onNoArg<TChannel extends TNoArgEventChannel<TEventMap>>(
-            channel: TChannel,
-            callback: () => void,
-        ): TMenuEventUnsubscribe {
+        onNoArg<TChannel extends TNoArgEventChannel<TEventMap>>(channel: TChannel, callback: () => void): TMenuEventUnsubscribe {
             return subscribe(channel, () => callback());
         },
 
@@ -282,13 +258,7 @@ export function createTypedIpcEventSubscriber<
                     callback(decoded);
                     return;
                 }
-                logDecodedEventValidationFailure(
-                    ipcRenderer,
-                    channel,
-                    payload,
-                    decoderError,
-                    decodedEventFailureStates,
-                );
+                logDecodedEventValidationFailure(ipcRenderer, channel, payload, decoderError, decodedEventFailureStates);
             });
         },
     };
@@ -300,15 +270,10 @@ export function createTypedIpcEventSubscriber<
  * bivariance.
  */
 export interface ISharedIpcEventSubscriber {
-    readonly onPayloadUnchecked: (
-        channel: string,
-        callback: (payload: unknown) => void,
-    ) => TMenuEventUnsubscribe;
+    readonly onPayloadUnchecked: (channel: string, callback: (payload: unknown) => void) => TMenuEventUnsubscribe;
 }
 
-export function createPlatformFeaturePreloadClient<
-    TFeature extends TAnyDefinedPlatformFeature,
->(
+export function createPlatformFeaturePreloadClient<TFeature extends TAnyDefinedPlatformFeature>(
     ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener' | 'send'>,
     feature: TFeature,
     directBindings?: TFeatureDirectBindings<TFeature>,
@@ -325,12 +290,9 @@ export function createPlatformFeaturePreloadClient<
     const baseInvokeOptions = invokeTimeoutMsByChannel ? {invokeTimeoutMsByChannel} : undefined;
     const isScanCleanupFeature = feature.path[0] === 'scanCleanup';
     const client: Record<string, unknown> = {};
-    const untypedDirectBindings = directBindings as Record<string, ((...args: unknown[]) => unknown)> | undefined;
+    const untypedDirectBindings = directBindings as Record<string, (...args: unknown[]) => unknown> | undefined;
 
-    for (const [
-        name,
-        spec,
-    ] of Object.entries(feature.methods)) {
+    for (const [name, spec] of Object.entries(feature.methods)) {
         if (spec.kind === 'sync' || 'local' in spec) {
             const binding = untypedDirectBindings?.[name];
             if (typeof binding !== 'function') {
@@ -354,34 +316,27 @@ export function createPlatformFeaturePreloadClient<
                 if (localArgs === publicArgs) {
                     localArgs = publicArgs.slice();
                 }
-                const {
-                    signal, ...options
-                } = value;
+                const {signal, ...options} = value;
                 subscribeToAbort = signal as TPlatformIpcAbortSubscription;
                 localArgs[index] = options;
             }
-            let wireArgs = mapArgs
-                ? mapArgs(...localArgs as never[])
-                : localArgs;
+            let wireArgs = mapArgs ? mapArgs(...(localArgs as never[])) : localArgs;
             // Scan-cleanup arguments can be reactive, so encode them as plain IPC values.
             if (isScanCleanupFeature) {
                 try {
                     wireArgs = feature.ipcCodecs[spec.channel]?.encodeArgs?.(wireArgs) ?? wireArgs;
                 } catch (error) {
                     const details = error instanceof Error ? `: ${getErrorMessage(error)}` : '';
-                    throw new PlatformIpcInvokeError(
-                        spec.channel,
-                        new Error(`Invalid IPC request for ${spec.channel}${details}`),
-                    );
+                    throw new PlatformIpcInvokeError(spec.channel, new Error(`Invalid IPC request for ${spec.channel}${details}`));
                 }
             }
             const invokeOptions = subscribeToAbort
-                ? (invokeTimeoutMsByChannel
+                ? invokeTimeoutMsByChannel
                     ? {
-                        invokeTimeoutMsByChannel,
-                        subscribeToAbort,
-                    }
-                    : {subscribeToAbort})
+                          invokeTimeoutMsByChannel,
+                          subscribeToAbort,
+                      }
+                    : {subscribeToAbort}
                 : baseInvokeOptions;
             return invokeWithChannelContext(ipcRenderer, spec.channel, wireArgs, invokeOptions);
         };
@@ -392,23 +347,14 @@ export function createPlatformFeaturePreloadClient<
         const eventSubscriber = sharedEventSubscriber ?? createTypedIpcEventSubscriber<Record<string, unknown>>(ipcRenderer);
         let requestedSubscriptions: Set<string> | undefined;
         let pendingSubscriptions: Set<string> | undefined;
-        for (const [
-            name,
-            spec,
-        ] of eventEntries) {
+        for (const [name, spec] of eventEntries) {
             const subscription = spec.subscription;
             client[name] = (callback: (payload: unknown) => void) => {
-                const unsubscribe = eventSubscriber.onPayloadUnchecked(
-                    spec.channel,
-                    callback,
-                );
+                const unsubscribe = eventSubscriber.onPayloadUnchecked(spec.channel, callback);
                 if (subscription) {
                     requestedSubscriptions ??= new Set<string>();
                     pendingSubscriptions ??= new Set<string>();
-                    if (
-                        !requestedSubscriptions.has(spec.channel)
-                        && !pendingSubscriptions.has(spec.channel)
-                    ) {
+                    if (!requestedSubscriptions.has(spec.channel) && !pendingSubscriptions.has(spec.channel)) {
                         const requested = requestedSubscriptions;
                         const pending = pendingSubscriptions;
                         pending.add(spec.channel);
@@ -416,7 +362,7 @@ export function createPlatformFeaturePreloadClient<
                             .then(() => {
                                 requested.add(spec.channel);
                             })
-                            .catch(error => {
+                            .catch((error) => {
                                 console.warn(`IPC event subscription failed for ${spec.channel}: ${getErrorMessage(error)}`);
                             })
                             .finally(() => {

@@ -1,21 +1,8 @@
-import {
-    effectScope,
-    nextTick,
-    ref,
-    shallowRef,
-} from 'vue';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type {
-    IDocumentOutlineItem,
-    IDocumentPageSource,
-} from '@app/modules/document-viewer/source/documentPageSource';
-import { useDocumentBookmarkSession } from '@app/modules/document-viewer/bookmarks/useDocumentBookmarkSession';
-import { getDocumentBookmarkVisibleRows } from '@app/modules/document-viewer/bookmarks/documentBookmarks';
+import {effectScope, nextTick, ref, shallowRef} from 'vue';
+import {describe, expect, it, vi} from 'vitest';
+import type {IDocumentOutlineItem, IDocumentPageSource} from '@app/modules/document-viewer/source/documentPageSource';
+import {useDocumentBookmarkSession} from '@app/modules/document-viewer/bookmarks/useDocumentBookmarkSession';
+import {getDocumentBookmarkVisibleRows} from '@app/modules/document-viewer/bookmarks/documentBookmarks';
 import {requireDocumentRef} from '@contracts/documentRef';
 
 function createSource(getOutline: NonNullable<IDocumentPageSource['outlineProvider']>['getOutline']): IDocumentPageSource {
@@ -43,46 +30,52 @@ function createDeferredOutline() {
 
 async function flush() {
     await nextTick();
-    await new Promise(resolve => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 describe('useDocumentBookmarkSession', () => {
     it('loads an initially active provider and derives the current active path', async () => {
-        const source = shallowRef<IDocumentPageSource | null>(createSource(vi.fn().mockResolvedValue([{
-            title: 'Part',
-            pageNumber: 1,
-            children: [{
-                title: 'Chapter',
-                pageNumber: 2,
-                children: [],
-            }],
-        }])));
+        const source = shallowRef<IDocumentPageSource | null>(
+            createSource(
+                vi.fn().mockResolvedValue([
+                    {
+                        title: 'Part',
+                        pageNumber: 1,
+                        children: [
+                            {
+                                title: 'Chapter',
+                                pageNumber: 2,
+                                children: [],
+                            },
+                        ],
+                    },
+                ]),
+            ),
+        );
         const scope = effectScope();
-        const session = scope.run(() => useDocumentBookmarkSession({
-            source,
-            currentPage: ref(2),
-            isActive: ref(true),
-        }))!;
+        const session = scope.run(() =>
+            useDocumentBookmarkSession({
+                source,
+                currentPage: ref(2),
+                isActive: ref(true),
+            }),
+        )!;
 
         await flush();
 
         expect(session.items.value[0]?.children[0]?.title).toBe('Chapter');
         expect(session.activeId.value).toBe('document-bookmark-0-0');
-        expect(session.activePathIds.value).toEqual(new Set([
-            'document-bookmark-0',
-            'document-bookmark-0-0',
-        ]));
-        for (const mode of [
-            'current-expanded',
-            'all-expanded',
-        ] as const) {
+        expect(session.activePathIds.value).toEqual(new Set(['document-bookmark-0', 'document-bookmark-0-0']));
+        for (const mode of ['current-expanded', 'all-expanded'] as const) {
             session.setDisplayMode(mode);
             session.toggleExpanded('document-bookmark-0');
-            expect(getDocumentBookmarkVisibleRows(session.items.value, {
-                displayMode: session.displayMode.value,
-                expandedIds: session.expandedIds.value,
-                activePathIds: session.activePathIds.value,
-            }).map(row => row.item.title)).toEqual(['Part']);
+            expect(
+                getDocumentBookmarkVisibleRows(session.items.value, {
+                    displayMode: session.displayMode.value,
+                    expandedIds: session.expandedIds.value,
+                    activePathIds: session.activePathIds.value,
+                }).map((row) => row.item.title),
+            ).toEqual(['Part']);
         }
         scope.stop();
     });
@@ -95,11 +88,13 @@ describe('useDocumentBookmarkSession', () => {
         });
         const active = ref(true);
         const scope = effectScope();
-        scope.run(() => useDocumentBookmarkSession({
-            source: shallowRef<IDocumentPageSource | null>(createSource(getOutline)),
-            currentPage: ref(1),
-            isActive: active,
-        }));
+        scope.run(() =>
+            useDocumentBookmarkSession({
+                source: shallowRef<IDocumentPageSource | null>(createSource(getOutline)),
+                currentPage: ref(1),
+                isActive: active,
+            }),
+        );
         await nextTick();
 
         active.value = false;
@@ -111,20 +106,24 @@ describe('useDocumentBookmarkSession', () => {
     it('reports one outline status across loading, error, empty, and ready', async () => {
         const outline = createDeferredOutline();
         const scope = effectScope();
-        const session = scope.run(() => useDocumentBookmarkSession({
-            source: shallowRef<IDocumentPageSource | null>(createSource(() => outline.promise)),
-            currentPage: ref(1),
-            isActive: ref(true),
-        }))!;
+        const session = scope.run(() =>
+            useDocumentBookmarkSession({
+                source: shallowRef<IDocumentPageSource | null>(createSource(() => outline.promise)),
+                currentPage: ref(1),
+                isActive: ref(true),
+            }),
+        )!;
 
         try {
             expect(session.status.value).toBe('loading');
 
-            outline.resolve([{
-                title: 'Part',
-                pageNumber: 1,
-                children: [],
-            }]);
+            outline.resolve([
+                {
+                    title: 'Part',
+                    pageNumber: 1,
+                    children: [],
+                },
+            ]);
             await flush();
 
             expect(session.status.value).toBe('ready');
@@ -135,13 +134,15 @@ describe('useDocumentBookmarkSession', () => {
 
     it('represents a failed outline load as an error status carrying the reason', async () => {
         const scope = effectScope();
-        const session = scope.run(() => useDocumentBookmarkSession({
-            source: shallowRef<IDocumentPageSource | null>(createSource(
-                vi.fn().mockRejectedValue(new Error('outline stream is corrupt')),
-            )),
-            currentPage: ref(1),
-            isActive: ref(true),
-        }))!;
+        const session = scope.run(() =>
+            useDocumentBookmarkSession({
+                source: shallowRef<IDocumentPageSource | null>(
+                    createSource(vi.fn().mockRejectedValue(new Error('outline stream is corrupt'))),
+                ),
+                currentPage: ref(1),
+                isActive: ref(true),
+            }),
+        )!;
 
         try {
             await flush();
@@ -156,11 +157,13 @@ describe('useDocumentBookmarkSession', () => {
 
     it('separates an empty outline from a failed one', async () => {
         const scope = effectScope();
-        const session = scope.run(() => useDocumentBookmarkSession({
-            source: shallowRef<IDocumentPageSource | null>(createSource(vi.fn().mockResolvedValue([]))),
-            currentPage: ref(1),
-            isActive: ref(true),
-        }))!;
+        const session = scope.run(() =>
+            useDocumentBookmarkSession({
+                source: shallowRef<IDocumentPageSource | null>(createSource(vi.fn().mockResolvedValue([]))),
+                currentPage: ref(1),
+                isActive: ref(true),
+            }),
+        )!;
 
         try {
             await flush();

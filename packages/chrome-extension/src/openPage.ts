@@ -9,6 +9,6 @@ import {
 // escaped, so the URL's own query and fragment stay inside the `file`
 // parameter instead of becoming the viewer page's own fragment.
 const documentUrl = readBrowserExtensionOpenPageDocumentUrl(location.href);
-location.replace(documentUrl
-    ? createBrowserExtensionViewerUrl(location.href, documentUrl)
-    : new URL(BROWSER_EXTENSION_VIEWER_PAGE, location.href).href);
+location.replace(
+    documentUrl ? createBrowserExtensionViewerUrl(location.href, documentUrl) : new URL(BROWSER_EXTENSION_VIEWER_PAGE, location.href).href,
+);

@@ -1,17 +1,7 @@
-import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
-import {
-    requirePageIndex,
-    type TPageIndex,
-} from '@contracts/pageNumbers';
-import {
-    DJVU_OUTLINE_MAX_DEPTH,
-    DJVU_OUTLINE_MAX_NODES,
-    DJVU_OUTLINE_MAX_TITLE_CHARS,
-} from '@contracts/djvuResourceLimits';
-import type {
-    IDjvuDocFileEntry,
-    IDjvuOutlineRawItem,
-} from '@djvu-core/djvuLibreTypes';
+import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
+import {requirePageIndex, type TPageIndex} from '@contracts/pageNumbers';
+import {DJVU_OUTLINE_MAX_DEPTH, DJVU_OUTLINE_MAX_NODES, DJVU_OUTLINE_MAX_TITLE_CHARS} from '@contracts/djvuResourceLimits';
+import type {IDjvuDocFileEntry, IDjvuOutlineRawItem} from '@djvu-core/djvuLibreTypes';
 
 /** Maximum serialized outline byte size accepted before refusing oversized NAVM metadata. */
 export const DJVU_OUTLINE_MAX_BYTES = 262_144;
@@ -87,9 +77,7 @@ export function normalizeDjvuOutlineTree(
             if (totalTitleChars > DJVU_OUTLINE_MAX_TITLE_CHARS) {
                 throw new Error('DjVu outline text exceeds the supported limit');
             }
-            const children = Array.isArray(node.children) && node.children.length > 0
-                ? visit(node.children, depth + 1)
-                : [];
+            const children = Array.isArray(node.children) && node.children.length > 0 ? visit(node.children, depth + 1) : [];
             result.push({
                 title: title.slice(0, DJVU_OUTLINE_MAX_TITLE_CHARS),
                 pageIndex: resolveDjvuOutlineUrlToPageIndex(node.url, pageComponents, pageCount),

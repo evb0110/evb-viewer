@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     formatPdfJsAnnotationRef,
     MAX_PDF_OBJECT_GENERATION,
@@ -56,14 +52,18 @@ describe('PDF.js annotation reference contract', () => {
     });
 
     it('formats and normalizes compact references', () => {
-        expect(formatPdfJsAnnotationRef({
-            objectNumber: 42,
-            generationNumber: 0,
-        })).toBe('42R');
-        expect(formatPdfJsAnnotationRef({
-            objectNumber: 42,
-            generationNumber: 7,
-        })).toBe('42R7');
+        expect(
+            formatPdfJsAnnotationRef({
+                objectNumber: 42,
+                generationNumber: 0,
+            }),
+        ).toBe('42R');
+        expect(
+            formatPdfJsAnnotationRef({
+                objectNumber: 42,
+                generationNumber: 7,
+            }),
+        ).toBe('42R7');
         expect(normalizePdfJsAnnotationId(' 42R0 ')).toBe('42R');
         expect(normalizePdfJsAnnotationId(' custom-id ')).toBe('custom-id');
         expect(normalizePdfJsAnnotationId('   ')).toBeNull();

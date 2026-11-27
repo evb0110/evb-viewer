@@ -1,5 +1,9 @@
 <template>
-    <aside ref="shellRef" class="app-sidebar-shell" :style="shellStyle">
+    <aside
+        ref="shellRef"
+        class="app-sidebar-shell"
+        :style="shellStyle"
+    >
         <UTabs
             :model-value="modelValue"
             :items="displayTabs"
@@ -11,15 +15,33 @@
             class="shrink-0"
             @update:model-value="handleTabUpdate"
         >
-            <template #leading="{ item }">
-                <AppTooltip v-if="isCompact" :text="item.title" :delay-duration="300">
-                    <UIcon :name="item.icon" class="size-[var(--app-icon-size-xs)] shrink-0" />
+            <template #leading="{item}">
+                <AppTooltip
+                    v-if="isCompact"
+                    :text="item.title"
+                    :delay-duration="300"
+                >
+                    <UIcon
+                        :name="item.icon"
+                        class="size-[var(--app-icon-size-xs)] shrink-0"
+                    />
                 </AppTooltip>
-                <UIcon v-else :name="item.icon" class="size-[var(--app-icon-size-xs)] shrink-0" />
+                <UIcon
+                    v-else
+                    :name="item.icon"
+                    class="size-[var(--app-icon-size-xs)] shrink-0"
+                />
             </template>
         </UTabs>
-        <div ref="tabFitProbeRef" class="app-sidebar-shell__tab-fit-probe" aria-hidden="true">
-            <span v-for="item in tabs" :key="item.value">
+        <div
+            ref="tabFitProbeRef"
+            class="app-sidebar-shell__tab-fit-probe"
+            aria-hidden="true"
+        >
+            <span
+                v-for="item in tabs"
+                :key="item.value"
+            >
                 <UIcon :name="item.icon" />{{ item.title }}
             </span>
         </div>
@@ -33,7 +55,7 @@
 </template>
 
 <script setup lang="ts">
-import { useResizeObserver } from '@vueuse/core';
+import {useResizeObserver} from '@vueuse/core';
 
 interface IAppSidebarShellTab {
     value: string;
@@ -53,28 +75,24 @@ const {
     outerScroll?: boolean | undefined;
     widthPx?: number | undefined;
 }>();
-const emit = defineEmits<{'update:model-value': [value: string];}>();
+const emit = defineEmits<{'update:model-value': [value: string]}>();
 const shellRef = useTemplateRef<HTMLElement>('shellRef');
 const tabFitProbeRef = useTemplateRef<HTMLElement>('tabFitProbeRef');
 const isCompact = ref(true);
-const shellStyle = computed(() => (
-    widthPx === undefined
-        ? undefined
-        : {width: `${widthPx}px`}
-));
-const displayTabs = computed(() => tabs.map(item => ({
-    ...item,
-    // Keep the localized label in the DOM when the compact layout hides it
-    // visually. UTabs derives the tab's accessible name from this slot.
-    label: item.label,
-})));
+const shellStyle = computed(() => (widthPx === undefined ? undefined : {width: `${widthPx}px`}));
+const displayTabs = computed(() =>
+    tabs.map((item) => ({
+        ...item,
+        // Keep the localized label in the DOM when the compact layout hides it
+        // visually. UTabs derives the tab's accessible name from this slot.
+        label: item.label,
+    })),
+);
 const tabsUi = computed(() => ({
     root: 'app-sidebar-shell__tabs',
     list: 'app-sidebar-shell__tabs-list',
     indicator: 'hidden',
-    trigger: isCompact.value
-        ? 'app-sidebar-shell__tabs-trigger is-compact'
-        : 'app-sidebar-shell__tabs-trigger',
+    trigger: isCompact.value ? 'app-sidebar-shell__tabs-trigger is-compact' : 'app-sidebar-shell__tabs-trigger',
     label: isCompact.value ? 'sr-only' : 'app-sidebar-shell__tabs-label',
     leadingIcon: 'app-sidebar-shell__tabs-icon',
 }));
@@ -94,10 +112,14 @@ function handleTabUpdate(value: string | number) {
 
 useResizeObserver(shellRef, updateTabFitMode);
 useResizeObserver(tabFitProbeRef, updateTabFitMode);
-watch(() => tabs, async () => {
-    await nextTick();
-    updateTabFitMode();
-}, {immediate: true});
+watch(
+    () => tabs,
+    async () => {
+        await nextTick();
+        updateTabFitMode();
+    },
+    {immediate: true},
+);
 </script>
 
 <style lang="scss" scoped>

@@ -1,22 +1,14 @@
-import type {
-    IDocumentRevisionInfo,
-    TDocumentRevisionToken,
-} from '@contracts/documentRevision';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
-import type { IWorkspaceOpenFailure } from '@app/types/workspaceExpose';
+import type {IDocumentRevisionInfo, TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TDocumentInstanceId} from '@contracts/documentInstanceId';
+import type {IWorkspaceOpenFailure} from '@app/types/workspaceExpose';
 
 /**
  * The tab's document lifecycle. `presented` means the tab owns a document the
  * viewer has shown; a cold tab keeps it while its view is released and
  * restores it when the tab is shown again.
  */
-export type TWorkspaceDocumentPhase =
-    | 'empty'
-    | 'opening'
-    | 'presented'
-    | 'failed'
-    | 'closing';
+export type TWorkspaceDocumentPhase = 'empty' | 'opening' | 'presented' | 'failed' | 'closing';
 
 export type TWorkspaceDocumentTransactionKind = 'open' | 'restore' | 'close';
 
@@ -60,7 +52,9 @@ export interface IWorkspaceDocumentTransaction {
 }
 
 /** Why an open failed, with the file it tried to open. */
-export interface IWorkspaceRecordedFailure extends IWorkspaceOpenFailure {fileName: string | null;}
+export interface IWorkspaceRecordedFailure extends IWorkspaceOpenFailure {
+    fileName: string | null;
+}
 
 export interface IWorkspaceDocumentSnapshot {
     sessionId: string;

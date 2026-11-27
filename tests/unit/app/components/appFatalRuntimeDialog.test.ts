@@ -1,37 +1,31 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    ref,
-    Teleport,
-} from 'vue';
+import {afterEach, describe, expect, it} from 'vitest';
+import {createApp, defineComponent, h, nextTick, ref, Teleport} from 'vue';
 import AppFatalRuntimeDialog from '@app/components/AppFatalRuntimeDialog.vue';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {requireEpochMs} from '@contracts/timestamps';
 
-const AlertStub = defineComponent({setup: (_props, {slots}) => () => h('section', [
-    slots.title?.(),
-    slots.description?.(),
-])});
+const AlertStub = defineComponent({
+    setup:
+        (_props, {slots}) =>
+        () =>
+            h('section', [slots.title?.(), slots.description?.()]),
+});
 
 const ButtonStub = defineComponent({
     inheritAttrs: false,
-    setup: (_props, {
-        attrs,
-        slots,
-    }) => () => h('button', {
-        ...attrs,
-        type: 'button',
-    }, slots.default?.()),
+    setup:
+        (_props, {attrs, slots}) =>
+        () =>
+            h(
+                'button',
+                {
+                    ...attrs,
+                    type: 'button',
+                },
+                slots.default?.(),
+            ),
 });
 
 const activeUnmounts = new Set<() => void>();
@@ -48,28 +42,39 @@ function mountDialog(
     let reloadCount = 0;
     let copyCount = 0;
     let copiedText: string | undefined;
-    const app = createApp(defineComponent({setup: () => () => h(AppFatalRuntimeDialog, {
-        open: open.value,
-        title: 'EVB Viewer stopped',
-        description: 'Reload the application to recover.',
-        detail,
-        detailLabel: 'Details',
-        errorIdLabel,
-        failure,
-        reloadLabel: 'Reload',
-        copyLabel: 'Copy Details',
-        copied: false,
-        onReload: () => {
-            reloadCount += 1;
-        },
-        onCopy: (text?: string) => {
-            copyCount += 1;
-            copiedText = text;
-        },
-    }, {default: () => [
-        h('button', {'data-workspace-action': ''}, 'Workspace action'),
-        h(Teleport, {to: 'body'}, h('button', {'data-teleported-action': ''}, 'Teleported action')),
-    ]})}));
+    const app = createApp(
+        defineComponent({
+            setup: () => () =>
+                h(
+                    AppFatalRuntimeDialog,
+                    {
+                        open: open.value,
+                        title: 'EVB Viewer stopped',
+                        description: 'Reload the application to recover.',
+                        detail,
+                        detailLabel: 'Details',
+                        errorIdLabel,
+                        failure,
+                        reloadLabel: 'Reload',
+                        copyLabel: 'Copy Details',
+                        copied: false,
+                        onReload: () => {
+                            reloadCount += 1;
+                        },
+                        onCopy: (text?: string) => {
+                            copyCount += 1;
+                            copiedText = text;
+                        },
+                    },
+                    {
+                        default: () => [
+                            h('button', {'data-workspace-action': ''}, 'Workspace action'),
+                            h(Teleport, {to: 'body'}, h('button', {'data-teleported-action': ''}, 'Teleported action')),
+                        ],
+                    },
+                ),
+        }),
+    );
     app.component('UAlert', AlertStub);
     app.component('UButton', ButtonStub);
     app.mount(host);
@@ -96,12 +101,14 @@ function mountDialog(
 }
 
 function pressTab(target: HTMLElement, shiftKey = false) {
-    target.dispatchEvent(new KeyboardEvent('keydown', {
-        bubbles: true,
-        cancelable: true,
-        key: 'Tab',
-        shiftKey,
-    }));
+    target.dispatchEvent(
+        new KeyboardEvent('keydown', {
+            bubbles: true,
+            cancelable: true,
+            key: 'Tab',
+            shiftKey,
+        }),
+    );
 }
 
 afterEach(() => {
@@ -173,11 +180,13 @@ describe('AppFatalRuntimeDialog', () => {
 
         reload.click();
         copy.click();
-        mounted.dialog().dispatchEvent(new KeyboardEvent('keydown', {
-            bubbles: true,
-            cancelable: true,
-            key: 'Escape',
-        }));
+        mounted.dialog().dispatchEvent(
+            new KeyboardEvent('keydown', {
+                bubbles: true,
+                cancelable: true,
+                key: 'Escape',
+            }),
+        );
 
         expect(mounted.counters()).toEqual({
             copy: 1,

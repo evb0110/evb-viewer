@@ -1,29 +1,11 @@
 import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    existsSync,
-    mkdtempSync,
-    readFileSync,
-    rmSync,
-    truncateSync,
-    writeFileSync,
-} from 'fs';
-import {
-    copyFile,
-    unlink,
-    writeFile,
-} from 'fs/promises';
-import { join } from 'path';
-import { tmpdir } from 'os';
-import type { THostResourceTier } from '@contracts/hostResourceProfile';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {existsSync, mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSync} from 'fs';
+import {copyFile, unlink, writeFile} from 'fs/promises';
+import {join} from 'path';
+import {tmpdir} from 'os';
+import type {THostResourceTier} from '@contracts/hostResourceProfile';
 
 const mocks = vi.hoisted(() => ({
     analyzePdfConformanceFile: vi.fn(),
@@ -40,18 +22,22 @@ vi.mock('@electron/features/documents/main/pdfConformance', () => ({
 }));
 vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getPdfNativeToolPaths: () => ({ qpdf: '/native/qpdf' }),
+    getPdfNativeToolPaths: () => ({qpdf: '/native/qpdf'}),
 }));
-vi.mock('@electron/native-tools/runNativeToolCommand', () => ({ runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args) }));
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({
+    runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args),
+}));
 vi.mock('@electron/native-tools/qpdfWasmWorkerClient', () => ({
     runDesktopQpdfWasm: (args: string[], options?: unknown) => mocks.runNativeToolCommand('/native/qpdf', args, options),
 }));
-vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => ({
-    debug: vi.fn(),
-    error: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-}) }));
+vi.mock('@electron/utils/createLogger', () => ({
+    createLogger: () => ({
+        debug: vi.fn(),
+        error: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+    }),
+}));
 vi.mock('@electron/utils/atomicReplace', () => ({
     atomicReplace: (...args: unknown[]) => mocks.atomicReplace(...args),
     makeSiblingTempPath: (...args: [string]) => mocks.makeSiblingTempPath(...args),
@@ -97,7 +83,7 @@ describe('pdfSaveAsOptimization', () => {
     it('skips automatic save optimization for small PDFs', async () => {
         const tempPath = join(tempRoot, 'document.pdf');
         writeFileSync(tempPath, 'original-pdf');
-        const { optimizePdfForSaveAs } = await import('@electron/features/documents/main/pdfSaveAsOptimization');
+        const {optimizePdfForSaveAs} = await import('@electron/features/documents/main/pdfSaveAsOptimization');
 
         await expect(optimizePdfForSaveAs(tempPath)).resolves.toBeNull();
 
@@ -112,22 +98,14 @@ describe('pdfSaveAsOptimization', () => {
         mocks.runNativeToolCommand.mockImplementation(async () => {
             await writeFile(optimizedPath, 'small');
         });
-        const { optimizePdfForSaveAs } = await import('@electron/features/documents/main/pdfSaveAsOptimization');
+        const {optimizePdfForSaveAs} = await import('@electron/features/documents/main/pdfSaveAsOptimization');
 
-        await expect(optimizePdfForSaveAs(tempPath, { optimizeLossless: true }))
-            .resolves
-            .toMatchObject({ isValid: true });
+        await expect(optimizePdfForSaveAs(tempPath, {optimizeLossless: true})).resolves.toMatchObject({isValid: true});
 
         expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
             '/native/qpdf',
-            [
-                '--linearize',
-                '--stream-data=preserve',
-                '--object-streams=generate',
-                tempPath,
-                optimizedPath,
-            ],
-            expect.objectContaining({ commandLabel: 'qpdf(save-as-optimize)' }),
+            ['--linearize', '--stream-data=preserve', '--object-streams=generate', tempPath, optimizedPath],
+            expect.objectContaining({commandLabel: 'qpdf(save-as-optimize)'}),
         );
         expect(mocks.validatePdfFile).toHaveBeenCalledWith(optimizedPath, {});
         expect(mocks.atomicReplace).toHaveBeenCalledWith(optimizedPath, tempPath);
@@ -142,9 +120,9 @@ describe('pdfSaveAsOptimization', () => {
         mocks.runNativeToolCommand.mockImplementation(async () => {
             await writeFile(optimizedPath, 'larger-pdf');
         });
-        const { optimizePdfForSaveAs } = await import('@electron/features/documents/main/pdfSaveAsOptimization');
+        const {optimizePdfForSaveAs} = await import('@electron/features/documents/main/pdfSaveAsOptimization');
 
-        await expect(optimizePdfForSaveAs(tempPath, { optimizeLossless: true })).resolves.toBeNull();
+        await expect(optimizePdfForSaveAs(tempPath, {optimizeLossless: true})).resolves.toBeNull();
 
         expect(mocks.validatePdfFile).not.toHaveBeenCalled();
         expect(mocks.atomicReplace).not.toHaveBeenCalled();
@@ -165,9 +143,9 @@ describe('pdfSaveAsOptimization', () => {
             errors: ['damaged'],
             warnings: [],
         });
-        const { optimizePdfForSaveAs } = await import('@electron/features/documents/main/pdfSaveAsOptimization');
+        const {optimizePdfForSaveAs} = await import('@electron/features/documents/main/pdfSaveAsOptimization');
 
-        await expect(optimizePdfForSaveAs(tempPath, { optimizeLossless: true })).resolves.toBeNull();
+        await expect(optimizePdfForSaveAs(tempPath, {optimizeLossless: true})).resolves.toBeNull();
 
         expect(mocks.atomicReplace).not.toHaveBeenCalled();
         expect(readFileSyncUtf8(tempPath)).toBe('original-pdf');
@@ -178,22 +156,18 @@ describe('pdfSaveAsOptimization', () => {
         const tempPath = join(tempRoot, 'large.pdf');
         const optimizedPath = `${tempPath}.optimized`;
         writeFileSync(tempPath, 'large-pdf');
-        truncateSync(tempPath, (64 * 1024 * 1024) + 1);
+        truncateSync(tempPath, 64 * 1024 * 1024 + 1);
         mocks.runNativeToolCommand.mockImplementation(async () => {
             await writeFile(optimizedPath, 'linearized-pdf');
         });
-        const { optimizeLargePdfForOrdinarySave } = await import(
-            '@electron/features/documents/main/pdfSaveAsOptimization'
-        );
+        const {optimizeLargePdfForOrdinarySave} = await import('@electron/features/documents/main/pdfSaveAsOptimization');
 
-        await expect(optimizeLargePdfForOrdinarySave(tempPath))
-            .resolves
-            .toMatchObject({ isValid: true });
+        await expect(optimizeLargePdfForOrdinarySave(tempPath)).resolves.toMatchObject({isValid: true});
 
         expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
             '/native/qpdf',
             expect.arrayContaining(['--linearize']),
-            expect.objectContaining({ commandLabel: 'qpdf(save-optimize-large)' }),
+            expect.objectContaining({commandLabel: 'qpdf(save-optimize-large)'}),
         );
         expect(readFileSyncUtf8(tempPath)).toBe('linearized-pdf');
     });
@@ -201,11 +175,9 @@ describe('pdfSaveAsOptimization', () => {
     it('skips automatic ordinary-save optimization on the authoritative low tier', async () => {
         const tempPath = join(tempRoot, 'large-low-tier.pdf');
         writeFileSync(tempPath, 'large-pdf');
-        truncateSync(tempPath, (64 * 1024 * 1024) + 1);
+        truncateSync(tempPath, 64 * 1024 * 1024 + 1);
         mocks.hostTier = 'low';
-        const { optimizeLargePdfForOrdinarySave } = await import(
-            '@electron/features/documents/main/pdfSaveAsOptimization'
-        );
+        const {optimizeLargePdfForOrdinarySave} = await import('@electron/features/documents/main/pdfSaveAsOptimization');
 
         await expect(optimizeLargePdfForOrdinarySave(tempPath)).resolves.toBeNull();
 
@@ -217,18 +189,14 @@ describe('pdfSaveAsOptimization', () => {
         const tempPath = join(tempRoot, 'large-save-as-low-tier.pdf');
         const optimizedPath = `${tempPath}.optimized`;
         writeFileSync(tempPath, 'large-pdf');
-        truncateSync(tempPath, (64 * 1024 * 1024) + 1);
+        truncateSync(tempPath, 64 * 1024 * 1024 + 1);
         mocks.hostTier = 'low';
         mocks.runNativeToolCommand.mockImplementation(async () => {
             await writeFile(optimizedPath, 'linearized-pdf');
         });
-        const { optimizePdfForSaveAs } = await import(
-            '@electron/features/documents/main/pdfSaveAsOptimization'
-        );
+        const {optimizePdfForSaveAs} = await import('@electron/features/documents/main/pdfSaveAsOptimization');
 
-        await expect(optimizePdfForSaveAs(tempPath))
-            .resolves
-            .toMatchObject({isValid: true});
+        await expect(optimizePdfForSaveAs(tempPath)).resolves.toMatchObject({isValid: true});
 
         expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
             '/native/qpdf',
@@ -244,18 +212,15 @@ describe('pdfSaveAsOptimization', () => {
         mocks.runNativeToolCommand.mockImplementation(async () => {
             await writeFile(optimizedPath, 'linearized-pdf');
         });
-        const { optimizeGeneratedPdfForInteraction } =
-            await import('@electron/features/documents/main/pdfSaveAsOptimization');
+        const {optimizeGeneratedPdfForInteraction} = await import('@electron/features/documents/main/pdfSaveAsOptimization');
 
-        await expect(optimizeGeneratedPdfForInteraction(tempPath))
-            .resolves
-            .toMatchObject({ isValid: true });
+        await expect(optimizeGeneratedPdfForInteraction(tempPath)).resolves.toMatchObject({isValid: true});
 
         expect(mocks.analyzePdfConformanceFile).not.toHaveBeenCalled();
         expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
             '/native/qpdf',
             expect.arrayContaining(['--linearize']),
-            expect.objectContaining({ commandLabel: 'qpdf(generated-pdf-optimize)' }),
+            expect.objectContaining({commandLabel: 'qpdf(generated-pdf-optimize)'}),
         );
         expect(readFileSyncUtf8(tempPath)).toBe('linearized-pdf');
     });
@@ -273,9 +238,9 @@ describe('pdfSaveAsOptimization', () => {
             canIncrementalSave: false,
             saveRestrictions: ['signed'],
         });
-        const { optimizePdfForSaveAs } = await import('@electron/features/documents/main/pdfSaveAsOptimization');
+        const {optimizePdfForSaveAs} = await import('@electron/features/documents/main/pdfSaveAsOptimization');
 
-        await expect(optimizePdfForSaveAs(tempPath, { optimizeLossless: true })).resolves.toBeNull();
+        await expect(optimizePdfForSaveAs(tempPath, {optimizeLossless: true})).resolves.toBeNull();
 
         expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
         expect(readFileSyncUtf8(tempPath)).toBe('signed-pdf');

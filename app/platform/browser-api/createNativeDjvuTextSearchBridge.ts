@@ -1,18 +1,12 @@
-import type { IDjvuCapability } from '@contracts/djvuPlatformFeature';
-import type { TDocumentRef } from '@contracts/documentRef';
-import {
-    parseRequestId,
-    type TRequestId,
-} from '@contracts/shared';
-import { isBrowserDocumentRef } from '@app/platform/browserDocumentStore';
-import { getRawElectronPlatformApi } from '@app/utils/electronPlatformBridge';
+import type {IDjvuCapability} from '@contracts/djvuPlatformFeature';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {parseRequestId, type TRequestId} from '@contracts/shared';
+import {isBrowserDocumentRef} from '@app/platform/browserDocumentStore';
+import {getRawElectronPlatformApi} from '@app/utils/electronPlatformBridge';
 import {PdfCombineCapabilityError} from '@contracts/pdfCombineErrors';
-import type { IPagePreviewSource } from '@app/modules/document-viewer/public';
+import type {IPagePreviewSource} from '@app/modules/document-viewer/public';
 
-type TNativeDjvuSearchCapability = Pick<
-    IDjvuCapability,
-    'cancelTextSearch' | 'onTextSearchProgress' | 'searchText'
->;
+type TNativeDjvuSearchCapability = Pick<IDjvuCapability, 'cancelTextSearch' | 'onTextSearchProgress' | 'searchText'>;
 type TDocumentSearchRequest = Parameters<NonNullable<IPagePreviewSource['searchText']>>[0];
 
 function getNativeDjvuSearchCapability(documentRef: TDocumentRef) {
@@ -21,9 +15,9 @@ function getNativeDjvuSearchCapability(documentRef: TDocumentRef) {
     }
     const djvu = getRawElectronPlatformApi()?.djvu;
     if (
-        typeof djvu?.searchText !== 'function'
-        || typeof djvu.cancelTextSearch !== 'function'
-        || typeof djvu.onTextSearchProgress !== 'function'
+        typeof djvu?.searchText !== 'function' ||
+        typeof djvu.cancelTextSearch !== 'function' ||
+        typeof djvu.onTextSearchProgress !== 'function'
     ) {
         throw new PdfCombineCapabilityError(
             'native-unavailable',

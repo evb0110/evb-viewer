@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {isAgentWorkspaceSnapshot} from '@contracts/isAgentWorkspaceSnapshot';
 
 function documentFields() {
@@ -36,23 +32,25 @@ function workspaceSnapshot() {
             recentFileCount: 0,
             recentFilesResolved: true,
         },
-        tabs: [{
-            ...fields,
-            currentPage: 1,
-            hasOpenError: false,
-            hasPdf: true,
-            isDjvu: false,
-            isDirty: false,
-            isOpeningDocument: false,
-            kind: 'pdf',
-            readiness: {
-                recommendations: [],
-                reasons: [],
-                status: 'ready',
+        tabs: [
+            {
+                ...fields,
+                currentPage: 1,
+                hasOpenError: false,
+                hasPdf: true,
+                isDjvu: false,
+                isDirty: false,
+                isOpeningDocument: false,
+                kind: 'pdf',
+                readiness: {
+                    recommendations: [],
+                    reasons: [],
+                    status: 'ready',
+                },
+                totalPages: 1,
+                workspaceAttached: true,
             },
-            totalPages: 1,
-            workspaceAttached: true,
-        }],
+        ],
     };
 }
 
@@ -61,22 +59,28 @@ describe('agent workspace snapshot validator', () => {
         const snapshot = workspaceSnapshot();
 
         expect(isAgentWorkspaceSnapshot(snapshot)).toBe(true);
-        expect(isAgentWorkspaceSnapshot({
-            ...snapshot,
-            summary: {
-                ...snapshot.summary,
-                activeDocument: {
-                    ...snapshot.summary.activeDocument,
-                    originalPath: 42,
+        expect(
+            isAgentWorkspaceSnapshot({
+                ...snapshot,
+                summary: {
+                    ...snapshot.summary,
+                    activeDocument: {
+                        ...snapshot.summary.activeDocument,
+                        originalPath: 42,
+                    },
                 },
-            },
-        })).toBe(false);
-        expect(isAgentWorkspaceSnapshot({
-            ...snapshot,
-            tabs: [{
-                ...snapshot.tabs[0],
-                documentSessionKey: 42,
-            }],
-        })).toBe(false);
+            }),
+        ).toBe(false);
+        expect(
+            isAgentWorkspaceSnapshot({
+                ...snapshot,
+                tabs: [
+                    {
+                        ...snapshot.tabs[0],
+                        documentSessionKey: 42,
+                    },
+                ],
+            }),
+        ).toBe(false);
     });
 });

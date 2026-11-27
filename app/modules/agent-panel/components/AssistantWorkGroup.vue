@@ -1,24 +1,64 @@
 <template>
-    <details class="work-group" :class="`is-${summary.state}`">
+    <details
+        class="work-group"
+        :class="`is-${summary.state}`"
+    >
         <summary class="work-summary">
-            <UIcon :name="ASSISTANT_WORK_ICONS[summary.state]" class="work-icon" :class="{ 'animate-spin motion-reduce:animate-none': summary.state === 'running' }" />
+            <UIcon
+                :name="ASSISTANT_WORK_ICONS[summary.state]"
+                class="work-icon"
+                :class="{'animate-spin motion-reduce:animate-none': summary.state === 'running'}"
+            />
             <span class="work-label">{{ t(summary.labelKey) }}</span>
-            <span v-if="summary.statusKey" class="work-status">{{ t(summary.statusKey) }}</span>
-            <span v-if="items.length > 1" class="work-steps">{{ t('assistant.work.steps', { count: items.length }) }}</span>
-            <UIcon name="i-ph-caret-right" class="work-caret" />
+            <span
+                v-if="summary.statusKey"
+                class="work-status"
+                >{{ t(summary.statusKey) }}</span
+            >
+            <span
+                v-if="items.length > 1"
+                class="work-steps"
+                >{{ t('assistant.work.steps', {count: items.length}) }}</span
+            >
+            <UIcon
+                name="i-ph-caret-right"
+                class="work-caret"
+            />
         </summary>
         <ol class="work-entries app-scrollbar">
-            <li v-for="entry in entries" :key="entry.item.id">
+            <li
+                v-for="entry in entries"
+                :key="entry.item.id"
+            >
                 <details class="work-entry">
                     <summary>
-                        <UIcon :name="ASSISTANT_WORK_ICONS[entry.state]" class="work-icon" :class="{ 'animate-spin motion-reduce:animate-none': entry.state === 'running' }" />
+                        <UIcon
+                            :name="ASSISTANT_WORK_ICONS[entry.state]"
+                            class="work-icon"
+                            :class="{'animate-spin motion-reduce:animate-none': entry.state === 'running'}"
+                        />
                         <span class="work-label">{{ t(entry.labelKey) }}</span>
-                        <span v-if="entry.statusKey" class="work-status">{{ t(entry.statusKey) }}</span>
+                        <span
+                            v-if="entry.statusKey"
+                            class="work-status"
+                            >{{ t(entry.statusKey) }}</span
+                        >
                     </summary>
-                    <AssistantMarkdown v-if="entry.item.kind === 'reasoning'" :text="entry.item.text" @copy="(id, text) => emit('copy', `${entry.item.id}:${id}`, text)" />
+                    <AssistantMarkdown
+                        v-if="entry.item.kind === 'reasoning'"
+                        :text="entry.item.text"
+                        @copy="(id, text) => emit('copy', `${entry.item.id}:${id}`, text)"
+                    />
                     <template v-else>
-                        <code v-if="entry.item.toolName" class="work-tool-name">{{ entry.item.toolName }}</code>
-                        <pre v-if="entry.item.toolDetail || entry.item.text" class="work-detail">{{ entry.item.toolDetail || entry.item.text }}</pre>
+                        <code
+                            v-if="entry.item.toolName"
+                            class="work-tool-name"
+                            >{{ entry.item.toolName }}</code
+                        >
+                        <pre
+                            v-if="entry.item.toolDetail || entry.item.text"
+                            class="work-detail"
+                            >{{ entry.item.toolDetail || entry.item.text }}</pre>
                     </template>
                 </details>
             </li>
@@ -27,20 +67,24 @@
 </template>
 
 <script setup lang="ts">
-import type { IAssistantItem } from '@contracts/assistant';
+import type {IAssistantItem} from '@contracts/assistant';
 import AssistantMarkdown from '@app/modules/agent-panel/components/AssistantMarkdown.vue';
 import {
-    ASSISTANT_WORK_ICONS, describeAssistantWorkItem, summarizeAssistantWork,
+    ASSISTANT_WORK_ICONS,
+    describeAssistantWorkItem,
+    summarizeAssistantWork,
 } from '@app/modules/agent-panel/utils/assistantWorkPresentation';
-import { useTypedI18n } from '@app/composables/useTypedI18n';
-const { items } = defineProps<{ items: IAssistantItem[] }>();
-const emit = defineEmits<{ copy: [id: string, text: string] }>();
-const { t } = useTypedI18n();
+import {useTypedI18n} from '@app/composables/useTypedI18n';
+const {items} = defineProps<{items: IAssistantItem[]}>();
+const emit = defineEmits<{copy: [id: string, text: string]}>();
+const {t} = useTypedI18n();
 const summary = computed(() => summarizeAssistantWork(items));
-const entries = computed(() => items.map(item => ({
-    item,
-    ...describeAssistantWorkItem(item),
-})));
+const entries = computed(() =>
+    items.map((item) => ({
+        item,
+        ...describeAssistantWorkItem(item),
+    })),
+);
 </script>
 
 <style lang="scss" scoped>

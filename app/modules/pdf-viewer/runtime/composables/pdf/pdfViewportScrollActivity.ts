@@ -34,9 +34,7 @@ function createAbortError() {
     return new DOMException('Text layer rendering was cancelled', 'AbortError');
 }
 
-export function createPdfViewportScrollActivityTracker(
-    options: ICreatePdfViewportScrollActivityOptions = {},
-): IPdfViewportScrollActivity {
+export function createPdfViewportScrollActivityTracker(options: ICreatePdfViewportScrollActivityOptions = {}): IPdfViewportScrollActivity {
     const settleDelayMs = options.settleDelayMs ?? DEFAULT_SCROLL_SETTLE_DELAY_MS;
     const maxDeferralMs = options.maxDeferralMs ?? DEFAULT_MAX_DEFERRAL_MS;
     const activeByViewport = new Map<HTMLElement, IViewportMotionState>();
@@ -123,9 +121,7 @@ export function createPdfViewportScrollActivityTracker(
         if (!isMotionActive(container)) {
             return Promise.resolve();
         }
-        const targetWaiters = container
-            ? activeByViewport.get(container)?.waiters ?? globalWaiters
-            : globalWaiters;
+        const targetWaiters = container ? (activeByViewport.get(container)?.waiters ?? globalWaiters) : globalWaiters;
         return new Promise<void>((resolve, reject) => {
             let settled = false;
             const cleanup = () => {
@@ -157,7 +153,7 @@ export function createPdfViewportScrollActivityTracker(
                 cleanup,
             };
             targetWaiters.add(waiter);
-            signal?.addEventListener('abort', onAbort, { once: true });
+            signal?.addEventListener('abort', onAbort, {once: true});
         });
     }
 
@@ -169,7 +165,7 @@ export function createPdfViewportScrollActivityTracker(
         const onScroll = () => {
             markMotion(container);
         };
-        container.addEventListener('scroll', onScroll, { passive: true });
+        container.addEventListener('scroll', onScroll, {passive: true});
         return () => {
             container.removeEventListener('scroll', onScroll);
             releaseViewport(container);

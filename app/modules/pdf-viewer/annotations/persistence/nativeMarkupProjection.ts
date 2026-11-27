@@ -1,25 +1,24 @@
-import type {
-    IAnnotationCommentSummary,
-    TMarkupSubtype,
-} from '@app/types/annotations';
-import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
-import { collectMarkupSubtypeHints } from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/collectMarkupSubtypeHints';
-import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/pdfSerializationSubtypeHintsTypes';
-import type { IPdfNativeMarkupSubtypeHint } from '@contracts/electronApiDocuments';
-import { requirePageIndex } from '@contracts/pageNumbers';
-import { PDF_ANNOTATION_MARKUP_SUBTYPES } from '@contracts/annotations';
-import { isOneOf } from '@contracts/runtimeGuards';
-import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
+import type {IAnnotationCommentSummary, TMarkupSubtype} from '@app/types/annotations';
+import {normalizeMarkerRect} from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
+import {collectMarkupSubtypeHints} from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/collectMarkupSubtypeHints';
+import type {IMarkupSubtypeHint} from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/pdfSerializationSubtypeHintsTypes';
+import type {IPdfNativeMarkupSubtypeHint} from '@contracts/electronApiDocuments';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {PDF_ANNOTATION_MARKUP_SUBTYPES} from '@contracts/annotations';
+import {isOneOf} from '@contracts/runtimeGuards';
+import {PDF_NATIVE_MUTATION_LIMITS} from '@contracts/nativePdfMutations';
 
 function isNativeMarkupSubtype(value: unknown): value is TMarkupSubtype {
     return isOneOf(PDF_ANNOTATION_MARKUP_SUBTYPES, value);
 }
 
 function isNativeMarkupHintEligible(hint: IMarkupSubtypeHint) {
-    return isNativeMarkupSubtype(hint.subtype)
-        && Number.isSafeInteger(hint.pageIndex)
-        && hint.pageIndex >= 0
-        && Boolean(normalizeMarkerRect(hint.markerRect));
+    return (
+        isNativeMarkupSubtype(hint.subtype) &&
+        Number.isSafeInteger(hint.pageIndex) &&
+        hint.pageIndex >= 0 &&
+        Boolean(normalizeMarkerRect(hint.markerRect))
+    );
 }
 
 export function toNativeMarkupHint(hint: IMarkupSubtypeHint): IPdfNativeMarkupSubtypeHint | null {
@@ -30,23 +29,17 @@ export function toNativeMarkupHint(hint: IMarkupSubtypeHint): IPdfNativeMarkupSu
     if (!markerRect) {
         return null;
     }
-    const markupGeometry = hint.markupGeometry?.length
-        ? hint.markupGeometry.map(normalizeMarkerRect)
-        : null;
-    if (markupGeometry?.some(rect => !rect)) {
+    const markupGeometry = hint.markupGeometry?.length ? hint.markupGeometry.map(normalizeMarkerRect) : null;
+    if (markupGeometry?.some((rect) => !rect)) {
         return null;
     }
-    const validMarkupGeometry = markupGeometry
-        ? markupGeometry.filter((rect): rect is NonNullable<typeof rect> => rect !== null)
-        : null;
+    const validMarkupGeometry = markupGeometry ? markupGeometry.filter((rect): rect is NonNullable<typeof rect> => rect !== null) : null;
     return {
         subtype: hint.subtype,
         pageIndex: requirePageIndex(hint.pageIndex),
         markerRect,
         ...(hint.appAnnotationId?.trim() ? {appAnnotationId: hint.appAnnotationId.trim()} : {}),
-        ...(validMarkupGeometry
-            ? {markupGeometry: validMarkupGeometry}
-            : {}),
+        ...(validMarkupGeometry ? {markupGeometry: validMarkupGeometry} : {}),
         annotationId: hint.annotationId ?? null,
         color: hint.color ?? null,
         ...(hint.opacity !== undefined ? {opacity: hint.opacity} : {}),
@@ -55,9 +48,8 @@ export function toNativeMarkupHint(hint: IMarkupSubtypeHint): IPdfNativeMarkupSu
         ...(hint.createdAt !== undefined ? {createdAt: hint.createdAt} : {}),
         ...(hint.modifiedAt !== undefined ? {modifiedAt: hint.modifiedAt} : {}),
         id: hint.id ?? null,
-        pageMarkupIndex: typeof hint.pageMarkupIndex === 'number' && Number.isSafeInteger(hint.pageMarkupIndex)
-            ? hint.pageMarkupIndex
-            : null,
+        pageMarkupIndex:
+            typeof hint.pageMarkupIndex === 'number' && Number.isSafeInteger(hint.pageMarkupIndex) ? hint.pageMarkupIndex : null,
         source: hint.source ?? null,
     };
 }
@@ -79,27 +71,26 @@ export function buildNativeMarkupMutationForSave(opts: {
         if (!isNativeMarkupSubtype(comment.subtype) || comment.markupGeometry == null) {
             continue;
         }
-        if (comment.markupGeometry.length === 0 || comment.markupGeometry.some(rect => (
-            ![
-                rect.left,
-                rect.top,
-                rect.width,
-                rect.height,
-            ].every(Number.isFinite)
-            || !normalizeMarkerRect(rect)
-        ))) {
+        if (
+            comment.markupGeometry.length === 0 ||
+            comment.markupGeometry.some(
+                (rect) => ![rect.left, rect.top, rect.width, rect.height].every(Number.isFinite) || !normalizeMarkerRect(rect),
+            )
+        ) {
             throw new Error('Cannot save text-markup annotation with invalid geometry');
         }
         // The native writer takes a bounded list; a longer one must stay
         // unsaved work rather than be written as its first rectangle.
         if (comment.markupGeometry.length > PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems) {
-            throw new Error(`Cannot save text-markup annotation ${comment.annotationId ?? comment.id} of more than ${String(PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems)} rectangles`);
+            throw new Error(
+                `Cannot save text-markup annotation ${comment.annotationId ?? comment.id} of more than ${String(PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems)} rectangles`,
+            );
         }
     }
     const currentMarkupHints = collectMarkupSubtypeHints(opts.canonicalComments);
     const changedMarkupHints = opts.changedComments
         ? collectMarkupSubtypeHints(opts.changedComments, {includeContents: true})
-        : currentMarkupHints.filter(hint => hint.color !== null || hint.source === 'editor');
+        : currentMarkupHints.filter((hint) => hint.color !== null || hint.source === 'editor');
     // Incremental native markup touches only canonical comments whose
     // revision changed. This includes note-only edits on imported markup.
     const hints = changedMarkupHints.flatMap((hint) => {

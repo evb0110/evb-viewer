@@ -1,16 +1,9 @@
-import { app } from 'electron';
-import {
-    readFile,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
-import { join } from 'node:path';
+import {app} from 'electron';
+import {readFile, rm, writeFile} from 'node:fs/promises';
+import {join} from 'node:path';
 import * as v from 'valibot';
-import {
-    atomicReplace,
-    makeSiblingTempPath,
-} from '@electron/utils/atomicReplace';
-import { normalizeVersion } from '@electron/updates/versionCompare';
+import {atomicReplace, makeSiblingTempPath} from '@electron/utils/atomicReplace';
+import {normalizeVersion} from '@electron/updates/versionCompare';
 
 const updateHealthMarkerSchema = v.object({
     version: v.literal(1),
@@ -103,9 +96,9 @@ export async function getSuppressedUpdateVersion(currentVersion: string) {
     return runMarkerMutation(async () => {
         const marker = await readMarker();
         if (
-            !marker
-            || normalizeVersion(marker.pendingVersion) === normalizeVersion(currentVersion)
-            || marker.startupAttempts < UPDATE_STARTUP_FAILURE_THRESHOLD
+            !marker ||
+            normalizeVersion(marker.pendingVersion) === normalizeVersion(currentVersion) ||
+            marker.startupAttempts < UPDATE_STARTUP_FAILURE_THRESHOLD
         ) {
             return null;
         }

@@ -12,9 +12,7 @@ export interface IViewerInteractionReadinessSnapshot {
 }
 
 function isPresented(display: string, visibility: string, opacity: number) {
-    return display !== 'none'
-        && visibility !== 'hidden'
-        && opacity > 0;
+    return display !== 'none' && visibility !== 'hidden' && opacity > 0;
 }
 
 /**
@@ -24,23 +22,12 @@ function isPresented(display: string, visibility: string, opacity: number) {
  */
 export function isViewerInteractionReady(snapshot: IViewerInteractionReadinessSnapshot) {
     if (
-        !snapshot.hasPageTrack
-        || !isPresented(
-            snapshot.pageTrackDisplay,
-            snapshot.pageTrackVisibility,
-            snapshot.pageTrackOpacity,
-        )
-        || !isPresented(
-            snapshot.viewportDisplay,
-            snapshot.viewportVisibility,
-            snapshot.viewportOpacity,
-        )
+        !snapshot.hasPageTrack ||
+        !isPresented(snapshot.pageTrackDisplay, snapshot.pageTrackVisibility, snapshot.pageTrackOpacity) ||
+        !isPresented(snapshot.viewportDisplay, snapshot.viewportVisibility, snapshot.viewportOpacity)
     ) {
         return false;
     }
 
-    return snapshot.mode === 'legacy' || (
-        snapshot.openSurfacePhase === 'ready'
-        && snapshot.openSurfacePresentation === 'committed'
-    );
+    return snapshot.mode === 'legacy' || (snapshot.openSurfacePhase === 'ready' && snapshot.openSurfacePresentation === 'committed');
 }

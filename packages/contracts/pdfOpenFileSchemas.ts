@@ -3,7 +3,7 @@ import type {TDocumentRef} from '@contracts/documentRef';
 import {isRecord} from '@contracts/runtimeGuards';
 import * as v from 'valibot';
 
-const documentRefSchema = v.custom<TDocumentRef>(value => parseDocumentRef(value) !== null);
+const documentRefSchema = v.custom<TDocumentRef>((value) => parseDocumentRef(value) !== null);
 const openPdfResultSchema = v.object({
     kind: v.literal('pdf'),
     workingPath: documentRefSchema,
@@ -28,12 +28,9 @@ const unsupportedEncryptionResultSchema = v.object({
     originalPath: documentRefSchema,
 });
 
-const openFileResultDataSchema = v.nullable(v.variant('kind', [
-    openPdfResultSchema,
-    openDjvuResultSchema,
-    needsPasswordResultSchema,
-    unsupportedEncryptionResultSchema,
-]));
+const openFileResultDataSchema = v.nullable(
+    v.variant('kind', [openPdfResultSchema, openDjvuResultSchema, needsPasswordResultSchema, unsupportedEncryptionResultSchema]),
+);
 
 // Preserve the existing variant-specific IPC errors while Valibot validates each result shape.
 export const OPEN_FILE_RESULT_SCHEMA = v.pipe(
@@ -44,11 +41,12 @@ export const OPEN_FILE_RESULT_SCHEMA = v.pipe(
             return result.output;
         }
         const kind = isRecord(value) ? value.kind : undefined;
-        const message = kind === 'pdf-needs-password' || kind === 'pdf-unsupported-encryption'
-            ? 'invalid encrypted PDF open-file result'
-            : kind === 'djvu'
-                ? 'invalid DjVu open-file result'
-                : kind === 'pdf'
+        const message =
+            kind === 'pdf-needs-password' || kind === 'pdf-unsupported-encryption'
+                ? 'invalid encrypted PDF open-file result'
+                : kind === 'djvu'
+                  ? 'invalid DjVu open-file result'
+                  : kind === 'pdf'
                     ? 'invalid PDF open-file result'
                     : 'invalid open-file result';
         throw new Error(message);

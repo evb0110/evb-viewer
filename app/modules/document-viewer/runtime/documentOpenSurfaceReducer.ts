@@ -4,8 +4,7 @@ export interface IDocumentViewportIdentity {
     readonly provisional?: boolean;
 }
 
-export type TDocumentViewportLifecycle = 'empty' | 'opening' | 'transitioning'
-    | 'ready' | 'closing' | 'failed';
+export type TDocumentViewportLifecycle = 'empty' | 'opening' | 'transitioning' | 'ready' | 'closing' | 'failed';
 
 export interface IDocumentViewportRenderFence {
     readonly generation: number;
@@ -32,21 +31,21 @@ export interface IDocumentViewportIntent {
 }
 
 export type TDocumentViewportVisualOwner =
-    | { readonly kind: 'empty' }
+    | {readonly kind: 'empty'}
     | {
-        readonly kind: 'page';
-        readonly generation: number;
-        readonly pageNumber: number;
-        readonly presentation: 'skeleton' | 'canvas' | 'error';
-        readonly error: string | null;
-        /** The skeleton waits briefly before it shows; see navigationRequested. */
-        readonly deferSkeleton?: true;
-    }
+          readonly kind: 'page';
+          readonly generation: number;
+          readonly pageNumber: number;
+          readonly presentation: 'skeleton' | 'canvas' | 'error';
+          readonly error: string | null;
+          /** The skeleton waits briefly before it shows; see navigationRequested. */
+          readonly deferSkeleton?: true;
+      }
     | {
-        readonly kind: 'failed';
-        readonly generation: number;
-        readonly error: string;
-    };
+          readonly kind: 'failed';
+          readonly generation: number;
+          readonly error: string;
+      };
 
 export interface IDocumentViewportSessionState {
     readonly generation: number;
@@ -74,93 +73,93 @@ export interface IDocumentViewportSessionState {
 
 export type TDocumentViewportSessionEvent =
     | {
-        readonly type: 'open-requested';
-        readonly identity: IDocumentViewportIdentity;
-        readonly viewportIntentId: string;
-        readonly initialPage?: number;
-    }
+          readonly type: 'open-requested';
+          readonly identity: IDocumentViewportIdentity;
+          readonly viewportIntentId: string;
+          readonly initialPage?: number;
+      }
     | {
-        readonly type: 'identity-refined';
-        readonly generation: number;
-        readonly identity: IDocumentViewportIdentity;
-    }
+          readonly type: 'identity-refined';
+          readonly generation: number;
+          readonly identity: IDocumentViewportIdentity;
+      }
     | {
-        readonly type: 'revision-swapped';
-        readonly generation: number;
-        readonly identity: IDocumentViewportIdentity;
-        readonly pageNumber: number;
-        readonly viewportIntentId: string;
-    }
+          readonly type: 'revision-swapped';
+          readonly generation: number;
+          readonly identity: IDocumentViewportIdentity;
+          readonly pageNumber: number;
+          readonly viewportIntentId: string;
+      }
     | {
-        readonly type: 'metadata-ready';
-        readonly generation: number;
-        readonly pageCount: number
-    }
+          readonly type: 'metadata-ready';
+          readonly generation: number;
+          readonly pageCount: number;
+      }
     | {
-        readonly type: 'navigation-requested';
-        readonly pageNumber: number | null;
-        readonly viewportIntentId: string;
-        readonly deferSkeleton?: boolean;
-    }
+          readonly type: 'navigation-requested';
+          readonly pageNumber: number | null;
+          readonly viewportIntentId: string;
+          readonly deferSkeleton?: boolean;
+      }
     | {
-        readonly type: 'navigation-resolved';
-        readonly generation: number;
-        readonly viewportIntentId: string;
-        readonly pageNumber: number;
-    }
+          readonly type: 'navigation-resolved';
+          readonly generation: number;
+          readonly viewportIntentId: string;
+          readonly pageNumber: number;
+      }
     | {
-        readonly type: 'resident-visual-invalidated';
-        readonly generation: number;
-        readonly pageNumber: number
-    }
+          readonly type: 'resident-visual-invalidated';
+          readonly generation: number;
+          readonly pageNumber: number;
+      }
     | {
-        readonly type: 'page-observed';
-        readonly generation: number;
-        readonly pageNumber: number;
-    }
+          readonly type: 'page-observed';
+          readonly generation: number;
+          readonly pageNumber: number;
+      }
     | {
-        readonly type: 'navigation-superseded-by-user';
-        readonly generation: number;
-        readonly pageNumber: number;
-    }
+          readonly type: 'navigation-superseded-by-user';
+          readonly generation: number;
+          readonly pageNumber: number;
+      }
     | {
-        readonly type: 'render-started';
-        readonly fence: IDocumentViewportRenderFence
-    }
+          readonly type: 'render-started';
+          readonly fence: IDocumentViewportRenderFence;
+      }
     | {
-        readonly type: 'canvas-committed';
-        readonly fence: IDocumentViewportRenderFence
-    }
+          readonly type: 'canvas-committed';
+          readonly fence: IDocumentViewportRenderFence;
+      }
     | {
-        readonly type: 'viewport-committed';
-        readonly fence: IDocumentViewportCommitFence
-    }
+          readonly type: 'viewport-committed';
+          readonly fence: IDocumentViewportCommitFence;
+      }
     | {
-        readonly type: 'visual-ready';
-        readonly fence: IDocumentViewportRenderFence
-    }
+          readonly type: 'visual-ready';
+          readonly fence: IDocumentViewportRenderFence;
+      }
     | {
-        readonly type: 'page-failed';
-        readonly fence: IDocumentViewportRenderFence;
-        readonly error: string
-    }
+          readonly type: 'page-failed';
+          readonly fence: IDocumentViewportRenderFence;
+          readonly error: string;
+      }
     | {
-        readonly type: 'page-transition-failed';
-        readonly generation: number;
-        readonly pageNumber: number;
-        readonly viewportIntentId: string;
-        readonly error: string;
-    }
+          readonly type: 'page-transition-failed';
+          readonly generation: number;
+          readonly pageNumber: number;
+          readonly viewportIntentId: string;
+          readonly error: string;
+      }
     | {
-        readonly type: 'open-failed';
-        readonly generation: number;
-        readonly error: string
-    }
-    | { readonly type: 'close-requested' }
+          readonly type: 'open-failed';
+          readonly generation: number;
+          readonly error: string;
+      }
+    | {readonly type: 'close-requested'}
     | {
-        readonly type: 'close-committed';
-        readonly generation: number
-    };
+          readonly type: 'close-committed';
+          readonly generation: number;
+      };
 
 export interface IDocumentViewportSessionTransition {
     readonly state: IDocumentViewportSessionState;
@@ -171,12 +170,12 @@ function isPositivePage(value: number) {
     return Number.isSafeInteger(value) && value >= 1;
 }
 
-export function collectDocumentViewportSessionInvariantViolations(
-    state: IDocumentViewportSessionState,
-) {
+export function collectDocumentViewportSessionInvariantViolations(state: IDocumentViewportSessionState) {
     const violations: string[] = [];
     const add = (condition: boolean, message: string) => {
-        if (!condition) violations.push(message);
+        if (!condition) {
+            violations.push(message);
+        }
     };
 
     add(Number.isSafeInteger(state.generation) && state.generation >= 0, 'generation must be non-negative');
@@ -213,14 +212,15 @@ export function collectDocumentViewportSessionInvariantViolations(
     }
     if (state.identity && state.viewportIntent) {
         add(state.viewportIntent.generation === state.generation, 'viewport intent generation is stale');
-        add(state.viewportIntent.pageNumber === null || state.viewportIntent.pageNumber === state.requestedPage, 'viewport intent must target requestedPage');
+        add(
+            state.viewportIntent.pageNumber === null || state.viewportIntent.pageNumber === state.requestedPage,
+            'viewport intent must target requestedPage',
+        );
     }
-    for (const fence of [
-        state.renderFence,
-        state.stagedRenderFence,
-        state.committedRenderFence,
-    ]) {
-        if (!fence || !state.identity) continue;
+    for (const fence of [state.renderFence, state.stagedRenderFence, state.committedRenderFence]) {
+        if (!fence || !state.identity) {
+            continue;
+        }
         add(fence.generation === state.generation, 'render fence generation is stale');
         add(fence.revision === state.identity.revision, 'render fence revision is stale');
     }
@@ -249,9 +249,7 @@ export function assertDocumentViewportSessionInvariants(state: IDocumentViewport
     return state;
 }
 
-export function createEmptyDocumentViewportSession(
-    generation = 0,
-): IDocumentViewportSessionState {
+export function createEmptyDocumentViewportSession(generation = 0): IDocumentViewportSessionState {
     return assertDocumentViewportSessionInvariants({
         generation,
         identity: null,
@@ -298,49 +296,50 @@ function sameIdentityRevision(identity: IDocumentViewportIdentity | null, revisi
 }
 
 function renderFenceMatches(left: IDocumentViewportRenderFence, right: IDocumentViewportRenderFence) {
-    return left.generation === right.generation
-        && left.revision === right.revision
-        && left.pageNumber === right.pageNumber
-        && left.viewportIntentId === right.viewportIntentId
-        && left.renderVersion === right.renderVersion
-        && left.requestId === right.requestId;
+    return (
+        left.generation === right.generation &&
+        left.revision === right.revision &&
+        left.pageNumber === right.pageNumber &&
+        left.viewportIntentId === right.viewportIntentId &&
+        left.renderVersion === right.renderVersion &&
+        left.requestId === right.requestId
+    );
 }
 
 /** An older attempt of the same page, under the same intent, than `current`. */
 function isOlderRenderAttempt(fence: IDocumentViewportRenderFence, current: IDocumentViewportRenderFence | null) {
-    return current !== null
-        && current.generation === fence.generation
-        && current.viewportIntentId === fence.viewportIntentId
-        && current.pageNumber === fence.pageNumber
-        && (fence.renderVersion < current.renderVersion
-            || fence.renderVersion === current.renderVersion && fence.requestId < current.requestId);
+    return (
+        current !== null &&
+        current.generation === fence.generation &&
+        current.viewportIntentId === fence.viewportIntentId &&
+        current.pageNumber === fence.pageNumber &&
+        (fence.renderVersion < current.renderVersion ||
+            (fence.renderVersion === current.renderVersion && fence.requestId < current.requestId))
+    );
 }
 
 function fenceTargetsCurrentIntent(
     state: IDocumentViewportSessionState,
     fence: IDocumentViewportRenderFence | IDocumentViewportCommitFence,
 ) {
-    return fence.generation === state.generation
-        && sameIdentityRevision(state.identity, fence.revision)
-        && state.viewportIntent?.pageNumber !== null
-        && fence.pageNumber === state.requestedPage
-        && fence.viewportIntentId === state.viewportIntent?.id;
+    return (
+        fence.generation === state.generation &&
+        sameIdentityRevision(state.identity, fence.revision) &&
+        state.viewportIntent?.pageNumber !== null &&
+        fence.pageNumber === state.requestedPage &&
+        fence.viewportIntentId === state.viewportIntent?.id
+    );
 }
 
 function settleIfComplete(state: IDocumentViewportSessionState) {
     const render = state.stagedRenderFence ?? state.committedRenderFence;
     const viewport = state.stagedViewportFence ?? state.committedViewportFence;
-    if (
-        !render
-        || !viewport
-        || !fenceTargetsCurrentIntent(state, render)
-        || !fenceTargetsCurrentIntent(state, viewport)
-    ) {
+    if (!render || !viewport || !fenceTargetsCurrentIntent(state, render) || !fenceTargetsCurrentIntent(state, viewport)) {
         return state;
     }
     return {
         ...state,
-        lifecycle: state.lifecycle === 'failed' ? 'opening' as const : state.lifecycle,
+        lifecycle: state.lifecycle === 'failed' ? ('opening' as const) : state.lifecycle,
         committedPage: render.pageNumber,
         observedPage: state.observedPage === render.pageNumber ? null : state.observedPage,
         stagedRenderFence: null,
@@ -359,15 +358,8 @@ function settleIfComplete(state: IDocumentViewportSessionState) {
     };
 }
 
-function openRequested(
-    state: IDocumentViewportSessionState,
-    event: Extract<TDocumentViewportSessionEvent, {type: 'open-requested'}>,
-) {
-    if (
-        event.identity.documentId.length === 0
-        || event.identity.revision.length === 0
-        || event.viewportIntentId.length === 0
-    ) {
+function openRequested(state: IDocumentViewportSessionState, event: Extract<TDocumentViewportSessionEvent, {type: 'open-requested'}>) {
+    if (event.identity.documentId.length === 0 || event.identity.revision.length === 0 || event.viewportIntentId.length === 0) {
         return reject(state);
     }
     const initialPage = event.initialPage ?? 1;
@@ -407,16 +399,12 @@ function openRequested(
     return accept(next);
 }
 
-function metadataReady(
-    state: IDocumentViewportSessionState,
-    event: Extract<TDocumentViewportSessionEvent, {type: 'metadata-ready'}>,
-) {
+function metadataReady(state: IDocumentViewportSessionState, event: Extract<TDocumentViewportSessionEvent, {type: 'metadata-ready'}>) {
     if (event.generation !== state.generation || !isPositivePage(event.pageCount) || !state.identity) {
         return reject(state);
     }
     const requestedPage = clampPage(state.requestedPage, event.pageCount);
-    const committedPageInvalidated = state.committedPage !== null
-        && state.committedPage > event.pageCount;
+    const committedPageInvalidated = state.committedPage !== null && state.committedPage > event.pageCount;
     const viewportIntent = state.viewportIntent && {
         ...state.viewportIntent,
         pageNumber: state.viewportIntent.pageNumber === null ? null : requestedPage,
@@ -439,15 +427,9 @@ function metadataReady(
     }
     const next: IDocumentViewportSessionState = {
         ...state,
-        lifecycle: committedPageInvalidated && state.lifecycle === 'ready'
-            ? 'transitioning'
-            : state.lifecycle,
+        lifecycle: committedPageInvalidated && state.lifecycle === 'ready' ? 'transitioning' : state.lifecycle,
         requestedPage,
-        observedPage: committedPageInvalidated
-            ? null
-            : state.observedPage === null
-                ? null
-                : clampPage(state.observedPage, event.pageCount),
+        observedPage: committedPageInvalidated ? null : state.observedPage === null ? null : clampPage(state.observedPage, event.pageCount),
         pageCount: event.pageCount,
         visual,
         viewportIntent,
@@ -466,11 +448,11 @@ function navigationRequested(
     event: Extract<TDocumentViewportSessionEvent, {type: 'navigation-requested'}>,
 ) {
     if (
-        !state.identity
-        || state.lifecycle === 'closing'
-        || state.lifecycle === 'failed' && state.visual.kind !== 'page'
-        || event.pageNumber !== null && !isPositivePage(event.pageNumber)
-        || event.viewportIntentId.length === 0
+        !state.identity ||
+        state.lifecycle === 'closing' ||
+        (state.lifecycle === 'failed' && state.visual.kind !== 'page') ||
+        (event.pageNumber !== null && !isPositivePage(event.pageNumber)) ||
+        event.viewportIntentId.length === 0
     ) {
         return reject(state);
     }
@@ -511,44 +493,43 @@ function navigationRequested(
     return accept(next);
 }
 
-function revisionSwapped(
-    state: IDocumentViewportSessionState,
-    event: Extract<TDocumentViewportSessionEvent, {type: 'revision-swapped'}>,
-) {
+function revisionSwapped(state: IDocumentViewportSessionState, event: Extract<TDocumentViewportSessionEvent, {type: 'revision-swapped'}>) {
     if (
-        state.lifecycle !== 'ready'
-        || !state.identity
-        || state.identity.documentId !== event.identity.documentId
-        || event.identity.revision.length === 0
-        || event.generation !== state.generation
-        || !isPositivePage(event.pageNumber)
-        || event.pageNumber > (state.pageCount ?? Number.MAX_SAFE_INTEGER)
-        || event.viewportIntentId.length === 0
+        state.lifecycle !== 'ready' ||
+        !state.identity ||
+        state.identity.documentId !== event.identity.documentId ||
+        event.identity.revision.length === 0 ||
+        event.generation !== state.generation ||
+        !isPositivePage(event.pageNumber) ||
+        event.pageNumber > (state.pageCount ?? Number.MAX_SAFE_INTEGER) ||
+        event.viewportIntentId.length === 0
     ) {
         return reject(state);
     }
-    const rebaseRenderFence = (fence: IDocumentViewportRenderFence | null) => fence === null
-        ? null
-        : {
-            ...fence,
-            revision: event.identity.revision,
-            pageNumber: event.pageNumber,
-            viewportIntentId: event.viewportIntentId,
-        };
-    const rebaseViewportFence = (fence: IDocumentViewportCommitFence | null) => fence === null
-        ? null
-        : {
-            ...fence,
-            revision: event.identity.revision,
-            pageNumber: event.pageNumber,
-            viewportIntentId: event.viewportIntentId,
-        };
+    const rebaseRenderFence = (fence: IDocumentViewportRenderFence | null) =>
+        fence === null
+            ? null
+            : {
+                  ...fence,
+                  revision: event.identity.revision,
+                  pageNumber: event.pageNumber,
+                  viewportIntentId: event.viewportIntentId,
+              };
+    const rebaseViewportFence = (fence: IDocumentViewportCommitFence | null) =>
+        fence === null
+            ? null
+            : {
+                  ...fence,
+                  revision: event.identity.revision,
+                  pageNumber: event.pageNumber,
+                  viewportIntentId: event.viewportIntentId,
+              };
     const committedRenderFence = rebaseRenderFence(state.committedRenderFence);
     const committedViewportFence = rebaseViewportFence(state.committedViewportFence);
     if (
-        state.committedPage === null
-        || committedRenderFence?.pageNumber !== event.pageNumber
-        || committedViewportFence?.pageNumber !== event.pageNumber
+        state.committedPage === null ||
+        committedRenderFence?.pageNumber !== event.pageNumber ||
+        committedViewportFence?.pageNumber !== event.pageNumber
     ) {
         return reject(state);
     }
@@ -593,14 +574,17 @@ function reduceCommit(
         if (!state.renderFence || !renderFenceMatches(state.renderFence, event.fence)) {
             return reject(state);
         }
-        const next = state.lifecycle === 'ready' ? {
-            ...state,
-            committedRenderFence: event.fence,
-            stagedRenderFence: null,
-        } : settleIfComplete({
-            ...state,
-            stagedRenderFence: event.fence,
-        });
+        const next =
+            state.lifecycle === 'ready'
+                ? {
+                      ...state,
+                      committedRenderFence: event.fence,
+                      stagedRenderFence: null,
+                  }
+                : settleIfComplete({
+                      ...state,
+                      stagedRenderFence: event.fence,
+                  });
         return accept(next);
     }
     if (state.lifecycle === 'ready') {
@@ -611,11 +595,13 @@ function reduceCommit(
             observedPage: event.fence.pageNumber,
         });
     }
-    return accept(settleIfComplete({
-        ...state,
-        stagedViewportFence: event.fence,
-        observedPage: event.fence.pageNumber,
-    }));
+    return accept(
+        settleIfComplete({
+            ...state,
+            stagedViewportFence: event.fence,
+            observedPage: event.fence.pageNumber,
+        }),
+    );
 }
 
 export function reduceDocumentViewportSession(
@@ -627,14 +613,14 @@ export function reduceDocumentViewportSession(
             return openRequested(state, event);
         case 'identity-refined':
             if (
-                event.generation !== state.generation
-                || !state.identity
-                || event.identity.documentId !== state.identity.documentId
-                || event.identity.revision.length === 0
-                || state.committedRenderFence !== null
-                || state.committedViewportFence !== null
-                || state.stagedRenderFence !== null
-                || state.stagedViewportFence !== null
+                event.generation !== state.generation ||
+                !state.identity ||
+                event.identity.documentId !== state.identity.documentId ||
+                event.identity.revision.length === 0 ||
+                state.committedRenderFence !== null ||
+                state.committedViewportFence !== null ||
+                state.stagedRenderFence !== null ||
+                state.stagedViewportFence !== null
             ) {
                 return reject(state);
             }
@@ -650,10 +636,14 @@ export function reduceDocumentViewportSession(
         case 'navigation-requested':
             return navigationRequested(state, event);
         case 'navigation-resolved': {
-            if (event.generation !== state.generation
-                || event.viewportIntentId !== state.viewportIntent?.id
-                || state.viewportIntent.pageNumber !== null
-                || !isPositivePage(event.pageNumber)) return reject(state);
+            if (
+                event.generation !== state.generation ||
+                event.viewportIntentId !== state.viewportIntent?.id ||
+                state.viewportIntent.pageNumber !== null ||
+                !isPositivePage(event.pageNumber)
+            ) {
+                return reject(state);
+            }
             const pageNumber = clampPage(event.pageNumber, state.pageCount);
             return accept({
                 ...state,
@@ -673,8 +663,9 @@ export function reduceDocumentViewportSession(
             });
         }
         case 'resident-visual-invalidated':
-            if (event.generation !== state.generation || state.lifecycle !== 'ready'
-                || state.committedPage !== event.pageNumber) return reject(state);
+            if (event.generation !== state.generation || state.lifecycle !== 'ready' || state.committedPage !== event.pageNumber) {
+                return reject(state);
+            }
             return accept({
                 ...state,
                 lifecycle: 'transitioning',
@@ -691,10 +682,10 @@ export function reduceDocumentViewportSession(
             });
         case 'page-observed':
             if (
-                event.generation !== state.generation
-                || state.lifecycle === 'closing'
-                || !state.identity
-                || !isPositivePage(event.pageNumber)
+                event.generation !== state.generation ||
+                state.lifecycle === 'closing' ||
+                !state.identity ||
+                !isPositivePage(event.pageNumber)
             ) {
                 return reject(state);
             }
@@ -707,13 +698,13 @@ export function reduceDocumentViewportSession(
             const committedRenderFence = state.committedRenderFence;
             const committedViewportFence = state.committedViewportFence;
             if (
-                event.generation !== state.generation
-                || state.lifecycle !== 'transitioning'
-                || !state.identity
-                || !isPositivePage(event.pageNumber)
-                || committedPage === null
-                || committedRenderFence?.pageNumber !== committedPage
-                || committedViewportFence?.pageNumber !== committedPage
+                event.generation !== state.generation ||
+                state.lifecycle !== 'transitioning' ||
+                !state.identity ||
+                !isPositivePage(event.pageNumber) ||
+                committedPage === null ||
+                committedRenderFence?.pageNumber !== committedPage ||
+                committedViewportFence?.pageNumber !== committedPage
             ) {
                 return reject(state);
             }
@@ -755,18 +746,15 @@ export function reduceDocumentViewportSession(
             return reduceCommit(state, event);
         case 'visual-ready':
             if (
-                ![
-                    'opening',
-                    'transitioning',
-                ].includes(state.lifecycle)
-                || !fenceTargetsCurrentIntent(state, event.fence)
-                || state.committedPage !== event.fence.pageNumber
-                || state.committedRenderFence === null
-                || !renderFenceMatches(state.committedRenderFence, event.fence)
-                || state.committedViewportFence?.pageNumber !== event.fence.pageNumber
-                || state.visual.kind !== 'page'
-                || state.visual.pageNumber !== event.fence.pageNumber
-                || state.visual.presentation !== 'canvas'
+                !['opening', 'transitioning'].includes(state.lifecycle) ||
+                !fenceTargetsCurrentIntent(state, event.fence) ||
+                state.committedPage !== event.fence.pageNumber ||
+                state.committedRenderFence === null ||
+                !renderFenceMatches(state.committedRenderFence, event.fence) ||
+                state.committedViewportFence?.pageNumber !== event.fence.pageNumber ||
+                state.visual.kind !== 'page' ||
+                state.visual.pageNumber !== event.fence.pageNumber ||
+                state.visual.presentation !== 'canvas'
             ) {
                 return reject(state);
             }
@@ -792,12 +780,12 @@ export function reduceDocumentViewportSession(
             });
         case 'page-transition-failed':
             if (
-                event.generation !== state.generation
-                || event.pageNumber !== state.requestedPage
-                || event.viewportIntentId !== state.viewportIntent?.id
-                || state.lifecycle === 'ready'
-                || state.lifecycle === 'empty'
-                || state.lifecycle === 'closing'
+                event.generation !== state.generation ||
+                event.pageNumber !== state.requestedPage ||
+                event.viewportIntentId !== state.viewportIntent?.id ||
+                state.lifecycle === 'ready' ||
+                state.lifecycle === 'empty' ||
+                state.lifecycle === 'closing'
             ) {
                 return reject(state);
             }

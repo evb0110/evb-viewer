@@ -1,23 +1,14 @@
 import {SavePublicationError} from '@document-store/saveDocument';
 import {useWorkspaceCommandLedger} from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type {
-    IDocumentsFileIoCapability,
-    TOpenFileResult,
-} from '@contracts/electronApiDocuments';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import type {IDocumentsFileIoCapability, TOpenFileResult} from '@contracts/electronApiDocuments';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireEpochMs} from '@contracts/timestamps';
-import { requireDocumentRef } from '@contracts/documentRef';
+import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePdfDateString} from '@contracts/pdfDateString';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
-import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { createPdfSourceJob } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
+import {createWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {createPdfSourceJob} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
 
 const mocks = vi.hoisted(() => ({
     hasElectronApi: vi.fn(() => true),
@@ -79,17 +70,18 @@ const electronApi = createElectronPlatformApiFixture({
     },
 });
 
-vi.mock('@app/composables/useFailureToast', () => ({useFailureToast: () => ({
-    presentNoticeToast: vi.fn(),
-    presentFailureToast: vi.fn(),
-})}));
+vi.mock('@app/composables/useFailureToast', () => ({
+    useFailureToast: () => ({
+        presentNoticeToast: vi.fn(),
+        presentFailureToast: vi.fn(),
+    }),
+}));
 vi.mock('@app/utils/platform', () => ({
     getPlatformAPI: () => electronApi,
     hasElectronAPI: () => mocks.hasElectronApi(),
     isDesktopPlatformActive: () => mocks.hasElectronApi(),
     isBrowserPlatformActive: () => !mocks.hasElectronApi(),
-    isElectronRoutePath: (path: string | null | undefined) =>
-        path === '/electron' || path?.startsWith('/electron/') === true,
+    isElectronRoutePath: (path: string | null | undefined) => path === '/electron' || path?.startsWith('/electron/') === true,
     resolveInitialDesktopRuntime: () => mocks.hasElectronApi(),
     shouldPreferDesktopPlatform: () => mocks.hasElectronApi(),
 }));
@@ -102,24 +94,22 @@ vi.stubGlobal('window', {
     electronAPI: electronApi,
 });
 
-const { usePdfFile } = await import('@app/modules/workspace-shell/composables/usePdfFile');
+const {usePdfFile} = await import('@app/modules/workspace-shell/composables/usePdfFile');
 
 type IPdfFileFacade = ReturnType<typeof usePdfFile>;
 
-const PDF_BYTES = Uint8Array.from([
-    37,
-    80,
-    68,
-    70,
-]);
+const PDF_BYTES = Uint8Array.from([37, 80, 68, 70]);
 
 function createFacade() {
     const document = createWorkspaceDocumentController({tabId: 'tab-1'});
-    return Object.assign(usePdfFile({
-        document,
-        admitPdfSource: intent => createPdfSourceJob(intent, {}),
-        resetDocumentPresentation: vi.fn(),
-    }), {document}) as IPdfFileFacade & {
+    return Object.assign(
+        usePdfFile({
+            document,
+            admitPdfSource: (intent) => createPdfSourceJob(intent, {}),
+            resetDocumentPresentation: vi.fn(),
+        }),
+        {document},
+    ) as IPdfFileFacade & {
         document: typeof document;
         optimizeWorkingCopy?: unknown;
         optimizeWorkingCopyAsCopy?: unknown;
@@ -157,9 +147,7 @@ function installRacingResults(entryPoint: TOpenEntryPoint) {
         return path?.includes('fresh') ? fresh : stale.promise;
     };
     if (entryPoint === 'picker') {
-        mocks.picker
-            .mockImplementationOnce(() => stale.promise)
-            .mockResolvedValueOnce(fresh);
+        mocks.picker.mockImplementationOnce(() => stale.promise).mockResolvedValueOnce(fresh);
     } else if (entryPoint === 'direct') {
         mocks.direct.mockImplementation(implementation);
     } else {
@@ -198,10 +186,7 @@ describe('usePdfFile façade', () => {
         });
     });
 
-    it.each([
-        'blob',
-        'path',
-    ])('commits the saved replacement while previous-copy cleanup is pending (source: %s)', async (sourceKind) => {
+    it.each(['blob', 'path'])('commits the saved replacement while previous-copy cleanup is pending (source: %s)', async (sourceKind) => {
         mocks.getRevision.mockImplementation(async (path: string) => ({
             version: 1,
             documentRef: path,
@@ -213,20 +198,24 @@ describe('usePdfFile façade', () => {
         const file = createFacade();
         await file.openFile(pdfResult('save-cleanup'));
         file.isDirty.value = true;
-        if (sourceKind === 'path') file.pdfSrc.value = {
-            kind: 'path',
-            path: requireDocumentRef('/tmp/save-cleanup.pdf'),
-            size: PDF_BYTES.byteLength,
-        };
+        if (sourceKind === 'path') {
+            file.pdfSrc.value = {
+                kind: 'path',
+                path: requireDocumentRef('/tmp/save-cleanup.pdf'),
+                size: PDF_BYTES.byteLength,
+            };
+        }
         const loadedSource = file.pdfSrc.value;
         const cleanup = Promise.withResolvers<undefined>();
         const dependencyPublication = Promise.withResolvers<{size: number}>();
         mocks.saveAs.mockResolvedValueOnce('browser://documents/saved.pdf');
         mocks.cloneWorkingCopy.mockResolvedValueOnce('/tmp/saved-working.pdf');
-        mocks.cleanup.mockImplementation(path => path === '/tmp/save-cleanup.pdf' ? cleanup.promise : Promise.resolve());
-        mocks.stat.mockImplementation(path => path === '/tmp/saved-working.pdf' && file.workingCopyPath.value === path
-            ? dependencyPublication.promise
-            : Promise.resolve({size: PDF_BYTES.byteLength}));
+        mocks.cleanup.mockImplementation((path) => (path === '/tmp/save-cleanup.pdf' ? cleanup.promise : Promise.resolve()));
+        mocks.stat.mockImplementation((path) =>
+            path === '/tmp/saved-working.pdf' && file.workingCopyPath.value === path
+                ? dependencyPublication.promise
+                : Promise.resolve({size: PDF_BYTES.byteLength}),
+        );
         try {
             const saved = file.saveWorkingCopyAs(undefined, {preserveLoadedSource: true});
             await vi.waitFor(() => {
@@ -266,10 +255,12 @@ describe('usePdfFile façade', () => {
             mintedAt: 1,
             token: savedRevision,
         }));
-        await expect(file.saveWorkingCopyAs(undefined, {
-            preserveLoadedSource: true,
-            expectedDocumentRevisionToken: openedRevision,
-        })).resolves.toMatchObject({
+        await expect(
+            file.saveWorkingCopyAs(undefined, {
+                preserveLoadedSource: true,
+                expectedDocumentRevisionToken: openedRevision,
+            }),
+        ).resolves.toMatchObject({
             success: true,
             outPath: '/saved-copy.pdf',
         });
@@ -338,17 +329,24 @@ describe('usePdfFile façade', () => {
         mocks.releaseStaged.mockReturnValueOnce(cleanup.promise);
         let completed = false;
         try {
-            const saved = file.trySavePdfNativeMutations({bookmarks: {
-                totalPages: 1,
-                untitledLabel: 'Untitled',
-                items: [],
-            }}, {
-                saveMode: 'save_as_rewrite',
-                modifiedAt: requirePdfDateString('D:20261008000000Z'),
-            }).then(result => {
-                completed = true;
-                return result;
-            });
+            const saved = file
+                .trySavePdfNativeMutations(
+                    {
+                        bookmarks: {
+                            totalPages: 1,
+                            untitledLabel: 'Untitled',
+                            items: [],
+                        },
+                    },
+                    {
+                        saveMode: 'save_as_rewrite',
+                        modifiedAt: requirePdfDateString('D:20261008000000Z'),
+                    },
+                )
+                .then((result) => {
+                    completed = true;
+                    return result;
+                });
             await vi.waitFor(() => expect(completed).toBe(true));
             await expect(saved).resolves.toMatchObject({
                 success: true,
@@ -362,108 +360,123 @@ describe('usePdfFile façade', () => {
         }
     });
 
-    it.each([
-        'structured',
-        'native',
-    ] as const)('retains the %s writer revision after another revision is observed during adoption', async (path) => {
-        const file = createFacade();
-        await file.openFile(pdfResult('receipt'));
-        const documentRevision = {
-            version: 1 as const,
-            documentRef: requireDocumentRef('/tmp/receipt.pdf'),
-            authority: 'electron-working-copy' as const,
-            contentRevision: 2,
-            mintedAt: requireEpochMs(2),
-            token: requireDocumentRevisionToken('rev-own-save'),
-        };
-        // Adoption observes the superseding reader, which must not supply the receipt.
-        mocks.getRevision.mockResolvedValue({
-            ...documentRevision,
-            token: requireDocumentRevisionToken('rev-reader'),
-            contentRevision: 3,
-        });
-        const saveSpy = vi.spyOn(electronApi.documentFiles, 'saveFileStructured').mockResolvedValueOnce({
-            ok: true,
-            externalWriteCommitted: true,
-            workingCopyRefreshed: true,
-            documentRevision,
-        });
-        const validation = {
-            isValid: true,
-            tool: 'native' as const,
-            errors: [],
-            warnings: [],
-        };
-        mocks.nativeApply.mockResolvedValueOnce({
-            applied: true,
-            validation,
-            nativeMutationPostconditionsVerified: true,
-            identityBindings: [],
-            stagedOutput: {
-                receiptVersion: 2,
-                artifactKind: 'pdf',
-                path: '/tmp/receipt-staged.pdf',
-                size: PDF_BYTES.byteLength,
-                leaseId: 'receipt-stage',
-                revision: null,
-                fileIdentity: {
-                    platform: 'posix',
-                    deviceId: '1',
-                    inode: '2',
-                },
-                validations: {
-                    qpdfCheck: false,
-                    tailCheck: true,
-                    semanticCheck: false,
-                    fsynced: true,
-                },
-            },
-        });
-        mocks.nativeCommit.mockResolvedValueOnce({
-            applied: true,
-            validation,
-            documentRevision,
-        });
-        try {
-            const result = path === 'structured'
-                ? await file.saveWorkingCopy()
-                : await file.trySavePdfNativeMutations({bookmarks: {
-                    totalPages: 1,
-                    untitledLabel: 'Untitled',
-                    items: [],
-                }}, {
-                    saveMode: 'incremental',
-                    modifiedAt: requirePdfDateString('D:20261008000000Z'),
-                });
-            expect(result).toMatchObject({
-                success: true,
+    it.each(['structured', 'native'] as const)(
+        'retains the %s writer revision after another revision is observed during adoption',
+        async (path) => {
+            const file = createFacade();
+            await file.openFile(pdfResult('receipt'));
+            const documentRevision = {
+                version: 1 as const,
+                documentRef: requireDocumentRef('/tmp/receipt.pdf'),
+                authority: 'electron-working-copy' as const,
+                contentRevision: 2,
+                mintedAt: requireEpochMs(2),
+                token: requireDocumentRevisionToken('rev-own-save'),
+            };
+            // Adoption observes the superseding reader, which must not supply the receipt.
+            mocks.getRevision.mockResolvedValue({
+                ...documentRevision,
+                token: requireDocumentRevisionToken('rev-reader'),
+                contentRevision: 3,
+            });
+            const saveSpy = vi.spyOn(electronApi.documentFiles, 'saveFileStructured').mockResolvedValueOnce({
+                ok: true,
+                externalWriteCommitted: true,
+                workingCopyRefreshed: true,
                 documentRevision,
             });
-            expect(file.documentRevisionToken.value).toBe('rev-reader');
-        } finally {
-            saveSpy.mockRestore();
-            mocks.nativeApply.mockReset();
-            mocks.nativeCommit.mockReset();
-        }
-    });
+            const validation = {
+                isValid: true,
+                tool: 'native' as const,
+                errors: [],
+                warnings: [],
+            };
+            mocks.nativeApply.mockResolvedValueOnce({
+                applied: true,
+                validation,
+                nativeMutationPostconditionsVerified: true,
+                identityBindings: [],
+                stagedOutput: {
+                    receiptVersion: 2,
+                    artifactKind: 'pdf',
+                    path: '/tmp/receipt-staged.pdf',
+                    size: PDF_BYTES.byteLength,
+                    leaseId: 'receipt-stage',
+                    revision: null,
+                    fileIdentity: {
+                        platform: 'posix',
+                        deviceId: '1',
+                        inode: '2',
+                    },
+                    validations: {
+                        qpdfCheck: false,
+                        tailCheck: true,
+                        semanticCheck: false,
+                        fsynced: true,
+                    },
+                },
+            });
+            mocks.nativeCommit.mockResolvedValueOnce({
+                applied: true,
+                validation,
+                documentRevision,
+            });
+            try {
+                const result =
+                    path === 'structured'
+                        ? await file.saveWorkingCopy()
+                        : await file.trySavePdfNativeMutations(
+                              {
+                                  bookmarks: {
+                                      totalPages: 1,
+                                      untitledLabel: 'Untitled',
+                                      items: [],
+                                  },
+                              },
+                              {
+                                  saveMode: 'incremental',
+                                  modifiedAt: requirePdfDateString('D:20261008000000Z'),
+                              },
+                          );
+                expect(result).toMatchObject({
+                    success: true,
+                    documentRevision,
+                });
+                expect(file.documentRevisionToken.value).toBe('rev-reader');
+            } finally {
+                saveSpy.mockRestore();
+                mocks.nativeApply.mockReset();
+                mocks.nativeCommit.mockReset();
+            }
+        },
+    );
 
     it('refuses to save over an original another program changed instead of saving a copy', async () => {
         const file = createFacade();
         await file.openFile(pdfResult('changed-on-disk'));
         file.isDirty.value = true;
-        mocks.analyzeConformance.mockRejectedValue(new Error(
-            "Error invoking remote method 'pdf:analyzeConformance': WorkingCopyMaterializationError: The original document changed after it was opened",
-        ));
+        mocks.analyzeConformance.mockRejectedValue(
+            new Error(
+                "Error invoking remote method 'pdf:analyzeConformance': WorkingCopyMaterializationError: The original document changed after it was opened",
+            ),
+        );
 
-        await expect(file.trySavePdfNativeMutations({bookmarks: {
-            totalPages: 1,
-            untitledLabel: 'Untitled',
-            items: [],
-        }}, {
-            saveMode: 'rewrite',
-            modifiedAt: requirePdfDateString('D:20261008000000Z'),
-            expectedWorkingPath: file.workingCopyPath.value,
-        })).resolves.toMatchObject({
+        await expect(
+            file.trySavePdfNativeMutations(
+                {
+                    bookmarks: {
+                        totalPages: 1,
+                        untitledLabel: 'Untitled',
+                        items: [],
+                    },
+                },
+                {
+                    saveMode: 'rewrite',
+                    modifiedAt: requirePdfDateString('D:20261008000000Z'),
+                    expectedWorkingPath: file.workingCopyPath.value,
+                },
+            ),
+        ).resolves.toMatchObject({
             success: false,
             didSaveAs: false,
             failure: {reason: 'original-changed'},
@@ -484,10 +497,7 @@ describe('usePdfFile façade', () => {
         });
     });
 
-    it.each([
-        'returned',
-        'thrown',
-    ] as const)('retains a %s native refusal without clearing the open document', async (kind) => {
+    it.each(['returned', 'thrown'] as const)('retains a %s native refusal without clearing the open document', async (kind) => {
         const file = createFacade();
         await file.openFile(pdfResult('native-refusal'));
         const message = 'ENOSPC: no space left on device';
@@ -496,7 +506,9 @@ describe('usePdfFile façade', () => {
             message,
         };
         mocks.nativeApply.mockImplementationOnce(async () => {
-            if (kind === 'thrown') throw new Error(message);
+            if (kind === 'thrown') {
+                throw new Error(message);
+            }
             return {
                 applied: false,
                 validation: null,
@@ -505,15 +517,22 @@ describe('usePdfFile façade', () => {
         });
         const originalPath = file.originalPath.value;
         const workingPath = file.workingCopyPath.value;
-        await expect(file.trySavePdfNativeMutations({bookmarks: {
-            totalPages: 1,
-            untitledLabel: 'Untitled',
-            items: [],
-        }}, {
-            saveMode: 'incremental',
-            modifiedAt: requirePdfDateString('D:20261008000000Z'),
-            expectedWorkingPath: workingPath,
-        })).resolves.toMatchObject({
+        await expect(
+            file.trySavePdfNativeMutations(
+                {
+                    bookmarks: {
+                        totalPages: 1,
+                        untitledLabel: 'Untitled',
+                        items: [],
+                    },
+                },
+                {
+                    saveMode: 'incremental',
+                    modifiedAt: requirePdfDateString('D:20261008000000Z'),
+                    expectedWorkingPath: workingPath,
+                },
+            ),
+        ).resolves.toMatchObject({
             success: false,
             failure: {
                 channel: 'native',
@@ -527,78 +546,83 @@ describe('usePdfFile façade', () => {
         expect(file.error.value).toBeNull();
     });
 
-    it.each([
-        undefined,
-        '/documents/original.pdf.evb-transition-native.bak',
-    ])('retains a native changed-original failure and kept path %s without clearing edits', async (keptFilePath) => {
-        const file = createFacade();
-        await file.openFile(pdfResult('changed-original'));
-        mocks.nativeApply.mockResolvedValueOnce({
-            applied: false,
-            validation: null,
-            reason: 'original-changed',
-            ...(keptFilePath ? {keptFilePath} : {}),
-        });
-        const originalPath = file.originalPath.value;
-        const workingPath = file.workingCopyPath.value;
-        file.isDirty.value = true;
-
-        await expect(file.trySavePdfNativeMutations({bookmarks: {
-            totalPages: 1,
-            untitledLabel: 'Untitled',
-            items: [],
-        }}, {
-            saveMode: 'incremental',
-            modifiedAt: requirePdfDateString('D:20261008000000Z'),
-            expectedWorkingPath: workingPath,
-        })).resolves.toMatchObject({
-            success: false,
-            failure: {
+    it.each([undefined, '/documents/original.pdf.evb-transition-native.bak'])(
+        'retains a native changed-original failure and kept path %s without clearing edits',
+        async (keptFilePath) => {
+            const file = createFacade();
+            await file.openFile(pdfResult('changed-original'));
+            mocks.nativeApply.mockResolvedValueOnce({
+                applied: false,
+                validation: null,
                 reason: 'original-changed',
                 ...(keptFilePath ? {keptFilePath} : {}),
-            },
-        });
-        expect(file.originalPath.value).toBe(originalPath);
-        expect(file.workingCopyPath.value).toBe(workingPath);
-        expect(file.isDirty.value).toBe(true);
-        expect(file.error.value).toBeNull();
-    });
+            });
+            const originalPath = file.originalPath.value;
+            const workingPath = file.workingCopyPath.value;
+            file.isDirty.value = true;
 
-    it.each([
-        undefined,
-        '/documents/original.pdf.evb-transition-structured.bak',
-    ])('retains a structured changed-original failure and kept path %s without clearing edits', async (keptFilePath) => {
-        const file = createFacade();
-        await file.openFile(pdfResult('structured-conflict'));
-        file.isDirty.value = true;
-        const saveSpy = vi.spyOn(electronApi.documentFiles, 'saveFileStructured').mockResolvedValueOnce({
-            ok: false,
-            reason: 'original-changed',
-            externalWriteCommitted: Boolean(keptFilePath),
-            ...(keptFilePath ? {keptFilePath} : {}),
-        });
-
-        try {
-            await expect(file.saveWorkingCopy()).resolves.toMatchObject({
+            await expect(
+                file.trySavePdfNativeMutations(
+                    {
+                        bookmarks: {
+                            totalPages: 1,
+                            untitledLabel: 'Untitled',
+                            items: [],
+                        },
+                    },
+                    {
+                        saveMode: 'incremental',
+                        modifiedAt: requirePdfDateString('D:20261008000000Z'),
+                        expectedWorkingPath: workingPath,
+                    },
+                ),
+            ).resolves.toMatchObject({
                 success: false,
                 failure: {
                     reason: 'original-changed',
                     ...(keptFilePath ? {keptFilePath} : {}),
                 },
             });
-            expect(file.originalPath.value).toBe('/structured-conflict.pdf');
-            expect(file.workingCopyPath.value).toBe('/tmp/structured-conflict.pdf');
+            expect(file.originalPath.value).toBe(originalPath);
+            expect(file.workingCopyPath.value).toBe(workingPath);
             expect(file.isDirty.value).toBe(true);
             expect(file.error.value).toBeNull();
-        } finally {
-            saveSpy.mockRestore();
-        }
-    });
+        },
+    );
+
+    it.each([undefined, '/documents/original.pdf.evb-transition-structured.bak'])(
+        'retains a structured changed-original failure and kept path %s without clearing edits',
+        async (keptFilePath) => {
+            const file = createFacade();
+            await file.openFile(pdfResult('structured-conflict'));
+            file.isDirty.value = true;
+            const saveSpy = vi.spyOn(electronApi.documentFiles, 'saveFileStructured').mockResolvedValueOnce({
+                ok: false,
+                reason: 'original-changed',
+                externalWriteCommitted: Boolean(keptFilePath),
+                ...(keptFilePath ? {keptFilePath} : {}),
+            });
+
+            try {
+                await expect(file.saveWorkingCopy()).resolves.toMatchObject({
+                    success: false,
+                    failure: {
+                        reason: 'original-changed',
+                        ...(keptFilePath ? {keptFilePath} : {}),
+                    },
+                });
+                expect(file.originalPath.value).toBe('/structured-conflict.pdf');
+                expect(file.workingCopyPath.value).toBe('/tmp/structured-conflict.pdf');
+                expect(file.isDirty.value).toBe(true);
+                expect(file.error.value).toBeNull();
+            } finally {
+                saveSpy.mockRestore();
+            }
+        },
+    );
 
     it('rejects an empty PDF before it can claim the document session', async () => {
-        mocks.stat.mockImplementation(async (path: string) => path === '/tmp/empty.pdf'
-            ? {size: 0}
-            : {size: PDF_BYTES.byteLength});
+        mocks.stat.mockImplementation(async (path: string) => (path === '/tmp/empty.pdf' ? {size: 0} : {size: PDF_BYTES.byteLength}));
         const file = createFacade();
 
         await expect(file.openFile(pdfResult('empty'))).resolves.toEqual({
@@ -628,22 +652,10 @@ describe('usePdfFile façade', () => {
     });
 
     it.each([
-        [
-            'picker',
-            mocks.picker,
-        ],
-        [
-            'direct',
-            mocks.direct,
-        ],
-        [
-            'batch',
-            mocks.batch,
-        ],
-    ] as const)('routes %s opens through the split capability', async (
-        entryPoint,
-        splitMethod,
-    ) => {
+        ['picker', mocks.picker],
+        ['direct', mocks.direct],
+        ['batch', mocks.batch],
+    ] as const)('routes %s opens through the split capability', async (entryPoint, splitMethod) => {
         splitMethod.mockResolvedValue(pdfResult(entryPoint));
 
         const file = createFacade();
@@ -653,33 +665,23 @@ describe('usePdfFile façade', () => {
         expect(file.workingCopyPath.value).toBe(`/tmp/${entryPoint}.pdf`);
     });
 
-    it.each([
-        'picker',
-        'direct',
-        'batch',
-    ] as const)(
-        'fences a stale %s result behind the newest open claim',
-        async (entryPoint) => {
-            const stale = installRacingResults(entryPoint);
-            const file = createFacade();
+    it.each(['picker', 'direct', 'batch'] as const)('fences a stale %s result behind the newest open claim', async (entryPoint) => {
+        const stale = installRacingResults(entryPoint);
+        const file = createFacade();
 
-            const staleOpen = invokeOpen(file, entryPoint, 'stale');
-            await expect(invokeOpen(file, entryPoint, 'fresh')).resolves.toMatchObject({status: 'opened'});
-            stale.resolve(pdfResult('stale'));
-            await expect(staleOpen).resolves.toMatchObject({status: 'stale'});
+        const staleOpen = invokeOpen(file, entryPoint, 'stale');
+        await expect(invokeOpen(file, entryPoint, 'fresh')).resolves.toMatchObject({status: 'opened'});
+        stale.resolve(pdfResult('stale'));
+        await expect(staleOpen).resolves.toMatchObject({status: 'stale'});
 
-            expect(file.workingCopyPath.value).toBe('/tmp/fresh.pdf');
-            expect(file.originalPath.value).toBe('/fresh.pdf');
-            expect(file.pdfData.value).toEqual(PDF_BYTES);
-            expect(mocks.cleanup).toHaveBeenCalledWith('/tmp/stale.pdf');
-            expect(mocks.cleanup).not.toHaveBeenCalledWith('/tmp/fresh.pdf');
-        },
-    );
+        expect(file.workingCopyPath.value).toBe('/tmp/fresh.pdf');
+        expect(file.originalPath.value).toBe('/fresh.pdf');
+        expect(file.pdfData.value).toEqual(PDF_BYTES);
+        expect(mocks.cleanup).toHaveBeenCalledWith('/tmp/stale.pdf');
+        expect(mocks.cleanup).not.toHaveBeenCalledWith('/tmp/fresh.pdf');
+    });
 
-    it.each([
-        true,
-        false,
-    ])('cleans the owned working copy and resets projections on close (desktop=%s)', async (desktop) => {
+    it.each([true, false])('cleans the owned working copy and resets projections on close (desktop=%s)', async (desktop) => {
         mocks.hasElectronApi.mockReturnValue(desktop);
         const file = createFacade();
         await file.openFile(pdfResult('owned'));

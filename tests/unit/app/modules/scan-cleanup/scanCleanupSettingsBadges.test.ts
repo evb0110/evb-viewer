@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import type {IScanCleanupOptions} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     resetScanCleanupOptionsToDefaults,
@@ -30,14 +26,16 @@ describe('scan-cleanup non-default settings badges', () => {
         options.pageAlignment = 'center';
         options.marginsMm.leftMm = 8;
         options.outputMode = 'grayscale';
-        options.pageOverrides = {'3': {
-            rotationDegrees: 90,
-            layoutOverride: 'auto',
-            excluded: false,
-            manualSplit: null,
-        }};
+        options.pageOverrides = {
+            '3': {
+                rotationDegrees: 90,
+                layoutOverride: 'auto',
+                excluded: false,
+                manualSplit: null,
+            },
+        };
 
-        expect(resolveScanCleanupNonDefaultSettings(options).map(badge => badge.key)).toEqual([
+        expect(resolveScanCleanupNonDefaultSettings(options).map((badge) => badge.key)).toEqual([
             'binarization',
             'pageAlignment',
             'marginsMm',
@@ -52,12 +50,14 @@ describe('scan-cleanup non-default settings badges', () => {
         options.autoDewarp = true;
         options.autoDewarpDepth = 2;
         options.outputMode = 'color';
-        options.pageOverrides = {'1': {
-            rotationDegrees: 180,
-            layoutOverride: 'spread',
-            excluded: true,
-            manualSplit: null,
-        }};
+        options.pageOverrides = {
+            '1': {
+                rotationDegrees: 180,
+                layoutOverride: 'spread',
+                excluded: true,
+                manualSplit: null,
+            },
+        };
 
         resetScanCleanupOptionsToDefaults(options);
 

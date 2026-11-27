@@ -10,4 +10,3 @@ export async function clickCenter(page: Page, selector: string, button: 'left' |
     await page.mouse.down({button});
     await page.mouse.up({button});
 }
-

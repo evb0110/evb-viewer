@@ -1,28 +1,26 @@
-import type { PDFDataRangeTransport } from 'pdfjs-dist';
-import type { RenderParameters } from 'pdfjs-dist/types/src/display/api';
-import pdfjsLib, {
-    configurePdfjsWorkerSrc,
-    createPdfjsDocumentOptions,
-    preparePdfjsBrowserRuntime,
-} from '@app/services/pdfjs/runtimeLib';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
-import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
-import { getPerformanceProfile } from '@app/utils/performanceProfile';
-import { pdfjsDocumentTeardownCoordinator } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfjsDocumentTeardownCoordinator';
+import type {PDFDataRangeTransport} from 'pdfjs-dist';
+import type {RenderParameters} from 'pdfjs-dist/types/src/display/api';
+import pdfjsLib, {configurePdfjsWorkerSrc, createPdfjsDocumentOptions, preparePdfjsBrowserRuntime} from '@app/services/pdfjs/runtimeLib';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
+import {logPdfRenderTrace} from '@app/utils/pdfRenderTrace';
+import {getPerformanceProfile} from '@app/utils/performanceProfile';
+import {pdfjsDocumentTeardownCoordinator} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfjsDocumentTeardownCoordinator';
 import {
     createPdfRangeRequestBridge,
     type IPdfPreloadedRange,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/createPdfRangeRequestBridge';
-import type { TDocumentRef } from '@contracts/documentRef';
+import type {TDocumentRef} from '@contracts/documentRef';
 
 export const maxCachedPdfPages = getPerformanceProfile().maxCachedPdfPages;
 
-type TPdfSource = Blob | {
-    kind: 'path';
-    path: TDocumentRef;
-    size: number
-};
+type TPdfSource =
+    | Blob
+    | {
+          kind: 'path';
+          path: TDocumentRef;
+          size: number;
+      };
 
 /**
  * A document PDF.js opened. Its two lifecycle operations are separate:
@@ -41,7 +39,9 @@ export interface IPdfDocument {
     cleanup(): Promise<void>;
 }
 
-export interface IPdfLoadingTask {destroy(): Promise<void>;}
+export interface IPdfLoadingTask {
+    destroy(): Promise<void>;
+}
 
 export interface IPdfRef {
     readonly num: number;
@@ -57,18 +57,9 @@ export interface IPdfPage {
     readonly rotate: number;
     readonly view: readonly number[];
     readonly objs: Iterable<unknown>;
-    getViewport(options: {
-        scale: number;
-        rotation?: number
-    }): IPdfViewport;
-    getTextContent(options?: {
-        includeMarkedContent?: boolean;
-        disableNormalization?: boolean
-    }): Promise<IPdfTextContent>;
-    streamTextContent(options?: {
-        includeMarkedContent?: boolean;
-        disableNormalization?: boolean
-    }): ReadableStream<IPdfTextContentChunk>;
+    getViewport(options: {scale: number; rotation?: number}): IPdfViewport;
+    getTextContent(options?: {includeMarkedContent?: boolean; disableNormalization?: boolean}): Promise<IPdfTextContent>;
+    streamTextContent(options?: {includeMarkedContent?: boolean; disableNormalization?: boolean}): ReadableStream<IPdfTextContentChunk>;
     getStructTree?(): Promise<unknown | null>;
     getAnnotations(options?: {intent?: string}): Promise<readonly IPdfAnnotation[]>;
     getOperatorList(options?: {annotationMode?: number}): Promise<IPdfOperatorList>;
@@ -90,10 +81,7 @@ export interface IPdfViewport {
     readonly transform: number[];
     convertToViewportPoint(x: number, y: number): number[];
     convertToPdfPoint(x: number, y: number): number[];
-    clone(options?: {
-        scale?: number;
-        rotation?: number
-    }): IPdfViewport;
+    clone(options?: {scale?: number; rotation?: number}): IPdfViewport;
 }
 
 export interface IPdfAnnotation {
@@ -121,7 +109,9 @@ export interface IPdfTextContent {
     readonly lang: string | null;
 }
 
-export interface IPdfTextContentChunk extends IPdfTextContent { readonly last?: boolean; }
+export interface IPdfTextContentChunk extends IPdfTextContent {
+    readonly last?: boolean;
+}
 
 export interface IPdfTextItem {
     readonly str: string;
@@ -169,11 +159,7 @@ interface ICreatePdfDocumentPageCacheOptions {
     getRenderVersion: () => number;
 }
 
-async function waitForPdfPageRequest(
-    request: Promise<IPdfPage>,
-    signal: AbortSignal | undefined,
-    onLatePage: (page: IPdfPage) => void,
-) {
+async function waitForPdfPageRequest(request: Promise<IPdfPage>, signal: AbortSignal | undefined, onLatePage: (page: IPdfPage) => void) {
     if (!signal) {
         return request;
     }
@@ -191,16 +177,16 @@ async function waitForPdfPageRequest(
             abort();
         }
     });
-    void request.then((page) => {
-        if (aborted || signal.aborted) {
-            onLatePage(page);
-        }
-    }, () => undefined);
+    void request.then(
+        (page) => {
+            if (aborted || signal.aborted) {
+                onLatePage(page);
+            }
+        },
+        () => undefined,
+    );
     try {
-        return await Promise.race([
-            request,
-            abortPromise,
-        ]);
+        return await Promise.race([request, abortPromise]);
     } finally {
         removeAbortListener();
     }
@@ -305,17 +291,18 @@ export function createPdfDocumentPageCache(options: ICreatePdfDocumentPageCacheO
     function remember(pageNumber: number, page: IPdfPage) {
         const existingEntry = entriesByPageNumber.get(pageNumber);
         const proxyEntry = entriesByProxy.get(page);
-        const entry = existingEntry?.page === page && !existingEntry.cleaned
-            ? existingEntry
-            : proxyEntry && !proxyEntry.cleaned
-                ? proxyEntry
-                : {
-                    page,
-                    pageNumber,
-                    leases: 0,
-                    pendingEviction: false,
-                    cleaned: false,
-                };
+        const entry =
+            existingEntry?.page === page && !existingEntry.cleaned
+                ? existingEntry
+                : proxyEntry && !proxyEntry.cleaned
+                  ? proxyEntry
+                  : {
+                        page,
+                        pageNumber,
+                        leases: 0,
+                        pendingEviction: false,
+                        cleaned: false,
+                    };
         entry.pageNumber = pageNumber;
         entry.pendingEviction = false;
         entriesByProxy.set(page, entry);
@@ -347,11 +334,7 @@ export function createPdfDocumentPageCache(options: ICreatePdfDocumentPageCacheO
                 version,
                 renderVersion: options.getRenderVersion(),
             });
-            page = await waitForPdfPageRequest(
-                document.getPage(pageNumber),
-                signal,
-                cleanupUnclaimedPage,
-            );
+            page = await waitForPdfPageRequest(document.getPage(pageNumber), signal, cleanupUnclaimedPage);
             if (version !== options.getRenderVersion() || document !== options.getDocument()) {
                 logPdfRenderTrace('pdf-document-page-cache-stale-cleanup', {
                     pageNumber,
@@ -359,9 +342,7 @@ export function createPdfDocumentPageCache(options: ICreatePdfDocumentPageCacheO
                     renderVersion: options.getRenderVersion(),
                 });
                 page.cleanup();
-                throw createStalePdfDocumentError(
-                    'Rendering cancelled: PDF page request became stale',
-                );
+                throw createStalePdfDocumentError('Rendering cancelled: PDF page request became stale');
             }
             remember(pageNumber, page);
             logPdfRenderTrace('pdf-document-page-cache-store', {
@@ -382,16 +363,11 @@ export function createPdfDocumentPageCache(options: ICreatePdfDocumentPageCacheO
         return page;
     }
 
-    async function leasePage(
-        pageNumber: number,
-        signal?: AbortSignal,
-    ): Promise<IPdfDocumentPageLease> {
+    async function leasePage(pageNumber: number, signal?: AbortSignal): Promise<IPdfDocumentPageLease> {
         const page = await getPage(pageNumber, signal);
         const entry = entriesByPageNumber.get(pageNumber);
         if (!entry || entry.page !== page) {
-            throw createStalePdfDocumentError(
-                'Rendering cancelled: PDF page lease became stale',
-            );
+            throw createStalePdfDocumentError('Rendering cancelled: PDF page lease became stale');
         }
         entry.leases += 1;
         logPdfRenderTrace('pdf-document-page-lease-acquire', {
@@ -412,10 +388,7 @@ export function createPdfDocumentPageCache(options: ICreatePdfDocumentPageCacheO
         };
     }
 
-    async function leaseTransientBackgroundPage(
-        pageNumber: number,
-        signal?: AbortSignal,
-    ): Promise<IPdfDocumentPageLease> {
+    async function leaseTransientBackgroundPage(pageNumber: number, signal?: AbortSignal): Promise<IPdfDocumentPageLease> {
         const document = options.getDocument();
         const version = options.getRenderVersion();
         if (!document) {
@@ -427,11 +400,7 @@ export function createPdfDocumentPageCache(options: ICreatePdfDocumentPageCacheO
             return leasePage(pageNumber, signal);
         }
 
-        const page = await waitForPdfPageRequest(
-            document.getPage(pageNumber),
-            signal,
-            cleanupUnclaimedPage,
-        );
+        const page = await waitForPdfPageRequest(document.getPage(pageNumber), signal, cleanupUnclaimedPage);
         if (version !== options.getRenderVersion() || document !== options.getDocument()) {
             throw createStalePdfDocumentError('Background PDF page request became stale');
         }
@@ -472,10 +441,7 @@ export function createPdfDocumentPageCache(options: ICreatePdfDocumentPageCacheO
             pageCount: entriesByPageNumber.size,
             pages: Array.from(entriesByPageNumber.keys()).slice(0, 40),
         });
-        for (const [
-            pageNumber,
-            entry,
-        ] of entriesByPageNumber) {
+        for (const [pageNumber, entry] of entriesByPageNumber) {
             if (entry.leases > 0) {
                 deferEviction(pageNumber, entry);
                 continue;
@@ -496,11 +462,7 @@ export function createPdfDocumentPageCache(options: ICreatePdfDocumentPageCacheO
 
 configurePdfjsWorkerSrc(pdfjsLib);
 
-type TPdfDataRangeTransportCtor = new (
-    length: number,
-    initialData: Uint8Array,
-    progressiveDone?: boolean,
-) => PDFDataRangeTransport;
+type TPdfDataRangeTransportCtor = new (length: number, initialData: Uint8Array, progressiveDone?: boolean) => PDFDataRangeTransport;
 
 const RANGE_CHUNK_BYTES = 1024 * 1024;
 // Blob loading is the explicit small-input compatibility route. Desktop
@@ -520,10 +482,7 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
     let rangeTransport: PDFDataRangeTransport | null = null;
     let loadingTaskLifecycleKey = '';
     let cancelPendingOpen: (() => void) | null = null;
-    const {
-        createRangeReadFailureHandler,
-        attachRangeRequestHandler,
-    } = createPdfRangeRequestBridge({
+    const {createRangeReadFailureHandler, attachRangeRequestHandler} = createPdfRangeRequestBridge({
         getRenderVersion: options.getRenderVersion,
         onRangeReadFailure: options.onRangeReadFailure,
     });
@@ -546,11 +505,7 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
         }
     }
 
-    function destroyLoadingTask(
-        rejectedMessage: string,
-        thrownMessage: string,
-        thrownLogLevel: 'debug' | 'warn' = 'debug',
-    ) {
+    function destroyLoadingTask(rejectedMessage: string, thrownMessage: string, thrownLogLevel: 'debug' | 'warn' = 'debug') {
         if (!loadingTask) {
             return;
         }
@@ -580,9 +535,7 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
         if (src.size <= PDFJS_BLOB_URL_MAX_BYTES) {
             return null;
         }
-        return new RangeError(
-            `Blob-backed PDF is ${src.size} bytes; PDF.js blob loading is capped at ${PDFJS_BLOB_URL_MAX_BYTES} bytes`,
-        );
+        return new RangeError(`Blob-backed PDF is ${src.size} bytes; PDF.js blob loading is capped at ${PDFJS_BLOB_URL_MAX_BYTES} bytes`);
     }
 
     function supersedeActiveOpen() {
@@ -598,7 +551,7 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
 
     function createOpenCancellation() {
         let resolve!: () => void;
-        const promise = new Promise<void>(resolvePromise => {
+        const promise = new Promise<void>((resolvePromise) => {
             resolve = resolvePromise;
         });
         const cancellation = {
@@ -619,10 +572,7 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
             sourceKind: 'blob',
             declaredSize: src.size,
         });
-        const documentOptions = await Promise.race([
-            getPdfjsDocumentOptions(),
-            cancelled.then(() => null),
-        ]);
+        const documentOptions = await Promise.race([getPdfjsDocumentOptions(), cancelled.then(() => null)]);
         if (!documentOptions) {
             return null;
         }
@@ -646,11 +596,10 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
             ...documentOptions,
         });
         const task = loadingTask;
-        const document = await Promise.race([
-            task.promise,
-            cancelled.then(() => null),
-        ]);
-        if (!document) return null;
+        const document = await Promise.race([task.promise, cancelled.then(() => null)]);
+        if (!document) {
+            return null;
+        }
         if (loadingTask === task) {
             loadingTask = null;
         }
@@ -664,11 +613,7 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
         return document;
     }
 
-    async function openPath(
-        src: Extract<TPdfSource, {kind: 'path'}>,
-        version: number,
-        cancelled: Promise<void>,
-    ) {
+    async function openPath(src: Extract<TPdfSource, {kind: 'path'}>, version: number, cancelled: Promise<void>) {
         const length = src.size;
         const initialLength = Math.min(RANGE_CHUNK_BYTES, length);
         const tailStart = Math.max(initialLength, length - RANGE_CHUNK_BYTES);
@@ -680,21 +625,13 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
             path: src.path,
             declaredSize: length,
         });
-        const [
-            initialData,
-            tailData,
-        ] = await Promise.race([
+        const [initialData, tailData] = (await Promise.race([
             Promise.all([
                 documentFiles.readFileRange(src.path, 0, initialLength),
-                tailStart > initialLength
-                    ? documentFiles.readFileRange(src.path, tailStart, length - tailStart)
-                    : Promise.resolve(null),
+                tailStart > initialLength ? documentFiles.readFileRange(src.path, tailStart, length - tailStart) : Promise.resolve(null),
             ]),
             cancelled.then(() => null),
-        ]) ?? [
-            null,
-            null,
-        ];
+        ])) ?? [null, null];
         if (!initialData) {
             return null;
         }
@@ -710,10 +647,7 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
             return null;
         }
         const optionsStartedAt = performance.now();
-        const documentOptions = await Promise.race([
-            getPdfjsDocumentOptions(),
-            cancelled.then(() => null),
-        ]);
+        const documentOptions = await Promise.race([getPdfjsDocumentOptions(), cancelled.then(() => null)]);
         if (!documentOptions) {
             return null;
         }
@@ -726,8 +660,7 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
         if (version !== options.getRenderVersion()) {
             return null;
         }
-        const pdfjsWithRangeTransport = pdfjsLib as typeof pdfjsLib
-            & {PDFDataRangeTransport?: TPdfDataRangeTransportCtor};
+        const pdfjsWithRangeTransport = pdfjsLib as typeof pdfjsLib & {PDFDataRangeTransport?: TPdfDataRangeTransportCtor};
         const Transport = pdfjsWithRangeTransport.PDFDataRangeTransport;
         if (!Transport) {
             throw new Error('PDF.js range transport API is unavailable');
@@ -735,19 +668,15 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
         rangeTransport = new Transport(length, initialData, false);
         const transport = rangeTransport;
         const preloadedRanges: IPdfPreloadedRange[] = tailData
-            ? [{
-                begin: tailStart,
-                data: tailData,
-            }]
+            ? [
+                  {
+                      begin: tailStart,
+                      data: tailData,
+                  },
+              ]
             : [];
         const rangeFailure = createRangeReadFailureHandler();
-        attachRangeRequestHandler(
-            transport,
-            src,
-            version,
-            rangeFailure,
-            preloadedRanges,
-        );
+        attachRangeRequestHandler(transport, src, version, rangeFailure, preloadedRanges);
         const startedAt = performance.now();
         logPdfRenderTrace('pdf-document-get-document-submit', {
             version,
@@ -763,13 +692,11 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
             ...documentOptions,
         });
         const task = loadingTask;
-        const document = await Promise.race([
-            task.promise,
-            rangeFailure.rangeReadFailure,
-            cancelled.then(() => null),
-        ]);
+        const document = await Promise.race([task.promise, rangeFailure.rangeReadFailure, cancelled.then(() => null)]);
         rangeFailure.complete();
-        if (!document) return null;
+        if (!document) {
+            return null;
+        }
         logPdfRenderTrace('pdf-document-get-document-resolve', {
             version,
             sourceKind: 'path',
@@ -795,15 +722,14 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
             }
             supersedeActiveOpen();
             const cancellation = createOpenCancellation();
-            return (src instanceof Blob
-                ? openBlob(src, version, cancellation.promise)
-                : openPath(src, version, cancellation.promise))
-                .then(document => {
+            return (src instanceof Blob ? openBlob(src, version, cancellation.promise) : openPath(src, version, cancellation.promise)).then(
+                (document) => {
                     if (cancelPendingOpen === cancellation.resolve) {
                         cancelPendingOpen = null;
                     }
                     return document;
-                });
+                },
+            );
         },
         cancelPendingOpen() {
             cancelPendingOpen?.();
@@ -831,10 +757,7 @@ const pdfDocumentPageLeaseOwners = new WeakMap<
 
 export function registerPdfDocumentPageLeaseOwner(
     document: IPdfDocument,
-    leasePage: (
-        pageNumber: number,
-        retention: TPdfDocumentPageLeaseRetention,
-    ) => Promise<IPdfDocumentPageLease>,
+    leasePage: (pageNumber: number, retention: TPdfDocumentPageLeaseRetention) => Promise<IPdfDocumentPageLease>,
 ) {
     pdfDocumentPageLeaseOwners.set(document, leasePage);
 }

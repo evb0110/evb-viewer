@@ -1,28 +1,17 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { delay } from 'es-toolkit/promise';
-import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
-import {
-    mkdtempSync, copyFileSync, readFileSync, writeFileSync,
-} from 'node:fs';
+import {describe, expect, it} from 'vitest';
+import {delay} from 'es-toolkit/promise';
+import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
+import {mkdtempSync, copyFileSync, readFileSync, writeFileSync} from 'node:fs';
 import {rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {
-    join, resolve,
-} from 'node:path';
+import {join, resolve} from 'node:path';
 import {startElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {waitForPdfLoaded} from '@tests/e2e/electron/helpers/viewerCore';
 import {readWorkspaceStateValues} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {createNewWorkspaceTab} from '@tests/e2e/electron/helpers/workspaceTabs';
-import {
-    activateMenuItemAsUser,
-    clickAsUser,
-} from '@tests/e2e/electron/helpers/userInput';
+import {activateMenuItemAsUser, clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 
 const HYDRATION_CONSOLE_QUIET_WINDOW_MS = 1_500;
 const HYDRATION_CONSOLE_POLL_INTERVAL_MS = 100;
@@ -36,9 +25,10 @@ describe('Electron E2E - startup external-open ownership', () => {
     it('opens one encrypted startup document after a password wait longer than 30 seconds', async () => {
         const directory = mkdtempSync(join(tmpdir(), 'evb-startup-claim-evidence-'));
         const requested = join(directory, 'encrypted-startup.pdf');
-        writeFileSync(requested, Buffer.from(readFileSync(
-            resolve('tests/fixtures/electron/password-protected.pdf.b64'), 'utf8',
-        ).trim(), 'base64'));
+        writeFileSync(
+            requested,
+            Buffer.from(readFileSync(resolve('tests/fixtures/electron/password-protected.pdf.b64'), 'utf8').trim(), 'base64'),
+        );
         let session: IElectronE2ESession | null = null;
         try {
             session = await startElectronE2ESession(`e2e-startup-claim-${Date.now()}`, {
@@ -55,33 +45,37 @@ describe('Electron E2E - startup external-open ownership', () => {
             const heldForMs = Date.now() - holdStartedAt;
             await page.screenshot({path: join(directory, 'held-password-prompt.png')});
             expect(heldForMs).toBeGreaterThan(30_000);
-            expect(await page.evaluate(() => Boolean(document.getElementById('evb-startup-overlay'))),
-                'the startup loading overlay must not cover the password prompt').toBe(false);
+            expect(
+                await page.evaluate(() => Boolean(document.getElementById('evb-startup-overlay'))),
+                'the startup loading overlay must not cover the password prompt',
+            ).toBe(false);
             await clickAsUser(page, passwordInput);
             await page.keyboard.type('frame-secret');
             await page.keyboard.press('Enter');
             await waitForPdfLoaded(page);
-            await page.waitForFunction(() => (
-                (window as IE2EWindow).__evbTestApi?.isStartupOpenClaimPending() === false
-            ));
+            await page.waitForFunction(() => (window as IE2EWindow).__evbTestApi?.isStartupOpenClaimPending() === false);
             // Observe the manager's queued delivery after startup has settled.
             await delay(HYDRATION_CONSOLE_QUIET_WINDOW_MS);
-            const first = await readWorkspaceStateValues(page, [
-                'documentIdentity',
-                'originalPath',
-            ]);
+            const first = await readWorkspaceStateValues(page, ['documentIdentity', 'originalPath']);
             const startup = await page.evaluate(() => ({
                 passwordPrompts: document.querySelectorAll('[role="dialog"] input[type="password"]').length,
-                tabs: Array.from(document.querySelectorAll<HTMLElement>('.tab[data-tab-id]')).map(tab => ({
+                tabs: Array.from(document.querySelectorAll<HTMLElement>('.tab[data-tab-id]')).map((tab) => ({
                     id: tab.dataset.tabId,
                     label: tab.querySelector('.tab-label')?.textContent?.trim(),
                 })),
             }));
-            writeFileSync(join(directory, 'startup.json'), JSON.stringify({
-                heldForMs,
-                first,
-                startup,
-            }, null, 2));
+            writeFileSync(
+                join(directory, 'startup.json'),
+                JSON.stringify(
+                    {
+                        heldForMs,
+                        first,
+                        startup,
+                    },
+                    null,
+                    2,
+                ),
+            );
             await page.screenshot({path: join(directory, 'startup-settled.png')});
             console.log(`[startup claim evidence] ${directory}`);
             expect(startup.passwordPrompts, 'one startup request must not prompt again').toBe(0);
@@ -97,23 +91,28 @@ describe('Electron E2E - startup external-open ownership', () => {
             await page.keyboard.type('frame-secret');
             await page.keyboard.press('Enter');
             await waitForPdfLoaded(page);
-            await page.waitForFunction(() => (
-                document.querySelectorAll('.tab[data-tab-id]').length === 2
-                && !document.querySelector('[role="dialog"] input[type="password"]')
-            ));
-            const second = await readWorkspaceStateValues(page, [
-                'documentIdentity',
-                'originalPath',
-            ]);
+            await page.waitForFunction(
+                () =>
+                    document.querySelectorAll('.tab[data-tab-id]').length === 2 &&
+                    !document.querySelector('[role="dialog"] input[type="password"]'),
+            );
+            const second = await readWorkspaceStateValues(page, ['documentIdentity', 'originalPath']);
             expect(second.originalPath).toBe(requested);
             expect(second.documentIdentity).toBeTruthy();
             expect(second.documentIdentity).not.toEqual(first.documentIdentity);
             await clickAsUser(page, `.tab[data-tab-id="${startup.tabs[0]!.id}"]`);
             expect((await readWorkspaceStateValues(page, ['documentIdentity'])).documentIdentity).toEqual(first.documentIdentity);
-            writeFileSync(join(directory, 'deliberate-open.json'), JSON.stringify({
-                first,
-                second,
-            }, null, 2));
+            writeFileSync(
+                join(directory, 'deliberate-open.json'),
+                JSON.stringify(
+                    {
+                        first,
+                        second,
+                    },
+                    null,
+                    2,
+                ),
+            );
             await page.screenshot({path: join(directory, 'deliberate-open.png')});
         } catch (error) {
             await session?.captureFailureArtifacts('startup-claim-password-wait');
@@ -135,7 +134,10 @@ describe.skipIf(process.platform === 'win32')('Electron E2E - literal POSIX quot
             session = await startElectronE2ESession(`e2e-quoted-startup-${Date.now()}`, {initialOpenPaths: [requested]});
             await waitForPdfLoaded(session.page, 30_000);
             expect((await readWorkspaceStateValues(session.page, ['originalPath'])).originalPath).toBe(requested);
-            const text = await session.page.$eval('.workspace-host[data-workspace-active="true"] .textLayer', element => element.textContent);
+            const text = await session.page.$eval(
+                '.workspace-host[data-workspace-active="true"] .textLayer',
+                (element) => element.textContent,
+            );
             expect(text).toContain('Hello Arabic world');
         } catch (error) {
             await session?.captureFailureArtifacts('quoted-cold-launch');
@@ -150,11 +152,13 @@ describe.skipIf(process.platform === 'win32')('Electron E2E - literal POSIX quot
     }, 120_000);
 });
 
-interface IConsoleCommandResult { messages: Array<{
-    type: string;
-    text: string;
-    timestamp: number;
-}>; }
+interface IConsoleCommandResult {
+    messages: Array<{
+        type: string;
+        text: string;
+        timestamp: number;
+    }>;
+}
 interface IToolbarStartupRect {
     height: number;
     top: number;
@@ -179,57 +183,46 @@ interface IStartupReadinessSample {
 }
 
 function findHydrationWarnings(messages: IConsoleCommandResult['messages']) {
-    return messages.filter(message => {
+    return messages.filter((message) => {
         const text = message.text.toLowerCase();
-        return text.includes('hydration node mismatch')
-            || text.includes('hydration text content mismatch')
-            || text.includes('hydration completed but contains mismatches');
+        return (
+            text.includes('hydration node mismatch') ||
+            text.includes('hydration text content mismatch') ||
+            text.includes('hydration completed but contains mismatches')
+        );
     });
 }
 
 async function waitForHydrationConsoleQuiet(session: IElectronE2ESession) {
-    await session.page.waitForFunction(() => (
-        document.readyState !== 'loading'
-        && Boolean(document.querySelector('.app-shell-root'))
-    ), {timeout: STARTUP_READY_MAX_WAIT_MS});
+    await session.page.waitForFunction(() => document.readyState !== 'loading' && Boolean(document.querySelector('.app-shell-root')), {
+        timeout: STARTUP_READY_MAX_WAIT_MS,
+    });
 
     const startedAt = Date.now();
-    let consoleResult = await session.command<IConsoleCommandResult>('console', [
-        'all',
-        200,
-    ]);
+    let consoleResult = await session.command<IConsoleCommandResult>('console', ['all', 200]);
 
     while (Date.now() - startedAt < HYDRATION_CONSOLE_MAX_WAIT_MS) {
         if (findHydrationWarnings(consoleResult.messages).length > 0) {
             return consoleResult;
         }
 
-        const latestConsoleTimestamp = Math.max(
-            startedAt,
-            ...consoleResult.messages.map(message => message.timestamp),
-        );
+        const latestConsoleTimestamp = Math.max(startedAt, ...consoleResult.messages.map((message) => message.timestamp));
         const quietForMs = Date.now() - latestConsoleTimestamp;
         if (quietForMs >= HYDRATION_CONSOLE_QUIET_WINDOW_MS) {
             return consoleResult;
         }
 
-        await delay(Math.min(
-            HYDRATION_CONSOLE_POLL_INTERVAL_MS,
-            HYDRATION_CONSOLE_QUIET_WINDOW_MS - quietForMs,
-        ));
-        consoleResult = await session.command<IConsoleCommandResult>('console', [
-            'all',
-            200,
-        ]);
+        await delay(Math.min(HYDRATION_CONSOLE_POLL_INTERVAL_MS, HYDRATION_CONSOLE_QUIET_WINDOW_MS - quietForMs));
+        consoleResult = await session.command<IConsoleCommandResult>('console', ['all', 200]);
     }
 
     return consoleResult;
 }
 
 async function waitForAppReady(session: IElectronE2ESession) {
-    await session.page.waitForFunction(() => (
-        (window as Window & {__appReady?: boolean}).__appReady === true
-    ), {timeout: STARTUP_READY_MAX_WAIT_MS});
+    await session.page.waitForFunction(() => (window as Window & {__appReady?: boolean}).__appReady === true, {
+        timeout: STARTUP_READY_MAX_WAIT_MS,
+    });
 }
 
 async function installToolbarStartupSampler(session: IElectronE2ESession) {
@@ -275,18 +268,13 @@ async function installToolbarStartupSampler(session: IElectronE2ESession) {
 }
 
 async function readToolbarStartupSamples(session: IElectronE2ESession) {
-    return session.page.evaluate(() => (
-        (window as Window & {__evbToolbarStartupSamples?: IToolbarStartupSample[];}).__evbToolbarStartupSamples ?? []
-    ));
+    return session.page.evaluate(
+        () => (window as Window & {__evbToolbarStartupSamples?: IToolbarStartupSample[]}).__evbToolbarStartupSamples ?? [],
+    );
 }
 
 function getShellStartupSamples(samples: IToolbarStartupSample[]) {
-    return samples.filter(sample => (
-        sample.hasShell
-        && sample.hasWorkspace
-        && sample.shell
-        && sample.workspace
-    ));
+    return samples.filter((sample) => sample.hasShell && sample.hasWorkspace && sample.shell && sample.workspace);
 }
 
 async function installStartupReadinessSampler(session: IElectronE2ESession) {
@@ -314,25 +302,28 @@ async function installStartupReadinessSampler(session: IElectronE2ESession) {
             childList: true,
             subtree: true,
         });
-        window.addEventListener('evb:app-ready', () => {
-            sample.appReadyEventAt = performance.now();
-            sample.appReadyObservedAt = Date.now();
-            sample.appReadyAt = (window as Window & {__appReadyAt?: number}).__appReadyAt ?? null;
-            sample.viewerPresentAtAppReady = document.querySelector(
-                '#pdf-viewer canvas, [data-testid="document-page-source-image"]',
-            ) !== null;
-            sampleOverlay();
-        }, {once: true});
-        window.addEventListener('evb:startup-open-claimed', (event) => {
-            const detail = event instanceof CustomEvent
-                ? event.detail as {pathCount?: unknown} | null
-                : null;
-            sample.claimAt = performance.now();
-            sample.pathCount = typeof detail?.pathCount === 'number'
-                ? detail.pathCount
-                : null;
-            sampleOverlay();
-        }, {once: true});
+        window.addEventListener(
+            'evb:app-ready',
+            () => {
+                sample.appReadyEventAt = performance.now();
+                sample.appReadyObservedAt = Date.now();
+                sample.appReadyAt = (window as Window & {__appReadyAt?: number}).__appReadyAt ?? null;
+                sample.viewerPresentAtAppReady =
+                    document.querySelector('#pdf-viewer canvas, [data-testid="document-page-source-image"]') !== null;
+                sampleOverlay();
+            },
+            {once: true},
+        );
+        window.addEventListener(
+            'evb:startup-open-claimed',
+            (event) => {
+                const detail = event instanceof CustomEvent ? (event.detail as {pathCount?: unknown} | null) : null;
+                sample.claimAt = performance.now();
+                sample.pathCount = typeof detail?.pathCount === 'number' ? detail.pathCount : null;
+                sampleOverlay();
+            },
+            {once: true},
+        );
         Object.defineProperty(window, '__evbStartupReadinessSample', {
             configurable: true,
             value: sample,
@@ -343,7 +334,7 @@ async function installStartupReadinessSampler(session: IElectronE2ESession) {
 async function expectStableToolbarAcrossReload(session: IElectronE2ESession) {
     await waitForAppReady(session);
     await installToolbarStartupSampler(session);
-    await session.page.reload({ waitUntil: 'domcontentloaded' });
+    await session.page.reload({waitUntil: 'domcontentloaded'});
     await waitForAppReady(session);
     await waitForHydrationConsoleQuiet(session);
     await delay(100);
@@ -351,12 +342,10 @@ async function expectStableToolbarAcrossReload(session: IElectronE2ESession) {
     const shellSamples = getShellStartupSamples(await readToolbarStartupSamples(session));
     expect(shellSamples.length).toBeGreaterThan(0);
 
-    const collapsedSamples = shellSamples.filter(sample => (
-        (sample.shell?.height ?? 0) < TOOLBAR_MIN_VISIBLE_HEIGHT_PX
-    ));
+    const collapsedSamples = shellSamples.filter((sample) => (sample.shell?.height ?? 0) < TOOLBAR_MIN_VISIBLE_HEIGHT_PX);
     expect(collapsedSamples).toEqual([]);
 
-    const workspaceTops = shellSamples.map(sample => sample.workspace?.top ?? 0);
+    const workspaceTops = shellSamples.map((sample) => sample.workspace?.top ?? 0);
     const workspaceTopShift = Math.max(...workspaceTops) - Math.min(...workspaceTops);
     expect(workspaceTopShift).toBeLessThanOrEqual(TOOLBAR_MAX_STARTUP_SHIFT_PX);
 }
@@ -404,22 +393,22 @@ describe('Electron E2E - Startup Hydration', () => {
         await waitForAppReady(session);
         await installStartupReadinessSampler(session);
         await session.page.reload({waitUntil: 'domcontentloaded'});
-        await session.page.waitForFunction(() => {
-            const sample = (window as Window & {__evbStartupReadinessSample?: IStartupReadinessSample;}).__evbStartupReadinessSample;
-            return sample !== undefined
-                && sample.appReadyEventAt !== null
-                && sample.claimAt !== null
-                && sample.overlayRemovedAt !== null;
-        }, {timeout: STARTUP_READY_MAX_WAIT_MS});
+        await session.page.waitForFunction(
+            () => {
+                const sample = (window as Window & {__evbStartupReadinessSample?: IStartupReadinessSample}).__evbStartupReadinessSample;
+                return (
+                    sample !== undefined && sample.appReadyEventAt !== null && sample.claimAt !== null && sample.overlayRemovedAt !== null
+                );
+            },
+            {timeout: STARTUP_READY_MAX_WAIT_MS},
+        );
 
         const result = await session.page.evaluate(() => {
-            const sample = (window as Window & {__evbStartupReadinessSample?: IStartupReadinessSample;}).__evbStartupReadinessSample;
+            const sample = (window as Window & {__evbStartupReadinessSample?: IStartupReadinessSample}).__evbStartupReadinessSample;
             return {
                 sample,
                 appReady: (window as Window & {__appReady?: boolean}).__appReady ?? false,
-                shellInteractiveAt: performance
-                    .getEntriesByName('evb:shell-interactive', 'mark')
-                    .at(-1)?.startTime ?? null,
+                shellInteractiveAt: performance.getEntriesByName('evb:shell-interactive', 'mark').at(-1)?.startTime ?? null,
             };
         });
 

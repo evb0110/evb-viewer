@@ -1,4 +1,4 @@
-import type { IAnnotationEditorState } from '@app/types/annotations';
+import type {IAnnotationEditorState} from '@app/types/annotations';
 import type {AnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {
     IPdfAppAnnotationHistoryCommand,
@@ -68,9 +68,9 @@ export const usePdfAppAnnotationHistory = (options: {
             const pendingCommands = [...undoStack];
             pendingCommands.forEach(pushCommand);
         } else {
-            undoStack.forEach(command => command.onDiscard?.());
+            undoStack.forEach((command) => command.onDiscard?.());
         }
-        redoStack.forEach(command => command.onDiscard?.());
+        redoStack.forEach((command) => command.onDiscard?.());
         undoStack.length = 0;
         redoStack.length = 0;
         syncDepths();
@@ -83,9 +83,7 @@ export const usePdfAppAnnotationHistory = (options: {
     }
 
     function trimStack(stack: IPdfAppAnnotationHistoryCommand[]) {
-        let retainedBytes = stack.reduce((total, command) => (
-            total + Math.max(0, command.estimatedBytes ?? DEFAULT_COMMAND_BYTES)
-        ), 0);
+        let retainedBytes = stack.reduce((total, command) => total + Math.max(0, command.estimatedBytes ?? DEFAULT_COMMAND_BYTES), 0);
         while (stack.length > MAX_HISTORY_DEPTH || retainedBytes > MAX_ANNOTATION_HISTORY_BYTES) {
             const removed = stack.shift();
             retainedBytes -= Math.max(0, removed?.estimatedBytes ?? DEFAULT_COMMAND_BYTES);
@@ -125,7 +123,7 @@ export const usePdfAppAnnotationHistory = (options: {
             return;
         }
         undoStack.push(command);
-        redoStack.splice(0).forEach(entry => entry.onDiscard?.());
+        redoStack.splice(0).forEach((entry) => entry.onDiscard?.());
         trimHistory();
         syncDepths();
         annotationHistoryMutationVersion.value += 1;
@@ -141,21 +139,16 @@ export const usePdfAppAnnotationHistory = (options: {
     }
 
     function forgetCommands(ids: ReadonlySet<AnnotationId>) {
-        const keep = (command: IPdfAppAnnotationHistoryCommand) => (
-            !command.annotationIds?.some(id => ids.has(id))
-        );
-        transactionCommands.filter(command => !keep(command)).forEach(command => command.onDiscard?.());
+        const keep = (command: IPdfAppAnnotationHistoryCommand) => !command.annotationIds?.some((id) => ids.has(id));
+        transactionCommands.filter((command) => !keep(command)).forEach((command) => command.onDiscard?.());
         transactionCommands = transactionCommands.filter(keep);
         if (workspaceCommandSink) {
             workspaceCommandSink.forget('annotation', ids);
         } else {
-            const discarded = [
-                ...undoStack,
-                ...redoStack,
-            ].filter(command => !keep(command));
+            const discarded = [...undoStack, ...redoStack].filter((command) => !keep(command));
             undoStack.splice(0, undoStack.length, ...undoStack.filter(keep));
             redoStack.splice(0, redoStack.length, ...redoStack.filter(keep));
-            discarded.forEach(command => command.onDiscard?.());
+            discarded.forEach((command) => command.onDiscard?.());
         }
         syncDepths();
         emitCombinedState();
@@ -163,22 +156,19 @@ export const usePdfAppAnnotationHistory = (options: {
 
     function replayTransactionAtomically(
         commands: readonly IPdfAppAnnotationHistoryCommand[],
-        apply: (
-            command: IPdfAppAnnotationHistoryCommand,
-            registerFailureRollback: TRegisterAnnotationHistoryFailureRollback,
-        ) => void,
+        apply: (command: IPdfAppAnnotationHistoryCommand, registerFailureRollback: TRegisterAnnotationHistoryFailureRollback) => void,
         compensate: (command: IPdfAppAnnotationHistoryCommand) => void,
     ) {
         const applied: IPdfAppAnnotationHistoryCommand[] = [];
         for (const command of commands) {
             const failureRollbacks: Array<() => void> = [];
             try {
-                apply(command, rollback => failureRollbacks.push(rollback));
+                apply(command, (rollback) => failureRollbacks.push(rollback));
                 applied.push(command);
             } catch (error) {
                 throw buildAnnotationHistoryReplayFailure(error, [
                     ...failureRollbacks.reverse(),
-                    ...applied.reverse().map(child => () => compensate(child)),
+                    ...applied.reverse().map((child) => () => compensate(child)),
                 ]);
             }
         }
@@ -199,31 +189,33 @@ export const usePdfAppAnnotationHistory = (options: {
                 replayTransactionAtomically(
                     commands,
                     (command, register) => command.cmd(register),
-                    command => command.undo(),
+                    (command) => command.undo(),
                 );
-                registerFailureRollback?.(() => replayTransactionAtomically(
-                    [...commands].reverse(),
-                    (command, register) => command.undo(register),
-                    command => command.cmd(),
-                ));
+                registerFailureRollback?.(() =>
+                    replayTransactionAtomically(
+                        [...commands].reverse(),
+                        (command, register) => command.undo(register),
+                        (command) => command.cmd(),
+                    ),
+                );
             },
             undo: (registerFailureRollback) => {
                 replayTransactionAtomically(
                     [...commands].reverse(),
                     (command, register) => command.undo(register),
-                    command => command.cmd(),
+                    (command) => command.cmd(),
                 );
-                registerFailureRollback?.(() => replayTransactionAtomically(
-                    commands,
-                    (command, register) => command.cmd(register),
-                    command => command.undo(),
-                ));
+                registerFailureRollback?.(() =>
+                    replayTransactionAtomically(
+                        commands,
+                        (command, register) => command.cmd(register),
+                        (command) => command.undo(),
+                    ),
+                );
             },
-            estimatedBytes: commands.reduce((total, command) => (
-                total + Math.max(0, command.estimatedBytes ?? DEFAULT_COMMAND_BYTES)
-            ), 0),
-            annotationIds: Array.from(new Set(commands.flatMap(command => command.annotationIds ?? []))),
-            onDiscard: () => commands.forEach(command => command.onDiscard?.()),
+            estimatedBytes: commands.reduce((total, command) => total + Math.max(0, command.estimatedBytes ?? DEFAULT_COMMAND_BYTES), 0),
+            annotationIds: Array.from(new Set(commands.flatMap((command) => command.annotationIds ?? []))),
+            onDiscard: () => commands.forEach((command) => command.onDiscard?.()),
         });
     }
 
@@ -255,11 +247,7 @@ export const usePdfAppAnnotationHistory = (options: {
     }
 
     function poisonHistory() {
-        [
-            ...undoStack.splice(0),
-            ...redoStack.splice(0),
-            ...transactionCommands,
-        ].forEach(command => command.onDiscard?.());
+        [...undoStack.splice(0), ...redoStack.splice(0), ...transactionCommands].forEach((command) => command.onDiscard?.());
         transactionCommands = [];
         syncDepths();
         ignoreFailure(() => workspaceCommandSink?.reset('annotation'));
@@ -274,13 +262,11 @@ export const usePdfAppAnnotationHistory = (options: {
         }
     }
 
-    function replayWorkspaceCommand(
-        apply: IPdfAppAnnotationHistoryCommand['cmd'],
-    ) {
+    function replayWorkspaceCommand(apply: IPdfAppAnnotationHistoryCommand['cmd']) {
         const rollbacks: Array<() => void> = [];
         try {
             beginReplay();
-            apply(rollback => rollbacks.unshift(rollback));
+            apply((rollback) => rollbacks.unshift(rollback));
             finishReplay();
             return true;
         } catch (error) {
@@ -288,16 +274,13 @@ export const usePdfAppAnnotationHistory = (options: {
         }
     }
 
-    function replayLocalCommand(
-        apply: IPdfAppAnnotationHistoryCommand['cmd'],
-        move: () => void,
-    ) {
+    function replayLocalCommand(apply: IPdfAppAnnotationHistoryCommand['cmd'], move: () => void) {
         const undoBefore = [...undoStack];
         const redoBefore = [...redoStack];
         const rollbacks: Array<() => void> = [];
         try {
             beginReplay();
-            apply(rollback => rollbacks.unshift(rollback));
+            apply((rollback) => rollbacks.unshift(rollback));
             rollbacks.unshift(() => {
                 undoStack.splice(0, undoStack.length, ...undoBefore);
                 redoStack.splice(0, redoStack.length, ...redoBefore);
@@ -345,11 +328,7 @@ export const usePdfAppAnnotationHistory = (options: {
     }
 
     function clear() {
-        [
-            ...undoStack.splice(0),
-            ...redoStack.splice(0),
-            ...transactionCommands,
-        ].forEach(command => command.onDiscard?.());
+        [...undoStack.splice(0), ...redoStack.splice(0), ...transactionCommands].forEach((command) => command.onDiscard?.());
         transactionCommands = [];
         syncDepths();
         workspaceCommandSink?.reset('annotation');

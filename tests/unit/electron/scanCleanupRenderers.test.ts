@@ -1,11 +1,4 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    onTestFinished,
-    vi,
-} from 'vitest';
+import {beforeEach, describe, expect, it, onTestFinished, vi} from 'vitest';
 import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import {join} from 'node:path';
@@ -68,25 +61,16 @@ describe('createScanCleanupRenderers', () => {
     // pixels, losslessly, from the app's fast encode.
     it('renders a PNG caller through Poppler PPM and keeps every pixel', async () => {
         const actualFs = await vi.importActual<typeof FsPromises>('node:fs/promises');
-        const actualRaster = await vi.importActual<typeof RasterLayerDimensions>(
-            '@evb/scan-cleanup/core/rasterLayerDimensions',
-        );
+        const actualRaster = await vi.importActual<typeof RasterLayerDimensions>('@evb/scan-cleanup/core/rasterLayerDimensions');
         mocks.writePngFromPpm.mockImplementation(actualRaster.writePngFromPpm);
         mocks.rm.mockImplementation(actualFs.rm);
         const root = await actualFs.mkdtemp(join(tmpdir(), 'scan-cleanup-renderers-'));
         try {
             const runCommand = vi.fn(async (_binary: string, args: string[]) => {
-                await actualFs.writeFile(`${args.at(-1)!}.ppm`, Buffer.concat([
-                    Buffer.from('P6\n2 1\n255\n', 'ascii'),
-                    Buffer.from([
-                        200,
-                        10,
-                        20,
-                        30,
-                        40,
-                        250,
-                    ]),
-                ]));
+                await actualFs.writeFile(
+                    `${args.at(-1)!}.ppm`,
+                    Buffer.concat([Buffer.from('P6\n2 1\n255\n', 'ascii'), Buffer.from([200, 10, 20, 30, 40, 250])]),
+                );
                 return {
                     exitCode: 0,
                     stderr: '',
@@ -116,18 +100,7 @@ describe('createScanCleanupRenderers', () => {
 
             expect(runCommand).toHaveBeenCalledWith(
                 '/bin/pdftoppm',
-                [
-                    '-cropbox',
-                    '-r',
-                    '300',
-                    '-f',
-                    '1',
-                    '-l',
-                    '1',
-                    '-singlefile',
-                    '/tmp/source.pdf',
-                    join(root, 'page'),
-                ],
+                ['-cropbox', '-r', '300', '-f', '1', '-l', '1', '-singlefile', '/tmp/source.pdf', join(root, 'page')],
                 expect.objectContaining({signal: controller.signal}),
             );
             const image = decode(await actualFs.readFile(join(root, 'page.png')));
@@ -140,14 +113,7 @@ describe('createScanCleanupRenderers', () => {
                 width: 2,
                 height: 1,
                 channels: 3,
-                pixels: [
-                    200,
-                    10,
-                    20,
-                    30,
-                    40,
-                    250,
-                ],
+                pixels: [200, 10, 20, 30, 40, 250],
             });
             await expect(actualFs.stat(join(root, 'page.ppm'))).rejects.toMatchObject({code: 'ENOENT'});
         } finally {
@@ -165,14 +131,9 @@ describe('createScanCleanupRenderers', () => {
         mocks.rm.mockRejectedValue(new Error('cleanup failed'));
         const {renderPage} = createScanCleanupRenderers(runCommand);
 
-        await expect(renderPage(
-            {pdftoppmBinary: '/bin/pdftoppm'},
-            vi.fn(),
-            1,
-            '/tmp/source.pdf',
-            '/tmp/page.png',
-            300,
-        )).rejects.toBe(rendererError);
+        await expect(renderPage({pdftoppmBinary: '/bin/pdftoppm'}, vi.fn(), 1, '/tmp/source.pdf', '/tmp/page.png', 300)).rejects.toBe(
+            rendererError,
+        );
     });
 
     it('preserves a command failure when partial-output removal also fails', async () => {
@@ -181,14 +142,9 @@ describe('createScanCleanupRenderers', () => {
         mocks.rm.mockRejectedValue(new Error('cleanup failed'));
         const {renderPage} = createScanCleanupRenderers(runCommand);
 
-        await expect(renderPage(
-            {pdftoppmBinary: '/bin/pdftoppm'},
-            vi.fn(),
-            1,
-            '/tmp/source.pdf',
-            '/tmp/page.png',
-            300,
-        )).rejects.toBe(rendererError);
+        await expect(renderPage({pdftoppmBinary: '/bin/pdftoppm'}, vi.fn(), 1, '/tmp/source.pdf', '/tmp/page.png', 300)).rejects.toBe(
+            rendererError,
+        );
     });
 
     // Poppler writes the PPM a PNG is encoded from. A render that fails after
@@ -217,10 +173,7 @@ describe('createScanCleanupRenderers', () => {
         }
     });
 
-    it.each([
-        false,
-        true,
-    ])('publishes exact PPM bytes or removes an oversized output (oversized=%s)', async oversized => {
+    it.each([false, true])('publishes exact PPM bytes or removes an oversized output (oversized=%s)', async (oversized) => {
         const fs = await vi.importActual<typeof FsPromises>('node:fs/promises');
         const raster = await vi.importActual<typeof RasterLayerDimensions>('@evb/scan-cleanup/core/rasterLayerDimensions');
         mocks.rm.mockImplementation(fs.rm);
@@ -229,17 +182,7 @@ describe('createScanCleanupRenderers', () => {
         const root = await fs.mkdtemp(join(tmpdir(), 'scan-cleanup-ppm-'));
         try {
             const output = join(root, 'page.ppm');
-            const bytes = Buffer.concat([
-                Buffer.from('P6\n2 1\n255\n'),
-                Buffer.from([
-                    200,
-                    10,
-                    20,
-                    30,
-                    40,
-                    250,
-                ]),
-            ]);
+            const bytes = Buffer.concat([Buffer.from('P6\n2 1\n255\n'), Buffer.from([200, 10, 20, 30, 40, 250])]);
             const runCommand = async (_command: string, args: string[]) => {
                 await fs.writeFile(`${args.at(-1)!}.ppm`, bytes);
                 return {
@@ -271,7 +214,6 @@ describe('createScanCleanupRenderers', () => {
             });
         }
     });
-
 });
 
 // Filesystem assertions cover the native adapter boundary, shared by OCR and
@@ -286,37 +228,38 @@ describe('Poppler output ownership at the native proof boundary', () => {
         mocks.stat.mockImplementation((await fs).stat);
     });
 
-    it.each([
-        'png',
-        'ppm',
-    ] as const)('retains marked %s bytes without affirmative proof', async (format) => {
+    it.each(['png', 'ppm'] as const)('retains marked %s bytes without affirmative proof', async (format) => {
         const actual = await fs;
         const dir = await actual.mkdtemp(join(tmpdir(), 'poppler-ownership-'));
         const output = join(dir, `page.${format}`);
         const failure = markUnprovenNativeTermination(new Error('render timeout'), 'tree unproven');
-        const {
-            renderPdfPageToPng, renderPdfPageToPpm,
-        } = await import('@electron/features/ocr/pipeline/popplerStage');
+        const {renderPdfPageToPng, renderPdfPageToPpm} = await import('@electron/features/ocr/pipeline/popplerStage');
         const render = format === 'png' ? renderPdfPageToPng : renderPdfPageToPpm;
         try {
-            for (const outcome of [
-                'absent',
-                'false',
-                'rejected',
-            ]) {
+            for (const outcome of ['absent', 'false', 'rejected']) {
                 await actual.writeFile(output, 'partial raster bytes');
-                if (format === 'png') await actual.writeFile(join(dir, 'page.ppm'), 'partial Poppler PPM bytes');
-                const proof = outcome === 'absent' ? undefined : outcome === 'false'
-                    ? Promise.resolve(false) : Promise.reject(new Error('proof unavailable'));
+                if (format === 'png') {
+                    await actual.writeFile(join(dir, 'page.ppm'), 'partial Poppler PPM bytes');
+                }
+                const proof =
+                    outcome === 'absent'
+                        ? undefined
+                        : outcome === 'false'
+                          ? Promise.resolve(false)
+                          : Promise.reject(new Error('proof unavailable'));
                 mocks.runCommand.mockImplementation(async (_command: string, _args: string[], options: IRunNativeToolCommandOptions) => {
-                    if (proof) options.onTerminationProof?.(proof);
+                    if (proof) {
+                        options.onTerminationProof?.(proof);
+                    }
                     // Attach a rejection observer even on the original revision.
                     await proof?.catch(() => undefined);
                     throw failure;
                 });
                 await expect(render(paths, vi.fn(), 1, join(dir, 'source.pdf'), output, 300)).rejects.toBe(failure);
                 expect(await actual.readFile(output, 'utf8')).toBe('partial raster bytes');
-                if (format === 'png') expect(await actual.readFile(join(dir, 'page.ppm'), 'utf8')).toBe('partial Poppler PPM bytes');
+                if (format === 'png') {
+                    expect(await actual.readFile(join(dir, 'page.ppm'), 'utf8')).toBe('partial Poppler PPM bytes');
+                }
             }
         } finally {
             await actual.rm(dir, {
@@ -326,26 +269,25 @@ describe('Poppler output ownership at the native proof boundary', () => {
         }
     });
 
-    it.each([
-        'png',
-        'ppm',
-    ] as const)('removes ordinary failed %s bytes', async (format) => {
+    it.each(['png', 'ppm'] as const)('removes ordinary failed %s bytes', async (format) => {
         const actual = await fs;
         const dir = await actual.mkdtemp(join(tmpdir(), 'poppler-ordinary-'));
         const output = join(dir, `page.${format}`);
         const failure = new Error('ordinary render failure');
-        const {
-            renderPdfPageToPng, renderPdfPageToPpm,
-        } = await import('@electron/features/ocr/pipeline/popplerStage');
+        const {renderPdfPageToPng, renderPdfPageToPpm} = await import('@electron/features/ocr/pipeline/popplerStage');
         try {
             await actual.writeFile(output, 'partial raster');
-            if (format === 'png') await actual.writeFile(join(dir, 'page.ppm'), 'partial Poppler PPM bytes');
+            if (format === 'png') {
+                await actual.writeFile(join(dir, 'page.ppm'), 'partial Poppler PPM bytes');
+            }
             mocks.runCommand.mockRejectedValue(failure);
-            await expect((format === 'png' ? renderPdfPageToPng : renderPdfPageToPpm)(
-                paths, vi.fn(), 1, join(dir, 'source.pdf'), output, 300,
-            )).rejects.toBe(failure);
+            await expect(
+                (format === 'png' ? renderPdfPageToPng : renderPdfPageToPpm)(paths, vi.fn(), 1, join(dir, 'source.pdf'), output, 300),
+            ).rejects.toBe(failure);
             await expect(actual.stat(output)).rejects.toMatchObject({code: 'ENOENT'});
-            if (format === 'png') await expect(actual.stat(join(dir, 'page.ppm'))).rejects.toMatchObject({code: 'ENOENT'});
+            if (format === 'png') {
+                await expect(actual.stat(join(dir, 'page.ppm'))).rejects.toMatchObject({code: 'ENOENT'});
+            }
         } finally {
             await actual.rm(dir, {
                 recursive: true,
@@ -361,14 +303,11 @@ describe('Poppler output ownership at the native proof boundary', () => {
         mocks.runCommand.mockRejectedValue(failure);
         const {renderOcrPageToPpm} = await import('@electron/features/ocr/pipeline/popplerStage');
         try {
-            await expect(renderOcrPageToPpm([
-                paths,
-                vi.fn(),
-                1,
-                join(dir, 'source.pdf'),
-                join(dir, 'page.ppm'),
-                300,
-            ], async () => {throw new Error('must not reach fallback');})).rejects.toBe(failure);
+            await expect(
+                renderOcrPageToPpm([paths, vi.fn(), 1, join(dir, 'source.pdf'), join(dir, 'page.ppm'), 300], async () => {
+                    throw new Error('must not reach fallback');
+                }),
+            ).rejects.toBe(failure);
         } finally {
             await actual.rm(dir, {
                 recursive: true,
@@ -387,9 +326,11 @@ describe('Poppler output ownership at the native proof boundary', () => {
         await actual.writeFile(output, 'owned PNG bytes');
         await actual.writeFile(source, sourceBytes);
         // IPC acknowledgements order the observations; no sleep or retry.
-        const child = spawn(process.execPath, [
-            '-e',
-            `
+        const child = spawn(
+            process.execPath,
+            [
+                '-e',
+                `
             const fs = require('node:fs');
             const input = fs.openSync(process.argv[2], 'r');
             const fd = fs.openSync(process.argv[1], 'w');
@@ -405,18 +346,17 @@ describe('Poppler output ownership at the native proof boundary', () => {
                 if (message === 'exit') { fs.closeSync(input); fs.closeSync(fd); process.exit(0); }
             });
         `,
-            ppm,
-            source,
-        ], {stdio: [
-            'ignore',
-            'ignore',
-            'pipe',
-            'ipc',
-        ]});
+                ppm,
+                source,
+            ],
+            {stdio: ['ignore', 'ignore', 'pipe', 'ipc']},
+        );
         const ready = once(child, 'message');
         const closed = once(child, 'close');
         onTestFinished(async () => {
-            if (child.exitCode === null) child.kill('SIGKILL');
+            if (child.exitCode === null) {
+                child.kill('SIGKILL');
+            }
             await closed;
         });
         const proof = Promise.withResolvers<boolean>();
@@ -424,15 +364,21 @@ describe('Poppler output ownership at the native proof boundary', () => {
         const ppmRemoved = Promise.withResolvers<undefined>();
         mocks.rm.mockImplementation(async (path: string, options: Parameters<typeof actual.rm>[1]) => {
             await actual.rm(path, options);
-            if (path === output) removed.resolve(undefined);
-            if (path === ppm) ppmRemoved.resolve(undefined);
+            if (path === output) {
+                removed.resolve(undefined);
+            }
+            if (path === ppm) {
+                ppmRemoved.resolve(undefined);
+            }
         });
         const failure = markUnprovenNativeTermination(new Error('bounded proof wait ended'), 'child exit not yet proved');
         const {renderPdfPageToPng} = await import('@electron/features/ocr/pipeline/popplerStage');
         try {
             await Promise.race([
                 ready,
-                closed.then(() => {throw new Error('writing child exited before ready');}),
+                closed.then(() => {
+                    throw new Error('writing child exited before ready');
+                }),
             ]);
             mocks.runCommand.mockImplementation(async (_command: string, _args: string[], options: IRunNativeToolCommandOptions) => {
                 options.onTerminationProof?.(proof.promise);
@@ -452,23 +398,19 @@ describe('Poppler output ownership at the native proof boundary', () => {
             expect(await actual.readFile(ppm, 'utf8')).toBe('first-continued');
             expect(await actual.readFile(source)).toEqual(sourceBytes);
             child.send('exit');
-            expect(await closed).toEqual([
-                0,
-                null,
-            ]);
+            expect(await closed).toEqual([0, null]);
             // A close/exit alone is not the adapter's process-tree proof.
             expect(await actual.readFile(output, 'utf8')).toBe('owned PNG bytes');
             expect(await actual.readFile(ppm, 'utf8')).toBe('first-continued');
             proof.resolve(true);
-            await Promise.all([
-                removed.promise,
-                ppmRemoved.promise,
-            ]);
+            await Promise.all([removed.promise, ppmRemoved.promise]);
             await expect(actual.stat(output)).rejects.toMatchObject({code: 'ENOENT'});
             await expect(actual.stat(ppm)).rejects.toMatchObject({code: 'ENOENT'});
             expect(await actual.readFile(source)).toEqual(sourceBytes);
         } finally {
-            if (child.exitCode === null) child.kill('SIGKILL');
+            if (child.exitCode === null) {
+                child.kill('SIGKILL');
+            }
             await closed;
             proof.resolve(false);
             await actual.rm(dir, {

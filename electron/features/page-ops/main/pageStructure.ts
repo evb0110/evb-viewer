@@ -1,28 +1,13 @@
-import {
-    rm,
-    writeFile,
-} from 'fs/promises';
+import {rm, writeFile} from 'fs/promises';
 import {join} from 'path';
-import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import { getAppTempDir } from '@electron/utils/appTempDir';
-import { createManagedScratchTempDir } from '@electron/utils/managedScratchTemp';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import {getAppTempDir} from '@electron/utils/appTempDir';
+import {createManagedScratchTempDir} from '@electron/utils/managedScratchTemp';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';
-import {
-    type IPageStructureOptions,
-    runPageStructureCommand,
-} from '@electron/features/page-ops/main/pageStructureCommand';
-import {
-    assertNonEmptyPdfOutput,
-    QPDF_TIMEOUT_MS,
-} from '@electron/features/page-ops/main/qpdf';
-import {
-    formatPageMoveRanges,
-    validatePageDeleteRanges,
-} from '@electron/features/page-ops/domain/pageNumbers';
-import type {
-    IPageMoveRangeSegment,
-    IPageMoveRanges,
-} from '@contracts/pageNumbers';
+import {type IPageStructureOptions, runPageStructureCommand} from '@electron/features/page-ops/main/pageStructureCommand';
+import {assertNonEmptyPdfOutput, QPDF_TIMEOUT_MS} from '@electron/features/page-ops/main/qpdf';
+import {formatPageMoveRanges, validatePageDeleteRanges} from '@electron/features/page-ops/domain/pageNumbers';
+import type {IPageMoveRangeSegment, IPageMoveRanges} from '@contracts/pageNumbers';
 
 // Each edit reads `sourcePath` and writes a new PDF at `targetPath`; the
 // caller decides what the target becomes (the next document revision, or an
@@ -38,7 +23,9 @@ function pageRuns(pages: readonly number[]) {
             previous = page;
             continue;
         }
-        if (start !== undefined) runs.push(start === previous ? String(start) : `${start}-${previous}`);
+        if (start !== undefined) {
+            runs.push(start === previous ? String(start) : `${start}-${previous}`);
+        }
         start = page;
         previous = page;
     }
@@ -46,17 +33,10 @@ function pageRuns(pages: readonly number[]) {
 }
 
 function rangeRuns(ranges: readonly IPageMoveRangeSegment[]) {
-    return ranges.map(range => range.startPage === range.endPage
-        ? String(range.startPage)
-        : `${range.startPage}-${range.endPage}`);
+    return ranges.map((range) => (range.startPage === range.endPage ? String(range.startPage) : `${range.startPage}-${range.endPage}`));
 }
 
-export function extractPages(
-    sourcePath: string,
-    targetPath: string,
-    pages: number[],
-    options: IPageStructureOptions = {},
-) {
+export function extractPages(sourcePath: string, targetPath: string, pages: number[], options: IPageStructureOptions = {}) {
     return runPageStructureCommand('extract-pages', sourcePath, targetPath, {pages: pageRuns(pages)}, options);
 }
 
@@ -87,23 +67,13 @@ export async function deletePageRanges(
     return {pageCount: keptCount};
 }
 
-export async function reorderPages(
-    sourcePath: string,
-    targetPath: string,
-    newOrder: number[],
-    options: IPageStructureOptions = {},
-) {
+export async function reorderPages(sourcePath: string, targetPath: string, newOrder: number[], options: IPageStructureOptions = {}) {
     await runPageStructureCommand('reorder-pages', sourcePath, targetPath, {pages: pageRuns(newOrder)}, options);
     return {pageCount: newOrder.length};
 }
 
 /** Moves sorted page runs, one or several; the new order is sent as runs. */
-export async function movePageRanges(
-    sourcePath: string,
-    targetPath: string,
-    move: IPageMoveRanges,
-    options: IPageStructureOptions = {},
-) {
+export async function movePageRanges(sourcePath: string, targetPath: string, move: IPageMoveRanges, options: IPageStructureOptions = {}) {
     await runPageStructureCommand('reorder-pages', sourcePath, targetPath, {pages: formatPageMoveRanges(move).split(',')}, options);
     return {pageCount: move.pageCount};
 }
@@ -117,12 +87,7 @@ function createNativeModifiedAt() {
 }
 
 /** Rotation appends the selected page dictionaries to `pdfPath`, a file no one else holds. */
-export async function rotatePages(
-    pdfPath: string,
-    pages: number[],
-    angle: TRotationAngle,
-    options: IPageStructureOptions = {},
-) {
+export async function rotatePages(pdfPath: string, pages: number[], angle: TRotationAngle, options: IPageStructureOptions = {}) {
     const binaryPath = resolveNativePageOpsPath();
     if (!binaryPath) {
         throw new Error('Native page rotation is unavailable');
@@ -131,28 +96,32 @@ export async function rotatePages(
     const tempDir = await createManagedScratchTempDir('pdf-page-ops-', getAppTempDir());
     const mutationsPath = join(tempDir, 'mutations.json');
     try {
-        const pageRotations = pages.map(page => ({
+        const pageRotations = pages.map((page) => ({
             pageIndex: page - 1,
             angle,
         }));
         await writeFile(mutationsPath, JSON.stringify({pageRotations}), 'utf8');
-        await runNativeToolCommand(binaryPath, [
-            'save-mutations',
-            '--input',
-            pdfPath,
-            '--output',
-            pdfPath,
-            '--mutations-file',
-            mutationsPath,
-            '--modified-at',
-            createNativeModifiedAt(),
-            '--append',
-            '--append-in-place',
-        ], {
-            timeoutMs: QPDF_TIMEOUT_MS,
-            commandLabel: 'evb-pdf-page-ops(page-rotation)',
-            ...options,
-        });
+        await runNativeToolCommand(
+            binaryPath,
+            [
+                'save-mutations',
+                '--input',
+                pdfPath,
+                '--output',
+                pdfPath,
+                '--mutations-file',
+                mutationsPath,
+                '--modified-at',
+                createNativeModifiedAt(),
+                '--append',
+                '--append-in-place',
+            ],
+            {
+                timeoutMs: QPDF_TIMEOUT_MS,
+                commandLabel: 'evb-pdf-page-ops(page-rotation)',
+                ...options,
+            },
+        );
         await assertNonEmptyPdfOutput(pdfPath, 'Rotating pages');
     } finally {
         await rm(tempDir, {

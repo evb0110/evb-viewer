@@ -1,23 +1,9 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    computed, nextTick, ref, shallowRef, watch,
-} from 'vue';
-import { requireDocumentRef } from '@contracts/documentRef';
-import {
-    requireDocumentRevisionToken,
-    type TDocumentRevisionToken,
-} from '@contracts/documentRevision';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
-import type {
-    IPdfDocumentTransition,
-    TPdfDocumentSession,
-} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {computed, nextTick, ref, shallowRef, watch} from 'vue';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireDocumentRevisionToken, type TDocumentRevisionToken} from '@contracts/documentRevision';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
+import type {IPdfDocumentTransition, TPdfDocumentSession} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import {
     createPdfSourceJob,
     settlePdfSourceJob,
@@ -29,14 +15,16 @@ function admitSource(session: TPdfDocumentSession, intent: TPdfSourceJobIntent, 
     return session.admit(createPdfSourceJob(intent, {src: shallowRef(source as never)})).finished;
 }
 
-vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
-    diagnostic: vi.fn(),
-    diagnosticThrottled: vi.fn(),
-    error: vi.fn(),
-    warn: vi.fn(),
-    warnThrottled: vi.fn(),
-    debug: vi.fn(),
-}}));
+vi.mock('@app/utils/browserLogger', () => ({
+    BrowserLogger: {
+        diagnostic: vi.fn(),
+        diagnosticThrottled: vi.fn(),
+        error: vi.fn(),
+        warn: vi.fn(),
+        warnThrottled: vi.fn(),
+        debug: vi.fn(),
+    },
+}));
 
 class MockPdfDataRangeTransport {
     public onDataRange = vi.fn();
@@ -50,8 +38,8 @@ class MockPdfDataRangeTransport {
 
 const pdfjsState = {
     version: '6.3.311',
-    GlobalWorkerOptions: { workerSrc: '' },
-    VerbosityLevel: { ERRORS: 0 },
+    GlobalWorkerOptions: {workerSrc: ''},
+    VerbosityLevel: {ERRORS: 0},
     getDocument: vi.fn(),
     PDFDataRangeTransport: MockPdfDataRangeTransport,
 };
@@ -132,10 +120,7 @@ function createRevisionSwapAuthority(revision: TDocumentRevisionToken) {
     });
     const surface = {
         snapshot: surfaceSnapshot,
-        prepareRevisionSwap: vi.fn((identity: {
-            documentId: string;
-            documentRevision: TDocumentRevisionToken
-        }) => {
+        prepareRevisionSwap: vi.fn((identity: {documentId: string; documentRevision: TDocumentRevisionToken}) => {
             surfaceSnapshot.value = {
                 ...surfaceSnapshot.value,
                 identity,
@@ -180,10 +165,10 @@ describe('PdfDocumentSession transitions', () => {
         const session = createPdfDocumentSession({src: source});
         const view = session.attachView();
         const observed: string[] = [];
-        view.subscribe(transition => {
+        view.subscribe((transition) => {
             observed.push(`viewport:${transition.phase}`);
         });
-        view.subscribe(transition => {
+        view.subscribe((transition) => {
             observed.push(`rendering:${transition.phase}`);
         });
 
@@ -234,18 +219,16 @@ describe('PdfDocumentSession transitions', () => {
         const wedgedDocument = createDocumentProxy('wedged');
         const wedged = createDeferredLoadingTask(wedgedDocument);
         const recoveredDocument = createDocumentProxy('recovered');
-        pdfjsState.getDocument
-            .mockReturnValueOnce(wedged.task)
-            .mockReturnValue({
-                promise: Promise.resolve(recoveredDocument),
-                destroy: vi.fn(),
-            });
+        pdfjsState.getDocument.mockReturnValueOnce(wedged.task).mockReturnValue({
+            promise: Promise.resolve(recoveredDocument),
+            destroy: vi.fn(),
+        });
 
         const source = computed(() => new Blob(['pdf'], {type: 'application/pdf'}) as never);
         const predecessor = createPdfDocumentSession({src: source});
         const predecessorView = predecessor.attachView();
         const predecessorPhases: IPdfDocumentTransition[] = [];
-        predecessorView.subscribe(transition => {
+        predecessorView.subscribe((transition) => {
             predecessorPhases.push(transition);
         });
 
@@ -254,7 +237,7 @@ describe('PdfDocumentSession transitions', () => {
         await vi.waitFor(() => {
             expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
         });
-        expect(predecessorPhases.map(phase => phase.phase)).toEqual(['loading']);
+        expect(predecessorPhases.map((phase) => phase.phase)).toEqual(['loading']);
         const wedgedFence = predecessorPhases[0]!.fence;
         await predecessor.dispose();
 
@@ -311,10 +294,7 @@ describe('PdfDocumentSession transitions', () => {
 
         await session.loadPublishedSource()?.finished;
 
-        expect(renderingPhases).toEqual([
-            'loading',
-            'invalidated',
-        ]);
+        expect(renderingPhases).toEqual(['loading', 'invalidated']);
         expect(renderingPhases).not.toContain('ready');
     });
 
@@ -333,11 +313,7 @@ describe('PdfDocumentSession transitions', () => {
         });
 
         await session.dispose();
-        expect(disposed).toEqual([
-            'annotation',
-            'rendering',
-            'viewport',
-        ]);
+        expect(disposed).toEqual(['annotation', 'rendering', 'viewport']);
 
         // Disposal is idempotent: a second call must not re-run the tree.
         await session.dispose();
@@ -399,9 +375,7 @@ describe('PdfDocumentSession transitions', () => {
         const previousRevision = requireDocumentRevisionToken('drt1:before-rotate');
         const nextRevision = requireDocumentRevisionToken('drt1:after-rotate');
         const documentRevisionToken = ref(previousRevision);
-        const {
-            surface, chassisAuthority,
-        } = createRevisionSwapAuthority(previousRevision);
+        const {surface, chassisAuthority} = createRevisionSwapAuthority(previousRevision);
         const source = computed(() => new Blob(['pdf'], {type: 'application/pdf'}) as never);
         const session = createPdfDocumentSession({
             src: source,
@@ -434,10 +408,14 @@ describe('PdfDocumentSession transitions', () => {
             preserveVisibleContent: true,
             preservePageStructure: true,
         });
-        expect(surface.prepareRevisionSwap).toHaveBeenCalledWith({
-            documentId: 'scan.pdf',
-            documentRevision: nextRevision,
-        }, 135, [135]);
+        expect(surface.prepareRevisionSwap).toHaveBeenCalledWith(
+            {
+                documentId: 'scan.pdf',
+                documentRevision: nextRevision,
+            },
+            135,
+            [135],
+        );
         expect(surface.completeRevisionSwap).toHaveBeenCalledWith(7, String(nextRevision));
         await session.dispose();
     });
@@ -522,11 +500,8 @@ describe('PdfDocumentSession transitions', () => {
         const {chassisAuthority} = createRevisionSwapAuthority(previousRevision);
         const replacementPageRequests: number[] = [];
         const previousDocument = createMetricDocumentProxy('before-fast-rotate', 3);
-        const replacementDocument = createMetricDocumentProxy(
-            'after-fast-rotate',
-            3,
-            2,
-            pageNumber => replacementPageRequests.push(pageNumber),
+        const replacementDocument = createMetricDocumentProxy('after-fast-rotate', 3, 2, (pageNumber) =>
+            replacementPageRequests.push(pageNumber),
         );
         let documentLoadCount = 0;
         pdfjsState.getDocument.mockImplementation(() => ({
@@ -569,12 +544,7 @@ describe('PdfDocumentSession transitions', () => {
         });
 
         expect(session.beginPageMutationRotationPreview([2], 90)).toBe(true);
-        expect(view.preparePageMutationRevisionSwap(
-            String(nextRevision),
-            [2],
-            2,
-            90,
-        )).toBe(true);
+        expect(view.preparePageMutationRevisionSwap(String(nextRevision), [2], 2, 90)).toBe(true);
         expect(session.pageMetrics.value[1]).toMatchObject({
             width: 200,
             height: 100,
@@ -608,11 +578,8 @@ describe('PdfDocumentSession transitions', () => {
         const {chassisAuthority} = createRevisionSwapAuthority(previousRevision);
         const previousDocument = createMetricDocumentProxy('before-rotation', 20_001);
         const replacementPageRequests: number[] = [];
-        const replacementDocument = createMetricDocumentProxy(
-            'after-rotation',
-            20_001,
-            currentPage,
-            pageNumber => replacementPageRequests.push(pageNumber),
+        const replacementDocument = createMetricDocumentProxy('after-rotation', 20_001, currentPage, (pageNumber) =>
+            replacementPageRequests.push(pageNumber),
         );
         let documentLoadCount = 0;
         pdfjsState.getDocument.mockImplementation(() => ({
@@ -629,7 +596,9 @@ describe('PdfDocumentSession transitions', () => {
         const view = session.attachView({
             chassisAuthority,
             emitDocument: () => {
-                if (collecting) observed.push('replacement-source-published');
+                if (collecting) {
+                    observed.push('replacement-source-published');
+                }
             },
         });
 
@@ -641,13 +610,12 @@ describe('PdfDocumentSession transitions', () => {
             rotation: 0,
         });
 
-        view.subscribe(async transition => {
-            if (transition.phase !== 'ready' || !transition.plan.isSelectiveReload) return;
+        view.subscribe(async (transition) => {
+            if (transition.phase !== 'ready' || !transition.plan.isSelectiveReload) {
+                return;
+            }
             expect(transition.plan.pagesToInvalidate).toEqual([currentPage]);
-            await session.ensurePageMetricsInRange(
-                currentPage,
-                currentPage,
-            );
+            await session.ensurePageMetricsInRange(currentPage, currentPage);
             expect(replacementPageRequests).toContain(currentPage);
             expect(session.pageMetrics.value[currentPage - 1]).toMatchObject({
                 width: 200,
@@ -661,10 +629,7 @@ describe('PdfDocumentSession transitions', () => {
         documentRevisionToken.value = nextRevision;
         await admitSource(session, 'reload');
 
-        expect(observed).toEqual([
-            'replacement-geometry-ready',
-            'replacement-source-published',
-        ]);
+        expect(observed).toEqual(['replacement-geometry-ready', 'replacement-source-published']);
         expect(session.document.value).toBe(replacementDocument);
         expect(pdfjsState.getDocument).toHaveBeenCalledTimes(2);
         await session.dispose();
@@ -692,11 +657,7 @@ describe('PdfDocumentSession transitions', () => {
             expect(session.document.value).toBe(recoveredDocument);
         });
         expect(active.value).toBe(false);
-        expect(phases.slice(-3)).toEqual([
-            'loading',
-            'ready',
-            'settled',
-        ]);
+        expect(phases.slice(-3)).toEqual(['loading', 'ready', 'settled']);
     });
 
     it('starts a replacement from the source watcher while the previous load is unresolved', async () => {
@@ -704,12 +665,10 @@ describe('PdfDocumentSession transitions', () => {
         const sourceB = new Blob(['b'], {type: 'application/pdf'});
         const pendingA = createDeferredLoadingTask(createDocumentProxy('a'));
         const documentB = createDocumentProxy('b');
-        pdfjsState.getDocument
-            .mockReturnValueOnce(pendingA.task)
-            .mockReturnValueOnce({
-                promise: Promise.resolve(documentB),
-                destroy: vi.fn(async () => undefined),
-            });
+        pdfjsState.getDocument.mockReturnValueOnce(pendingA.task).mockReturnValueOnce({
+            promise: Promise.resolve(documentB),
+            destroy: vi.fn(async () => undefined),
+        });
         const source = ref<Blob | null>(sourceA);
         const session = createPdfDocumentSession({src: computed(() => source.value as never)});
         session.attachView();
@@ -806,7 +765,9 @@ describe('PdfDocumentSession transitions', () => {
         });
         const session = createPdfDocumentSession({src: computed(() => new Blob(['a'], {type: 'application/pdf'}) as never)});
         session.attachView().subscribe((transition) => {
-            if (transition.phase === 'invalidated') throw new Error('view invalidation failed');
+            if (transition.phase === 'invalidated') {
+                throw new Error('view invalidation failed');
+            }
         });
         await session.loadPublishedSource()?.finished;
 
@@ -826,7 +787,9 @@ describe('PdfDocumentSession transitions', () => {
         const clearStarted = Promise.withResolvers<void>();
         const releaseClear = Promise.withResolvers<void>();
         view.subscribe((transition) => {
-            if (transition.phase !== 'invalidated' || transition.reason !== 'source-cleared') return;
+            if (transition.phase !== 'invalidated' || transition.reason !== 'source-cleared') {
+                return;
+            }
             clearStarted.resolve();
             return releaseClear.promise;
         });
@@ -842,7 +805,7 @@ describe('PdfDocumentSession transitions', () => {
 
             releaseClear.resolve();
             await clear;
-            await new Promise<void>(resolve => setImmediate(resolve));
+            await new Promise<void>((resolve) => setImmediate(resolve));
             expect(session.document.value).toMatchObject({id: 'new'});
         } finally {
             releaseClear.resolve();
@@ -891,7 +854,9 @@ describe('PdfDocumentSession transitions', () => {
         const session = createPdfDocumentSession({src: computed(() => source as never)});
         const first = session.attachView();
         const unsubscribe = first.subscribe((transition) => {
-            if (transition.phase === 'loading') throw new Error('injected loading transition failure');
+            if (transition.phase === 'loading') {
+                throw new Error('injected loading transition failure');
+            }
         });
 
         try {
@@ -899,7 +864,7 @@ describe('PdfDocumentSession transitions', () => {
             unsubscribe();
             const late = session.attachView();
             late.present();
-            await new Promise<void>(resolve => setImmediate(resolve));
+            await new Promise<void>((resolve) => setImmediate(resolve));
             expect(late.isViewLoading.value).toBe(false);
         } finally {
             unsubscribe();
@@ -919,17 +884,21 @@ describe('PdfDocumentSession transitions', () => {
         const live = session.attachView();
         const liveLoading = Promise.withResolvers<void>();
         live.subscribe(async (transition) => {
-            if (transition.phase === 'loading') await liveLoading.promise;
+            if (transition.phase === 'loading') {
+                await liveLoading.promise;
+            }
         });
         const finished = admitSource(session, 'open', source);
         let outcome: Awaited<typeof finished> | undefined;
-        void finished.then(result => { outcome = result; });
+        void finished.then((result) => {
+            outcome = result;
+        });
 
         try {
-            await new Promise<void>(resolve => setImmediate(resolve));
+            await new Promise<void>((resolve) => setImmediate(resolve));
             expect(live.isViewLoading.value).toBe(true);
             await live.dispose();
-            await new Promise<void>(resolve => setImmediate(resolve));
+            await new Promise<void>((resolve) => setImmediate(resolve));
             expect(outcome?.status ?? 'pending', 'no view presents the job once the live one left').toBe('superseded');
         } finally {
             liveLoading.resolve();
@@ -945,28 +914,35 @@ describe('PdfDocumentSession transitions', () => {
         const first = session.attachView();
         const firstLoading = Promise.withResolvers<void>();
         first.subscribe(async (transition) => {
-            if (transition.phase === 'loading') await firstLoading.promise;
+            if (transition.phase === 'loading') {
+                await firstLoading.promise;
+            }
         });
         const finished = admitSource(session, 'open', source);
         let outcome: Awaited<typeof finished> | undefined;
-        void finished.then(result => { outcome = result; });
+        void finished.then((result) => {
+            outcome = result;
+        });
 
         try {
-            await new Promise<void>(resolve => setImmediate(resolve));
+            await new Promise<void>((resolve) => setImmediate(resolve));
             expect(first.isViewLoading.value).toBe(true);
 
             const shown: unknown[] = [];
-            const late = session.attachView({emitDocument: proxy => shown.push(proxy)});
+            const late = session.attachView({emitDocument: (proxy) => shown.push(proxy)});
             late.present();
             await first.dispose();
             firstLoading.resolve();
 
-            await new Promise<void>(resolve => setImmediate(resolve));
-            expect({
-                status: outcome?.status ?? 'pending',
-                loading: late.isViewLoading.value,
-                presentsAdmittedPdf: shown.at(-1) === document,
-            }, 'the admitted job and the late view must both finish').toEqual({
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            expect(
+                {
+                    status: outcome?.status ?? 'pending',
+                    loading: late.isViewLoading.value,
+                    presentsAdmittedPdf: shown.at(-1) === document,
+                },
+                'the admitted job and the late view must both finish',
+            ).toEqual({
                 status: 'presented',
                 loading: false,
                 presentsAdmittedPdf: true,
@@ -1046,16 +1022,8 @@ describe('PdfDocumentSession linked views', () => {
         await session.loadPublishedSource()?.finished;
 
         expect(pdfjsState.getDocument).toHaveBeenCalledOnce();
-        expect(left).toEqual([
-            'loading',
-            'ready',
-            'settled',
-        ]);
-        expect(right).toEqual([
-            'loading',
-            'ready',
-            'settled',
-        ]);
+        expect(left).toEqual(['loading', 'ready', 'settled']);
+        expect(right).toEqual(['loading', 'ready', 'settled']);
         await session.dispose();
     });
 
@@ -1078,11 +1046,7 @@ describe('PdfDocumentSession linked views', () => {
         });
         const late = observe(lateView);
         lateView.present();
-        await vi.waitFor(() => expect(late).toEqual([
-            'loading',
-            'ready',
-            'settled',
-        ]));
+        await vi.waitFor(() => expect(late).toEqual(['loading', 'ready', 'settled']));
 
         expect(pdfjsState.getDocument).toHaveBeenCalledTimes(2);
         expect(plans[0]).toMatchObject({
@@ -1208,7 +1172,7 @@ describe('PdfDocumentSession linked views', () => {
             source.value = new Blob(['b'], {type: 'application/pdf'});
             void admitSource(session, 'open', source.value);
             const shown: unknown[] = [];
-            session.attachView({emitDocument: document => shown.push(document)}).present();
+            session.attachView({emitDocument: (document) => shown.push(document)}).present();
             firstLeft.resolve();
             await leaving;
 
@@ -1261,13 +1225,9 @@ describe('PdfDocumentSession residency across views', () => {
 
         const loading: boolean[] = [];
         const lateView = session.attachView();
-        watch(lateView.isViewLoading, value => loading.push(value), {immediate: true});
+        watch(lateView.isViewLoading, (value) => loading.push(value), {immediate: true});
         lateView.present();
-        await vi.waitFor(() => expect(loading).toEqual([
-            false,
-            true,
-            false,
-        ]));
+        await vi.waitFor(() => expect(loading).toEqual([false, true, false]));
         await session.dispose();
     });
 
@@ -1282,10 +1242,9 @@ describe('PdfDocumentSession residency across views', () => {
         const session = createPdfDocumentSession({src: computed(() => new Blob(['pdf'], {type: 'application/pdf'}) as never)});
         const left = session.attachView();
         const invalidation = vi.fn(() => cancellation.promise);
-        session.attachView({isActive: computed(() => rightActive.value)})
-            .subscribe(transition => transition.phase === 'invalidated'
-                ? invalidation()
-                : undefined);
+        session
+            .attachView({isActive: computed(() => rightActive.value)})
+            .subscribe((transition) => (transition.phase === 'invalidated' ? invalidation() : undefined));
         await session.loadPublishedSource()?.finished;
 
         rightActive.value = false;
@@ -1312,11 +1271,13 @@ describe('PdfDocumentSession residency across views', () => {
         const source = shallowRef<Blob | null>(sourceA);
         const session = createPdfDocumentSession({src: computed(() => source.value as never)});
         const firstShown: unknown[] = [];
-        const first = session.attachView({emitDocument: document => firstShown.push(document)});
+        const first = session.attachView({emitDocument: (document) => firstShown.push(document)});
         const readyStarted = Promise.withResolvers<void>();
         const holdReadyA = Promise.withResolvers<void>();
         first.subscribe((transition) => {
-            if (transition.phase !== 'ready') return;
+            if (transition.phase !== 'ready') {
+                return;
+            }
             readyStarted.resolve();
             return holdReadyA.promise;
         });
@@ -1333,8 +1294,8 @@ describe('PdfDocumentSession residency across views', () => {
             // A late split view mounting while B is still queued must not enter beginLoad before admission.
             const splitBeforeShown: unknown[] = [];
             const splitBeforePhases: string[] = [];
-            const splitBefore = session.attachView({emitDocument: document => splitBeforeShown.push(document)});
-            splitBefore.subscribe(transition => {
+            const splitBefore = session.attachView({emitDocument: (document) => splitBeforeShown.push(document)});
+            splitBefore.subscribe((transition) => {
                 splitBeforePhases.push(transition.phase);
             });
             splitBefore.present();
@@ -1347,13 +1308,13 @@ describe('PdfDocumentSession residency across views', () => {
 
             // A late split view mounting after B is released presents intact A, never B.
             const splitAfterShown: unknown[] = [];
-            const splitAfter = session.attachView({emitDocument: document => splitAfterShown.push(document)});
+            const splitAfter = session.attachView({emitDocument: (document) => splitAfterShown.push(document)});
             splitAfter.present();
 
             holdReadyA.resolve();
             await loadA;
             await nextTick();
-            await new Promise<void>(resolve => setImmediate(resolve));
+            await new Promise<void>((resolve) => setImmediate(resolve));
 
             expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
             expect(session.document.value).toBe(docA);
@@ -1363,11 +1324,7 @@ describe('PdfDocumentSession residency across views', () => {
             expect(splitBeforeShown).not.toContain(docB);
             expect(splitBeforeShown.at(-1)).toBe(docA);
             expect(splitBefore.isViewLoading.value).toBe(false);
-            expect(splitBeforePhases).toEqual([
-                'loading',
-                'ready',
-                'settled',
-            ]);
+            expect(splitBeforePhases).toEqual(['loading', 'ready', 'settled']);
             expect(splitAfterShown).not.toContain(docB);
             expect(splitAfterShown.at(-1)).toBe(docA);
         } finally {
@@ -1380,9 +1337,7 @@ describe('PdfDocumentSession residency across views', () => {
         const previousRevision = requireDocumentRevisionToken('drt1:before-selective-release');
         const nextRevision = requireDocumentRevisionToken('drt1:after-selective-release');
         const documentRevisionToken = ref(previousRevision);
-        const {
-            surface, chassisAuthority,
-        } = createRevisionSwapAuthority(previousRevision);
+        const {surface, chassisAuthority} = createRevisionSwapAuthority(previousRevision);
         const docA = createMetricDocumentProxy('doc-a', 3);
         const docB = createMetricDocumentProxy('doc-b', 3, 2);
         let loadIndex = 0;
@@ -1398,15 +1353,19 @@ describe('PdfDocumentSession residency across views', () => {
         const shown: unknown[] = [];
         const view = session.attachView({
             chassisAuthority,
-            emitDocument: document => shown.push(document),
+            emitDocument: (document) => shown.push(document),
         });
         const selectiveReadyStarted = Promise.withResolvers<void>();
         const holdSelectiveReady = Promise.withResolvers<void>();
         const selectivePhases: string[] = [];
         view.subscribe((transition) => {
-            if (!transition.plan.isSelectiveReload) return undefined;
+            if (!transition.plan.isSelectiveReload) {
+                return undefined;
+            }
             selectivePhases.push(transition.phase);
-            if (transition.phase !== 'ready') return undefined;
+            if (transition.phase !== 'ready') {
+                return undefined;
+            }
             selectiveReadyStarted.resolve();
             return holdSelectiveReady.promise;
         });
@@ -1432,10 +1391,10 @@ describe('PdfDocumentSession residency across views', () => {
             settlePdfSourceJob(jobC, {status: 'released'});
             await expect(jobC.finished).resolves.toEqual({status: 'released'});
             const splitDuringReadyShown: unknown[] = [];
-            session.attachView({emitDocument: document => splitDuringReadyShown.push(document)}).present();
+            session.attachView({emitDocument: (document) => splitDuringReadyShown.push(document)}).present();
             holdSelectiveReady.resolve();
             await nextTick();
-            await new Promise<void>(resolve => setImmediate(resolve));
+            await new Promise<void>((resolve) => setImmediate(resolve));
 
             expect(shown).not.toContain(docB);
             expect(splitDuringReadyShown).not.toContain(docB);
@@ -1448,9 +1407,9 @@ describe('PdfDocumentSession residency across views', () => {
             // A split mounted after release cannot standalone-present the released proxy B.
             source.value = null;
             const splitAfterShown: unknown[] = [];
-            session.attachView({emitDocument: document => splitAfterShown.push(document)}).present();
+            session.attachView({emitDocument: (document) => splitAfterShown.push(document)}).present();
             await nextTick();
-            await new Promise<void>(resolve => setImmediate(resolve));
+            await new Promise<void>((resolve) => setImmediate(resolve));
             expect(splitAfterShown).not.toContain(docB);
         } finally {
             holdSelectiveReady.resolve();
@@ -1471,8 +1430,8 @@ describe('PdfDocumentSession residency across views', () => {
         const firstShown: unknown[] = [];
         const firstTotalPages: number[] = [];
         const first = session.attachView({
-            emitDocument: document => firstShown.push(document),
-            emitTotalPages: total => firstTotalPages.push(total),
+            emitDocument: (document) => firstShown.push(document),
+            emitTotalPages: (total) => firstTotalPages.push(total),
         });
         const split = session.attachView();
         const firstReadyStarted = Promise.withResolvers<void>();
@@ -1480,12 +1439,16 @@ describe('PdfDocumentSession residency across views', () => {
         const holdSplitLoading = Promise.withResolvers<void>();
         let adoptStarted = false;
         first.subscribe((transition) => {
-            if (!adoptStarted || transition.phase !== 'ready') return undefined;
+            if (!adoptStarted || transition.phase !== 'ready') {
+                return undefined;
+            }
             firstReadyStarted.resolve();
             return holdFirstReady.promise;
         });
         split.subscribe((transition) => {
-            if (!adoptStarted || transition.phase !== 'loading') return undefined;
+            if (!adoptStarted || transition.phase !== 'loading') {
+                return undefined;
+            }
             return holdSplitLoading.promise;
         });
 
@@ -1503,7 +1466,7 @@ describe('PdfDocumentSession residency across views', () => {
             holdSplitLoading.resolve();
             holdFirstReady.resolve();
             await nextTick();
-            await new Promise<void>(resolve => setImmediate(resolve));
+            await new Promise<void>((resolve) => setImmediate(resolve));
 
             expect(split.isViewLoading.value).toBe(false);
             expect(first.isViewLoading.value).toBe(false);
@@ -1530,12 +1493,14 @@ describe('PdfDocumentSession residency across views', () => {
         const source = shallowRef<Blob | null>(sourceA);
         const session = createPdfDocumentSession({src: computed(() => source.value as never)});
         const firstShown: unknown[] = [];
-        const first = session.attachView({emitDocument: document => firstShown.push(document)});
+        const first = session.attachView({emitDocument: (document) => firstShown.push(document)});
         const readyStarted = Promise.withResolvers<void>();
         const holdReadyA = Promise.withResolvers<void>();
         let heldFirstReady = false;
         first.subscribe((transition) => {
-            if (transition.phase !== 'ready' || heldFirstReady) return;
+            if (transition.phase !== 'ready' || heldFirstReady) {
+                return;
+            }
             heldFirstReady = true;
             readyStarted.resolve();
             return holdReadyA.promise;
@@ -1551,8 +1516,8 @@ describe('PdfDocumentSession residency across views', () => {
 
             const splitShown: unknown[] = [];
             const splitPhases: string[] = [];
-            const split = session.attachView({emitDocument: document => splitShown.push(document)});
-            split.subscribe(transition => {
+            const split = session.attachView({emitDocument: (document) => splitShown.push(document)});
+            split.subscribe((transition) => {
                 splitPhases.push(transition.phase);
             });
             split.present();
@@ -1563,11 +1528,7 @@ describe('PdfDocumentSession residency across views', () => {
             await expect(jobB.finished).resolves.toEqual({status: 'presented'});
             expect(firstShown.at(-1)).toBe(docB);
             expect(splitShown.at(-1)).toBe(docB);
-            expect(splitPhases).toEqual([
-                'loading',
-                'ready',
-                'settled',
-            ]);
+            expect(splitPhases).toEqual(['loading', 'ready', 'settled']);
         } finally {
             holdReadyA.resolve();
             await session.dispose();
@@ -1615,13 +1576,9 @@ describe('PdfDocumentSession residency across views', () => {
             holdReadyA.resolve();
             await expect(loadA).resolves.toEqual({status: 'presented'});
             await nextTick();
-            await new Promise<void>(resolve => setImmediate(resolve));
+            await new Promise<void>((resolve) => setImmediate(resolve));
 
-            expect(phases).toEqual([
-                'loading',
-                'ready',
-                'settled',
-            ]);
+            expect(phases).toEqual(['loading', 'ready', 'settled']);
             expect(visiblePageSurvived).toBe(true);
             expect(readyFence).not.toBeNull();
             expect(view.isCurrent(readyFence!)).toBe(true);

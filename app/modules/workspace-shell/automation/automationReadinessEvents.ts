@@ -4,8 +4,8 @@ import type {
     TEvbAutomationEventPredicate,
     TEvbAutomationEventType,
 } from '@app/types/evbAutomationEvents';
-import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
-import { isAutomationSession } from '@app/utils/isAutomationSession';
+import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
+import {isAutomationSession} from '@app/utils/isAutomationSession';
 
 const DEFAULT_AUTOMATION_EVENT_TIMEOUT_MS = 30_000;
 const MAX_AUTOMATION_EVENTS = 200;
@@ -14,9 +14,7 @@ let nextEventId = 1;
 const automationEvents: IEvbAutomationEvent[] = [];
 const listeners = new Set<TEvbAutomationEventListener>();
 
-export async function publishStagedPdfNativeMutationForAutomation(
-    stagedArtifact: ITypedStagedArtifact,
-) {
+export async function publishStagedPdfNativeMutationForAutomation(stagedArtifact: ITypedStagedArtifact) {
     if (!isAutomationSession()) {
         return;
     }
@@ -64,7 +62,7 @@ export function waitForAutomationEvent(
     predicate: TEvbAutomationEventPredicate = () => true,
     timeoutMs = DEFAULT_AUTOMATION_EVENT_TIMEOUT_MS,
 ) {
-    const existing = automationEvents.find(event => event.type === type && predicate(event));
+    const existing = automationEvents.find((event) => event.type === type && predicate(event));
     if (existing) {
         return Promise.resolve(existing);
     }

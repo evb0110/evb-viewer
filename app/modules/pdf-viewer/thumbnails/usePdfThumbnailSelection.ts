@@ -1,7 +1,4 @@
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
+import type {ComputedRef, Ref} from 'vue';
 import {
     buildPageMoveOrder,
     buildPageMoveRangesOrder,
@@ -11,7 +8,7 @@ import {
     iteratePageSelectionRanges,
     mapPageNumberAfterPageMove,
 } from '@pdf-core/pdfPageSelection';
-import type { TPageMoveOperation } from '@pdf-core/pdfPageSelection';
+import type {TPageMoveOperation} from '@pdf-core/pdfPageSelection';
 import {
     createExplicitPageSelection,
     createRangePageSelection,
@@ -23,7 +20,7 @@ import {
     shouldSelectPageFromThumbnailClick,
     togglePageSelection,
 } from '@app/utils/pdfPageSelection';
-import type { TPageSelection } from '@app/utils/pdfPageSelection';
+import type {TPageSelection} from '@app/utils/pdfPageSelection';
 
 /** Rows PageUp/PageDown skip, matching the scan-cleanup rail. */
 const PAGE_KEYBOARD_STEP = 5;
@@ -60,13 +57,7 @@ interface IUsePdfThumbnailSelectionOptions {
     isDragging: Ref<boolean>;
     isExternalDragOver: Ref<boolean>;
     markUserInteraction: (reason: string) => void;
-    onContextMenu: (payload: {
-        clientX: number;
-        clientY: number;
-        clickedPage: number;
-        pages: number[];
-        selection: TPageSelection;
-    }) => void;
+    onContextMenu: (payload: {clientX: number; clientY: number; clickedPage: number; pages: number[]; selection: TPageSelection}) => void;
     onGoToPage: (page: number) => void;
     onMove?: ((move: TPageMoveOperation) => void) | undefined;
     onReorder?: (newOrder: number[]) => void;
@@ -110,18 +101,19 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
         if (onPageSelectionChange && selection && selection.pageCount === totalPages.value) {
             return selection;
         }
-        return createExplicitPageSelection(
-            totalPages.value,
-            normalizeSelectedPageNumbers(selectedPages.value, totalPages.value),
-        );
+        return createExplicitPageSelection(totalPages.value, normalizeSelectedPageNumbers(selectedPages.value, totalPages.value));
     });
     const hasSelection = computed(() => pageSelectionCount(pageSelection.value) > 0);
-    watch(pageSelection, (selection) => {
-        if (pageSelectionCount(selection) === 0) {
-            anchorPage.value = null;
-            selectionFocusPage.value = null;
-        }
-    }, {immediate: true});
+    watch(
+        pageSelection,
+        (selection) => {
+            if (pageSelectionCount(selection) === 0) {
+                anchorPage.value = null;
+                selectionFocusPage.value = null;
+            }
+        },
+        {immediate: true},
+    );
 
     /**
      * A gesture's anchor or focus counts while something is selected and its
@@ -135,7 +127,7 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
         if (!onPageSelectionChange) {
             return page !== null && isPageSelected(pageSelection.value, page)
                 ? page
-                : normalizeSelectedPageNumbers(selectedPages.value, totalPages.value).at(-1) ?? null;
+                : (normalizeSelectedPageNumbers(selectedPages.value, totalPages.value).at(-1) ?? null);
         }
         return page !== null && page >= 1 && page <= totalPages.value ? page : null;
     }
@@ -171,9 +163,7 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
     }
 
     /** The keyboard-focused row, independent of selection. */
-    const rovingFocusPage = computed(() => (
-        totalPages.value > 0 ? clampPage(keyboardFocusPage.value ?? currentPage.value) : null
-    ));
+    const rovingFocusPage = computed(() => (totalPages.value > 0 ? clampPage(keyboardFocusPage.value ?? currentPage.value) : null));
 
     function focusThumbnailPage(page: number) {
         keyboardFocusPage.value = page;
@@ -211,22 +201,20 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
         }
 
         if (event.shiftKey) {
-            const anchor = liveSelectionPage(anchorPage.value)
-                ?? getThumbnailSelectionFallbackAnchor()
-                ?? page;
-            if (notifyPageSelection(createRangePageSelection(
-                totalPages.value,
-                Math.min(anchor, page),
-                Math.max(anchor, page),
-            ))) {
+            const anchor = liveSelectionPage(anchorPage.value) ?? getThumbnailSelectionFallbackAnchor() ?? page;
+            if (notifyPageSelection(createRangePageSelection(totalPages.value, Math.min(anchor, page), Math.max(anchor, page)))) {
                 anchorPage.value = anchor;
                 selectionFocusPage.value = page;
             }
             return;
         }
-        if (notifyPageSelection(event.metaKey || event.ctrlKey
-            ? togglePageSelection(pageSelection.value, page)
-            : createExplicitPageSelection(totalPages.value, [page]))) {
+        if (
+            notifyPageSelection(
+                event.metaKey || event.ctrlKey
+                    ? togglePageSelection(pageSelection.value, page)
+                    : createExplicitPageSelection(totalPages.value, [page]),
+            )
+        ) {
             selectionFocusPage.value = page;
         }
     }
@@ -239,32 +227,26 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
     }
 
     function handleThumbnailContextMenu(event: MouseEvent, page: number) {
-        const selection = resolveThumbnailContextMenuSelection(
-            page,
-            pageSelection.value,
-            totalPages.value,
-        );
+        const selection = resolveThumbnailContextMenuSelection(page, pageSelection.value, totalPages.value);
         onContextMenu({
             clientX: event.clientX,
             clientY: event.clientY,
             clickedPage: page,
-            pages: pageSelectionCount(selection) <= 100_000
-                ? materializePageSelection(selection)
-                : [],
+            pages: pageSelectionCount(selection) <= 100_000 ? materializePageSelection(selection) : [],
             selection,
         });
     }
 
     function getKeyboardSelectionBasePage() {
-        return liveSelectionPage(selectionFocusPage.value)
-            ?? normalizeSelectedPageNumbers(selectedPages.value, totalPages.value).at(-1)
-            ?? clampPage(currentPage.value);
+        return (
+            liveSelectionPage(selectionFocusPage.value) ??
+            normalizeSelectedPageNumbers(selectedPages.value, totalPages.value).at(-1) ??
+            clampPage(currentPage.value)
+        );
     }
 
     function getKeyboardSelectionAnchorPage(basePage: number) {
-        return liveSelectionPage(anchorPage.value)
-            ?? normalizeSelectedPageNumbers(selectedPages.value, totalPages.value)[0]
-            ?? basePage;
+        return liveSelectionPage(anchorPage.value) ?? normalizeSelectedPageNumbers(selectedPages.value, totalPages.value)[0] ?? basePage;
     }
 
     function resolveArrowDirection(key: string) {
@@ -284,11 +266,11 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
         const basePage = getKeyboardSelectionBasePage();
         const nextFocusPage = clampPage(basePage + direction);
         const anchor = getKeyboardSelectionAnchorPage(basePage);
-        if (!notifyPageSelection(createRangePageSelection(
-            totalPages.value,
-            Math.min(anchor, nextFocusPage),
-            Math.max(anchor, nextFocusPage),
-        ))) {
+        if (
+            !notifyPageSelection(
+                createRangePageSelection(totalPages.value, Math.min(anchor, nextFocusPage), Math.max(anchor, nextFocusPage)),
+            )
+        ) {
             return;
         }
         anchorPage.value = anchor;
@@ -325,19 +307,23 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
         const selection = pageSelection.value;
         const selectionCount = pageSelectionCount(selection);
         if (selectionCount > LEGACY_SELECTION_MATERIALIZATION_LIMIT) {
-            return [{
-                startPage: basePage,
-                endPage: basePage,
-            }];
+            return [
+                {
+                    startPage: basePage,
+                    endPage: basePage,
+                },
+            ];
         }
 
         const ranges = [...iteratePageSelectionRanges(selection)];
         return ranges.length > 0 && isPageSelected(selection, basePage)
             ? ranges
-            : [{
-                startPage: basePage,
-                endPage: basePage,
-            }];
+            : [
+                  {
+                      startPage: basePage,
+                      endPage: basePage,
+                  },
+              ];
     }
 
     function moveFocusedPagesByKeyboard(event: KeyboardEvent, direction: -1 | 1) {
@@ -357,14 +343,8 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
             return false;
         }
 
-        const insertAt = direction < 0
-            ? firstRange.startPage - 2
-            : lastRange.endPage + 1;
-        const move = createPageMoveRanges(
-            totalPages.value,
-            ranges,
-            Math.min(Math.max(0, insertAt), totalPages.value),
-        );
+        const insertAt = direction < 0 ? firstRange.startPage - 2 : lastRange.endPage + 1;
+        const move = createPageMoveRanges(totalPages.value, ranges, Math.min(Math.max(0, insertAt), totalPages.value));
         if (isPageMoveOperationNoOp(move)) {
             return false;
         }
@@ -375,20 +355,14 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
 
         event.preventDefault();
         markUserInteraction('keyboard-reorder');
-        const operation: TPageMoveOperation = move.ranges.length === 1
-            ? createPageMoveRange(
-                move.pageCount,
-                firstMoveRange.startPage,
-                firstMoveRange.endPage,
-                move.insertAt,
-            )
-            : move;
+        const operation: TPageMoveOperation =
+            move.ranges.length === 1
+                ? createPageMoveRange(move.pageCount, firstMoveRange.startPage, firstMoveRange.endPage, move.insertAt)
+                : move;
         if (onMove) {
             onMove(operation);
         } else if (onReorder) {
-            onReorder('ranges' in operation
-                ? buildPageMoveRangesOrder(operation)
-                : buildPageMoveOrder(operation));
+            onReorder('ranges' in operation ? buildPageMoveRangesOrder(operation) : buildPageMoveOrder(operation));
         }
 
         const nextFocusPage = mapPageNumberAfterPageMove(focusedPage, operation);
@@ -397,21 +371,11 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
     }
 
     function handleContainerKeyDown(event: KeyboardEvent) {
-        if (
-            totalPages.value <= 0
-            || isDragging.value
-            || isExternalDragOver.value
-            || isNestedRowControl(event.target)
-        ) {
+        if (totalPages.value <= 0 || isDragging.value || isExternalDragOver.value || isNestedRowControl(event.target)) {
             return;
         }
 
-        if (
-            event.altKey
-            && !event.shiftKey
-            && !event.metaKey
-            && !event.ctrlKey
-        ) {
+        if (event.altKey && !event.shiftKey && !event.metaKey && !event.ctrlKey) {
             const direction = resolveArrowDirection(event.key);
             if (direction !== 0 && moveFocusedPagesByKeyboard(event, direction < 0 ? -1 : 1)) {
                 return;

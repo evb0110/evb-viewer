@@ -1,35 +1,16 @@
 import {createHash} from 'node:crypto';
-import {
-    copyFile,
-    mkdir,
-    readFile,
-    rm,
-    stat,
-    writeFile,
-} from 'node:fs/promises';
+import {copyFile, mkdir, readFile, rm, stat, writeFile} from 'node:fs/promises';
 import {dirname} from 'node:path';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import type {Page} from 'puppeteer-core';
 import type {TPerformanceMode} from '@contracts/hostResourceProfile';
 import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
 import {startConfiguredElectronE2ESession as startConfiguredSession} from '@tests/e2e/electron/helpers/startConfiguredElectronE2ESession';
-import {
-    openAnnotationsTab,
-    openPdfInApp,
-    waitForViewerInteractive,
-} from '@tests/e2e/electron/helpers/viewerCore';
+import {openAnnotationsTab, openPdfInApp, waitForViewerInteractive} from '@tests/e2e/electron/helpers/viewerCore';
 import {waitForNoOpenNoteWindows} from '@tests/e2e/electron/helpers/viewerAnnotations';
-import {
-    callWorkspaceCommand,
-    waitForSaveFrontierReady,
-    waitForWorkspaceToolbarIdle,
-} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {callWorkspaceCommand, waitForSaveFrontierReady, waitForWorkspaceToolbarIdle} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {readPdfAnnotationSummary} from '@tests/e2e/electron/helpers/fixtures';
 
 const execFileAsync = promisify(execFile);
@@ -58,44 +39,31 @@ async function installNativeProjectionProbe(page: Page) {
     });
 }
 
-async function runSave(
-    page: Page,
-    path: string,
-    text: string,
-    electronPid: number | null,
-) {
+async function runSave(page: Page, path: string, text: string, electronPid: number | null) {
     const position = {
         x: 0.27,
         y: 0.28,
     };
-    const created = await callWorkspaceCommand<boolean>(page, 'commentAtPoint', [
-        1,
-        position.x,
-        position.y,
-        {preferTextAnchor: false},
-    ]);
+    const created = await callWorkspaceCommand<boolean>(page, 'commentAtPoint', [1, position.x, position.y, {preferTextAnchor: false}]);
     expect(created).toEqual({
         called: true,
         value: true,
     });
     await page.waitForSelector('textarea.note-window__textarea', {timeout: 20_000});
     await page.evaluate((noteText: string) => {
-        const textarea = Array.from(document.querySelectorAll<HTMLTextAreaElement>(
-            'textarea.note-window__textarea',
-        )).at(-1);
+        const textarea = Array.from(document.querySelectorAll<HTMLTextAreaElement>('textarea.note-window__textarea')).at(-1);
         if (!textarea) {
             throw new Error('Benchmark note editor did not open');
         }
-        const setter = Object.getOwnPropertyDescriptor(
-            HTMLTextAreaElement.prototype,
-            'value',
-        )?.set;
+        const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
         setter?.call(textarea, noteText);
-        textarea.dispatchEvent(new InputEvent('input', {
-            bubbles: true,
-            data: noteText,
-            inputType: 'insertText',
-        }));
+        textarea.dispatchEvent(
+            new InputEvent('input', {
+                bubbles: true,
+                data: noteText,
+                inputType: 'insertText',
+            }),
+        );
         textarea.dispatchEvent(new Event('change', {bubbles: true}));
         textarea.dispatchEvent(new Event('blur', {bubbles: true}));
     }, text);
@@ -107,7 +75,7 @@ async function runSave(
     let peakRssBytes = await readResidentBytes(electronPid);
     const rssSampler = (async () => {
         while (sampling) {
-            await new Promise(resolve => setTimeout(resolve, 50));
+            await new Promise((resolve) => setTimeout(resolve, 50));
             if (!sampling) {
                 break;
             }
@@ -154,12 +122,7 @@ async function readResidentBytes(pid: number | null) {
         return null;
     }
     try {
-        const {stdout} = await execFileAsync('ps', [
-            '-o',
-            'rss=',
-            '-p',
-            String(pid),
-        ], {encoding: 'utf8'});
+        const {stdout} = await execFileAsync('ps', ['-o', 'rss=', '-p', String(pid)], {encoding: 'utf8'});
         const kib = Number.parseInt(stdout.trim(), 10);
         return Number.isFinite(kib) ? kib * 1024 : null;
     } catch {
@@ -168,132 +131,115 @@ async function readResidentBytes(pid: number | null) {
 }
 
 benchmarkDescribe('Electron E2E - save pipeline benchmark', () => {
-    it('records repeated real-app saves in an isolated headless session', async () => {
-        const mode = 'native-freetext';
-        const tier: TPerformanceMode = benchmarkTier === 'low'
-            ? 'low'
-            : 'high';
-        const warmups = parsePositiveInteger(
-            process.env.EVB_SAVE_PIPELINE_BENCHMARK_WARMUPS,
-            5,
-        );
-        const iterations = parsePositiveInteger(
-            process.env.EVB_SAVE_PIPELINE_BENCHMARK_ITERATIONS,
-            10,
-        );
-        const fixturePath = benchmarkFixture!;
-        const outputPath = benchmarkOutput!;
-        const workingFixture = `${outputPath}.${mode}-${tier}.pdf`;
-        await mkdir(dirname(outputPath), {recursive: true});
-        const inputBytes = (await stat(fixturePath)).size;
-        const sourceSemanticReopen = await readPdfAnnotationSummary(fixturePath);
-        const session = await startConfiguredSession(
-            `e2e-save-benchmark-${mode}-${tier}-${Date.now()}`,
-            tier,
-            {EVB_LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES: '1'},
-        );
-        try {
-            await session.page.waitForFunction(
-                (expectedTier: TPerformanceMode) => (
-                    document.documentElement.classList.contains(`performance-tier-${expectedTier}`)
-                ),
-                {timeout: SAVE_TIMEOUT_MS},
-                tier,
-            );
-            const hostProfile = await session.page.evaluate(() => (
-                window.electronAPI?.host.getResourceProfile() ?? null
-            ));
-            if (hostProfile) {
-                expect(hostProfile).toMatchObject({tier});
-            }
-            const totalRuns = warmups + iterations;
-            const timings: number[] = [];
-            const iterationMeasurements = [];
-            let peakRssBytes: number | null = null;
-            const electronPid = getSessionInfo(session.name)?.electronPid ?? null;
-            for (let index = 0; index < totalRuns; index += 1) {
-                const runFixture = index === totalRuns - 1
-                    ? workingFixture
-                    : `${workingFixture}.${String(index)}.pdf`;
-                await copyFile(fixturePath, runFixture);
-                await openPdfInApp(session.page, runFixture, SAVE_TIMEOUT_MS);
-                await waitForViewerInteractive(session.page, SAVE_TIMEOUT_MS);
-                await openAnnotationsTab(session.page, SAVE_TIMEOUT_MS);
-                await installNativeProjectionProbe(session.page);
-                const measurement = await runSave(
-                    session.page,
-                    runFixture,
-                    'save-benchmark-freetext',
-                    electronPid,
+    it(
+        'records repeated real-app saves in an isolated headless session',
+        async () => {
+            const mode = 'native-freetext';
+            const tier: TPerformanceMode = benchmarkTier === 'low' ? 'low' : 'high';
+            const warmups = parsePositiveInteger(process.env.EVB_SAVE_PIPELINE_BENCHMARK_WARMUPS, 5);
+            const iterations = parsePositiveInteger(process.env.EVB_SAVE_PIPELINE_BENCHMARK_ITERATIONS, 10);
+            const fixturePath = benchmarkFixture!;
+            const outputPath = benchmarkOutput!;
+            const workingFixture = `${outputPath}.${mode}-${tier}.pdf`;
+            await mkdir(dirname(outputPath), {recursive: true});
+            const inputBytes = (await stat(fixturePath)).size;
+            const sourceSemanticReopen = await readPdfAnnotationSummary(fixturePath);
+            const session = await startConfiguredSession(`e2e-save-benchmark-${mode}-${tier}-${Date.now()}`, tier, {
+                EVB_LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES: '1',
+            });
+            try {
+                await session.page.waitForFunction(
+                    (expectedTier: TPerformanceMode) => document.documentElement.classList.contains(`performance-tier-${expectedTier}`),
+                    {timeout: SAVE_TIMEOUT_MS},
+                    tier,
                 );
-                const nativeProjectionEngaged = await session.page.evaluate(
-                    () => document.documentElement.dataset.evbNativeProjectionEngaged === 'true',
-                );
-                expect(nativeProjectionEngaged).toBe(true);
-                if (measurement.peakRssBytes !== null) {
-                    peakRssBytes = Math.max(peakRssBytes ?? 0, measurement.peakRssBytes);
+                const hostProfile = await session.page.evaluate(() => window.electronAPI?.host.getResourceProfile() ?? null);
+                if (hostProfile) {
+                    expect(hostProfile).toMatchObject({tier});
                 }
-                if (index >= warmups) {
-                    timings.push(measurement.durationMs);
-                    iterationMeasurements.push({
-                        iteration: index - warmups + 1,
-                        ...measurement,
-                    });
+                const totalRuns = warmups + iterations;
+                const timings: number[] = [];
+                const iterationMeasurements = [];
+                let peakRssBytes: number | null = null;
+                const electronPid = getSessionInfo(session.name)?.electronPid ?? null;
+                for (let index = 0; index < totalRuns; index += 1) {
+                    const runFixture = index === totalRuns - 1 ? workingFixture : `${workingFixture}.${String(index)}.pdf`;
+                    await copyFile(fixturePath, runFixture);
+                    await openPdfInApp(session.page, runFixture, SAVE_TIMEOUT_MS);
+                    await waitForViewerInteractive(session.page, SAVE_TIMEOUT_MS);
+                    await openAnnotationsTab(session.page, SAVE_TIMEOUT_MS);
+                    await installNativeProjectionProbe(session.page);
+                    const measurement = await runSave(session.page, runFixture, 'save-benchmark-freetext', electronPid);
+                    const nativeProjectionEngaged = await session.page.evaluate(
+                        () => document.documentElement.dataset.evbNativeProjectionEngaged === 'true',
+                    );
+                    expect(nativeProjectionEngaged).toBe(true);
+                    if (measurement.peakRssBytes !== null) {
+                        peakRssBytes = Math.max(peakRssBytes ?? 0, measurement.peakRssBytes);
+                    }
+                    if (index >= warmups) {
+                        timings.push(measurement.durationMs);
+                        iterationMeasurements.push({
+                            iteration: index - warmups + 1,
+                            ...measurement,
+                        });
+                    }
+                    if (runFixture !== workingFixture) {
+                        await rm(runFixture, {force: true});
+                    }
                 }
-                if (runFixture !== workingFixture) {
-                    await rm(runFixture, {force: true});
-                }
+                const outputBytes = await readFile(workingFixture);
+                const semanticReopen = await readPdfAnnotationSummary(workingFixture);
+                const result = {
+                    schemaVersion: 1,
+                    scenario: `${mode}-${tier}`,
+                    mode,
+                    annotationAction: 'page-note',
+                    tier,
+                    hostProfile,
+                    fixturePath,
+                    inputPath: fixturePath,
+                    outputPath: workingFixture,
+                    warmups,
+                    iterations,
+                    iterationMeasurements,
+                    totalMs: {
+                        p50: percentile(timings, 0.5),
+                        p95: percentile(timings, 0.95),
+                        samples: timings,
+                    },
+                    peakRssBytes,
+                    ioBytes: {
+                        logicalRead: null,
+                        logicalWritten: null,
+                        physicalRead: null,
+                        physicalWritten: null,
+                    },
+                    phaseTimingsMs: {
+                        baseHash: null,
+                        cloneOrCopy: null,
+                        conflictCheck: null,
+                        expectationRefresh: null,
+                        fileSync: null,
+                        historyReload: null,
+                        pdfJsSemanticReopen: null,
+                        qpdf: null,
+                        rustLoad: null,
+                        rustReopen: null,
+                        rustTail: null,
+                        targetedValidation: null,
+                    },
+                    inputBytes,
+                    outputBytes: outputBytes.byteLength,
+                    outputSha256: createHash('sha256').update(outputBytes).digest('hex'),
+                    sourceSemanticReopen,
+                    semanticReopen,
+                };
+                await writeFile(outputPath, `${JSON.stringify(result, null, 2)}\n`);
+            } finally {
+                await session.stop();
             }
-            const outputBytes = await readFile(workingFixture);
-            const semanticReopen = await readPdfAnnotationSummary(workingFixture);
-            const result = {
-                schemaVersion: 1,
-                scenario: `${mode}-${tier}`,
-                mode,
-                annotationAction: 'page-note',
-                tier,
-                hostProfile,
-                fixturePath,
-                inputPath: fixturePath,
-                outputPath: workingFixture,
-                warmups,
-                iterations,
-                iterationMeasurements,
-                totalMs: {
-                    p50: percentile(timings, 0.5),
-                    p95: percentile(timings, 0.95),
-                    samples: timings,
-                },
-                peakRssBytes,
-                ioBytes: {
-                    logicalRead: null,
-                    logicalWritten: null,
-                    physicalRead: null,
-                    physicalWritten: null,
-                },
-                phaseTimingsMs: {
-                    baseHash: null,
-                    cloneOrCopy: null,
-                    conflictCheck: null,
-                    expectationRefresh: null,
-                    fileSync: null,
-                    historyReload: null,
-                    pdfJsSemanticReopen: null,
-                    qpdf: null,
-                    rustLoad: null,
-                    rustReopen: null,
-                    rustTail: null,
-                    targetedValidation: null,
-                },
-                inputBytes,
-                outputBytes: outputBytes.byteLength,
-                outputSha256: createHash('sha256').update(outputBytes).digest('hex'),
-                sourceSemanticReopen,
-                semanticReopen,
-            };
-            await writeFile(outputPath, `${JSON.stringify(result, null, 2)}\n`);
-        } finally {
-            await session.stop();
-        }
-    }, 30 * 60_000);
+        },
+        30 * 60_000,
+    );
 });

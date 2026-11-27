@@ -1,20 +1,10 @@
 import {createHash} from 'node:crypto';
 import type * as TFsModule from 'node:fs';
 import type * as TFsPromisesModule from 'node:fs/promises';
-import {
-    mkdtempSync,
-    rmSync,
-    writeFileSync,
-} from 'node:fs';
+import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
 
 const fsHooks = vi.hoisted(() => ({
@@ -28,7 +18,7 @@ const fsHooks = vi.hoisted(() => ({
     readDeferred: null as Promise<void> | null,
 }));
 
-vi.mock('node:fs', async importOriginal => {
+vi.mock('node:fs', async (importOriginal) => {
     const actual = await importOriginal<typeof TFsModule>();
     return {
         ...actual,
@@ -63,7 +53,7 @@ vi.mock('node:fs', async importOriginal => {
     };
 });
 
-vi.mock('node:fs/promises', async importOriginal => {
+vi.mock('node:fs/promises', async (importOriginal) => {
     const actual = await importOriginal<typeof TFsPromisesModule>();
     return {
         ...actual,
@@ -140,15 +130,7 @@ describe('bounded file fingerprint', () => {
         const directory = mkdtempSync(join(tmpdir(), 'evb-bounded-fingerprint-'));
         directories.push(directory);
         const path = join(directory, 'placed-image.jpg');
-        const bytes = Buffer.concat([
-            Buffer.from([
-                0xff,
-                0xd8,
-                0xff,
-                0xe0,
-            ]),
-            Buffer.alloc(3 * 1024 * 1024 + 19, 0xa5),
-        ]);
+        const bytes = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(3 * 1024 * 1024 + 19, 0xa5)]);
         writeFileSync(path, bytes);
 
         await expect(fingerprintFileBounded(path, bytes.byteLength)).resolves.toEqual({
@@ -206,9 +188,9 @@ describe('bounded file fingerprint', () => {
         let outcome:
             | {kind: 'resolved'}
             | {
-                kind: 'rejected';
-                error: unknown;
-            }
+                  kind: 'rejected';
+                  error: unknown;
+              }
             | {kind: 'stalled'};
         try {
             outcome = await Promise.race([
@@ -219,7 +201,7 @@ describe('bounded file fingerprint', () => {
                         error,
                     }),
                 ),
-                new Promise<{kind: 'stalled'}>(resolve => {
+                new Promise<{kind: 'stalled'}>((resolve) => {
                     watchdogTimer = setTimeout(() => resolve({kind: 'stalled'}), 150);
                 }),
             ]);

@@ -1,16 +1,6 @@
 import {SerializableError} from '@contracts/serializableError';
 
-const BROWSER_COMBINE_IMAGE_EXTENSIONS = new Set([
-    '.bmp',
-    '.gif',
-    '.jpeg',
-    '.jpg',
-    '.jp2',
-    '.png',
-    '.tif',
-    '.tiff',
-    '.webp',
-]);
+const BROWSER_COMBINE_IMAGE_EXTENSIONS = new Set(['.bmp', '.gif', '.jpeg', '.jpg', '.jp2', '.png', '.tif', '.tiff', '.webp']);
 
 function getBrowserFileExtension(fileName: string) {
     const lowerName = fileName.toLowerCase();
@@ -18,21 +8,14 @@ function getBrowserFileExtension(fileName: string) {
     return lastDot >= 0 ? lowerName.slice(lastDot) : '';
 }
 
-function toBrowserOwnedArrayBuffer(
-    bytes: Uint8Array,
-    options: { copy?: boolean } = {},
-) {
+function toBrowserOwnedArrayBuffer(bytes: Uint8Array, options: {copy?: boolean} = {}) {
     if (options.copy) {
         const copied = new Uint8Array(bytes.byteLength);
         copied.set(bytes);
         return copied.buffer;
     }
 
-    if (
-        bytes.buffer instanceof ArrayBuffer
-        && bytes.byteOffset === 0
-        && bytes.byteLength === bytes.buffer.byteLength
-    ) {
+    if (bytes.buffer instanceof ArrayBuffer && bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength) {
         return bytes.buffer;
     }
 
@@ -41,23 +24,14 @@ function toBrowserOwnedArrayBuffer(
     return copied.buffer;
 }
 
-function buildBrowserByteLimitError(
-    label: string,
-    maxBytes: number,
-    noun: string,
-    hint?: string,
-) {
+function buildBrowserByteLimitError(label: string, maxBytes: number, noun: string, hint?: string) {
     return new SerializableError({
         code: 'browser-byte-limit',
         maxBytes,
-        message: `${label} is unavailable in the browser for ${noun} larger than ${Math.floor(maxBytes / (1024 * 1024))}MB`
-        + (hint ? (hint.startsWith('.') ? hint : ` ${hint}`) : ''),
+        message:
+            `${label} is unavailable in the browser for ${noun} larger than ${Math.floor(maxBytes / (1024 * 1024))}MB` +
+            (hint ? (hint.startsWith('.') ? hint : ` ${hint}`) : ''),
     });
 }
 
-export {
-    BROWSER_COMBINE_IMAGE_EXTENSIONS,
-    buildBrowserByteLimitError,
-    getBrowserFileExtension,
-    toBrowserOwnedArrayBuffer,
-};
+export {BROWSER_COMBINE_IMAGE_EXTENSIONS, buildBrowserByteLimitError, getBrowserFileExtension, toBrowserOwnedArrayBuffer};

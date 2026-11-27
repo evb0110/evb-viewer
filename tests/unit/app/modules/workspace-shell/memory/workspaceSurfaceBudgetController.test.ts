@@ -1,53 +1,22 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { createWorkspaceSurfaceBudgetController } from '@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController';
+import {describe, expect, it} from 'vitest';
+import {createWorkspaceSurfaceBudgetController} from '@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController';
 import {
     DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS,
     shouldRetainInactiveDocumentPageSourceLease,
 } from '@app/modules/document-viewer/page-source-renderer/useDocumentPageSourceRuntime';
-import { resolvePerformanceProfile } from '@app/utils/performanceProfile';
-import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/resolveOpenPathSecondaryPerformancePolicy';
+import {resolvePerformanceProfile} from '@app/utils/performanceProfile';
+import {resolveOpenPathSecondaryPerformancePolicy} from '@app/utils/resolveOpenPathSecondaryPerformancePolicy';
 
 describe('workspace surface budget controller', () => {
     it.each([
-        [
-            'medium',
-            'none',
-            true,
-        ],
-        [
-            'high',
-            'none',
-            true,
-        ],
-        [
-            'low',
-            'none',
-            false,
-        ],
-        [
-            'medium',
-            'moderate',
-            false,
-        ],
-        [
-            'medium',
-            'critical',
-            false,
-        ],
-    ] as const)('plans inactive DjVu residency for %s tier under %s pressure', (
-        tier,
-        pressure,
-        expected,
-    ) => {
+        ['medium', 'none', true],
+        ['high', 'none', true],
+        ['low', 'none', false],
+        ['medium', 'moderate', false],
+        ['medium', 'critical', false],
+    ] as const)('plans inactive DjVu residency for %s tier under %s pressure', (tier, pressure, expected) => {
         const policy = resolveOpenPathSecondaryPerformancePolicy(resolvePerformanceProfile({tier}));
-        expect(shouldRetainInactiveDocumentPageSourceLease(
-            policy.inactiveDjvuLeasePolicy === 'warm-grace',
-            pressure,
-        )).toEqual(expected);
+        expect(shouldRetainInactiveDocumentPageSourceLease(policy.inactiveDjvuLeasePolicy === 'warm-grace', pressure)).toEqual(expected);
     });
 
     it('retains the inactive current page for exactly 1.5 seconds', () => {
@@ -56,12 +25,7 @@ describe('workspace surface budget controller', () => {
 
     it('accounts and releases every decoded surface category', () => {
         const controller = createWorkspaceSurfaceBudgetController(10_000);
-        const categories = [
-            'pdf-page-canvas',
-            'pdf-annotation-canvas',
-            'pdf-thumbnail-canvas',
-            'djvu-preview',
-        ] as const;
+        const categories = ['pdf-page-canvas', 'pdf-annotation-canvas', 'pdf-thumbnail-canvas', 'djvu-preview'] as const;
         for (const category of categories) {
             controller.reserve({
                 scopeId: `surface:${category}`,
@@ -73,12 +37,11 @@ describe('workspace surface budget controller', () => {
         expect(controller.getSnapshot()).toMatchObject({
             reservedBytes: 400,
             leaseCount: 4,
-            reservedBytesByCategory: Object.fromEntries(categories.map(category => [
-                category,
-                100,
-            ])),
+            reservedBytesByCategory: Object.fromEntries(categories.map((category) => [category, 100])),
         });
-        for (const category of categories) controller.releaseScope(`surface:${category}`);
+        for (const category of categories) {
+            controller.releaseScope(`surface:${category}`);
+        }
         expect(controller.getSnapshot()).toMatchObject({
             reservedBytes: 0,
             leaseCount: 0,
@@ -275,11 +238,13 @@ describe('workspace surface budget controller', () => {
             pressureLevel: 'none',
         });
 
-        expect(controller.tryReserve({
-            scopeId: 'next',
-            category: 'pdf-page-canvas',
-            bytes: 1_500,
-        })).not.toBeNull();
+        expect(
+            controller.tryReserve({
+                scopeId: 'next',
+                category: 'pdf-page-canvas',
+                bytes: 1_500,
+            }),
+        ).not.toBeNull();
         expect(evicted).toEqual(['thumb']);
     });
 
@@ -342,12 +307,7 @@ describe('workspace surface budget controller', () => {
 
     it('reconciles reservations that become evictable after admission across all surface categories', () => {
         const controller = createWorkspaceSurfaceBudgetController(500);
-        const categories = [
-            'pdf-page-canvas',
-            'pdf-annotation-canvas',
-            'pdf-thumbnail-canvas',
-            'djvu-preview',
-        ] as const;
+        const categories = ['pdf-page-canvas', 'pdf-annotation-canvas', 'pdf-thumbnail-canvas', 'djvu-preview'] as const;
         let allowEviction = false;
         const evicted: string[] = [];
         for (const category of categories) {
@@ -415,5 +375,4 @@ describe('workspace surface budget controller', () => {
         expect(provisional?.resize(600)).toBe(true);
         expect(budget.getSnapshot().reservedBytes).toBe(1_000);
     });
-
 });

@@ -1,22 +1,15 @@
-import { createHash } from 'node:crypto';
-import {
-    mkdir,
-    stat,
-} from 'node:fs/promises';
-import { join } from 'node:path';
-import type { IPdfSearchResult } from '@contracts/search';
-import type { IOcrWord } from '@contracts/shared';
-import type { IDjvuPageTextRaw } from '@djvu-core/djvuLibreTypes';
-import { assembleSearchablePageTextItems } from '@pdf-core';
-import { runDjvuEngine } from '@electron/features/djvu/main/djvuEnginePool';
-import {
-    streamItems,
-    type IPageText,
-    type ISearchIndexedDocument,
-} from '@electron/features/search/public';
-import { mainJobBroker } from '@electron/resources/jobBroker';
-import { abortErrorFromSignal } from '@electron/utils/abort';
-import { getAppTempDir } from '@electron/utils/appTempDir';
+import {createHash} from 'node:crypto';
+import {mkdir, stat} from 'node:fs/promises';
+import {join} from 'node:path';
+import type {IPdfSearchResult} from '@contracts/search';
+import type {IOcrWord} from '@contracts/shared';
+import type {IDjvuPageTextRaw} from '@djvu-core/djvuLibreTypes';
+import {assembleSearchablePageTextItems} from '@pdf-core';
+import {runDjvuEngine} from '@electron/features/djvu/main/djvuEnginePool';
+import {streamItems, type IPageText, type ISearchIndexedDocument} from '@electron/features/search/public';
+import {mainJobBroker} from '@electron/resources/jobBroker';
+import {abortErrorFromSignal} from '@electron/utils/abort';
+import {getAppTempDir} from '@electron/utils/appTempDir';
 
 const DJVU_PAGE_TEXT_TIMEOUT_MS = 30_000;
 const DJVU_MAX_PAGE_NUMBER = 2_147_483_647;
@@ -71,14 +64,14 @@ function buildParsedTextPage(pageNumber: number, raw: IDjvuPageTextRaw): IDjvuPa
             text: zone.text,
             ...(hasGeometry
                 ? {
-                    word: {
-                        text: zone.text,
-                        x: Math.max(0, zone.xmin),
-                        y: Math.max(0, pageHeight - zone.ymax),
-                        width,
-                        height,
-                    },
-                }
+                      word: {
+                          text: zone.text,
+                          x: Math.max(0, zone.xmin),
+                          y: Math.max(0, pageHeight - zone.ymax),
+                          width,
+                          height,
+                      },
+                  }
                 : {}),
         });
     }
@@ -89,9 +82,9 @@ function buildParsedTextPage(pageNumber: number, raw: IDjvuPageTextRaw): IDjvuPa
             text: zone.text,
             separatorAfter: nextZone
                 ? zone.lineId !== null && nextZone.lineId !== zone.lineId
-                    ? 'line' as const
-                    : 'space' as const
-                : 'none' as const,
+                    ? ('line' as const)
+                    : ('space' as const)
+                : ('none' as const),
         };
     });
 
@@ -114,7 +107,7 @@ function buildParsedTextPage(pageNumber: number, raw: IDjvuPageTextRaw): IDjvuPa
         throw new Error(`DjVu page ${pageNumber} text exceeds the supported limit`);
     }
 
-    const zoneOffsets = assembled.itemOffsets.map(offset => ({
+    const zoneOffsets = assembled.itemOffsets.map((offset) => ({
         startOffset: offset.startOffset,
         endOffset: offset.endOffset,
     }));
@@ -142,44 +135,46 @@ function buildParsedTextPage(pageNumber: number, raw: IDjvuPageTextRaw): IDjvuPa
     };
 }
 
-export async function readDjvuPageText(
-    filePath: string,
-    pageNumber: number,
-    signal?: AbortSignal,
-): Promise<string> {
+export async function readDjvuPageText(filePath: string, pageNumber: number, signal?: AbortSignal): Promise<string> {
     if (!Number.isSafeInteger(pageNumber) || pageNumber < 1 || pageNumber > DJVU_MAX_PAGE_NUMBER) {
         return '';
     }
-    return mainJobBroker.run({
-        ownerId: `djvu-page-text:${filePath}`,
-        kind: 'djvu-page-text',
-        priority: 'foreground',
-        admissionClass: 'interactive',
-        resources: DJVU_PAGE_TEXT_BROKER_RESOURCES,
-        ...(signal === undefined ? {} : { signal }),
-    }, async () => {
-        try {
-            const raw = await runDjvuEngine({
-                type: 'getPageText',
-                djvuPath: filePath,
-                pageNumber,
-                includeZones: true,
-            }, {
-                ...(signal ? { signal } : {}),
-                timeoutMs: DJVU_PAGE_TEXT_TIMEOUT_MS,
-            });
-            return buildParsedTextPage(pageNumber, raw).text;
-        } catch (error) {
-            if (!signal?.aborted && error instanceof Error && error.message.includes('out of bounds')) {
-                return '';
+    return mainJobBroker.run(
+        {
+            ownerId: `djvu-page-text:${filePath}`,
+            kind: 'djvu-page-text',
+            priority: 'foreground',
+            admissionClass: 'interactive',
+            resources: DJVU_PAGE_TEXT_BROKER_RESOURCES,
+            ...(signal === undefined ? {} : {signal}),
+        },
+        async () => {
+            try {
+                const raw = await runDjvuEngine(
+                    {
+                        type: 'getPageText',
+                        djvuPath: filePath,
+                        pageNumber,
+                        includeZones: true,
+                    },
+                    {
+                        ...(signal ? {signal} : {}),
+                        timeoutMs: DJVU_PAGE_TEXT_TIMEOUT_MS,
+                    },
+                );
+                return buildParsedTextPage(pageNumber, raw).text;
+            } catch (error) {
+                if (!signal?.aborted && error instanceof Error && error.message.includes('out of bounds')) {
+                    return '';
+                }
+                throw error;
             }
-            throw error;
-        }
-    });
+        },
+    );
 }
 
 function wordsForPageRange(page: IDjvuParsedTextPage, startOffset: number, endOffset: number) {
-    const { wordSpans } = page;
+    const {wordSpans} = page;
     if (wordSpans.length === 0) {
         return [];
     }
@@ -215,38 +210,45 @@ function wordsForPageRange(page: IDjvuParsedTextPage, startOffset: number, endOf
 export async function djvuSearchDocument(djvuPath: string): Promise<ISearchIndexedDocument> {
     const source = await stat(djvuPath);
     const directory = join(getAppTempDir(), 'djvu-search');
-    await mkdir(directory, { recursive: true });
+    await mkdir(directory, {recursive: true});
     return {
         indexPath: join(directory, `${createHash('sha256').update(djvuPath).digest('hex')}.evb-search-index`),
         documentRevision: `djvu:${source.size}:${Math.trunc(source.mtimeMs)}`,
-        readPages: signal => streamItems<IPageText>(async (emit, commandSignal) => {
-            const docInfo = await runDjvuEngine({
-                type: 'getDocInfo',
-                djvuPath,
-            }, {
-                signal: commandSignal,
-                timeoutMs: DJVU_PAGE_TEXT_TIMEOUT_MS,
-            });
-            for (let pageNumber = 1; pageNumber <= docInfo.pageCount; pageNumber += 1) {
-                if (commandSignal.aborted) {
-                    throw abortErrorFromSignal(commandSignal);
+        readPages: (signal) =>
+            streamItems<IPageText>(async (emit, commandSignal) => {
+                const docInfo = await runDjvuEngine(
+                    {
+                        type: 'getDocInfo',
+                        djvuPath,
+                    },
+                    {
+                        signal: commandSignal,
+                        timeoutMs: DJVU_PAGE_TEXT_TIMEOUT_MS,
+                    },
+                );
+                for (let pageNumber = 1; pageNumber <= docInfo.pageCount; pageNumber += 1) {
+                    if (commandSignal.aborted) {
+                        throw abortErrorFromSignal(commandSignal);
+                    }
+                    const raw = await runDjvuEngine(
+                        {
+                            type: 'getPageText',
+                            djvuPath,
+                            pageNumber,
+                            includeZones: true,
+                        },
+                        {
+                            signal: commandSignal,
+                            timeoutMs: DJVU_PAGE_TEXT_TIMEOUT_MS,
+                        },
+                    );
+                    const parsed = buildParsedTextPage(pageNumber, raw);
+                    emit({
+                        pageNumber,
+                        text: parsed.text,
+                    });
                 }
-                const raw = await runDjvuEngine({
-                    type: 'getPageText',
-                    djvuPath,
-                    pageNumber,
-                    includeZones: true,
-                }, {
-                    signal: commandSignal,
-                    timeoutMs: DJVU_PAGE_TEXT_TIMEOUT_MS,
-                });
-                const parsed = buildParsedTextPage(pageNumber, raw);
-                emit({
-                    pageNumber,
-                    text: parsed.text,
-                });
-            }
-        }, signal),
+            }, signal),
     };
 }
 
@@ -256,21 +258,24 @@ export async function addDjvuMatchGeometry(
     results: readonly IPdfSearchResult[],
     signal?: AbortSignal,
 ): Promise<IPdfSearchResult[]> {
-    const pageNumbers = [...new Set(results.map(result => result.pageNumber))];
+    const pageNumbers = [...new Set(results.map((result) => result.pageNumber))];
     const pages = new Map<number, IDjvuParsedTextPage>();
     for (const pageNumber of pageNumbers) {
         if (signal?.aborted) {
             throw abortErrorFromSignal(signal);
         }
-        const raw = await runDjvuEngine({
-            type: 'getPageText',
-            djvuPath,
-            pageNumber,
-            includeZones: true,
-        }, {
-            ...(signal ? { signal } : {}),
-            timeoutMs: DJVU_PAGE_TEXT_TIMEOUT_MS,
-        });
+        const raw = await runDjvuEngine(
+            {
+                type: 'getPageText',
+                djvuPath,
+                pageNumber,
+                includeZones: true,
+            },
+            {
+                ...(signal ? {signal} : {}),
+                timeoutMs: DJVU_PAGE_TEXT_TIMEOUT_MS,
+            },
+        );
         pages.set(pageNumber, buildParsedTextPage(pageNumber, raw));
     }
     return results.map((result) => {
@@ -278,26 +283,25 @@ export async function addDjvuMatchGeometry(
         const words = page ? wordsForPageRange(page, result.startOffset, result.endOffset) : [];
         return page && words.length > 0
             ? {
-                ...result,
-                words,
-                pageWidth: page.width,
-                pageHeight: page.height,
-                rotation: 0 as const,
-            }
+                  ...result,
+                  words,
+                  pageWidth: page.width,
+                  pageHeight: page.height,
+                  rotation: 0 as const,
+              }
             : result;
     });
 }
 
-export async function detectDjvuHasText(
-    filePath: string,
-    signal?: AbortSignal,
-    _onTerminationProof?: (proof: Promise<boolean>) => void,
-) {
-    return runDjvuEngine({
-        type: 'hasText',
-        djvuPath: filePath,
-    }, {
-        ...(signal ? { signal } : {}),
-        timeoutMs: 60_000,
-    });
+export async function detectDjvuHasText(filePath: string, signal?: AbortSignal, _onTerminationProof?: (proof: Promise<boolean>) => void) {
+    return runDjvuEngine(
+        {
+            type: 'hasText',
+            djvuPath: filePath,
+        },
+        {
+            ...(signal ? {signal} : {}),
+            timeoutMs: 60_000,
+        },
+    );
 }

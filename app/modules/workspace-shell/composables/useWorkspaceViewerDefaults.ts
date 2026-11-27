@@ -1,16 +1,11 @@
-import type { Ref } from 'vue';
-import { ZOOM } from '@app/constants/pdfLayout';
-import { clampPdfManualZoom } from '@app/modules/pdf-viewer/public';
-import type { TPdfSource } from '@app/types/pdfUi';
-import type {
-    ISettingsData,
-    TPdfViewMode,
-    TPdfViewRotation,
-    TPdfZoomState,
-} from '@contracts/shared';
-import type { IAnnotationSettings } from '@app/types/annotations';
-import type { IWorkspaceCheckpointTab } from '@contracts/workspaceCheckpoint';
-import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
+import type {Ref} from 'vue';
+import {ZOOM} from '@app/constants/pdfLayout';
+import {clampPdfManualZoom} from '@app/modules/pdf-viewer/public';
+import type {TPdfSource} from '@app/types/pdfUi';
+import type {ISettingsData, TPdfViewMode, TPdfViewRotation, TPdfZoomState} from '@contracts/shared';
+import type {IAnnotationSettings} from '@app/types/annotations';
+import type {IWorkspaceCheckpointTab} from '@contracts/workspaceCheckpoint';
+import type {IDocumentViewerExpose} from '@app/modules/pdf-viewer/public';
 
 type TSavedView = Pick<IWorkspaceCheckpointTab, 'zoom' | 'zoomMode' | 'continuousScroll' | 'viewMode' | 'viewRotation'>;
 
@@ -101,8 +96,7 @@ export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsO
     }
 
     const defaultsSourceKey = computed(() => options.documentSourceKey?.value ?? options.pdfSrc.value);
-    let shouldPreserveInitialState = options.preserveInitialStateForFirstSource === true
-        || defaultsSourceKey.value !== null;
+    let shouldPreserveInitialState = options.preserveInitialStateForFirstSource === true || defaultsSourceKey.value !== null;
 
     // An open's reading seed, kept for the source it names (null: the next
     // source shown): when that source is shown, its view is set where the
@@ -116,19 +110,23 @@ export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsO
         view: TSavedView;
     } | null = null;
 
-    watch(defaultsSourceKey, (sourceKey) => {
-        const seed = seededView;
-        const keepsView = shouldPreserveInitialState || (seed !== null && sourceKey === null);
-        if (sourceKey !== null) {
-            shouldPreserveInitialState = false;
-            seededView = null;
-        }
-        if (seed && sourceKey !== null && (seed.source === null || sourceKey === seed.source)) {
-            applyView(seed.view);
-        } else if (!keepsView) {
-            applyWorkspaceViewerDefaults();
-        }
-    }, {immediate: true});
+    watch(
+        defaultsSourceKey,
+        (sourceKey) => {
+            const seed = seededView;
+            const keepsView = shouldPreserveInitialState || (seed !== null && sourceKey === null);
+            if (sourceKey !== null) {
+                shouldPreserveInitialState = false;
+                seededView = null;
+            }
+            if (seed && sourceKey !== null && (seed.source === null || sourceKey === seed.source)) {
+                applyView(seed.view);
+            } else if (!keepsView) {
+                applyWorkspaceViewerDefaults();
+            }
+        },
+        {immediate: true},
+    );
 
     // A saved view (a checkpoint, a moved tab, a reading seed) set as state;
     // a null setting keeps the current one.

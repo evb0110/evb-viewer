@@ -10,10 +10,7 @@ import {
     createScanCleanupDetectionSignature,
     createScanCleanupPlacementAnchorCalibrationSignature,
 } from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
-import type {
-    IPdfPageSize,
-    IScanCleanupDetectionResultStore,
-} from '@evb/scan-cleanup/core/types';
+import type {IPdfPageSize, IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {
     addScanCleanupDocumentCanvasObservedPage,
     addScanCleanupDocumentCanvasPage,
@@ -25,10 +22,7 @@ import {
     createScanCleanupActivePageTracker,
     createScanCleanupProgressEtaEstimator,
 } from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
-import {
-    PREVIEW_DPI,
-    resolveScanCleanupPagePreviewDpi,
-} from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';
+import {PREVIEW_DPI, resolveScanCleanupPagePreviewDpi} from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';
 import {buildScanCleanupPlacementAnchorSummary} from '@evb/scan-cleanup/core/placementAnchors';
 import {usesScanCleanupInkAlignment} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {createScanCleanupFacingPairGeometry} from '@evb/scan-cleanup/core/policy/createScanCleanupFacingPairGeometry';
@@ -121,12 +115,7 @@ export function createScanCleanupDetectionRecorder({
     const resolvedCanvasAccumulator = createScanCleanupDocumentCanvasAccumulator();
     let layoutEvidenceComplete = false;
     const addResolvedPage = (sourcePage: IPdfPageSize, result: IScanCleanupDetectionResult) => {
-        addScanCleanupDocumentCanvasObservedPage(
-            resolvedCanvasAccumulator,
-            sourcePage,
-            request.options,
-            result.classification,
-        );
+        addScanCleanupDocumentCanvasObservedPage(resolvedCanvasAccumulator, sourcePage, request.options, result.classification);
     };
     let matchedPreviewDpi = Number.POSITIVE_INFINITY;
     let baselineCanvasSignature: string | null = null;
@@ -134,39 +123,35 @@ export function createScanCleanupDetectionRecorder({
         if (!request.options.matchPageSize) {
             return '';
         }
-        const signature = scanCleanupDocumentCanvasSignature(resolveScanCleanupDocumentCanvasFromAccumulator(
-            layoutEvidenceComplete ? resolvedCanvasAccumulator : canvasAccumulator,
-            matchedPreviewDpi,
-            request.options,
-            layoutEvidenceComplete,
-            rasterMaxPixels,
-        ));
+        const signature = scanCleanupDocumentCanvasSignature(
+            resolveScanCleanupDocumentCanvasFromAccumulator(
+                layoutEvidenceComplete ? resolvedCanvasAccumulator : canvasAccumulator,
+                matchedPreviewDpi,
+                request.options,
+                layoutEvidenceComplete,
+                rasterMaxPixels,
+            ),
+        );
         return signature === baselineCanvasSignature ? '' : signature;
     };
     // The bounded result store is authoritative for every document-scale run.
     // Keeping an in-memory snapshot is safe only for the explicit small-document
     // threshold, below the production batch size.
-    const compatibilityResults = totalPages <= SCAN_CLEANUP_STREAMING_BATCH_PAGES
-        ? new Map<number, IScanCleanupDetectionResult>()
-        : null;
+    const compatibilityResults = totalPages <= SCAN_CLEANUP_STREAMING_BATCH_PAGES ? new Map<number, IScanCleanupDetectionResult>() : null;
     // Large documents publish only the results recorded since the previous
     // event. Preserve append order so a late reconciliation update remains in
     // the renderer's bounded tail even when it targets an early page. The
     // store holds the full set.
     const recentResults: IScanCleanupDetectionResult[] = [];
     let lastLargePublishAt = 0;
-    const publishedResults = () => compatibilityResults === null
-        ? []
-        : [...compatibilityResults.values()]
-            .sort((left, right) => left.pageNumber - right.pageNumber);
+    const publishedResults = () =>
+        compatibilityResults === null ? [] : [...compatibilityResults.values()].sort((left, right) => left.pageNumber - right.pageNumber);
     const takePublishableResults = () => {
         if (compatibilityResults !== null) {
             return publishedResults();
         }
         const pending = recentResults.splice(0);
-        return pending.length <= RECENT_PROGRESS_PAGES
-            ? pending
-            : pending.slice(-RECENT_PROGRESS_PAGES);
+        return pending.length <= RECENT_PROGRESS_PAGES ? pending : pending.slice(-RECENT_PROGRESS_PAGES);
     };
     const shouldPublishLargeProgress = (terminal: boolean) => {
         if (compatibilityResults !== null || terminal) {
@@ -224,34 +209,32 @@ export function createScanCleanupDetectionRecorder({
             clearTimeout(trailingReadOnlyPublish);
             trailingReadOnlyPublish = null;
         }
-        if (!readOnlyProgressDirty || signal.aborted) return;
+        if (!readOnlyProgressDirty || signal.aborted) {
+            return;
+        }
         const now = Date.now();
-        const interval = compatibilityResults === null
-            ? LARGE_PROGRESS_PUBLISH_INTERVAL_MS
-            : DETECTION_READ_ONLY_PROGRESS_INTERVAL_MS;
+        const interval = compatibilityResults === null ? LARGE_PROGRESS_PUBLISH_INTERVAL_MS : DETECTION_READ_ONLY_PROGRESS_INTERVAL_MS;
         if (!force && now - lastReadOnlyPublishAt < interval) {
-            trailingReadOnlyPublish ??= setTimeout(() => {
-                trailingReadOnlyPublish = null;
-                publishReadOnlyProgress();
-            }, interval - (now - lastReadOnlyPublishAt));
+            trailingReadOnlyPublish ??= setTimeout(
+                () => {
+                    trailingReadOnlyPublish = null;
+                    publishReadOnlyProgress();
+                },
+                interval - (now - lastReadOnlyPublishAt),
+            );
             return;
         }
         readOnlyProgressDirty = false;
         lastReadOnlyPublishAt = now;
         const stage = analyzedPages > 0 ? 'detecting' : 'rasterizing';
-        publish(takePublishableResults(), progressWithEta(
-            stage,
-            analyzedPages,
-            totalPages,
-            {
-                percent: totalPages === 0
-                    ? 100
-                    : (stage === 'rasterizing' ? rasterizedPages : analyzedPages) / totalPages * 100,
-                ...(analyzedPages === 0
-                    ? {completedPageNumbers: []}
-                    : completedPageProgress(reportedPageNumbers, analyzedPages)),
-            },
-        ), documentCanvasSignature());
+        publish(
+            takePublishableResults(),
+            progressWithEta(stage, analyzedPages, totalPages, {
+                percent: totalPages === 0 ? 100 : ((stage === 'rasterizing' ? rasterizedPages : analyzedPages) / totalPages) * 100,
+                ...(analyzedPages === 0 ? {completedPageNumbers: []} : completedPageProgress(reportedPageNumbers, analyzedPages)),
+            }),
+            documentCanvasSignature(),
+        );
     };
     const markProgress = () => {
         readOnlyProgressDirty = true;
@@ -270,50 +253,43 @@ export function createScanCleanupDetectionRecorder({
         isFacingPair: facingPairGeometry.isFacingPair,
         /** Fixes the baseline canvas once every geometry page is added, and publishes the first frame. */
         sealGeometry() {
-            if (!Number.isFinite(matchedPreviewDpi)) matchedPreviewDpi = PREVIEW_DPI;
+            if (!Number.isFinite(matchedPreviewDpi)) {
+                matchedPreviewDpi = PREVIEW_DPI;
+            }
             baselineCanvasSignature = scanCleanupDocumentCanvasSignature(
                 request.options.matchPageSize
                     ? resolveScanCleanupDocumentCanvasFromAccumulator(
-                        canvasAccumulator,
-                        matchedPreviewDpi,
-                        request.options,
-                        false,
-                        rasterMaxPixels,
-                    )
+                          canvasAccumulator,
+                          matchedPreviewDpi,
+                          request.options,
+                          false,
+                          rasterMaxPixels,
+                      )
                     : null,
             );
             resolvedCanvasAccumulator.producedPageCount = canvasAccumulator.producedPageCount;
             resolvedCanvasAccumulator.forced = canvasAccumulator.forced;
             readOnlyProgressDirty = false;
-            publish([], progressWithEta(
-                'rasterizing',
-                analyzedPages,
-                totalPages,
-                {
-                    percent: totalPages === 0 ? 100 : rasterizedPages / totalPages * 100,
+            publish(
+                [],
+                progressWithEta('rasterizing', analyzedPages, totalPages, {
+                    percent: totalPages === 0 ? 100 : (rasterizedPages / totalPages) * 100,
                     completedPageNumbers: [],
-                },
-            ), documentCanvasSignature());
+                }),
+                documentCanvasSignature(),
+            );
         },
         /** Publishes a changed raster or recheck count, throttled. */
         markProgress,
         /** One bounded batch of the document, analyzed and reconciled together. */
-        beginBatch(batch: {
-            startOffset: number;
-            endOffsetExclusive: number
-        }) {
+        beginBatch(batch: {startOffset: number; endOffsetExclusive: number}) {
             const batchResults = new Map<number, IScanCleanupDetectionResult>();
             const batchSourcePages = new Map<number, IPdfPageSize>();
             const countedRasterPages = new Set<number>();
             let firstVerdictsComplete = false;
             const recordResult = async (input: IScanCleanupDetectionVerdictInput) => {
-                const {
-                    sourcePage,
-                    sourceDpi,
-                    metadata,
-                } = await input.read();
-                const previousResult = batchResults.get(input.sourcePageNumber)
-                    ?? compatibilityResults?.get(input.sourcePageNumber);
+                const {sourcePage, sourceDpi, metadata} = await input.read();
+                const previousResult = batchResults.get(input.sourcePageNumber) ?? compatibilityResults?.get(input.sourcePageNumber);
                 const isFirstClassification = previousResult === undefined;
                 const result = projectScanCleanupDetectionResult({
                     pageNumber: input.sourcePageNumber,
@@ -324,8 +300,11 @@ export function createScanCleanupDetectionRecorder({
                     sourceDpi,
                     includeContentBoxes,
                 });
-                if (isFirstClassification) await resultStore.append(result);
-                else await resultStore.replace(input.sourcePageNumber, result);
+                if (isFirstClassification) {
+                    await resultStore.append(result);
+                } else {
+                    await resultStore.replace(input.sourcePageNumber, result);
+                }
                 batchResults.set(input.sourcePageNumber, result);
                 batchSourcePages.set(input.sourcePageNumber, sourcePage);
                 compatibilityResults?.set(input.sourcePageNumber, result);
@@ -333,12 +312,7 @@ export function createScanCleanupDetectionRecorder({
                     recentResults.push(result);
                 }
                 if (isFirstClassification) {
-                    addScanCleanupDocumentCanvasObservedPage(
-                        canvasAccumulator,
-                        sourcePage,
-                        request.options,
-                        result.classification,
-                    );
+                    addScanCleanupDocumentCanvasObservedPage(canvasAccumulator, sourcePage, request.options, result.classification);
                 }
                 return result;
             };
@@ -357,7 +331,9 @@ export function createScanCleanupDetectionRecorder({
                         added += 1;
                     }
                     rasterizedPages += added;
-                    if (added > 0) markProgress();
+                    if (added > 0) {
+                        markProgress();
+                    }
                 },
                 /** One page's analysis raster exists; counted once however often it is rendered. */
                 markRasterized(pageNumber: number) {
@@ -397,61 +373,63 @@ export function createScanCleanupDetectionRecorder({
                         firstVerdictsComplete = true;
                     }
                     if (input.verdict.classification === undefined || input.verdict.confidence === undefined) {
-                        if (clearedActive) markProgress();
+                        if (clearedActive) {
+                            markProgress();
+                        }
                         return;
                     }
                     await recordResult(input);
                     if (!shouldPublishLargeProgress(analyzedPages >= totalPages)) {
-                        if (clearedActive) markProgress();
+                        if (clearedActive) {
+                            markProgress();
+                        }
                         return;
                     }
                     readOnlyProgressDirty = false;
-                    publish(takePublishableResults(), progressWithEta(
-                        'detecting',
-                        analyzedPages,
-                        totalPages,
-                        {
-                            percent: totalPages === 0 ? 100 : analyzedPages / totalPages * 100,
+                    publish(
+                        takePublishableResults(),
+                        progressWithEta('detecting', analyzedPages, totalPages, {
+                            percent: totalPages === 0 ? 100 : (analyzedPages / totalPages) * 100,
                             ...completedPageProgress(reportedPageNumbers, analyzedPages),
-                        },
-                    ), documentCanvasSignature());
+                        }),
+                        documentCanvasSignature(),
+                    );
                 },
                 async recordComplete(input: IScanCleanupDetectionVerdictInput) {
                     const clearedActive = activePageTracker.finish(input.sourcePageNumber);
                     reportPage(input.sourcePageNumber);
                     if (input.verdict.classification === undefined || input.verdict.confidence === undefined) {
-                        if (clearedActive) markProgress();
+                        if (clearedActive) {
+                            markProgress();
+                        }
                         return;
                     }
                     const previousPlan = batchResults.get(input.sourcePageNumber)?.pagePlanEvidence;
                     const result = await recordResult(input);
-                    const planChanged = previousPlan !== undefined
-                        && JSON.stringify(previousPlan) !== JSON.stringify(result.pagePlanEvidence);
-                    const completedUnits = Math.max(
-                        analyzedPages,
-                        batch.startOffset + input.completedPages,
-                    );
+                    const planChanged =
+                        previousPlan !== undefined && JSON.stringify(previousPlan) !== JSON.stringify(result.pagePlanEvidence);
+                    const completedUnits = Math.max(analyzedPages, batch.startOffset + input.completedPages);
                     if (!planChanged && !shouldPublishLargeProgress(completedUnits >= totalPages)) {
-                        if (clearedActive) markProgress();
+                        if (clearedActive) {
+                            markProgress();
+                        }
                         return;
                     }
                     readOnlyProgressDirty = false;
-                    publish(planChanged ? [result] : takePublishableResults(), progressWithEta(
-                        'detecting',
-                        completedUnits,
-                        totalPages,
-                        {
-                            percent: totalPages === 0 ? 100 : completedUnits / totalPages * 100,
+                    publish(
+                        planChanged ? [result] : takePublishableResults(),
+                        progressWithEta('detecting', completedUnits, totalPages, {
+                            percent: totalPages === 0 ? 100 : (completedUnits / totalPages) * 100,
                             ...completedPageProgress(reportedPageNumbers, completedUnits),
-                        },
-                    ), documentCanvasSignature());
+                        }),
+                        documentCanvasSignature(),
+                    );
                 },
                 /** After the batch ends, adds every page's final layout to the resolved canvas. */
                 end() {
-                    for (const [
-                        pageNumber,
-                        result,
-                    ] of batchResults) addResolvedPage(batchSourcePages.get(pageNumber)!, result);
+                    for (const [pageNumber, result] of batchResults) {
+                        addResolvedPage(batchSourcePages.get(pageNumber)!, result);
+                    }
                 },
             };
         },
@@ -467,28 +445,32 @@ export function createScanCleanupDetectionRecorder({
             activePageTracker.clear();
             // The last frame carries the canvas of every page's final layout.
             layoutEvidenceComplete = true;
-            if (documentCanvasSignature() !== publishedCanvasSignature) readOnlyProgressDirty = true;
+            if (documentCanvasSignature() !== publishedCanvasSignature) {
+                readOnlyProgressDirty = true;
+            }
             publishReadOnlyProgress(true);
             const placementAnchorSummary = usesScanCleanupInkAlignment(request.options)
                 ? await buildScanCleanupPlacementAnchorSummary({
-                    options: request.options,
-                    resultStore,
-                    signal,
-                    identity: {
-                        documentRevision: request.documentRevision,
-                        detectionSignature: createScanCleanupDetectionSignature(request.options),
-                        calibrationSignature: createScanCleanupPlacementAnchorCalibrationSignature(request.options),
-                    },
-                })
+                      options: request.options,
+                      resultStore,
+                      signal,
+                      identity: {
+                          documentRevision: request.documentRevision,
+                          detectionSignature: createScanCleanupDetectionSignature(request.options),
+                          calibrationSignature: createScanCleanupPlacementAnchorCalibrationSignature(request.options),
+                      },
+                  })
                 : undefined;
             // The terminal state carries per-page results only for small
             // documents, so the blank-page hint needs its own count of the
             // final records.
             let blankPageCount = 0;
-            await resultStore.forEachChunk(results => {
+            await resultStore.forEachChunk((results) => {
                 signal.throwIfAborted();
                 for (const result of results) {
-                    if (result.recommendedOutputModeReason === 'blank') blankPageCount += 1;
+                    if (result.recommendedOutputModeReason === 'blank') {
+                        blankPageCount += 1;
+                    }
                 }
             });
             return {

@@ -1,9 +1,6 @@
 import type {TDocumentViewMode} from '@contracts/shared';
-import { isObservedWheelPacketSequenceOpen } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
-import {
-    createWheelFlipGate,
-    type IWheelFlipGateOptions,
-} from '@app/modules/document-viewer/single-page-wheel/createWheelFlipGate';
+import {isObservedWheelPacketSequenceOpen} from '@app/modules/document-viewer/runtime/documentViewportWritePort';
+import {createWheelFlipGate, type IWheelFlipGateOptions} from '@app/modules/document-viewer/single-page-wheel/createWheelFlipGate';
 import {
     canScrollWithinPageBounds,
     resolveWheelDirection,
@@ -28,10 +25,7 @@ interface IPageSourceWheelEvent {
     preventDefault(): void;
 }
 
-export function createPageSourcePagedWheelNavigation(
-    pageGutterPx: number,
-    options: IWheelFlipGateOptions = {},
-) {
+export function createPageSourcePagedWheelNavigation(pageGutterPx: number, options: IWheelFlipGateOptions = {}) {
     const wheelFlipGate = createWheelFlipGate(options);
     let cursorPage: number | null = null;
 
@@ -48,8 +42,7 @@ export function createPageSourcePagedWheelNavigation(
             cancelable: event.cancelable ?? true,
             deltaMode: event.deltaMode,
             deltaY: deltaPx,
-            hostSequenceOpen: isObservedWheelPacketSequenceOpen(event)
-                || (options.isHostSequenceOpen?.() ?? false),
+            hostSequenceOpen: isObservedWheelPacketSequenceOpen(event) || (options.isHostSequenceOpen?.() ?? false),
             timeStamp: event.timeStamp ?? performance.now(),
         };
         if (deltaPx === 0 || Math.abs(event.deltaY) < Math.abs(event.deltaX)) {

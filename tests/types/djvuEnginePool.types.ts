@@ -1,8 +1,5 @@
-import type {
-    IDjvuEngineDocInfoResult,
-    IDjvuEngineRenderToFileResult,
-} from '@electron/features/djvu/main/djvuEngineProtocol';
-import { runDjvuEngine } from '@electron/features/djvu/main/djvuEnginePool';
+import type {IDjvuEngineDocInfoResult, IDjvuEngineRenderToFileResult} from '@electron/features/djvu/main/djvuEngineProtocol';
+import {runDjvuEngine} from '@electron/features/djvu/main/djvuEnginePool';
 
 export function verifyDjvuEngineInference() {
     const docInfo: Promise<IDjvuEngineDocInfoResult> = runDjvuEngine({
@@ -18,7 +15,7 @@ export function verifyDjvuEngineInference() {
         djvuPath: '/tmp/sample.djvu',
         pageNumber: 1,
         outputPath: '/tmp/page-1.ppm',
-        options: { format: 'ppm' },
+        options: {format: 'ppm'},
     });
 
     // @ts-expect-error getPageInfo requires pageNumber

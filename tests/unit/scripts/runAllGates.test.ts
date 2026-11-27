@@ -1,10 +1,6 @@
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 
 interface IGateDefinition {
     args: string[];
@@ -14,42 +10,47 @@ interface IGateDefinition {
 
 interface IRunAllGatesModule {
     getAllGateDefinitions: () => IGateDefinition[];
-    getAllGateEnvironment: (gateId: string, options: {
-        baseEnv?: Record<string, string>;
-        receiptPath: string;
-        receiptReady: boolean;
-    }) => Record<string, string>;
-    selectGates: (gates: IGateDefinition[], options: {
-        from?: string | undefined;
-        only?: string | undefined;
-        skip: Set<string>;
-    }) => IGateDefinition[];
+    getAllGateEnvironment: (
+        gateId: string,
+        options: {
+            baseEnv?: Record<string, string>;
+            receiptPath: string;
+            receiptReady: boolean;
+        },
+    ) => Record<string, string>;
+    selectGates: (
+        gates: IGateDefinition[],
+        options: {
+            from?: string | undefined;
+            only?: string | undefined;
+            skip: Set<string>;
+        },
+    ) => IGateDefinition[];
 }
 
-const runner = await import(pathToFileURL(
-    path.resolve(process.cwd(), 'scripts/run-all-gates.mjs'),
-).href) as IRunAllGatesModule;
+const runner = (await import(pathToFileURL(path.resolve(process.cwd(), 'scripts/run-all-gates.mjs')).href)) as IRunAllGatesModule;
 
 describe('all-gates orchestration', () => {
     it('uses one consolidated validation phase before release verification', () => {
         const gates = runner.getAllGateDefinitions();
-        expect(gates.map(gate => gate.id)).toEqual([
-            'release-cut-preflight',
-            'validate',
-            'release-verify',
-        ]);
+        expect(gates.map((gate) => gate.id)).toEqual(['release-cut-preflight', 'validate', 'release-verify']);
 
-        expect(runner.selectGates(gates, {
-            only: 'validate',
-            skip: new Set(),
-        }).map(gate => gate.id)).toEqual(['validate']);
-        expect(runner.selectGates(gates, {
-            from: 'validate',
-            skip: new Set(),
-        }).map(gate => gate.id)).toEqual([
-            'validate',
-            'release-verify',
-        ]);
+        expect(
+            runner
+                .selectGates(gates, {
+                    only: 'validate',
+                    skip: new Set(),
+                })
+                .map((gate) => gate.id),
+        ).toEqual(['validate']);
+        expect(
+            runner
+                .selectGates(gates, {
+                    from: 'validate',
+                    skip: new Set(),
+                })
+                .map((gate) => gate.id),
+        ).toEqual(['validate', 'release-verify']);
     });
 
     it('reuses validation evidence only when this invocation produced it', () => {
@@ -71,5 +72,4 @@ describe('all-gates orchestration', () => {
         });
         expect(withReceipt).not.toHaveProperty('EVB_RELEASE_VERIFY_SKIP');
     });
-
 });

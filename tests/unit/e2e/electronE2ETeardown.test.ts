@@ -1,9 +1,5 @@
 import {delay} from 'es-toolkit/promise';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     ElectronE2ETeardownError,
     ElectronE2ETimeoutError,
@@ -19,12 +15,17 @@ describe('Electron E2E deadline policy', () => {
         const failure = await runWithElectronE2EDeadline(
             'Waiting for session health',
             50,
-            signal => new Promise<never>((_, reject) => {
-                signal.addEventListener('abort', () => {
-                    observedAbort = true;
-                    reject(signal.reason);
-                }, {once: true});
-            }),
+            (signal) =>
+                new Promise<never>((_, reject) => {
+                    signal.addEventListener(
+                        'abort',
+                        () => {
+                            observedAbort = true;
+                            reject(signal.reason);
+                        },
+                        {once: true},
+                    );
+                }),
             {
                 onTimeout: async () => {
                     await delay(20);
@@ -48,9 +49,13 @@ describe('Electron E2E deadline policy', () => {
         let aborted = false;
 
         const result = await runWithElectronE2EDeadline('Quick task', 1_000, async (signal) => {
-            signal.addEventListener('abort', () => {
-                aborted = true;
-            }, {once: true});
+            signal.addEventListener(
+                'abort',
+                () => {
+                    aborted = true;
+                },
+                {once: true},
+            );
             return 'done';
         });
 
@@ -61,14 +66,11 @@ describe('Electron E2E deadline policy', () => {
     it('reports the deadline without awaiting a task that ignores its abort signal', async () => {
         let cleanupFinished = false;
 
-        const failure = await runWithElectronE2EDeadline(
-            'Waiting for a stuck renderer',
-            30,
-            () => new Promise<never>(() => undefined),
-            {onTimeout: async () => {
+        const failure = await runWithElectronE2EDeadline('Waiting for a stuck renderer', 30, () => new Promise<never>(() => undefined), {
+            onTimeout: async () => {
                 cleanupFinished = true;
-            }},
-        ).catch((error: unknown) => error);
+            },
+        }).catch((error: unknown) => error);
 
         expect(failure).toBeInstanceOf(ElectronE2ETimeoutError);
         expect(cleanupFinished).toBe(true);
@@ -104,17 +106,9 @@ describe('Electron E2E teardown aggregation', () => {
             },
         ]).catch((error: unknown) => error);
 
-        expect(order).toEqual([
-            'heartbeat',
-            'rss',
-            'stop B',
-        ]);
+        expect(order).toEqual(['heartbeat', 'rss', 'stop B']);
         expect(failure).toBeInstanceOf(ElectronE2ETeardownError);
-        expect((failure as AggregateError).errors).toEqual([
-            primary,
-            expect.any(Error),
-            expect.any(Error),
-        ]);
+        expect((failure as AggregateError).errors).toEqual([primary, expect.any(Error), expect.any(Error)]);
         const message = (failure as Error).message;
         expect(message).toContain('assertion failed');
         expect(message).toContain('heartbeat: renderer gone');
@@ -124,10 +118,12 @@ describe('Electron E2E teardown aggregation', () => {
     it('rethrows the primary error untouched when every teardown step succeeds', async () => {
         const primary = new Error('assertion failed');
 
-        const failure = await runElectronE2ETeardown(primary, [{
-            label: 'session stop',
-            run: async () => undefined,
-        }]).catch((error: unknown) => error);
+        const failure = await runElectronE2ETeardown(primary, [
+            {
+                label: 'session stop',
+                run: async () => undefined,
+            },
+        ]).catch((error: unknown) => error);
 
         expect(failure).toBe(primary);
     });
@@ -135,12 +131,14 @@ describe('Electron E2E teardown aggregation', () => {
     it('fails a passing test when its teardown fails', async () => {
         const stopFailure = new Error('stop left an Electron process alive');
 
-        const failure = await runElectronE2ETeardown(null, [{
-            label: 'session stop',
-            run: async () => {
-                throw stopFailure;
+        const failure = await runElectronE2ETeardown(null, [
+            {
+                label: 'session stop',
+                run: async () => {
+                    throw stopFailure;
+                },
             },
-        }]).catch((error: unknown) => error);
+        ]).catch((error: unknown) => error);
 
         expect(failure).toBeInstanceOf(ElectronE2ETeardownError);
         expect((failure as AggregateError).errors).toEqual([stopFailure]);
@@ -148,9 +146,13 @@ describe('Electron E2E teardown aggregation', () => {
     });
 
     it('resolves when nothing failed', async () => {
-        await expect(runElectronE2ETeardown(null, [{
-            label: 'session stop',
-            run: async () => undefined,
-        }])).resolves.toBeUndefined();
+        await expect(
+            runElectronE2ETeardown(null, [
+                {
+                    label: 'session stop',
+                    run: async () => undefined,
+                },
+            ]),
+        ).resolves.toBeUndefined();
     });
 });

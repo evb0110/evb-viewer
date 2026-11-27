@@ -1,10 +1,7 @@
-import type { IOcrSearchablePdfOptions } from '@contracts/electronApiOcr';
-import {
-    AGENT_OCR_PAGE_SEGMENTATION_MODES,
-    isSupportedPageSegmentationMode,
-} from '@contracts/agentOcr';
-import { isGreekOcrLanguage } from '@contracts/ocrLanguages';
-import { resolveTesseractLanguageConfig } from '@ocr-core/resolveTesseractLanguageConfig';
+import type {IOcrSearchablePdfOptions} from '@contracts/electronApiOcr';
+import {AGENT_OCR_PAGE_SEGMENTATION_MODES, isSupportedPageSegmentationMode} from '@contracts/agentOcr';
+import {isGreekOcrLanguage} from '@contracts/ocrLanguages';
+import {resolveTesseractLanguageConfig} from '@ocr-core/resolveTesseractLanguageConfig';
 
 /**
  * The Tesseract command line every OCR pass runs, on desktop (the native
@@ -44,9 +41,7 @@ function buildTesseractProfileArgs(options: IOcrSearchablePdfOptions | undefined
     const args: string[] = [];
     if (typeof options?.pageSegmentationMode === 'number') {
         if (!isSupportedPageSegmentationMode(options.pageSegmentationMode)) {
-            throw new Error(
-                `Tesseract page segmentation mode must be one of: ${AGENT_OCR_PAGE_SEGMENTATION_MODES.join(', ')}`,
-            );
+            throw new Error(`Tesseract page segmentation mode must be one of: ${AGENT_OCR_PAGE_SEGMENTATION_MODES.join(', ')}`);
         }
         args.push('--psm', String(options.pageSegmentationMode));
     }
@@ -57,7 +52,9 @@ function buildTesseractProfileArgs(options: IOcrSearchablePdfOptions | undefined
 }
 
 export function buildTesseractArgs(pass: ITesseractPass) {
-    const languageConfig = resolveTesseractLanguageConfig([...pass.languages], {preserveDictionaries: shouldPreserveDictionaries(pass.options)});
+    const languageConfig = resolveTesseractLanguageConfig([...pass.languages], {
+        preserveDictionaries: shouldPreserveDictionaries(pass.options),
+    });
     return [
         pass.imagePath,
         pass.outputBase,
@@ -69,29 +66,14 @@ export function buildTesseractArgs(pass: ITesseractPass) {
         String(pass.dpi),
         ...languageConfig.extraConfigArgs,
         ...buildTesseractProfileArgs(pass.options),
-        ...(pass.outputs.tsv ? [
-            '-c',
-            'tessedit_create_tsv=1',
-        ] : []),
-        ...(pass.outputs.pdf ? [
-            '-c',
-            'tessedit_create_pdf=1',
-            '-c',
-            'textonly_pdf=1',
-        ] : []),
-        ...(pass.outputs.hocr ? [
-            '-c',
-            'tessedit_create_hocr=1',
-            '-c',
-            'hocr_char_boxes=1',
-            '-c',
-            'lstm_choice_mode=2',
-        ] : []),
+        ...(pass.outputs.tsv ? ['-c', 'tessedit_create_tsv=1'] : []),
+        ...(pass.outputs.pdf ? ['-c', 'tessedit_create_pdf=1', '-c', 'textonly_pdf=1'] : []),
+        ...(pass.outputs.hocr ? ['-c', 'tessedit_create_hocr=1', '-c', 'hocr_char_boxes=1', '-c', 'lstm_choice_mode=2'] : []),
     ];
 }
 
 // Tesseract exits 0 when it rejects a -c parameter, so a profile whose option
 // the engine does not know would otherwise run silently without it.
 export function findUnsupportedTesseractOptions(stderrText: string) {
-    return [...stderrText.matchAll(/^Could not set option: (.+)$/gmu)].map(match => match[1]!.trim());
+    return [...stderrText.matchAll(/^Could not set option: (.+)$/gmu)].map((match) => match[1]!.trim());
 }

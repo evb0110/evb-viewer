@@ -3,19 +3,17 @@ import type {Page} from 'puppeteer-core';
 import {waitForRendererReady} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 
-interface IPackagedRendererBrowser {pages(): Promise<Page[]>;}
+interface IPackagedRendererBrowser {
+    pages(): Promise<Page[]>;
+}
 
-export async function waitForPackagedCdpEndpoint(
-    port: number,
-    timeoutMs: number,
-    applicationName: string,
-) {
+export async function waitForPackagedCdpEndpoint(port: number, timeoutMs: number, applicationName: string) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
         try {
             const response = await fetch(`http://127.0.0.1:${port}/json/version`);
             if (response.ok) {
-                const payload = await response.json() as {webSocketDebuggerUrl?: string};
+                const payload = (await response.json()) as {webSocketDebuggerUrl?: string};
                 if (payload.webSocketDebuggerUrl) {
                     return payload.webSocketDebuggerUrl;
                 }
@@ -48,8 +46,7 @@ export async function waitForPackagedRendererPage(
 ) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-        const page = (await browser.pages())
-            .find(candidate => !candidate.isClosed() && candidate.url().startsWith('evb-viewer://app/'));
+        const page = (await browser.pages()).find((candidate) => !candidate.isClosed() && candidate.url().startsWith('evb-viewer://app/'));
         if (page) {
             await waitForPackagedRendererReady(page, Math.max(1, deadline - Date.now()));
             return page;

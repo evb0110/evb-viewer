@@ -1,31 +1,20 @@
-import { cloneAssistantScope } from '@agent-core/assistantScope';
-import type {
-    IAgentAssistantChatScope, TAgentAssistantPresetId,
-} from '@contracts/agent';
-import {
-    assistantSessionKey,
-    type IAssistantEvent,
-    type IAssistantOperationResult,
-    type IAssistantState,
-} from '@contracts/assistant';
-import {
-    defaultWindow, useEventListener,
-} from '@vueuse/core';
-import { getAgentCapability } from '@app/utils/getAgentCapability';
-import { getErrorMessage } from '@app/utils/error';
-import { useRuntimeErrorReports } from '@app/composables/useRuntimeErrorReports';
-import {
-    captureAssistantFailure, type TAssistantFailureAction,
-} from '@app/modules/agent-panel/utils/assistantFailure';
-import { useTypedI18n } from '@app/composables/useTypedI18n';
+import {cloneAssistantScope} from '@agent-core/assistantScope';
+import type {IAgentAssistantChatScope, TAgentAssistantPresetId} from '@contracts/agent';
+import {assistantSessionKey, type IAssistantEvent, type IAssistantOperationResult, type IAssistantState} from '@contracts/assistant';
+import {defaultWindow, useEventListener} from '@vueuse/core';
+import {getAgentCapability} from '@app/utils/getAgentCapability';
+import {getErrorMessage} from '@app/utils/error';
+import {useRuntimeErrorReports} from '@app/composables/useRuntimeErrorReports';
+import {captureAssistantFailure, type TAssistantFailureAction} from '@app/modules/agent-panel/utils/assistantFailure';
+import {useTypedI18n} from '@app/composables/useTypedI18n';
 import {
     persistAssistantSelection,
     readAssistantSelectionPreference,
     resolveAssistantSelection,
 } from '@app/modules/agent-panel/utils/assistantSelectionPreference';
-import { ASSISTANT_PRESETS } from '@app/modules/agent-panel/utils/assistantPresets';
-import { useAssistantImageComposer } from '@app/modules/agent-panel/composables/useAssistantImageComposer';
-import type { TAssistantComposerImage } from '@app/modules/agent-panel/utils/assistantImageAttachments';
+import {ASSISTANT_PRESETS} from '@app/modules/agent-panel/utils/assistantPresets';
+import {useAssistantImageComposer} from '@app/modules/agent-panel/composables/useAssistantImageComposer';
+import type {TAssistantComposerImage} from '@app/modules/agent-panel/utils/assistantImageAttachments';
 
 export interface IAgentAssistantPanelControllerProps {
     activeDocumentName?: string | null | undefined;
@@ -39,8 +28,8 @@ export interface IAgentAssistantPanelControllerProps {
 }
 
 export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistantPanelControllerProps>) => {
-    const { t } = useTypedI18n();
-    const { reportRuntimeError } = useRuntimeErrorReports();
+    const {t} = useTypedI18n();
+    const {reportRuntimeError} = useRuntimeErrorReports();
     const state = ref<IAssistantState>({
         supported: true,
         enabled: true,
@@ -49,14 +38,15 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         chat: null,
     });
     const selection = ref(readAssistantSelectionPreference(defaultWindow?.localStorage));
-    const scope = computed<IAgentAssistantChatScope | null>(previous => props.isChatScopePending ? previous ?? null : props.chatScope ?? null);
-    const sessionKey = computed(() => scope.value && selection.value ? assistantSessionKey(selection.value.instanceId, scope.value.key) : null);
-    const requestIdentity = computed(() => JSON.stringify([
-        scope.value,
-        selection.value,
-    ]));
-    const chat = computed(() => state.value.chat?.sessionKey === sessionKey.value ? state.value.chat : null);
-    const instance = computed(() => state.value.instances.find(item => item.id === selection.value?.instanceId) ?? null);
+    const scope = computed<IAgentAssistantChatScope | null>((previous) =>
+        props.isChatScopePending ? (previous ?? null) : (props.chatScope ?? null),
+    );
+    const sessionKey = computed(() =>
+        scope.value && selection.value ? assistantSessionKey(selection.value.instanceId, scope.value.key) : null,
+    );
+    const requestIdentity = computed(() => JSON.stringify([scope.value, selection.value]));
+    const chat = computed(() => (state.value.chat?.sessionKey === sessionKey.value ? state.value.chat : null));
+    const instance = computed(() => state.value.instances.find((item) => item.id === selection.value?.instanceId) ?? null);
     const draft = ref('');
     const composerImages = ref<TAssistantComposerImage[]>([]);
     const composerError = ref('');
@@ -70,27 +60,39 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         composerError,
         t,
     });
-    const running = computed(() => Boolean(chat.value?.turn && ![
-        'idle',
-        'done',
-        'failed',
-        'cancelled',
-    ].includes(chat.value.turn.phase)));
+    const running = computed(() => Boolean(chat.value?.turn && !['idle', 'done', 'failed', 'cancelled'].includes(chat.value.turn.phase)));
     const hasPayload = computed(() => Boolean(draft.value.trim() || composerImages.value.length));
     const providerDisabledReason = computed(() => {
-        if (props.isChatScopePending) return t('assistant.documentPending');
-        if (!scope.value) return t('assistant.noDocumentDescription');
-        if (!state.value.supported) return t('assistant.unsupportedTitle');
-        if (!instance.value) return t('assistant.instanceMissing');
-        if (!state.value.enabled || !instance.value.enabled || instance.value.state === 'disabled') return t('assistant.instanceDisabled');
-        if (instance.value.state === 'missing') return instance.value.message ?? t('assistant.instanceMissing');
-        if (instance.value.auth === 'unauthenticated') return instance.value.message ?? t('assistant.signInRequired');
+        if (props.isChatScopePending) {
+            return t('assistant.documentPending');
+        }
+        if (!scope.value) {
+            return t('assistant.noDocumentDescription');
+        }
+        if (!state.value.supported) {
+            return t('assistant.unsupportedTitle');
+        }
+        if (!instance.value) {
+            return t('assistant.instanceMissing');
+        }
+        if (!state.value.enabled || !instance.value.enabled || instance.value.state === 'disabled') {
+            return t('assistant.instanceDisabled');
+        }
+        if (instance.value.state === 'missing') {
+            return instance.value.message ?? t('assistant.instanceMissing');
+        }
+        if (instance.value.auth === 'unauthenticated') {
+            return instance.value.message ?? t('assistant.signInRequired');
+        }
         return '';
     });
-    const sendDisabledReason = computed(() => providerDisabledReason.value
-        || (imageComposer.isImageIngestionPending.value ? t('assistant.preparingImages') : '')
-        || (sending.value ? t('assistant.sending') : '')
-        || (!hasPayload.value ? t('assistant.emptyDraft') : ''));
+    const sendDisabledReason = computed(
+        () =>
+            providerDisabledReason.value ||
+            (imageComposer.isImageIngestionPending.value ? t('assistant.preparingImages') : '') ||
+            (sending.value ? t('assistant.sending') : '') ||
+            (!hasPayload.value ? t('assistant.emptyDraft') : ''),
+    );
 
     function applyState(next: IAssistantState) {
         const currentChat = chat.value;
@@ -99,15 +101,21 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             chat: next.chat?.sessionKey === sessionKey.value ? next.chat : currentChat,
         };
         const resolved = resolveAssistantSelection(selection.value, next.instances, next.selection);
-        if (JSON.stringify(resolved) !== JSON.stringify(selection.value)) selection.value = resolved;
+        if (JSON.stringify(resolved) !== JSON.stringify(selection.value)) {
+            selection.value = resolved;
+        }
     }
     function handleEvent(event: IAssistantEvent) {
         if (event.type === 'instances') {
             state.value.instances = event.instances;
             const resolved = resolveAssistantSelection(selection.value, event.instances, state.value.selection);
-            if (JSON.stringify(resolved) !== JSON.stringify(selection.value)) selection.value = resolved;
+            if (JSON.stringify(resolved) !== JSON.stringify(selection.value)) {
+                selection.value = resolved;
+            }
         } else if (event.type === 'chat') {
-            if (event.chat.sessionKey === sessionKey.value) state.value.chat = event.chat;
+            if (event.chat.sessionKey === sessionKey.value) {
+                state.value.chat = event.chat;
+            }
         } else if (event.sessionKey === sessionKey.value && scope.value && selection.value) {
             const current = chat.value ?? {
                 sessionKey: event.sessionKey,
@@ -118,34 +126,47 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
                 turn: null,
             };
             state.value.chat = current;
-            if (event.type === 'turn') current.turn = event.turn;
+            if (event.type === 'turn') {
+                current.turn = event.turn;
+            }
             if (event.type === 'item') {
-                const index = current.items.findIndex(item => item.id === event.item.id);
-                if (index < 0) current.items.push(event.item);
-                else current.items[index] = event.item;
+                const index = current.items.findIndex((item) => item.id === event.item.id);
+                if (index < 0) {
+                    current.items.push(event.item);
+                } else {
+                    current.items[index] = event.item;
+                }
             }
             if (event.type === 'item-delta') {
-                const item = current.items.find(item => item.id === event.itemId);
-                if (item) item.text += event.delta;
+                const item = current.items.find((item) => item.id === event.itemId);
+                if (item) {
+                    item.text += event.delta;
+                }
             }
         }
     }
     function reportFailure(error: unknown, action: TAssistantFailureAction) {
-        reportRuntimeError(captureAssistantFailure(error, {
-            action,
-            title: t('assistant.runtimeErrorTitle'),
-            description: getErrorMessage(error),
-            section: 'assistant',
-        }));
+        reportRuntimeError(
+            captureAssistantFailure(error, {
+                action,
+                title: t('assistant.runtimeErrorTitle'),
+                description: getErrorMessage(error),
+                section: 'assistant',
+            }),
+        );
     }
     async function run(action: 'reset' | 'login' | 'cancel', callback: () => Promise<void>) {
-        if (busyAction.value) return;
+        if (busyAction.value) {
+            return;
+        }
         busyAction.value = action;
         const owner = sessionKey.value;
         try {
             await callback();
         } catch (error) {
-            if (mounted && owner === sessionKey.value) reportFailure(error, action);
+            if (mounted && owner === sessionKey.value) {
+                reportFailure(error, action);
+            }
         } finally {
             busyAction.value = null;
         }
@@ -158,53 +179,67 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         try {
             const next = await getAgentCapability().getAssistantState({
                 scope: scope.value ? cloneAssistantScope(scope.value) : null,
-                ...(selection.value ? { selection: { ...selection.value } } : {}),
+                ...(selection.value ? {selection: {...selection.value}} : {}),
                 probe,
             });
-            if (mounted && serial === refreshSerial && identity === requestIdentity.value) applyState(next);
+            if (mounted && serial === refreshSerial && identity === requestIdentity.value) {
+                applyState(next);
+            }
         } catch (error) {
-            if (mounted && serial === refreshSerial && identity === requestIdentity.value) reportFailure(error, 'refresh');
+            if (mounted && serial === refreshSerial && identity === requestIdentity.value) {
+                reportFailure(error, 'refresh');
+            }
         }
     }
     function applyResult(result: IAssistantOperationResult, owner: string | null) {
-        if (!mounted || owner !== sessionKey.value) return;
+        if (!mounted || owner !== sessionKey.value) {
+            return;
+        }
         applyState(result.state);
         if (!result.ok && result.error) {
-            if (instance.value?.message !== result.error.message) reportFailure(new Error(result.error.message), 'login');
+            if (instance.value?.message !== result.error.message) {
+                reportFailure(new Error(result.error.message), 'login');
+            }
         }
     }
     /**
      * Sends the composer's draft, or an explicit payload (retry, preset). Only
      * a composer send clears the composer, so a retry keeps what is being typed.
      */
-    async function send(payload?: {
-        text: string;
-        attachments: readonly TAssistantComposerImage[];
-        presetId?: TAgentAssistantPresetId;
-    }) {
+    async function send(payload?: {text: string; attachments: readonly TAssistantComposerImage[]; presetId?: TAgentAssistantPresetId}) {
         const fromComposer = payload === undefined;
         const text = payload ? payload.text : draft.value.trim();
         const attachments = payload ? payload.attachments : composerImages.value;
         const presetId = payload?.presetId;
-        if (providerDisabledReason.value || sending.value || imageComposer.isImageIngestionPending.value || !scope.value || !selection.value || (!text && !attachments.length)) return;
+        if (
+            providerDisabledReason.value ||
+            sending.value ||
+            imageComposer.isImageIngestionPending.value ||
+            !scope.value ||
+            !selection.value ||
+            (!text && !attachments.length)
+        ) {
+            return;
+        }
         const owner = sessionKey.value;
-        const existingSystemIds = new Set(chat.value?.items.filter(item => item.kind === 'system').map(item => item.id));
-        const hasNewSystemItem = (next: IAssistantState['chat']) => next?.sessionKey === owner
-            && next.items.some(item => item.kind === 'system' && !existingSystemIds.has(item.id));
-        const reportRefusal = (message: string) => reportRuntimeError(captureAssistantFailure(new Error(message), {
-            action: 'send',
-            title: t('assistant.runtimeErrorTitle'),
-            description: message,
-            section: 'assistant',
-        }));
+        const existingSystemIds = new Set(chat.value?.items.filter((item) => item.kind === 'system').map((item) => item.id));
+        const hasNewSystemItem = (next: IAssistantState['chat']) =>
+            next?.sessionKey === owner && next.items.some((item) => item.kind === 'system' && !existingSystemIds.has(item.id));
+        const reportRefusal = (message: string) =>
+            reportRuntimeError(
+                captureAssistantFailure(new Error(message), {
+                    action: 'send',
+                    title: t('assistant.runtimeErrorTitle'),
+                    description: message,
+                    section: 'assistant',
+                }),
+            );
         const request = {
             text,
-            attachments: attachments.map(({
-                previewDataUrl: _preview, ...image
-            }) => image),
+            attachments: attachments.map(({previewDataUrl: _preview, ...image}) => image),
             scope: cloneAssistantScope(scope.value),
-            selection: { ...selection.value },
-            ...(presetId ? { presetId } : {}),
+            selection: {...selection.value},
+            ...(presetId ? {presetId} : {}),
         };
         sending.value = true;
         if (fromComposer) {
@@ -213,22 +248,30 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         }
         try {
             const result = await getAgentCapability().sendAssistantMessage(request);
-            if (owner !== sessionKey.value || !mounted) return;
+            if (owner !== sessionKey.value || !mounted) {
+                return;
+            }
             const pushedChat = chat.value;
             const hasReturnedReply = hasNewSystemItem(result.state.chat);
             const hasPushedReply = hasNewSystemItem(pushedChat);
             const hasReply = hasReturnedReply || hasPushedReply;
             applyState(result.state);
             // A failure already pushed is newer than a snapshot that lacks it.
-            if (hasPushedReply && !hasReturnedReply) state.value.chat = pushedChat;
-            if (!result.ok && !hasReply && result.error) reportRefusal(result.error.message);
+            if (hasPushedReply && !hasReturnedReply) {
+                state.value.chat = pushedChat;
+            }
+            if (!result.ok && !hasReply && result.error) {
+                reportRefusal(result.error.message);
+            }
             if (fromComposer && !result.ok && !hasReply && !draft.value && !composerImages.value.length) {
                 draft.value = text;
                 imageComposer.replaceComposerImages(attachments);
             }
         } catch (error) {
             if (mounted && owner === sessionKey.value) {
-                if (!hasNewSystemItem(chat.value)) reportRefusal(getErrorMessage(error));
+                if (!hasNewSystemItem(chat.value)) {
+                    reportRefusal(getErrorMessage(error));
+                }
                 if (fromComposer && !draft.value && !composerImages.value.length) {
                     draft.value = text;
                     imageComposer.replaceComposerImages(attachments);
@@ -243,16 +286,21 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         const items = chat.value?.items ?? [];
         // Rows saved before turn ids existed retry the latest message; a row with
         // a turn id retries only that turn's own message.
-        const user = turnId === null
-            ? items.findLast(item => item.kind === 'user')
-            : items.findLast(item => item.kind === 'user' && item.turnId === turnId);
-        if (user) await send({
-            text: user.text,
-            attachments: user.attachments ?? [],
-        });
+        const user =
+            turnId === null
+                ? items.findLast((item) => item.kind === 'user')
+                : items.findLast((item) => item.kind === 'user' && item.turnId === turnId);
+        if (user) {
+            await send({
+                text: user.text,
+                attachments: user.attachments ?? [],
+            });
+        }
     }
     async function interrupt() {
-        if (!scope.value || !selection.value || interrupting.value || chat.value?.turn?.phase === 'interrupting') return;
+        if (!scope.value || !selection.value || interrupting.value || chat.value?.turn?.phase === 'interrupting') {
+            return;
+        }
         interrupting.value = true;
         const owner = sessionKey.value;
         try {
@@ -260,15 +308,21 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
                 scope: cloneAssistantScope(scope.value),
                 instanceId: selection.value.instanceId,
             });
-            if (mounted && owner === sessionKey.value) applyState(next);
+            if (mounted && owner === sessionKey.value) {
+                applyState(next);
+            }
         } catch (error) {
-            if (mounted && owner === sessionKey.value) reportFailure(error, 'interrupt');
+            if (mounted && owner === sessionKey.value) {
+                reportFailure(error, 'interrupt');
+            }
         } finally {
             interrupting.value = false;
         }
     }
     function reset() {
-        if (!scope.value || !selection.value) return;
+        if (!scope.value || !selection.value) {
+            return;
+        }
         const request = {
             scope: cloneAssistantScope(scope.value),
             instanceId: selection.value.instanceId,
@@ -285,7 +339,9 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         });
     }
     function login(mode: 'chatgpt' | 'device-code') {
-        if (!selection.value) return;
+        if (!selection.value) {
+            return;
+        }
         const instanceId = selection.value.instanceId;
         const owner = sessionKey.value;
         void run('login', async () => {
@@ -301,11 +357,13 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         });
     }
     function cancelLogin() {
-        if (!selection.value) return;
+        if (!selection.value) {
+            return;
+        }
         const instanceId = selection.value.instanceId;
         const owner = sessionKey.value;
         void run('cancel', async () => {
-            const next = await getAgentCapability().cancelAssistantLogin({ instanceId });
+            const next = await getAgentCapability().cancelAssistantLogin({instanceId});
             if (mounted && owner === sessionKey.value) {
                 applyState(next);
                 deviceCode.value = '';
@@ -313,7 +371,14 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             }
         });
     }
-    const presetLabel = (id: TAgentAssistantPresetId) => t(id === 'add-bookmarks' ? 'assistant.presetAddBookmarks' : id === 'number-pages' ? 'assistant.presetNumberPages' : 'assistant.presetCheckOcr');
+    const presetLabel = (id: TAgentAssistantPresetId) =>
+        t(
+            id === 'add-bookmarks'
+                ? 'assistant.presetAddBookmarks'
+                : id === 'number-pages'
+                  ? 'assistant.presetNumberPages'
+                  : 'assistant.presetCheckOcr',
+        );
     function sendPreset(id: TAgentAssistantPresetId) {
         void send({
             text: presetLabel(id),
@@ -323,16 +388,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     }
     let mounted = false;
     let unsubscribe: (() => void) | undefined;
-    watch([
-        requestIdentity,
-        sessionKey,
-    ], ([
-        identity,
-        key,
-    ], [
-        previousIdentity,
-        previousKey,
-    ]) => {
+    watch([requestIdentity, sessionKey], ([identity, key], [previousIdentity, previousKey]) => {
         if (identity !== previousIdentity && mounted) {
             void refresh();
         }
@@ -344,17 +400,27 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             verificationUrl.value = '';
         }
     });
-    watch(selection, value => {
-        if (!value) return;
-        const failure = persistAssistantSelection(defaultWindow?.localStorage, value);
-        if (failure) reportRuntimeError(captureAssistantFailure(failure.error, {
-            action: 'switch-provider',
-            title: t('errors.settings.save'),
-        }));
-    }, {
-        deep: true,
-        immediate: true,
-    });
+    watch(
+        selection,
+        (value) => {
+            if (!value) {
+                return;
+            }
+            const failure = persistAssistantSelection(defaultWindow?.localStorage, value);
+            if (failure) {
+                reportRuntimeError(
+                    captureAssistantFailure(failure.error, {
+                        action: 'switch-provider',
+                        title: t('errors.settings.save'),
+                    }),
+                );
+            }
+        },
+        {
+            deep: true,
+            immediate: true,
+        },
+    );
     onMounted(() => {
         mounted = true;
         unsubscribe = getAgentCapability().onAssistantEvent(handleEvent);

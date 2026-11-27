@@ -1,218 +1,184 @@
 {
-    "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
-    "entry": [
-        "app/app.vue",
-        "app/app.config.ts",
-        "app/router.options.ts",
-        "app/pages/**/*.vue",
-        "app/components/**/*.vue",
-        "app/plugins/**/*.ts",
-        "app/composables/**/*.ts",
-        "app/utils/**/*.ts",
-        "app/constants/**/*.ts",
-        "app/modules/*/public.ts",
-        "app/modules/*/public/**/*.ts",
-        "app/modules/pdf-viewer/engine/**/*.ts",
-        "app/modules/pdf-viewer/runtime/composables/**/*.ts",
-        "app/i18n/**/*.ts",
-        "server/**/*.ts",
-        "electron/main.ts",
-        "electron/preload.ts",
-        "electron/features/documents/main/pdfConformanceWorker.ts",
-        "electron/features/documents/main/documentSaveUtilityProcess.ts",
-        "electron/features/djvu/main/pdfWorker.ts",
-        "electron/features/*/public.ts",
-        "electron/features/image-export/main/tiffCombineWorker.ts",
-        "electron/features/ocr/main/ocrEngineHost.ts",
-        "electron/ocr/worker/main.ts",
-        "electron/ocr/worker/runProductionOcrQualityCase.ts",
-        "electron/features/scan-cleanup/worker/main.ts",
-        "electron/features/search/worker.ts",
-        "packages/*/index.ts",
-        // The Chrome extension's service worker and open page load as their own scripts.
-        "packages/chrome-extension/src/serviceWorker.ts",
-        "packages/chrome-extension/src/openPage.ts",
-        // The package export map exposes nested diagnostics contracts as
-        // public subpath entry points, not only through the root barrel.
-        "packages/contracts/diagnostics/**/*.{ts,js}",
-        // The standalone release verifier imports this runtime sidecar from
-        // Node without a TypeScript loader.
-        "packages/contracts/getErrorMessage.js",
-        "scripts/**/*.{ts,mjs,cjs}",
-        "tests/fixtures/ocr/*.mjs",
-        "tests/setup.ts",
-        "tests/e2e/electron/globalSetup.ts",
-        "tests/mocks/**/*.ts",
-        "tests/typecheck/**/*.ts",
-        "tests/types/**/*.ts"
-    ],
-    "ignorePatterns": [
-        "app/types/*.d.ts",
-        "electron/types/semver.d.ts",
-        "electron/types/utif.d.ts",
-        "app/assets/css/*.scss",
-        "landing/**",
-        "nuxt-output/**",
-        "public/**",
-        "dist-electron/**",
-        "dist-chrome-extension/**",
-        // Its script is the bundled openPage.ts, written beside it at build time.
-        "packages/chrome-extension/static/**"
-    ],
-    "ignoreDependencies": [
-        "@aws-sdk/client-s3",
-        "@iconify-json/circle-flags",
-        "@iconify-json/ph",
-        "@iconify-json/lucide",
-        "@iconify/utils",
-        "@intlify/core",
-        "@intlify/core-base",
-        "@intlify/h3",
-        "@intlify/message-compiler",
-        "@intlify/shared",
-        "@intlify/utils",
-        "@landing/app",
-        // Nuxt resolves this virtual server alias for the root landing tests.
-        "@landing/server",
-        "@vue/compiler-core",
-        "@vue/compiler-ssr",
-        "@vue/devtools-api",
-        "@vue/reactivity",
-        "@vue/runtime-core",
-        "@vue/runtime-dom",
-        "@vue/server-renderer",
-        "@vue/shared",
-        // Scan-cleanup package sources use the repository's @contracts path
-        // alias, which resolves to this workspace package at typecheck time.
-        "@evb/contracts",
-        "consola",
-        "cookie-es",
-        "defu",
-        "devalue",
-        "entities",
-        "estree-walker",
-        "oxlint",
-        "hookable",
-        "iron-webcrypto",
-        "@napi-rs/canvas",
-        "@playwright/test",
-        "app-builder-bin",
-        // The CLI runs in scripts/upload-sentry-sourcemaps.mjs and is not runtime code.
-        "@sentry/cli",
-        "@sentry/core",
-        "node-mock-http",
-        "nuxt",
-        "pdfjs-dist-codex-preview",
-        "puppeteer-core",
-        "radix3",
-        "sass-embedded",
-        "source-map-js",
-        "typescript7",
-        "ufo",
-        "uncrypto",
-        "unhead",
-        "vue-bundle-renderer",
-        "yaml-eslint-parser"
-    ],
-    "ignoreUnresolvedImports": [
-        "@app/assets/css/settings-panel-shared",
-        "@app/assets/css/toolbar-menu-shared"
-    ],
-    "ignoreExports": [
-        {
-            "file": "app/modules/pdf-viewer/public/component-exports/pdfAnnotationContextMenu.ts",
-            "exports": [
-                "PdfAnnotationContextMenu"
-            ]
-        },
-        {
-            "file": "app/modules/pdf-viewer/public/component-exports/pdfAnnotationProperties.ts",
-            "exports": [
-                "PdfAnnotationProperties"
-            ]
-        },
-        {
-            "file": "app/modules/pdf-viewer/public/component-exports/pdfPageContextMenu.ts",
-            "exports": [
-                "PdfPageContextMenu"
-            ]
-        },
-        {
-            "file": "app/modules/pdf-viewer/public/component-exports/pdfStatusBar.ts",
-            "exports": [
-                "PdfStatusBar"
-            ]
-        },
-        {
-            "file": "app/modules/pdf-viewer/public/component-exports/pdfTextMarkupAnnotationProperties.ts",
-            "exports": [
-                "PdfTextMarkupAnnotationProperties"
-            ]
-        },
-        {
-            "file": "app/modules/scan-cleanup/runtime/updateScanCleanupMargins.ts",
-            "exports": [
-                "SCAN_CLEANUP_MARGIN_SIDES"
-            ]
-        },
-        {
-            "file": "electron/features/scan-cleanup/scanCleanupMainBindings.ts",
-            "exports": [
-                "disposeScanCleanupMainBindings"
-            ]
-        }
-    ],
-    "usedClassMembers": [
-        "effort",
-        "fastMode",
-        "interrupt",
-        "model",
-        "requestDecoded",
-        "speedMode"
-    ],
-    "workspaces": {
-        "patterns": [
-            "packages/*",
-            "packages/scan-cleanup/*"
-        ]
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "entry": [
+    "app/app.vue",
+    "app/app.config.ts",
+    "app/router.options.ts",
+    "app/pages/**/*.vue",
+    "app/components/**/*.vue",
+    "app/plugins/**/*.ts",
+    "app/composables/**/*.ts",
+    "app/utils/**/*.ts",
+    "app/constants/**/*.ts",
+    "app/modules/*/public.ts",
+    "app/modules/*/public/**/*.ts",
+    "app/modules/pdf-viewer/engine/**/*.ts",
+    "app/modules/pdf-viewer/runtime/composables/**/*.ts",
+    "app/i18n/**/*.ts",
+    "server/**/*.ts",
+    "electron/main.ts",
+    "electron/preload.ts",
+    "electron/features/documents/main/pdfConformanceWorker.ts",
+    "electron/features/documents/main/documentSaveUtilityProcess.ts",
+    "electron/features/djvu/main/pdfWorker.ts",
+    "electron/features/*/public.ts",
+    "electron/features/image-export/main/tiffCombineWorker.ts",
+    "electron/features/ocr/main/ocrEngineHost.ts",
+    "electron/ocr/worker/main.ts",
+    "electron/ocr/worker/runProductionOcrQualityCase.ts",
+    "electron/features/scan-cleanup/worker/main.ts",
+    "electron/features/search/worker.ts",
+    "packages/*/index.ts",
+    // The Chrome extension's service worker and open page load as their own scripts.
+    "packages/chrome-extension/src/serviceWorker.ts",
+    "packages/chrome-extension/src/openPage.ts",
+    // The package export map exposes nested diagnostics contracts as
+    // public subpath entry points, not only through the root barrel.
+    "packages/contracts/diagnostics/**/*.{ts,js}",
+    // The standalone release verifier imports this runtime sidecar from
+    // Node without a TypeScript loader.
+    "packages/contracts/getErrorMessage.js",
+    "scripts/**/*.{ts,mjs,cjs}",
+    "tests/fixtures/ocr/*.mjs",
+    "tests/setup.ts",
+    "tests/e2e/electron/globalSetup.ts",
+    "tests/mocks/**/*.ts",
+    "tests/typecheck/**/*.ts",
+    "tests/types/**/*.ts"
+  ],
+  "ignorePatterns": [
+    "app/types/*.d.ts",
+    "electron/types/semver.d.ts",
+    "electron/types/utif.d.ts",
+    "app/assets/css/*.scss",
+    "landing/**",
+    "nuxt-output/**",
+    "public/**",
+    "dist-electron/**",
+    "dist-chrome-extension/**",
+    // Its script is the bundled openPage.ts, written beside it at build time.
+    "packages/chrome-extension/static/**"
+  ],
+  "ignoreDependencies": [
+    "@aws-sdk/client-s3",
+    "@iconify-json/circle-flags",
+    "@iconify-json/ph",
+    "@iconify-json/lucide",
+    "@iconify/utils",
+    "@intlify/core",
+    "@intlify/core-base",
+    "@intlify/h3",
+    "@intlify/message-compiler",
+    "@intlify/shared",
+    "@intlify/utils",
+    "@landing/app",
+    // Nuxt resolves this virtual server alias for the root landing tests.
+    "@landing/server",
+    "@vue/compiler-core",
+    "@vue/compiler-ssr",
+    "@vue/devtools-api",
+    "@vue/reactivity",
+    "@vue/runtime-core",
+    "@vue/runtime-dom",
+    "@vue/server-renderer",
+    "@vue/shared",
+    // Scan-cleanup package sources use the repository's @contracts path
+    // alias, which resolves to this workspace package at typecheck time.
+    "@evb/contracts",
+    "consola",
+    "cookie-es",
+    "defu",
+    "devalue",
+    "entities",
+    "estree-walker",
+    "oxlint",
+    "hookable",
+    "iron-webcrypto",
+    "@napi-rs/canvas",
+    "@playwright/test",
+    "app-builder-bin",
+    // The CLI runs in scripts/upload-sentry-sourcemaps.mjs and is not runtime code.
+    "@sentry/cli",
+    "@sentry/core",
+    "node-mock-http",
+    "nuxt",
+    "pdfjs-dist-codex-preview",
+    "puppeteer-core",
+    "radix3",
+    "sass-embedded",
+    "source-map-js",
+    "typescript7",
+    "ufo",
+    "uncrypto",
+    "unhead",
+    "vue-bundle-renderer",
+    "yaml-eslint-parser"
+  ],
+  "ignoreUnresolvedImports": ["@app/assets/css/settings-panel-shared", "@app/assets/css/toolbar-menu-shared"],
+  "ignoreExports": [
+    {
+      "file": "app/modules/pdf-viewer/public/component-exports/pdfAnnotationContextMenu.ts",
+      "exports": ["PdfAnnotationContextMenu"]
     },
-    // Duplicate findings remain an informational report.
-    "duplicates": {
-        "ignoreImports": true,
-        "minLines": 8,
-        "minTokens": 80,
-        "ignore": [
-            "app/assets/css/vendor/**",
-            "packages/i18n-app/messages/**"
-        ]
+    {
+      "file": "app/modules/pdf-viewer/public/component-exports/pdfAnnotationProperties.ts",
+      "exports": ["PdfAnnotationProperties"]
     },
-    "health": {
-        "ignore": [
-            "app/assets/css/vendor/**",
-            "public/**",
-            "tests/**"
-        ]
+    {
+      "file": "app/modules/pdf-viewer/public/component-exports/pdfPageContextMenu.ts",
+      "exports": ["PdfPageContextMenu"]
     },
-    "rules": {
-        "unused-dev-dependencies": "error",
-        "unused-optional-dependencies": "error",
-        "duplicate-exports": "warn",
-        "type-only-dependencies": "warn",
-        "test-only-dependencies": "warn"
+    {
+      "file": "app/modules/pdf-viewer/public/component-exports/pdfStatusBar.ts",
+      "exports": ["PdfStatusBar"]
     },
-    "overrides": [
-        {
-            "files": [
-                "app/modules/agent-panel/components/AgentAssistantPanel.vue",
-                "app/modules/djvu-viewer/components/DjvuConversionOverlay.vue",
-                "app/modules/djvu-viewer/components/DjvuConvertDialog.vue",
-                "app/modules/native-pdf-viewer/components/NativePdfViewer.vue",
-                "app/modules/ocr-panel/components/OcrPopup.vue",
-                "app/modules/pdf-viewer/components/PdfViewer.vue"
-            ],
-            "rules": {
-                "unrendered-components": "off"
-            }
-        }
-    ]
+    {
+      "file": "app/modules/pdf-viewer/public/component-exports/pdfTextMarkupAnnotationProperties.ts",
+      "exports": ["PdfTextMarkupAnnotationProperties"]
+    },
+    {
+      "file": "app/modules/scan-cleanup/runtime/updateScanCleanupMargins.ts",
+      "exports": ["SCAN_CLEANUP_MARGIN_SIDES"]
+    },
+    {
+      "file": "electron/features/scan-cleanup/scanCleanupMainBindings.ts",
+      "exports": ["disposeScanCleanupMainBindings"]
+    }
+  ],
+  "usedClassMembers": ["effort", "fastMode", "interrupt", "model", "requestDecoded", "speedMode"],
+  "workspaces": {
+    "patterns": ["packages/*", "packages/scan-cleanup/*"]
+  },
+  // Duplicate findings remain an informational report.
+  "duplicates": {
+    "ignoreImports": true,
+    "minLines": 8,
+    "minTokens": 80,
+    "ignore": ["app/assets/css/vendor/**", "packages/i18n-app/messages/**"]
+  },
+  "health": {
+    "ignore": ["app/assets/css/vendor/**", "public/**", "tests/**"]
+  },
+  "rules": {
+    "unused-dev-dependencies": "error",
+    "unused-optional-dependencies": "error",
+    "duplicate-exports": "warn",
+    "type-only-dependencies": "warn",
+    "test-only-dependencies": "warn"
+  },
+  "overrides": [
+    {
+      "files": [
+        "app/modules/agent-panel/components/AgentAssistantPanel.vue",
+        "app/modules/djvu-viewer/components/DjvuConversionOverlay.vue",
+        "app/modules/djvu-viewer/components/DjvuConvertDialog.vue",
+        "app/modules/native-pdf-viewer/components/NativePdfViewer.vue",
+        "app/modules/ocr-panel/components/OcrPopup.vue",
+        "app/modules/pdf-viewer/components/PdfViewer.vue"
+      ],
+      "rules": {
+        "unrendered-components": "off"
+      }
+    }
+  ]
 }

@@ -1,37 +1,20 @@
 // @vitest-environment happy-dom
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    computed,
-    effectScope,
-    nextTick,
-    ref,
-} from 'vue';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {computed, effectScope, nextTick, ref} from 'vue';
 import {useTextBoxInlineEdit} from '@app/modules/pdf-viewer/annotations/editor/useTextBoxInlineEdit';
-import {
-    asAnnotationId,
-    type ITextBoxEntity,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {asAnnotationId, type ITextBoxEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
 describe('text box caret ownership', () => {
     const scopes: Array<ReturnType<typeof effectScope>> = [];
     afterEach(() => {
-        scopes.splice(0).forEach(scope => scope.stop());
+        scopes.splice(0).forEach((scope) => scope.stop());
         document.body.replaceChildren();
         vi.restoreAllMocks();
         Reflect.deleteProperty(document, 'caretPositionFromPoint');
     });
 
-    async function start(point?: {
-        clientX: number;
-        clientY: number
-    }) {
+    async function start(point?: {clientX: number; clientY: number}) {
         const entity: ITextBoxEntity = {
             kind: 'text-box',
             identity: {id: asAnnotationId('caret')},
@@ -57,13 +40,15 @@ describe('text box caret ownership', () => {
         scopes.push(scope);
         const commit = vi.fn();
         const editing = ref(true);
-        const editor = scope.run(() => useTextBoxInlineEdit({
-            entity: computed(() => entity),
-            editing,
-            caretPoint: ref(point ?? null),
-            onCommit: commit,
-            onCancel: vi.fn(),
-        }))!;
+        const editor = scope.run(() =>
+            useTextBoxInlineEdit({
+                entity: computed(() => entity),
+                editing,
+                caretPoint: ref(point ?? null),
+                onCommit: commit,
+                onCancel: vi.fn(),
+            }),
+        )!;
         const element = document.createElement('div');
         element.contentEditable = 'true';
         element.tabIndex = 0;
@@ -107,11 +92,7 @@ describe('text box caret ownership', () => {
     });
 
     it('preserves the focused draft and selected text when completion fails', async () => {
-        const {
-            element,
-            editor,
-            commit,
-        } = await start();
+        const {element, editor, commit} = await start();
         const publication = Promise.withResolvers<undefined>();
         commit.mockImplementation(() => publication.promise);
         element.textContent = 'Corrected text';
@@ -139,12 +120,12 @@ describe('text box caret ownership', () => {
             value: {ready: ready.promise},
         });
         try {
-            const {
-                element, editor, commit,
-            } = await start();
+            const {element, editor, commit} = await start();
             const accepted = document.createElement('output');
             document.body.append(accepted);
-            commit.mockImplementation((text: string) => { accepted.textContent = text; });
+            commit.mockImplementation((text: string) => {
+                accepted.textContent = text;
+            });
             element.textContent = 'Before fonts';
             editor.handleInput({currentTarget: element});
             const completing = editor.commit();
@@ -164,16 +145,16 @@ describe('text box caret ownership', () => {
             expect(element.textContent).toBe('After fonts');
             expect(selection.toString()).toBe('After fonts');
         } finally {
-            if (fonts) Object.defineProperty(document, 'fonts', fonts);
-            else Reflect.deleteProperty(document, 'fonts');
+            if (fonts) {
+                Object.defineProperty(document, 'fonts', fonts);
+            } else {
+                Reflect.deleteProperty(document, 'fonts');
+            }
         }
     });
 
     it('restores object focus for explicit Done but preserves the destination on blur', async () => {
-        const {
-            editor,
-            commit,
-        } = await start();
+        const {editor, commit} = await start();
         editor.handleKeydown({
             key: 'Enter',
             ctrlKey: false,
@@ -184,12 +165,8 @@ describe('text box caret ownership', () => {
         expect(commit).toHaveBeenCalledExactlyOnceWith('existing words', {restoreFocus: true});
     });
     it('keeps a draft active while operating properties and commits when focus leaves both', async () => {
-        const {
-            element,
-            editor,
-            commit,
-        } = await start();
-        element.addEventListener('blur', event => editor.handleBlur(event));
+        const {element, editor, commit} = await start();
+        element.addEventListener('blur', (event) => editor.handleBlur(event));
         const inspector = document.createElement('section');
         inspector.dataset.annotationInspector = '';
         const property = document.createElement('input');
@@ -207,5 +184,4 @@ describe('text box caret ownership', () => {
         expect(commit).toHaveBeenCalledExactlyOnceWith('existing words', {restoreFocus: false});
         expect(document.activeElement).toBe(outside);
     });
-
 });

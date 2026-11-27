@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import {randomBytes} from 'node:crypto';
 
 const RUN_ID_PREFIX = 'run';
 const RUN_ID_MAX_LENGTH = 32;

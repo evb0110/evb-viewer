@@ -1,29 +1,24 @@
-import type { TTranslateFn } from '@i18n-app';
-import { useRuntimeErrorReports } from '@app/composables/useRuntimeErrorReports';
-import { captureAssistantFailure } from '@app/modules/agent-panel/utils/assistantFailure';
-import { readShortcutKey } from '@app/utils/shortcutKey';
-import {
-    defaultDocument,
-    tryOnScopeDispose,
-    useClipboard,
-    useTimeoutFn,
-} from '@vueuse/core';
+import type {TTranslateFn} from '@i18n-app';
+import {useRuntimeErrorReports} from '@app/composables/useRuntimeErrorReports';
+import {captureAssistantFailure} from '@app/modules/agent-panel/utils/assistantFailure';
+import {readShortcutKey} from '@app/utils/shortcutKey';
+import {defaultDocument, tryOnScopeDispose, useClipboard, useTimeoutFn} from '@vueuse/core';
 
-export const useAssistantPanelClipboard = (options: {t: TTranslateFn;}) => {
+export const useAssistantPanelClipboard = (options: {t: TTranslateFn}) => {
     const copiedMessageId = ref<string | null>(null);
     const panelRef = ref<HTMLElement | null>(null);
-    const { reportRuntimeError } = useRuntimeErrorReports();
-    const { copy } = useClipboard();
-    const copiedReset = useTimeoutFn(() => {
-        copiedMessageId.value = null;
-    }, 1800, { immediate: false });
-
-    const isCopyShortcut = (event: KeyboardEvent) => (
-        [
-            event.metaKey,
-            event.ctrlKey,
-        ].some(Boolean) && !event.altKey && readShortcutKey(event) === 'c'
+    const {reportRuntimeError} = useRuntimeErrorReports();
+    const {copy} = useClipboard();
+    const copiedReset = useTimeoutFn(
+        () => {
+            copiedMessageId.value = null;
+        },
+        1800,
+        {immediate: false},
     );
+
+    const isCopyShortcut = (event: KeyboardEvent) =>
+        [event.metaKey, event.ctrlKey].some(Boolean) && !event.altKey && readShortcutKey(event) === 'c';
     const isEditableCopyTarget = (target: EventTarget | null) => {
         if (typeof HTMLElement === 'undefined' || !(target instanceof HTMLElement)) {
             return false;
@@ -48,11 +43,10 @@ export const useAssistantPanelClipboard = (options: {t: TTranslateFn;}) => {
                 return false;
             }
         };
-        const isInPanel = nodeInPanel(selection.anchorNode)
-            || nodeInPanel(selection.focusNode)
-            || Array.from({ length: selection.rangeCount }).some((_, index) => (
-                rangeIntersectsPanel(selection.getRangeAt(index))
-            ));
+        const isInPanel =
+            nodeInPanel(selection.anchorNode) ||
+            nodeInPanel(selection.focusNode) ||
+            Array.from({length: selection.rangeCount}).some((_, index) => rangeIntersectsPanel(selection.getRangeAt(index)));
         const text = isInPanel ? selection.toString() : '';
         return text.trim().length > 0 ? text : '';
     };
@@ -61,11 +55,13 @@ export const useAssistantPanelClipboard = (options: {t: TTranslateFn;}) => {
             await copy(text);
             return true;
         } catch (error) {
-            reportRuntimeError(captureAssistantFailure(error, {
-                action: 'copy',
-                title: options.t('assistant.copyFailed'),
-                logMessage,
-            }));
+            reportRuntimeError(
+                captureAssistantFailure(error, {
+                    action: 'copy',
+                    title: options.t('assistant.copyFailed'),
+                    logMessage,
+                }),
+            );
             return false;
         }
     };
@@ -86,7 +82,7 @@ export const useAssistantPanelClipboard = (options: {t: TTranslateFn;}) => {
             return;
         }
         void (async () => {
-            if (!await copyText(text, 'Failed to copy assistant message text')) {
+            if (!(await copyText(text, 'Failed to copy assistant message text'))) {
                 return;
             }
             copiedReset.stop();
@@ -100,9 +96,8 @@ export const useAssistantPanelClipboard = (options: {t: TTranslateFn;}) => {
         handleAssistantCopyShortcut,
         handleCopyMessageText,
         panelRef,
-        copyMessageIcon: (messageId: string) => copiedMessageId.value === messageId ? 'i-ph-check' : 'i-ph-copy',
-        copyMessageTooltip: (messageId: string) => copiedMessageId.value === messageId
-            ? options.t('assistant.copyMessageCopied')
-            : options.t('assistant.copyMessage'),
+        copyMessageIcon: (messageId: string) => (copiedMessageId.value === messageId ? 'i-ph-check' : 'i-ph-copy'),
+        copyMessageTooltip: (messageId: string) =>
+            copiedMessageId.value === messageId ? options.t('assistant.copyMessageCopied') : options.t('assistant.copyMessage'),
     };
 };

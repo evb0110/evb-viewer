@@ -1,9 +1,2 @@
-export {
-    cancelOcrJobsForWorkingCopy,
-    recoverOcrJobManager,
-    shutdownOcrJobManager,
-} from '@electron/features/ocr/main/jobManager';
-export {
-    discardOcrResultsForDocument,
-    findOcrResultForDocument,
-} from '@electron/features/ocr/main/jobManager';
+export {cancelOcrJobsForWorkingCopy, recoverOcrJobManager, shutdownOcrJobManager} from '@electron/features/ocr/main/jobManager';
+export {discardOcrResultsForDocument, findOcrResultForDocument} from '@electron/features/ocr/main/jobManager';

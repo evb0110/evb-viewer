@@ -1,14 +1,6 @@
 import {vi} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    nextTick,
-    ref,
-} from 'vue';
-import type {
-    App,
-    VNode,
-} from 'vue';
+import {createApp, defineComponent, nextTick, ref} from 'vue';
+import type {App, VNode} from 'vue';
 import type {IDocumentSearchSession} from '@app/modules/document-viewer/search/documentSearch';
 
 /**
@@ -93,5 +85,7 @@ export async function mountDocumentSidebarHost(
 
 /** Unmounts every sidebar this harness mounted. */
 export function unmountDocumentSidebarHosts() {
-    for (const unmount of [...mounted]) unmount();
+    for (const unmount of [...mounted]) {
+        unmount();
+    }
 }

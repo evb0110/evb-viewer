@@ -1,21 +1,13 @@
 import {spawnSync} from 'node:child_process';
-import {
-    mkdtemp, rm, writeFile,
-} from 'node:fs/promises';
+import {mkdtemp, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {omit} from 'es-toolkit';
 import {DEFAULT_SCAN_CLEANUP_PREFERENCES} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {createFileBackedScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
-import {
-    createScanCleanupDetectionCacheKey, writeScanCleanupDetectionCacheStore,
-} from '@scripts/scanCleanupDetectionCache';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {createScanCleanupDetectionCacheKey, writeScanCleanupDetectionCacheStore} from '@scripts/scanCleanupDetectionCache';
+import {describe, expect, it} from 'vitest';
 import {
     compareMetrics,
     loadDetection,
@@ -36,18 +28,9 @@ function textBitmap(wordWidths: readonly [number, number, number, number]): IBit
     const width = 96;
     const height = 64;
     const data = new Uint8Array(width * height).fill(255);
-    const lineTops = [
-        8,
-        36,
-    ];
-    const wordPositions = [
-        8,
-        28,
-    ];
-    for (const [
-        index,
-        wordWidth,
-    ] of wordWidths.entries()) {
+    const lineTops = [8, 36];
+    const wordPositions = [8, 28];
+    for (const [index, wordWidth] of wordWidths.entries()) {
         const lineTop = lineTops[Math.floor(index / 2)]!;
         const left = wordPositions[index % 2]!;
         for (let y = lineTop; y < lineTop + 8; y += 1) {
@@ -65,10 +48,7 @@ function textBitmap(wordWidths: readonly [number, number, number, number]): IBit
 
 describe('scan cleanup preview weight agreement', () => {
     it('states the native replay scope in the diagnostic CLI', () => {
-        const result = spawnSync(process.execPath, [
-            'scripts/diagnostics/scan-cleanup-preview-harness.mjs',
-            '--help',
-        ], {encoding: 'utf8'});
+        const result = spawnSync(process.execPath, ['scripts/diagnostics/scan-cleanup-preview-harness.mjs', '--help'], {encoding: 'utf8'});
         expect(result.status).toBe(0);
         expect(result.stderr).toContain('does not certify desktop preview parity');
     });
@@ -84,33 +64,41 @@ describe('scan cleanup preview weight agreement', () => {
             width: 2,
         };
 
-        expect(measureOverlayContainment(
-            bitmap,
-            {
-                bottom: 1,
-                left: 0,
-                right: 1,
-                top: 0.51,
-            },
-            0.01,
-            0.03,
-        )).toMatchObject({
+        expect(
+            measureOverlayContainment(
+                bitmap,
+                {
+                    bottom: 1,
+                    left: 0,
+                    right: 1,
+                    top: 0.51,
+                },
+                0.01,
+                0.03,
+            ),
+        ).toMatchObject({
             containment: 1,
             pass: true,
         });
     });
 
     it('maps cropped native output into the matched canvas before reading ink', () => {
-        expect(independentReaderScale({
-            canvasHeightPx: 120,
-            canvasWidthPx: 160,
-            matchedCanvasContentHeightPx: 46,
-            matchedCanvasContentWidthPx: 100,
-            outputHeightPx: 103,
-            outputWidthPx: 226,
-        }, 160, 121)).toEqual({
+        expect(
+            independentReaderScale(
+                {
+                    canvasHeightPx: 120,
+                    canvasWidthPx: 160,
+                    matchedCanvasContentHeightPx: 46,
+                    matchedCanvasContentWidthPx: 100,
+                    outputHeightPx: 103,
+                    outputWidthPx: 226,
+                },
+                160,
+                121,
+            ),
+        ).toEqual({
             x: 100 / 226,
-            y: 121 / 120 * 46 / 103,
+            y: ((121 / 120) * 46) / 103,
         });
     });
 
@@ -146,58 +134,24 @@ describe('scan cleanup preview weight agreement', () => {
     });
 
     it('rejects uniform threefold thickening on the same raster grid', () => {
-        const original = weightUniformity(textBitmap([
-            4,
-            4,
-            4,
-            4,
-        ]));
-        const thickened = weightUniformity(textBitmap([
-            12,
-            12,
-            12,
-            12,
-        ]));
+        const original = weightUniformity(textBitmap([4, 4, 4, 4]));
+        const thickened = weightUniformity(textBitmap([12, 12, 12, 12]));
         expect(weightAgreementViolations(compareMetrics(original, original))).toEqual([]);
-        expect(weightAgreementViolations(compareMetrics(original, thickened)))
-            .toEqual(['preview-final-weight-agreement']);
+        expect(weightAgreementViolations(compareMetrics(original, thickened))).toEqual(['preview-final-weight-agreement']);
     });
 
     it('compares a final raster rendered at twice the preview resolution on the preview grid', () => {
-        const preview = weightUniformity(textBitmap([
-            4,
-            4,
-            4,
-            4,
-        ]));
-        const finerFinal = weightUniformity(textBitmap([
-            8,
-            8,
-            8,
-            8,
-        ]));
+        const preview = weightUniformity(textBitmap([4, 4, 4, 4]));
+        const finerFinal = weightUniformity(textBitmap([8, 8, 8, 8]));
         expect(weightAgreementViolations(compareMetrics(preview, finerFinal, 0.5))).toEqual([]);
-        expect(weightAgreementViolations(compareMetrics(preview, weightUniformity(textBitmap([
-            12,
-            12,
-            12,
-            12,
-        ])), 0.5))).toEqual(['preview-final-weight-agreement']);
+        expect(weightAgreementViolations(compareMetrics(preview, weightUniformity(textBitmap([12, 12, 12, 12])), 0.5))).toEqual([
+            'preview-final-weight-agreement',
+        ]);
     });
 
     it('rejects a real two-word weight divergence', () => {
-        const preview = weightUniformity(textBitmap([
-            4,
-            10,
-            4,
-            10,
-        ]));
-        const final = weightUniformity(textBitmap([
-            4,
-            4,
-            4,
-            4,
-        ]));
+        const preview = weightUniformity(textBitmap([4, 10, 4, 10]));
+        const final = weightUniformity(textBitmap([4, 4, 4, 4]));
         const comparison = compareMetrics(preview, final);
 
         expect(preview).toMatchObject({
@@ -212,7 +166,6 @@ describe('scan cleanup preview weight agreement', () => {
         expect(weightAgreementViolations(comparison)).toEqual(['preview-final-weight-agreement']);
     });
 });
-
 
 describe('preview oracle detection cache', () => {
     it('reads selected pages from a valid 1025-page descriptor and rejects a missing cache', async () => {
@@ -250,10 +203,13 @@ describe('preview oracle detection cache', () => {
                 });
             }
             await writeScanCleanupDetectionCacheStore(join(root, 'cache'), key, store);
-            const detection = await loadDetection({
-                source,
-                detectionCache: join(root, 'cache'),
-            }, tools);
+            const detection = await loadDetection(
+                {
+                    source,
+                    detectionCache: join(root, 'cache'),
+                },
+                tools,
+            );
             try {
                 expect(detection.resultStore.pageCount).toBe(1025);
                 expect((await detection.resultStore.getPage(1025))?.pageNumber).toBe(1025);
@@ -261,10 +217,15 @@ describe('preview oracle detection cache', () => {
             } finally {
                 await detection.resultStore.close();
             }
-            await expect(loadDetection({
-                source,
-                detectionCache: join(root, 'missing'),
-            }, tools)).rejects.toThrow();
+            await expect(
+                loadDetection(
+                    {
+                        source,
+                        detectionCache: join(root, 'missing'),
+                    },
+                    tools,
+                ),
+            ).rejects.toThrow();
         } finally {
             await store.close();
             await rm(root, {

@@ -1,20 +1,21 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { bindPdfOpenSurfaceRenderContext } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
+import {describe, expect, it} from 'vitest';
+import {bindPdfOpenSurfaceRenderContext} from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
 
 describe('bindPdfOpenSurfaceRenderContext', () => {
     it('binds every render request to the authority context at dispatch time', () => {
-        expect(bindPdfOpenSurfaceRenderContext({
-            bufferOverride: 0,
-            openSurfaceGeneration: 0,
-            openSurfaceRevision: '',
-        }, {
-            openSurfaceGeneration: 7,
-            openSurfaceRevision: 'load:3',
-        })).toEqual({
+        expect(
+            bindPdfOpenSurfaceRenderContext(
+                {
+                    bufferOverride: 0,
+                    openSurfaceGeneration: 0,
+                    openSurfaceRevision: '',
+                },
+                {
+                    openSurfaceGeneration: 7,
+                    openSurfaceRevision: 'load:3',
+                },
+            ),
+        ).toEqual({
             bufferOverride: 0,
             openSurfaceGeneration: 7,
             openSurfaceRevision: 'load:3',

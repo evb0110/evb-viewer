@@ -1,45 +1,29 @@
-import { getErrorMessage } from '@app/utils/error';
-import type { IRecentFile } from '@contracts/shared';
-import type { TDocumentRef } from '@contracts/documentRef';
-import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
-import {
-    hasElectronAPI,
-    shouldPreferDesktopPlatform,
-} from '@app/utils/platform';
+import {getErrorMessage} from '@app/utils/error';
+import type {IRecentFile} from '@contracts/shared';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {useRuntimeEnvironment} from '@app/composables/useRuntimeEnvironment';
+import {hasElectronAPI, shouldPreferDesktopPlatform} from '@app/utils/platform';
 import {take} from 'es-toolkit/array';
-import {
-    readBrowserRecentFilesSnapshot,
-    RECENT_FILES_LIMIT,
-} from '@app/utils/recentFilesPersistence';
-import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedState';
-import { useFailureToast } from '@app/composables/useFailureToast';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import {
-    getFailureReceipt,
-    type ExpectedOutcome,
-} from '@contracts/diagnostics/failureReceipt';
-import { getDocumentRecentFilesCapability as getPlatformDocumentRecentFilesCapability } from '@app/utils/platformDocuments';
-import { getDocumentRefBaseName } from '@app/utils/documentRef';
+import {readBrowserRecentFilesSnapshot, RECENT_FILES_LIMIT} from '@app/utils/recentFilesPersistence';
+import {usePlatformHydratedState} from '@app/composables/usePlatformHydratedState';
+import {useFailureToast} from '@app/composables/useFailureToast';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getFailureReceipt, type ExpectedOutcome} from '@contracts/diagnostics/failureReceipt';
+import {getDocumentRecentFilesCapability as getPlatformDocumentRecentFilesCapability} from '@app/utils/platformDocuments';
+import {getDocumentRefBaseName} from '@app/utils/documentRef';
 
 const ELECTRON_RECENT_FILES_RETRY_DELAY_MS = 750;
 const ELECTRON_RECENT_FILES_MAX_AUTOMATIC_RETRIES = 5;
 
 export const useRecentFiles = () => {
-    const { t } = useTypedI18n();
-    const {
-        presentFailureToast,
-        presentNoticeToast,
-    } = useFailureToast();
-    const { isDesktopRuntime } = useRuntimeEnvironment();
+    const {t} = useTypedI18n();
+    const {presentFailureToast, presentNoticeToast} = useFailureToast();
+    const {isDesktopRuntime} = useRuntimeEnvironment();
     const route = useRoute();
     const initialCookieSnapshot = readBrowserRecentFilesSnapshot();
     const hasResolvedCookieSnapshot = initialCookieSnapshot.hasSnapshot && !initialCookieSnapshot.truncated;
-    const shouldPreferElectronRuntime = computed(() => (
-        shouldPreferDesktopPlatform(route.path, isDesktopRuntime.value)
-    ));
-    const hasUsableInitialSnapshot = computed(() => (
-        !shouldPreferElectronRuntime.value && hasResolvedCookieSnapshot
-    ));
+    const shouldPreferElectronRuntime = computed(() => shouldPreferDesktopPlatform(route.path, isDesktopRuntime.value));
+    const hasUsableInitialSnapshot = computed(() => !shouldPreferElectronRuntime.value && hasResolvedCookieSnapshot);
 
     function getDocumentRecentFilesCapability() {
         if (shouldPreferElectronRuntime.value && !hasElectronAPI()) {
@@ -124,10 +108,8 @@ export const useRecentFiles = () => {
         if (!removed) {
             return false;
         }
-        const fileName = recentFiles.value.find(file => file.originalPath === path)?.fileName
-            ?? getDocumentRefBaseName(path)
-            ?? path;
-        recentFiles.value = recentFiles.value.filter(file => file.originalPath !== path);
+        const fileName = recentFiles.value.find((file) => file.originalPath === path)?.fileName ?? getDocumentRefBaseName(path) ?? path;
+        recentFiles.value = recentFiles.value.filter((file) => file.originalPath !== path);
         BrowserLogger.warn('recent-files', 'Recent file was gone and left the list', {
             kind: 'expected',
             code: 'handled-absence',

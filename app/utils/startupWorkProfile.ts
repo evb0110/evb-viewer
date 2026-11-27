@@ -1,14 +1,8 @@
-import {
-    getPerformanceProfile,
-    type IPerformanceProfile,
-} from '@app/utils/performanceProfile';
+import {getPerformanceProfile, type IPerformanceProfile} from '@app/utils/performanceProfile';
 
 export type TStartupWorkTier = 'low' | 'medium' | 'high';
 
-export type TDesktopViewerWarmupStrategy =
-    | 'skip'
-    | 'staged'
-    | 'eager';
+export type TDesktopViewerWarmupStrategy = 'skip' | 'staged' | 'eager';
 
 export interface IStartupWorkProfile {
     tier: TStartupWorkTier;

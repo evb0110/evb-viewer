@@ -11,10 +11,7 @@ import {
     canUseBrowserWorker,
     resolveBrowserPageLanes,
 } from '@app/platform/browser-api/browserWorkerClient';
-import {
-    settleBrowserWorkerResult,
-    type IPendingBrowserWorkerRequest,
-} from '@app/platform/browser-api/settleBrowserWorkerResult';
+import {settleBrowserWorkerResult, type IPendingBrowserWorkerRequest} from '@app/platform/browser-api/settleBrowserWorkerResult';
 import {
     BROWSER_SCAN_CLEANUP_THREADS_WASM_PATH,
     BROWSER_SCAN_CLEANUP_WASM_PATH,
@@ -47,13 +44,17 @@ export class BrowserScanCleanupWorkerUnavailableError extends Error {
 
 /** The cleanup engine is synchronous WASM: it runs only where a worker can hold it. */
 export function canUseBrowserScanCleanupWorker() {
-    return typeof WebAssembly !== 'undefined'
-        && canUseBrowserWorker()
-        && typeof OffscreenCanvas !== 'undefined'
-        && typeof createImageBitmap === 'function';
+    return (
+        typeof WebAssembly !== 'undefined' &&
+        canUseBrowserWorker() &&
+        typeof OffscreenCanvas !== 'undefined' &&
+        typeof createImageBitmap === 'function'
+    );
 }
 
-interface IPendingScanCleanupWorkerRequest extends IPendingBrowserWorkerRequest {onProgress?: ((progress: IScanCleanupWasmSubPageProgress) => void) | undefined;}
+interface IPendingScanCleanupWorkerRequest extends IPendingBrowserWorkerRequest {
+    onProgress?: ((progress: IScanCleanupWasmSubPageProgress) => void) | undefined;
+}
 
 function createClient() {
     return new BrowserWorkerClient<IPendingScanCleanupWorkerRequest>({
@@ -78,11 +79,10 @@ function createClient() {
                 throw new BrowserScanCleanupWorkerUnavailableError(getErrorMessage(error));
             }
         },
-        createError: event => new BrowserScanCleanupWorkerUnavailableError(
-            event.error instanceof Error ? getErrorMessage(event.error) : event.message,
-        ),
+        createError: (event) =>
+            new BrowserScanCleanupWorkerUnavailableError(event.error instanceof Error ? getErrorMessage(event.error) : event.message),
         onDrainedMessage: observeScanCleanupEngineReply,
-        isProgressMessage: response => parseBrowserScanCleanupWorkerProgressEvent(response) !== null,
+        isProgressMessage: (response) => parseBrowserScanCleanupWorkerProgressEvent(response) !== null,
         handleMessage: (pendingRequests, response, onSettled) => {
             const progressEvent = parseBrowserScanCleanupWorkerProgressEvent(response);
             if (progressEvent !== null) {
@@ -137,28 +137,29 @@ export function resetDrainingBrowserScanCleanupWorkers() {
 /** The buffers and bitmaps a request owns; the worker takes them over. */
 function transferablesOf(value: unknown, found = new Set<Transferable>()): Set<Transferable> {
     if (value instanceof Uint8Array) {
-        if (value.buffer instanceof ArrayBuffer) found.add(value.buffer);
+        if (value.buffer instanceof ArrayBuffer) {
+            found.add(value.buffer);
+        }
     } else if (typeof ImageBitmap !== 'undefined' && value instanceof ImageBitmap) {
         found.add(value);
     } else if (Array.isArray(value)) {
-        for (const entry of value) transferablesOf(entry, found);
+        for (const entry of value) {
+            transferablesOf(entry, found);
+        }
     } else if (typeof value === 'object' && value !== null) {
-        for (const entry of Object.values(value)) transferablesOf(entry, found);
+        for (const entry of Object.values(value)) {
+            transferablesOf(entry, found);
+        }
     }
     return found;
 }
 
 function abortError(signal: AbortSignal) {
-    return signal.reason instanceof Error
-        ? signal.reason
-        : new DOMException('Scan cleanup was canceled.', 'AbortError');
+    return signal.reason instanceof Error ? signal.reason : new DOMException('Scan cleanup was canceled.', 'AbortError');
 }
 
 /** Requests that only move pixels; they run on any cleanup worker, whatever its engine. */
-const ENGINELESS_REQUESTS: ReadonlySet<TBrowserScanCleanupWorkerRequestType> = new Set([
-    'assemble-raster',
-    'encode-png',
-]);
+const ENGINELESS_REQUESTS: ReadonlySet<TBrowserScanCleanupWorkerRequestType> = new Set(['assemble-raster', 'encode-png']);
 
 /**
  * Runs one request on the cleanup worker. Every buffer and bitmap in the
@@ -179,9 +180,8 @@ export function runBrowserScanCleanupWorkerRequest<K extends TBrowserScanCleanup
     concurrency?: number,
     onProgress?: (progress: IScanCleanupWasmSubPageProgress) => void,
 ): Promise<IBrowserScanCleanupWorkerResultMap[K]> {
-    return runWithScanCleanupEngineFailover(
-        payload,
-        attempt => runOnWorker(type, attempt, signal, onEngineIdentity, concurrency, onProgress),
+    return runWithScanCleanupEngineFailover(payload, (attempt) =>
+        runOnWorker(type, attempt, signal, onEngineIdentity, concurrency, onProgress),
     );
 }
 
@@ -193,40 +193,58 @@ function runOnWorker<K extends TBrowserScanCleanupWorkerRequestType>(
     concurrency: number | undefined,
     onProgress: ((progress: IScanCleanupWasmSubPageProgress) => void) | undefined,
 ): Promise<IBrowserScanCleanupWorkerResultMap[K]> {
-    if (signal.aborted) return Promise.reject(abortError(signal));
+    if (signal.aborted) {
+        return Promise.reject(abortError(signal));
+    }
     const engines = getOwner();
     const id = engines.createRequestId();
     const abort = () => engines.cancel(id, abortError(signal));
     signal.addEventListener('abort', abort, {once: true});
-    return engines.run(id, (client, _isAdmitted, workerName) => new Promise<IBrowserScanCleanupWorkerResultMap[K]>((resolve, reject) => {
-        const worker = client.getWorker(workerName);
-        client.registerPendingRequest(id, {
-            requestType: type,
-            onEngineIdentity,
-            onProgress,
-            resolveData: data => {
-                if (!isBrowserScanCleanupWorkerResult(type, data)) return false;
-                resolve(data);
-                return true;
+    return engines
+        .run(
+            id,
+            (client, _isAdmitted, workerName) =>
+                new Promise<IBrowserScanCleanupWorkerResultMap[K]>((resolve, reject) => {
+                    const worker = client.getWorker(workerName);
+                    client.registerPendingRequest(
+                        id,
+                        {
+                            requestType: type,
+                            onEngineIdentity,
+                            onProgress,
+                            resolveData: (data) => {
+                                if (!isBrowserScanCleanupWorkerResult(type, data)) {
+                                    return false;
+                                }
+                                resolve(data);
+                                return true;
+                            },
+                            reject,
+                        },
+                        () => new BrowserScanCleanupWorkerUnavailableError('Scan cleanup worker request timed out'),
+                    );
+                    try {
+                        worker.postMessage(
+                            {
+                                id,
+                                type,
+                                payload,
+                            },
+                            [...transferablesOf(payload)],
+                        );
+                    } catch (error) {
+                        client.cancelPendingRequest(id, error instanceof Error ? error : new Error(String(error)));
+                    }
+                }),
+            {
+                ...(ENGINELESS_REQUESTS.has(type) ? {} : scanCleanupEngineAdmission(concurrency)),
+                // Keep the warm preview/detection worker pool alive across superseding cancels;
+                // only heavy final page renders tear down the worker on cancel and immediately
+                // preempt any retiring preview worker on the same threaded key.
+                keepWarmOnCancel: type !== 'render-page',
+                terminateDrainingSameKey: type === 'render-page',
+                terminateDrainingWhenFull: type === 'render-page' || type === 'assemble-raster',
             },
-            reject,
-        }, () => new BrowserScanCleanupWorkerUnavailableError('Scan cleanup worker request timed out'));
-        try {
-            worker.postMessage({
-                id,
-                type,
-                payload,
-            }, [...transferablesOf(payload)]);
-        } catch (error) {
-            client.cancelPendingRequest(id, error instanceof Error ? error : new Error(String(error)));
-        }
-    }), {
-        ...(ENGINELESS_REQUESTS.has(type) ? {} : scanCleanupEngineAdmission(concurrency)),
-        // Keep the warm preview/detection worker pool alive across superseding cancels;
-        // only heavy final page renders tear down the worker on cancel and immediately
-        // preempt any retiring preview worker on the same threaded key.
-        keepWarmOnCancel: type !== 'render-page',
-        terminateDrainingSameKey: type === 'render-page',
-        terminateDrainingWhenFull: type === 'render-page' || type === 'assemble-raster',
-    }).finally(() => signal.removeEventListener('abort', abort));
+        )
+        .finally(() => signal.removeEventListener('abort', abort));
 }

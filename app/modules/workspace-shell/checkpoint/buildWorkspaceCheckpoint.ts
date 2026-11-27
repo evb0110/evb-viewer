@@ -1,15 +1,12 @@
-import type { Ref } from 'vue';
+import type {Ref} from 'vue';
 import type {TTabId} from '@contracts/windowTabs';
-import type {
-    IEditorPaneState,
-    TEditorLayoutNode,
-} from '@contracts/editorPanes';
+import type {IEditorPaneState, TEditorLayoutNode} from '@contracts/editorPanes';
 import type {IWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
-import { createEpochMs } from '@contracts/timestamps';
-import type { ITab } from '@app/types/tabs';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { buildAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/agent/buildAgentWorkspaceSnapshot';
+import {createEpochMs} from '@contracts/timestamps';
+import type {ITab} from '@app/types/tabs';
+import type {IWorkspaceExpose} from '@app/types/workspaceExpose';
+import type {IWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {buildAgentWorkspaceSnapshot} from '@app/modules/workspace-shell/agent/buildAgentWorkspaceSnapshot';
 
 interface IBuildWorkspaceCheckpointOptions {
     panes: Ref<IEditorPaneState[]>;
@@ -36,10 +33,7 @@ export class WorkspaceCheckpointCaptureError extends Error {
 
 // Only the refs: the automation snapshot would diff every annotation of every
 // mounted document on each tab switch to answer this.
-function readWorkspaceDocumentRefs(
-    workspace: IWorkspaceExpose,
-    tabId: string,
-) {
+function readWorkspaceDocumentRefs(workspace: IWorkspaceExpose, tabId: string) {
     try {
         return workspace.getWorkspaceDocumentRefs();
     } catch (error) {
@@ -73,7 +67,7 @@ export function buildWorkspaceCheckpoint(options: IBuildWorkspaceCheckpointOptio
         activePaneId: workspaceSnapshot.activePaneId,
         activeTabId: workspaceSnapshot.activeTabId,
         layout: workspaceSnapshot.layout,
-        panes: workspaceSnapshot.panes.map(pane => ({
+        panes: workspaceSnapshot.panes.map((pane) => ({
             paneId: pane.paneId,
             tabIds: [...pane.tabIds],
             activeTabId: pane.activeTabId,
@@ -85,10 +79,10 @@ export function buildWorkspaceCheckpoint(options: IBuildWorkspaceCheckpointOptio
             const documentRefs = workspace
                 ? readWorkspaceDocumentRefs(workspace, snapshot.tabId)
                 : {
-                    sourceRef: session?.snapshot.value.identity.originalPath ?? null,
-                    workingCopyRef: session?.snapshot.value.identity.workingCopyPath ?? null,
-                    requiresSaveAsOnFirstSave: false,
-                };
+                      sourceRef: session?.snapshot.value.identity.originalPath ?? null,
+                      workingCopyRef: session?.snapshot.value.identity.workingCopyPath ?? null,
+                      requiresSaveAsOnFirstSave: false,
+                  };
             // The first tab of a document opens it at restore; the later ones link to it.
             const linkedToTabId = session && firstTabByDocument.get(session);
             if (session && !linkedToTabId) {

@@ -1,18 +1,9 @@
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { delay } from 'es-toolkit/promise';
-import { useExternalFileDrop } from '@app/modules/workspace-shell/composables/useExternalFileDrop';
-import { requireDocumentRef } from '@contracts/documentRef';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
-import {
-    readToastDescription, toastDescriptionContaining,
-} from '@tests/helpers/toastDescription';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {delay} from 'es-toolkit/promise';
+import {useExternalFileDrop} from '@app/modules/workspace-shell/composables/useExternalFileDrop';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
+import {readToastDescription, toastDescriptionContaining} from '@tests/helpers/toastDescription';
 
 type TCapturedListener = (event: DragEvent) => void;
 
@@ -41,33 +32,29 @@ function createTestElectronApi(overrides: Parameters<typeof createElectronPlatfo
 }
 const platformApi = createTestElectronApi();
 vi.mock('@app/utils/platform', () => ({
-    getPlatformAPI: () => typeof window !== 'undefined' && window.electronAPI
-        ? window.electronAPI
-        : platformApi,
+    getPlatformAPI: () => (typeof window !== 'undefined' && window.electronAPI ? window.electronAPI : platformApi),
     isBrowserPlatformActive: () => !(typeof window !== 'undefined' && Boolean(window.electronAPI)),
 }));
 
-vi.mock('@vueuse/core', () => ({ useEventListener: vi.fn((_target: unknown, event: string, listener: TCapturedListener) => {
-    if (event === 'dragover' || event === 'drop') {
-        capturedListeners[event] = listener;
-    }
-
-    return () => {
-        if (event === 'dragover') {
-            delete capturedListeners.dragover;
+vi.mock('@vueuse/core', () => ({
+    useEventListener: vi.fn((_target: unknown, event: string, listener: TCapturedListener) => {
+        if (event === 'dragover' || event === 'drop') {
+            capturedListeners[event] = listener;
         }
 
-        if (event === 'drop') {
-            delete capturedListeners.drop;
-        }
-    };
-}) }));
+        return () => {
+            if (event === 'dragover') {
+                delete capturedListeners.dragover;
+            }
 
-function createDragEvent(
-    paths: string[],
-    types: string[] = ['Files'],
-    options: { defaultPrevented?: boolean } = {},
-) {
+            if (event === 'drop') {
+                delete capturedListeners.drop;
+            }
+        };
+    }),
+}));
+
+function createDragEvent(paths: string[], types: string[] = ['Files'], options: {defaultPrevented?: boolean} = {}) {
     const files = paths.map((path, index) => {
         const file = new File([], `file-${index}`);
         Object.defineProperty(file, 'path', {
@@ -116,8 +103,8 @@ describe('useExternalFileDrop', () => {
         toastAddMock.mockClear();
         browserDocumentStoreMock.registerFileWithOwnership.mockReset();
         cleanupFileMock.mockClear();
-        vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
-        vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
+        vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
+        vi.stubGlobal('useToast', () => ({add: toastAddMock}));
     });
 
     afterEach(() => {
@@ -126,29 +113,21 @@ describe('useExternalFileDrop', () => {
 
     it('opens supported dropped files', async () => {
         const openPathsInAppropriateTab = vi.fn(async (_paths: string[]) => {});
-        const pickerRegisterFilesForOpen = vi.fn(async (files: Array<{ name: string }>) => files.map((file) =>
-            file.name === 'file-0'
-                ? requireDocumentRef('/docs/a.pdf')
-                : requireDocumentRef('/docs/b.djvu'),
-        ));
+        const pickerRegisterFilesForOpen = vi.fn(async (files: Array<{name: string}>) =>
+            files.map((file) => (file.name === 'file-0' ? requireDocumentRef('/docs/a.pdf') : requireDocumentRef('/docs/b.djvu'))),
+        );
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: createTestElectronApi({documentPicker: { registerFilesForOpen: pickerRegisterFilesForOpen }}),
+            electronAPI: createTestElectronApi({documentPicker: {registerFilesForOpen: pickerRegisterFilesForOpen}}),
         });
 
-        useExternalFileDrop({ openPathsInAppropriateTab });
-        capturedListeners.drop?.(createDragEvent([
-            '/docs/a.pdf',
-            '/docs/b.djvu',
-        ]));
+        useExternalFileDrop({openPathsInAppropriateTab});
+        capturedListeners.drop?.(createDragEvent(['/docs/a.pdf', '/docs/b.djvu']));
 
         await flushDropQueue();
 
-        expect(openPathsInAppropriateTab).toHaveBeenCalledWith([
-            '/docs/a.pdf',
-            '/docs/b.djvu',
-        ]);
+        expect(openPathsInAppropriateTab).toHaveBeenCalledWith(['/docs/a.pdf', '/docs/b.djvu']);
         expect(pickerRegisterFilesForOpen).toHaveBeenCalledTimes(2);
     });
 
@@ -157,10 +136,12 @@ describe('useExternalFileDrop', () => {
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: createTestElectronApi({ documentPicker: {registerFilesForOpen: vi.fn(async () => [requireDocumentRef('/docs/readme.txt')])} }),
+            electronAPI: createTestElectronApi({
+                documentPicker: {registerFilesForOpen: vi.fn(async () => [requireDocumentRef('/docs/readme.txt')])},
+            }),
         });
 
-        useExternalFileDrop({ openPathsInAppropriateTab });
+        useExternalFileDrop({openPathsInAppropriateTab});
 
         const nonFileEvent = createDragEvent(['/docs/readme.txt'], ['text/plain']);
         capturedListeners.dragover?.(nonFileEvent);
@@ -179,16 +160,14 @@ describe('useExternalFileDrop', () => {
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: createTestElectronApi({ documentPicker: {registerFilesForOpen: vi.fn(async () => [requireDocumentRef('/docs/a.pdf')])} }),
+            electronAPI: createTestElectronApi({
+                documentPicker: {registerFilesForOpen: vi.fn(async () => [requireDocumentRef('/docs/a.pdf')])},
+            }),
         });
 
-        useExternalFileDrop({ openPathsInAppropriateTab });
+        useExternalFileDrop({openPathsInAppropriateTab});
 
-        const event = createDragEvent(
-            ['/docs/a.pdf'],
-            ['Files'],
-            { defaultPrevented: true },
-        );
+        const event = createDragEvent(['/docs/a.pdf'], ['Files'], {defaultPrevented: true});
 
         capturedListeners.drop?.(event);
         await flushDropQueue();
@@ -207,29 +186,23 @@ describe('useExternalFileDrop', () => {
             }
         });
 
-        const documentPicker = { registerFilesForOpen: vi.fn(async (files: Array<{ name: string }>) => files.map((file) =>
-            file.name === 'file-0'
-                ? requireDocumentRef('/docs/a.pdf')
-                : requireDocumentRef('/docs/b.png'),
-        )) };
+        const documentPicker = {
+            registerFilesForOpen: vi.fn(async (files: Array<{name: string}>) =>
+                files.map((file) => (file.name === 'file-0' ? requireDocumentRef('/docs/a.pdf') : requireDocumentRef('/docs/b.png'))),
+            ),
+        };
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: createTestElectronApi({ documentPicker }),
+            electronAPI: createTestElectronApi({documentPicker}),
         });
 
-        const { cleanup } = useExternalFileDrop({ openPathsInAppropriateTab });
+        const {cleanup} = useExternalFileDrop({openPathsInAppropriateTab});
 
-        capturedListeners.drop?.(createDragEvent([
-            '/docs/a.pdf',
-            '/docs/b.png',
-        ]));
+        capturedListeners.drop?.(createDragEvent(['/docs/a.pdf', '/docs/b.png']));
 
         await flushDropQueue();
-        expect(openPathsInAppropriateTab).toHaveBeenCalledWith([
-            '/docs/a.pdf',
-            '/docs/b.png',
-        ]);
+        expect(openPathsInAppropriateTab).toHaveBeenCalledWith(['/docs/a.pdf', '/docs/b.png']);
 
         cleanup();
         releaseFirstPathBarrier();
@@ -247,11 +220,9 @@ describe('useExternalFileDrop', () => {
             error: Object.assign(new Error('access refused'), {name: 'NotAllowedError'}),
             reason: 'errors.browser.filePermissionDenied',
         },
-    ])('reports $reason for failed registration and opens remaining valid files', async ({
-        error, reason,
-    }) => {
+    ])('reports $reason for failed registration and opens remaining valid files', async ({error, reason}) => {
         const openPathsInAppropriateTab = vi.fn(async (_paths: string[]) => {});
-        const registerFilesForOpen = vi.fn(async (files: Array<{ name: string }>) => {
+        const registerFilesForOpen = vi.fn(async (files: Array<{name: string}>) => {
             if (files[0]?.name === 'file-0') {
                 throw error;
             }
@@ -260,22 +231,21 @@ describe('useExternalFileDrop', () => {
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: createTestElectronApi({ documentPicker: { registerFilesForOpen } }),
+            electronAPI: createTestElectronApi({documentPicker: {registerFilesForOpen}}),
         });
 
-        useExternalFileDrop({ openPathsInAppropriateTab });
-        capturedListeners.drop?.(createDragEvent([
-            '/docs/a.pdf',
-            '/docs/b.pdf',
-        ]));
+        useExternalFileDrop({openPathsInAppropriateTab});
+        capturedListeners.drop?.(createDragEvent(['/docs/a.pdf', '/docs/b.pdf']));
 
         await flushDropQueue();
 
-        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
-            color: 'error',
-            title: 'errors.file.open',
-            description: toastDescriptionContaining(reason),
-        }));
+        expect(toastAddMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                color: 'error',
+                title: 'errors.file.open',
+                description: toastDescriptionContaining(reason),
+            }),
+        );
         expect(readToastDescription(toastAddMock.mock.calls[0]?.[0]?.description)).not.toContain(error.message);
         expect(openPathsInAppropriateTab).toHaveBeenCalledWith(['/docs/b.pdf']);
     });
@@ -285,7 +255,7 @@ describe('useExternalFileDrop', () => {
         const registerFilesForOpen = vi.fn(async () => [requireDocumentRef('/docs/a.pdf')]);
 
         vi.stubGlobal('window', undefined);
-        const { cleanup } = useExternalFileDrop({ openPathsInAppropriateTab });
+        const {cleanup} = useExternalFileDrop({openPathsInAppropriateTab});
         capturedListeners.drop?.(createDragEvent(['/docs/a.pdf']));
         cleanup();
         await flushDropQueue();
@@ -296,21 +266,18 @@ describe('useExternalFileDrop', () => {
     });
 
     it('releases newly owned browser refs when registration finishes after cleanup', async () => {
-        let releaseRegistration!: (value: {
-            ref: ReturnType<typeof requireDocumentRef>;
-            created: boolean
-        }) => void;
+        let releaseRegistration!: (value: {ref: ReturnType<typeof requireDocumentRef>; created: boolean}) => void;
         const registration = new Promise<{
             ref: ReturnType<typeof requireDocumentRef>;
-            created: boolean
-        }>(resolve => {
+            created: boolean;
+        }>((resolve) => {
             releaseRegistration = resolve;
         });
         browserDocumentStoreMock.registerFileWithOwnership.mockReturnValue(registration);
         const openPathsInAppropriateTab = vi.fn(async (_paths: string[]) => {});
 
         vi.stubGlobal('window', undefined);
-        const { cleanup } = useExternalFileDrop({ openPathsInAppropriateTab });
+        const {cleanup} = useExternalFileDrop({openPathsInAppropriateTab});
         capturedListeners.drop?.(createDragEvent(['/docs/a.pdf']));
         await vi.waitFor(() => expect(browserDocumentStoreMock.registerFileWithOwnership).toHaveBeenCalledTimes(1));
         cleanup();
@@ -326,17 +293,16 @@ describe('useExternalFileDrop', () => {
     });
 
     it('keeps a deduplicated browser ref when the drop is canceled', async () => {
-        let releaseRegistration!: (value: {
-            ref: ReturnType<typeof requireDocumentRef>;
-            created: boolean
-        }) => void;
-        browserDocumentStoreMock.registerFileWithOwnership.mockReturnValue(new Promise(resolve => {
-            releaseRegistration = resolve;
-        }));
+        let releaseRegistration!: (value: {ref: ReturnType<typeof requireDocumentRef>; created: boolean}) => void;
+        browserDocumentStoreMock.registerFileWithOwnership.mockReturnValue(
+            new Promise((resolve) => {
+                releaseRegistration = resolve;
+            }),
+        );
         const openPathsInAppropriateTab = vi.fn(async (_paths: string[]) => {});
 
         vi.stubGlobal('window', undefined);
-        const { cleanup } = useExternalFileDrop({ openPathsInAppropriateTab });
+        const {cleanup} = useExternalFileDrop({openPathsInAppropriateTab});
         capturedListeners.drop?.(createDragEvent(['/docs/recent.pdf']));
         await vi.waitFor(() => expect(browserDocumentStoreMock.registerFileWithOwnership).toHaveBeenCalledTimes(1));
         cleanup();
@@ -365,11 +331,8 @@ describe('useExternalFileDrop', () => {
         });
 
         vi.stubGlobal('window', undefined);
-        useExternalFileDrop({ openPathsInAppropriateTab });
-        capturedListeners.drop?.(createDragEvent([
-            '/docs/a.pdf',
-            '/docs/recent.pdf',
-        ]));
+        useExternalFileDrop({openPathsInAppropriateTab});
+        capturedListeners.drop?.(createDragEvent(['/docs/a.pdf', '/docs/recent.pdf']));
         await flushDropQueue();
 
         expect(cleanupFileMock).toHaveBeenCalledTimes(1);

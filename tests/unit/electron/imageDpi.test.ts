@@ -1,44 +1,28 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    readImageDpi,
-    readJpegExifOrientation,
-    readTiffFrameDpi,
-} from '@electron/image/imageDpi';
+import {describe, expect, it} from 'vitest';
+import {readImageDpi, readJpegExifOrientation, readTiffFrameDpi} from '@electron/image/imageDpi';
 
 function bytes(values: number[]) {
     return new Uint8Array(values);
 }
 
 function u16be(value: number) {
-    return [
-        (value >>> 8) & 0xFF,
-        value & 0xFF,
-    ];
+    return [(value >>> 8) & 0xff, value & 0xff];
 }
 
 function u32be(value: number) {
-    return [
-        (value >>> 24) & 0xFF,
-        (value >>> 16) & 0xFF,
-        (value >>> 8) & 0xFF,
-        value & 0xFF,
-    ];
+    return [(value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff];
 }
 
 function pngWithPhys(pixelsPerMeter: number, unit: number) {
     return bytes([
         0x89,
         0x50,
-        0x4E,
+        0x4e,
         0x47,
-        0x0D,
-        0x0A,
-        0x1A,
-        0x0A,
+        0x0d,
+        0x0a,
+        0x1a,
+        0x0a,
         ...u32be(9),
         0x70,
         0x48,
@@ -56,12 +40,12 @@ function pngWithPhys(pixelsPerMeter: number, unit: number) {
 
 function jpegWithJfif(units: number, xDensity: number, yDensity: number) {
     return bytes([
-        0xFF,
-        0xD8,
-        0xFF,
-        0xE0,
+        0xff,
+        0xd8,
+        0xff,
+        0xe0,
         ...u16be(16),
-        0x4A,
+        0x4a,
         0x46,
         0x49,
         0x46,
@@ -73,8 +57,8 @@ function jpegWithJfif(units: number, xDensity: number, yDensity: number) {
         ...u16be(yDensity),
         0x00,
         0x00,
-        0xFF,
-        0xDA,
+        0xff,
+        0xda,
     ]);
 }
 
@@ -96,70 +80,40 @@ describe('readImageDpi', () => {
     });
 
     it('falls back for truncated PNG and JPEG data', () => {
-        expect(readImageDpi(bytes([
-            0x89,
-            0x50,
-            0x4E,
-            0x47,
-            0x0D,
-            0x0A,
-            0x1A,
-            0x0A,
-            ...u32be(9),
-            0x70,
-            0x48,
-            0x59,
-        ]), '.png')).toBe(72);
-        expect(readImageDpi(bytes([
-            0xFF,
-            0xD8,
-            0xFF,
-            0xE0,
-            0x00,
-        ]), '.jpg')).toBe(72);
+        expect(readImageDpi(bytes([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...u32be(9), 0x70, 0x48, 0x59]), '.png')).toBe(72);
+        expect(readImageDpi(bytes([0xff, 0xd8, 0xff, 0xe0, 0x00]), '.jpg')).toBe(72);
     });
 });
 
 describe('readTiffFrameDpi', () => {
     it('extracts TIFF inch and centimeter resolution tags', () => {
-        expect(readTiffFrameDpi({
-            t282: [
-                600,
-                2,
-            ],
-            t296: 2,
-        })).toBe(300);
-        expect(readTiffFrameDpi({
-            t283: 118,
-            t296: [3],
-        })).toBe(300);
+        expect(
+            readTiffFrameDpi({
+                t282: [600, 2],
+                t296: 2,
+            }),
+        ).toBe(300);
+        expect(
+            readTiffFrameDpi({
+                t283: 118,
+                t296: [3],
+            }),
+        ).toBe(300);
     });
 
     it('returns null for invalid TIFF resolution values', () => {
-        expect(readTiffFrameDpi({
-            t282: [
-                0,
-                1,
-            ],
-            t283: [
-                10,
-                0,
-            ],
-            t296: 1,
-        })).toBeNull();
+        expect(
+            readTiffFrameDpi({
+                t282: [0, 1],
+                t283: [10, 0],
+                t296: 1,
+            }),
+        ).toBeNull();
     });
 });
 
 describe('readJpegExifOrientation', () => {
-    it.each([
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-    ] as const)('reads orientation %i from a little-endian EXIF IFD', (orientation) => {
+    it.each([2, 3, 4, 5, 6, 7, 8] as const)('reads orientation %i from a little-endian EXIF IFD', (orientation) => {
         const jpeg = bytes([
             0xff,
             0xd8,

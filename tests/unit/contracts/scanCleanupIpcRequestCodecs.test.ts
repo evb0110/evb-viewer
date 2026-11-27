@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {SCAN_CLEANUP_DOCUMENT_PRIOR_SCHEMA} from '@contracts/scan-cleanup/domain';
 import * as v from 'valibot';
 import {
@@ -24,10 +20,7 @@ import {
     SCAN_CLEANUP_INPUT_MAX_ZONES_PER_PAGE,
     SCAN_CLEANUP_LEGACY_STORAGE_MAX_BYTES,
 } from '@contracts/scan-cleanup/inputLimits';
-import {
-    decodeScanCleanupSettingsReadRequest,
-    decodeScanCleanupSettingsUpdateRequest,
-} from '@contracts/scan-cleanup/scanCleanupSettings';
+import {decodeScanCleanupSettingsReadRequest, decodeScanCleanupSettingsUpdateRequest} from '@contracts/scan-cleanup/scanCleanupSettings';
 
 const request = {
     sourcePdfPath: '/tmp/source.pdf',
@@ -53,39 +46,43 @@ const request = {
         pageOverrides: {},
     },
     layoutByPage: {'12': 'single-uncut-page'},
-    pagePlanEvidenceByPage: {'12': {
-        pageNumber: 12,
-        rotationDegrees: 0,
-        layoutClassification: 'single-uncut-page',
-        automaticSplit: {
-            xNormalized: 0.48,
+    pagePlanEvidenceByPage: {
+        '12': {
+            pageNumber: 12,
             rotationDegrees: 0,
-        },
-        outputs: {full: {
-            contentBox: {
-                xNormalized: 0.1,
-                yNormalized: 0.2,
-                widthNormalized: 0.7,
-                heightNormalized: 0.6,
+            layoutClassification: 'single-uncut-page',
+            automaticSplit: {
+                xNormalized: 0.48,
                 rotationDegrees: 0,
             },
-            detectedSkewDegrees: -0.2,
-            textToneDiagnostics: {
-                applied: true,
-                rule: 'applied',
-                textLineCount: 24,
-                textInkPixels: 12_400,
-                pictureFraction: 0,
-                outsideMidtoneFraction: 0.04,
-                outsideMidtoneLargestComponentFraction: 0.002,
-                outsideMidtoneLargestComponentWidthFraction: 0.9,
-                outsideMidtoneLargestComponentHeightFraction: 0.01,
-                inkAnchor: 133,
-                blackPoint: 96.05263157894737,
-                slope: 1.623931623931624,
+            outputs: {
+                full: {
+                    contentBox: {
+                        xNormalized: 0.1,
+                        yNormalized: 0.2,
+                        widthNormalized: 0.7,
+                        heightNormalized: 0.6,
+                        rotationDegrees: 0,
+                    },
+                    detectedSkewDegrees: -0.2,
+                    textToneDiagnostics: {
+                        applied: true,
+                        rule: 'applied',
+                        textLineCount: 24,
+                        textInkPixels: 12_400,
+                        pictureFraction: 0,
+                        outsideMidtoneFraction: 0.04,
+                        outsideMidtoneLargestComponentFraction: 0.002,
+                        outsideMidtoneLargestComponentWidthFraction: 0.9,
+                        outsideMidtoneLargestComponentHeightFraction: 0.01,
+                        inkAnchor: 133,
+                        blackPoint: 96.05263157894737,
+                        slope: 1.623931623931624,
+                    },
+                },
             },
-        }},
-    }},
+        },
+    },
 };
 
 const triangle = {
@@ -149,10 +146,12 @@ describe('scan-cleanup IPC request codecs', () => {
             dominantImageWidthPoints: 612,
             dominantImageHeightPoints: 792,
         };
-        const started = v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
-            ...request,
-            sourcePageMetadataByPage: {'12': sourcePageMetadata},
-        }])[0];
+        const started = v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [
+            {
+                ...request,
+                sourcePageMetadataByPage: {'12': sourcePageMetadata},
+            },
+        ])[0];
         expect(started.sourcePageMetadataByPage?.['12']).toEqual(sourcePageMetadata);
     });
 
@@ -169,7 +168,7 @@ describe('scan-cleanup IPC request codecs', () => {
             xPoints: -72,
             yPoints: -36,
         },
-    ])('round-trips signed PDF origins through start IPC: $xPoints,$yPoints', origin => {
+    ])('round-trips signed PDF origins through start IPC: $xPoints,$yPoints', (origin) => {
         const sourcePageMetadata = {
             pageNumber: 12,
             ...origin,
@@ -178,52 +177,80 @@ describe('scan-cleanup IPC request codecs', () => {
             rotation: 0,
             sourceDpi: 150,
         };
-        const started = v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
-            ...request,
-            sourcePageMetadataByPage: {'12': sourcePageMetadata},
-        }])[0];
+        const started = v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [
+            {
+                ...request,
+                sourcePageMetadataByPage: {'12': sourcePageMetadata},
+            },
+        ])[0];
         expect(started.sourcePageMetadataByPage?.['12']).toEqual(sourcePageMetadata);
     });
 
     it('rejects null instead of defaulting optional scan-cleanup options', () => {
-        for (const field of [
-            'binarization',
-            'normalizeIllumination',
-            'autoDewarp',
-        ]) {
-            expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
-                ...request,
-                options: {
-                    ...request.options,
-                    [field]: null,
-                },
-            }], {abortEarly: true})).toThrow('invalid scan-cleanup options');
+        for (const field of ['binarization', 'normalizeIllumination', 'autoDewarp']) {
+            expect(() =>
+                v.parse(
+                    SCAN_CLEANUP_START_ARGS_SCHEMA,
+                    [
+                        {
+                            ...request,
+                            options: {
+                                ...request.options,
+                                [field]: null,
+                            },
+                        },
+                    ],
+                    {abortEarly: true},
+                ),
+            ).toThrow('invalid scan-cleanup options');
         }
     });
 
     it('decodes a detected page plan on preview requests', () => {
         const pagePlanEvidence = request.pagePlanEvidenceByPage['12'];
-        const decoded = v.parse(SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA, [{
-            ...request,
-            requestId: 'preview-12',
-            pageNumber: 12,
-            layoutDetectionComplete: true,
-            pagePlanEvidence,
-        }], {abortEarly: true})[0];
+        const decoded = v.parse(
+            SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA,
+            [
+                {
+                    ...request,
+                    requestId: 'preview-12',
+                    pageNumber: 12,
+                    layoutDetectionComplete: true,
+                    pagePlanEvidence,
+                },
+            ],
+            {abortEarly: true},
+        )[0];
         expect(decoded.pagePlanEvidence).toEqual(pagePlanEvidence);
         expect(decoded.layoutDetectionComplete).toBe(true);
-        expect(() => v.parse(SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA, [{
-            ...request,
-            requestId: 'preview-12',
-            pageNumber: 11,
-            pagePlanEvidence,
-        }], {abortEarly: true})).toThrow('page-plan evidence');
-        expect(() => v.parse(SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA, [{
-            ...request,
-            requestId: 'preview-12',
-            pageNumber: 12,
-            layoutDetectionComplete: 'yes',
-        }], {abortEarly: true})).toThrow('preview request');
+        expect(() =>
+            v.parse(
+                SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA,
+                [
+                    {
+                        ...request,
+                        requestId: 'preview-12',
+                        pageNumber: 11,
+                        pagePlanEvidence,
+                    },
+                ],
+                {abortEarly: true},
+            ),
+        ).toThrow('page-plan evidence');
+        expect(() =>
+            v.parse(
+                SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA,
+                [
+                    {
+                        ...request,
+                        requestId: 'preview-12',
+                        pageNumber: 12,
+                        layoutDetectionComplete: 'yes',
+                    },
+                ],
+                {abortEarly: true},
+            ),
+        ).toThrow('preview request');
     });
 
     it('decodes typed automatic page-plan evidence', () => {
@@ -241,14 +268,26 @@ describe('scan-cleanup IPC request codecs', () => {
             heightPoints: 792,
             rotation: 0,
         };
-        expect(() => v.parse(SCAN_CLEANUP_SOURCE_PAGE_METADATA_SCHEMA, {
-            ...metadata,
-            rotation: '90',
-        }, {abortEarly: true})).toThrow('source page metadata');
-        expect(() => v.parse(SCAN_CLEANUP_SOURCE_PAGE_METADATA_SCHEMA, {
-            ...metadata,
-            widthPoints: Number.MAX_SAFE_INTEGER + 1,
-        }, {abortEarly: true})).toThrow('source page metadata');
+        expect(() =>
+            v.parse(
+                SCAN_CLEANUP_SOURCE_PAGE_METADATA_SCHEMA,
+                {
+                    ...metadata,
+                    rotation: '90',
+                },
+                {abortEarly: true},
+            ),
+        ).toThrow('source page metadata');
+        expect(() =>
+            v.parse(
+                SCAN_CLEANUP_SOURCE_PAGE_METADATA_SCHEMA,
+                {
+                    ...metadata,
+                    widthPoints: Number.MAX_SAFE_INTEGER + 1,
+                },
+                {abortEarly: true},
+            ),
+        ).toThrow('source page metadata');
     });
 
     it('rejects unsafe finite document-prior dimensions and medians', () => {
@@ -288,71 +327,110 @@ describe('scan-cleanup IPC request codecs', () => {
             },
         ];
         for (const unsafePrior of unsafePriors) {
-            expect(() => v.parse(SCAN_CLEANUP_DOCUMENT_PRIOR_SCHEMA, unsafePrior, {abortEarly: true}))
-                .toThrow('invalid scan-cleanup document prior');
+            expect(() => v.parse(SCAN_CLEANUP_DOCUMENT_PRIOR_SCHEMA, unsafePrior, {abortEarly: true})).toThrow(
+                'invalid scan-cleanup document prior',
+            );
         }
     });
 
     it('rejects non-numeric rotations in page plans, overrides, and nested geometry', () => {
-        for (const rotationDegrees of [
-            '0',
-            null,
-        ]) {
-            expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
-                ...request,
-                pagePlanEvidenceByPage: {'12': {
-                    ...request.pagePlanEvidenceByPage['12'],
-                    rotationDegrees,
-                    automaticSplit: undefined,
-                    outputs: {full: {detectedSkewDegrees: 0}},
-                }},
-            }], {abortEarly: true})).toThrow('page-plan evidence');
+        for (const rotationDegrees of ['0', null]) {
+            expect(() =>
+                v.parse(
+                    SCAN_CLEANUP_START_ARGS_SCHEMA,
+                    [
+                        {
+                            ...request,
+                            pagePlanEvidenceByPage: {
+                                '12': {
+                                    ...request.pagePlanEvidenceByPage['12'],
+                                    rotationDegrees,
+                                    automaticSplit: undefined,
+                                    outputs: {full: {detectedSkewDegrees: 0}},
+                                },
+                            },
+                        },
+                    ],
+                    {abortEarly: true},
+                ),
+            ).toThrow('page-plan evidence');
 
-            expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [requestWithOverrides({'12': {
-                ...pageOverride(),
-                rotationDegrees,
-            }})], {abortEarly: true})).toThrow('page override');
+            expect(() =>
+                v.parse(
+                    SCAN_CLEANUP_START_ARGS_SCHEMA,
+                    [
+                        requestWithOverrides({
+                            '12': {
+                                ...pageOverride(),
+                                rotationDegrees,
+                            },
+                        }),
+                    ],
+                    {abortEarly: true},
+                ),
+            ).toThrow('page override');
 
-            expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
-                ...request,
-                pagePlanEvidenceByPage: {'12': {
-                    ...request.pagePlanEvidenceByPage['12'],
-                    automaticSplit: {
-                        ...request.pagePlanEvidenceByPage['12'].automaticSplit,
-                        rotationDegrees,
-                    },
-                }},
-            }], {abortEarly: true})).toThrow('automatic split rotation');
+            expect(() =>
+                v.parse(
+                    SCAN_CLEANUP_START_ARGS_SCHEMA,
+                    [
+                        {
+                            ...request,
+                            pagePlanEvidenceByPage: {
+                                '12': {
+                                    ...request.pagePlanEvidenceByPage['12'],
+                                    automaticSplit: {
+                                        ...request.pagePlanEvidenceByPage['12'].automaticSplit,
+                                        rotationDegrees,
+                                    },
+                                },
+                            },
+                        },
+                    ],
+                    {abortEarly: true},
+                ),
+            ).toThrow('automatic split rotation');
         }
     });
 
     it('rejects manual split positions outside the safe cutter interval', () => {
-        for (const xNormalized of [
-            0,
-            0.019,
-            0.981,
-            1,
-        ]) {
-            expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [requestWithOverrides({'12': {
-                ...pageOverride(),
-                manualSplit: {
-                    xNormalized,
-                    rotationDegrees: 0,
-                },
-            }})], {abortEarly: true})).toThrow('safe cutter interval');
+        for (const xNormalized of [0, 0.019, 0.981, 1]) {
+            expect(() =>
+                v.parse(
+                    SCAN_CLEANUP_START_ARGS_SCHEMA,
+                    [
+                        requestWithOverrides({
+                            '12': {
+                                ...pageOverride(),
+                                manualSplit: {
+                                    xNormalized,
+                                    rotationDegrees: 0,
+                                },
+                            },
+                        }),
+                    ],
+                    {abortEarly: true},
+                ),
+            ).toThrow('safe cutter interval');
         }
-        for (const xNormalized of [
-            0.02,
-            0.5,
-            0.98,
-        ]) {
-            expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [requestWithOverrides({'12': {
-                ...pageOverride(),
-                manualSplit: {
-                    xNormalized,
-                    rotationDegrees: 0,
-                },
-            }})], {abortEarly: true})).not.toThrow();
+        for (const xNormalized of [0.02, 0.5, 0.98]) {
+            expect(() =>
+                v.parse(
+                    SCAN_CLEANUP_START_ARGS_SCHEMA,
+                    [
+                        requestWithOverrides({
+                            '12': {
+                                ...pageOverride(),
+                                manualSplit: {
+                                    xNormalized,
+                                    rotationDegrees: 0,
+                                },
+                            },
+                        }),
+                    ],
+                    {abortEarly: true},
+                ),
+            ).not.toThrow();
         }
     });
 
@@ -390,39 +468,58 @@ describe('scan-cleanup IPC request codecs', () => {
             },
         ];
         for (const contentBox of edgeBoxes) {
-            for (const xNormalized of [
-                0,
-                1,
-            ]) {
-                expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
-                    ...request,
-                    pagePlanEvidenceByPage: {'12': {
-                        ...request.pagePlanEvidenceByPage['12'],
-                        automaticSplit: {
-                            xNormalized,
-                            rotationDegrees: 0,
-                        },
-                        outputs: {full: {
-                            ...request.pagePlanEvidenceByPage['12'].outputs.full,
-                            contentBox: {
-                                ...contentBox,
-                                rotationDegrees: 0,
+            for (const xNormalized of [0, 1]) {
+                expect(() =>
+                    v.parse(
+                        SCAN_CLEANUP_START_ARGS_SCHEMA,
+                        [
+                            {
+                                ...request,
+                                pagePlanEvidenceByPage: {
+                                    '12': {
+                                        ...request.pagePlanEvidenceByPage['12'],
+                                        automaticSplit: {
+                                            xNormalized,
+                                            rotationDegrees: 0,
+                                        },
+                                        outputs: {
+                                            full: {
+                                                ...request.pagePlanEvidenceByPage['12'].outputs.full,
+                                                contentBox: {
+                                                    ...contentBox,
+                                                    rotationDegrees: 0,
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
                             },
-                        }},
-                    }},
-                }], {abortEarly: true})).not.toThrow();
+                        ],
+                        {abortEarly: true},
+                    ),
+                ).not.toThrow();
             }
         }
-        expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
-            ...request,
-            pagePlanEvidenceByPage: {'12': {
-                ...request.pagePlanEvidenceByPage['12'],
-                automaticSplit: {
-                    xNormalized: 1.01,
-                    rotationDegrees: 0,
-                },
-            }},
-        }], {abortEarly: true})).toThrow('automatic split');
+        expect(() =>
+            v.parse(
+                SCAN_CLEANUP_START_ARGS_SCHEMA,
+                [
+                    {
+                        ...request,
+                        pagePlanEvidenceByPage: {
+                            '12': {
+                                ...request.pagePlanEvidenceByPage['12'],
+                                automaticSplit: {
+                                    xNormalized: 1.01,
+                                    rotationDegrees: 0,
+                                },
+                            },
+                        },
+                    },
+                ],
+                {abortEarly: true},
+            ),
+        ).toThrow('automatic split');
     });
 
     it('carries one scalar page override default beside sparse page entries', () => {
@@ -432,13 +529,19 @@ describe('scan-cleanup IPC request codecs', () => {
             excluded: true,
             manualSplit: null,
         } as const;
-        const decoded = v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
-            ...request,
-            options: {
-                ...request.options,
-                pageOverrideDefaults,
-            },
-        }], {abortEarly: true})[0];
+        const decoded = v.parse(
+            SCAN_CLEANUP_START_ARGS_SCHEMA,
+            [
+                {
+                    ...request,
+                    options: {
+                        ...request.options,
+                        pageOverrideDefaults,
+                    },
+                },
+            ],
+            {abortEarly: true},
+        )[0];
 
         expect(decoded.options.pageOverrideDefaults).toEqual(pageOverrideDefaults);
         expect(decoded.options.pageOverrides).toEqual({});
@@ -449,21 +552,45 @@ describe('scan-cleanup IPC request codecs', () => {
             left: {yNormalized: 0.08},
             right: {yNormalized: 0.12},
         };
-        expect(v.parse(SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA, [{
-            ...request,
-            requestId: 'preview-12',
-            pageNumber: 12,
-            placementAnchors,
-        }], {abortEarly: true})[0].placementAnchors).toEqual(placementAnchors);
-        expect(v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
-            ...request,
-            placementAnchorsByPage: {'12': placementAnchors},
-        }], {abortEarly: true})[0].placementAnchorsByPage).toEqual({'12': placementAnchors});
-        expect(v.parse(SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA, [{
-            ...request,
-            requestId: 'preview-12',
-            pageNumber: 12,
-        }], {abortEarly: true})[0].placementAnchors).toBeUndefined();
+        expect(
+            v.parse(
+                SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA,
+                [
+                    {
+                        ...request,
+                        requestId: 'preview-12',
+                        pageNumber: 12,
+                        placementAnchors,
+                    },
+                ],
+                {abortEarly: true},
+            )[0].placementAnchors,
+        ).toEqual(placementAnchors);
+        expect(
+            v.parse(
+                SCAN_CLEANUP_START_ARGS_SCHEMA,
+                [
+                    {
+                        ...request,
+                        placementAnchorsByPage: {'12': placementAnchors},
+                    },
+                ],
+                {abortEarly: true},
+            )[0].placementAnchorsByPage,
+        ).toEqual({'12': placementAnchors});
+        expect(
+            v.parse(
+                SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA,
+                [
+                    {
+                        ...request,
+                        requestId: 'preview-12',
+                        pageNumber: 12,
+                    },
+                ],
+                {abortEarly: true},
+            )[0].placementAnchors,
+        ).toBeUndefined();
         expect(v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [request], {abortEarly: true})[0].placementAnchorsByPage).toBeUndefined();
     });
 
@@ -479,32 +606,52 @@ describe('scan-cleanup IPC request codecs', () => {
                 detectionSignature: 'detection-1',
                 calibrationSignature: 'calibration-1',
             },
-            clusters: [{
-                startNormalized: 0.1,
-                endNormalized: 0.101,
-                valueNormalized: 0.1005,
-                size: 1,
-            }],
+            clusters: [
+                {
+                    startNormalized: 0.1,
+                    endNormalized: 0.101,
+                    valueNormalized: 0.1005,
+                    size: 1,
+                },
+            ],
         };
-        expect(v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
-            ...request,
-            placementAnchorSummary,
-        }], {abortEarly: true})[0].placementAnchorSummary).toEqual(placementAnchorSummary);
+        expect(
+            v.parse(
+                SCAN_CLEANUP_START_ARGS_SCHEMA,
+                [
+                    {
+                        ...request,
+                        placementAnchorSummary,
+                    },
+                ],
+                {abortEarly: true},
+            )[0].placementAnchorSummary,
+        ).toEqual(placementAnchorSummary);
         // Ink tops are fractions of the reference sheet, so a page taller than
         // the reference measures past 1 and its calibration still travels.
         const tallerSheetSummary = {
             ...placementAnchorSummary,
-            clusters: [{
-                startNormalized: 1.6,
-                endNormalized: 1.6,
-                valueNormalized: 1.6,
-                size: 250,
-            }],
+            clusters: [
+                {
+                    startNormalized: 1.6,
+                    endNormalized: 1.6,
+                    valueNormalized: 1.6,
+                    size: 250,
+                },
+            ],
         };
-        expect(v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
-            ...request,
-            placementAnchorSummary: tallerSheetSummary,
-        }], {abortEarly: true})[0].placementAnchorSummary).toEqual(tallerSheetSummary);
+        expect(
+            v.parse(
+                SCAN_CLEANUP_START_ARGS_SCHEMA,
+                [
+                    {
+                        ...request,
+                        placementAnchorSummary: tallerSheetSummary,
+                    },
+                ],
+                {abortEarly: true},
+            )[0].placementAnchorSummary,
+        ).toEqual(tallerSheetSummary);
         for (const malformed of [
             {
                 ...placementAnchorSummary,
@@ -524,16 +671,26 @@ describe('scan-cleanup IPC request codecs', () => {
             },
             {
                 ...placementAnchorSummary,
-                clusters: [{
-                    ...placementAnchorSummary.clusters[0],
-                    size: 0,
-                }],
+                clusters: [
+                    {
+                        ...placementAnchorSummary.clusters[0],
+                        size: 0,
+                    },
+                ],
             },
         ]) {
-            expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
-                ...request,
-                placementAnchorSummary: malformed,
-            }], {abortEarly: true})).toThrow('placement anchor summary');
+            expect(() =>
+                v.parse(
+                    SCAN_CLEANUP_START_ARGS_SCHEMA,
+                    [
+                        {
+                            ...request,
+                            placementAnchorSummary: malformed,
+                        },
+                    ],
+                    {abortEarly: true},
+                ),
+            ).toThrow('placement anchor summary');
         }
     });
 
@@ -542,144 +699,254 @@ describe('scan-cleanup IPC request codecs', () => {
         for (const placementAnchors of [
             {full: {yNormalized: 1.5}},
             {full: {yNormalized: Number.NaN}},
-            {full: {
-                ...anchor,
-                xNormalized: 0.5,
-            }},
+            {
+                full: {
+                    ...anchor,
+                    xNormalized: 0.5,
+                },
+            },
             {full: {}},
             {middle: anchor},
             {full: 0.5},
             [anchor],
         ]) {
-            expect(() => v.parse(SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA, [{
-                ...request,
-                requestId: 'preview-12',
-                pageNumber: 12,
-                placementAnchors,
-            }], {abortEarly: true})).toThrow();
-            expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
-                ...request,
-                placementAnchorsByPage: {'12': placementAnchors},
-            }], {abortEarly: true})).toThrow();
+            expect(() =>
+                v.parse(
+                    SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA,
+                    [
+                        {
+                            ...request,
+                            requestId: 'preview-12',
+                            pageNumber: 12,
+                            placementAnchors,
+                        },
+                    ],
+                    {abortEarly: true},
+                ),
+            ).toThrow();
+            expect(() =>
+                v.parse(
+                    SCAN_CLEANUP_START_ARGS_SCHEMA,
+                    [
+                        {
+                            ...request,
+                            placementAnchorsByPage: {'12': placementAnchors},
+                        },
+                    ],
+                    {abortEarly: true},
+                ),
+            ).toThrow();
         }
-        expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
-            ...request,
-            placementAnchorsByPage: {'0': {full: anchor}},
-        }], {abortEarly: true})).toThrow('placement anchor map');
+        expect(() =>
+            v.parse(
+                SCAN_CLEANUP_START_ARGS_SCHEMA,
+                [
+                    {
+                        ...request,
+                        placementAnchorsByPage: {'0': {full: anchor}},
+                    },
+                ],
+                {abortEarly: true},
+            ),
+        ).toThrow('placement anchor map');
     });
 
     it('rejects stale-key and out-of-bounds automatic evidence', () => {
-        expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
-            ...request,
-            pagePlanEvidenceByPage: {'11': request.pagePlanEvidenceByPage['12']},
-        }], {abortEarly: true})).toThrow('page-plan evidence');
-        expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
-            ...request,
-            pagePlanEvidenceByPage: {'12': {
-                ...request.pagePlanEvidenceByPage['12'],
-                outputs: {full: {contentBox: {
-                    ...request.pagePlanEvidenceByPage['12'].outputs.full.contentBox,
-                    widthNormalized: 1,
-                }}},
-            }},
-        }], {abortEarly: true})).toThrow('content box');
-        expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
-            ...request,
-            pagePlanEvidenceByPage: {'12': {
-                ...request.pagePlanEvidenceByPage['12'],
-                automaticSplit: {
-                    xNormalized: 1.2,
-                    rotationDegrees: 0,
-                },
-            }},
-        }], {abortEarly: true})).toThrow('automatic split');
+        expect(() =>
+            v.parse(
+                SCAN_CLEANUP_START_ARGS_SCHEMA,
+                [
+                    {
+                        ...request,
+                        pagePlanEvidenceByPage: {'11': request.pagePlanEvidenceByPage['12']},
+                    },
+                ],
+                {abortEarly: true},
+            ),
+        ).toThrow('page-plan evidence');
+        expect(() =>
+            v.parse(
+                SCAN_CLEANUP_START_ARGS_SCHEMA,
+                [
+                    {
+                        ...request,
+                        pagePlanEvidenceByPage: {
+                            '12': {
+                                ...request.pagePlanEvidenceByPage['12'],
+                                outputs: {
+                                    full: {
+                                        contentBox: {
+                                            ...request.pagePlanEvidenceByPage['12'].outputs.full.contentBox,
+                                            widthNormalized: 1,
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                ],
+                {abortEarly: true},
+            ),
+        ).toThrow('content box');
+        expect(() =>
+            v.parse(
+                SCAN_CLEANUP_START_ARGS_SCHEMA,
+                [
+                    {
+                        ...request,
+                        pagePlanEvidenceByPage: {
+                            '12': {
+                                ...request.pagePlanEvidenceByPage['12'],
+                                automaticSplit: {
+                                    xNormalized: 1.2,
+                                    rotationDegrees: 0,
+                                },
+                            },
+                        },
+                    },
+                ],
+                {abortEarly: true},
+            ),
+        ).toThrow('automatic split');
     });
 
     it('rejects incomplete or internally inconsistent text-tone evidence', () => {
         const evidence = request.pagePlanEvidenceByPage['12'].outputs.full.textToneDiagnostics;
-        expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
-            ...request,
-            pagePlanEvidenceByPage: {'12': {
-                ...request.pagePlanEvidenceByPage['12'],
-                outputs: {full: {
-                    ...request.pagePlanEvidenceByPage['12'].outputs.full,
-                    textToneDiagnostics: {
-                        ...evidence,
-                        outsideMidtoneLargestComponentHeightFraction: 1.1,
+        expect(() =>
+            v.parse(
+                SCAN_CLEANUP_START_ARGS_SCHEMA,
+                [
+                    {
+                        ...request,
+                        pagePlanEvidenceByPage: {
+                            '12': {
+                                ...request.pagePlanEvidenceByPage['12'],
+                                outputs: {
+                                    full: {
+                                        ...request.pagePlanEvidenceByPage['12'].outputs.full,
+                                        textToneDiagnostics: {
+                                            ...evidence,
+                                            outsideMidtoneLargestComponentHeightFraction: 1.1,
+                                        },
+                                    },
+                                },
+                            },
+                        },
                     },
-                }},
-            }},
-        }], {abortEarly: true})).toThrow('text tone');
-        expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
-            ...request,
-            pagePlanEvidenceByPage: {'12': {
-                ...request.pagePlanEvidenceByPage['12'],
-                outputs: {full: {
-                    ...request.pagePlanEvidenceByPage['12'].outputs.full,
-                    textToneDiagnostics: {
-                        ...evidence,
-                        applied: false,
+                ],
+                {abortEarly: true},
+            ),
+        ).toThrow('text tone');
+        expect(() =>
+            v.parse(
+                SCAN_CLEANUP_START_ARGS_SCHEMA,
+                [
+                    {
+                        ...request,
+                        pagePlanEvidenceByPage: {
+                            '12': {
+                                ...request.pagePlanEvidenceByPage['12'],
+                                outputs: {
+                                    full: {
+                                        ...request.pagePlanEvidenceByPage['12'].outputs.full,
+                                        textToneDiagnostics: {
+                                            ...evidence,
+                                            applied: false,
+                                        },
+                                    },
+                                },
+                            },
+                        },
                     },
-                }},
-            }},
-        }], {abortEarly: true})).toThrow('text tone');
+                ],
+                {abortEarly: true},
+            ),
+        ).toThrow('text tone');
     });
 
     it('allows high page numbers while keeping page-key validation canonical', () => {
         const highPageKey = String(SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1);
-        expect(v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [requestWithOverrides({[highPageKey]: pageOverride()})], {abortEarly: true})[0]
-            .options.pageOverrides).toHaveProperty(highPageKey);
-        expect(v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
-            ...request,
-            layoutByPage: {[highPageKey]: 'single-uncut-page'},
-            sourcePageNumbers: [SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1],
-        }], {abortEarly: true})[0].sourcePageNumbers).toEqual([SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1]);
-        expect(v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
-            ...request,
-            sourcePageRange: {
-                startPageNumber: SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1,
-                endPageNumber: SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1,
-            },
-        }], {abortEarly: true})[0].sourcePageRange).toEqual({
+        expect(
+            v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [requestWithOverrides({[highPageKey]: pageOverride()})], {abortEarly: true})[0].options
+                .pageOverrides,
+        ).toHaveProperty(highPageKey);
+        expect(
+            v.parse(
+                SCAN_CLEANUP_START_ARGS_SCHEMA,
+                [
+                    {
+                        ...request,
+                        layoutByPage: {[highPageKey]: 'single-uncut-page'},
+                        sourcePageNumbers: [SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1],
+                    },
+                ],
+                {abortEarly: true},
+            )[0].sourcePageNumbers,
+        ).toEqual([SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1]);
+        expect(
+            v.parse(
+                SCAN_CLEANUP_START_ARGS_SCHEMA,
+                [
+                    {
+                        ...request,
+                        sourcePageRange: {
+                            startPageNumber: SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1,
+                            endPageNumber: SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1,
+                        },
+                    },
+                ],
+                {abortEarly: true},
+            )[0].sourcePageRange,
+        ).toEqual({
             startPageNumber: SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1,
             endPageNumber: SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1,
         });
     });
 
     it('requires source page numbers to be strictly ascending', () => {
-        expect(v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
-            ...request,
-            sourcePageNumbers: [
-                1,
-                3,
-                12,
-            ],
-        }], {abortEarly: true})[0].sourcePageNumbers).toEqual([
-            1,
-            3,
-            12,
-        ]);
-        expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
-            ...request,
-            sourcePageNumbers: [
-                1,
-                12,
-                3,
-            ],
-        }], {abortEarly: true})).toThrow('invalid scan-cleanup source page numbers');
+        expect(
+            v.parse(
+                SCAN_CLEANUP_START_ARGS_SCHEMA,
+                [
+                    {
+                        ...request,
+                        sourcePageNumbers: [1, 3, 12],
+                    },
+                ],
+                {abortEarly: true},
+            )[0].sourcePageNumbers,
+        ).toEqual([1, 3, 12]);
+        expect(() =>
+            v.parse(
+                SCAN_CLEANUP_START_ARGS_SCHEMA,
+                [
+                    {
+                        ...request,
+                        sourcePageNumbers: [1, 12, 3],
+                    },
+                ],
+                {abortEarly: true},
+            ),
+        ).toThrow('invalid scan-cleanup source page numbers');
     });
 
     it('rejects malformed page keys across page-indexed payloads', () => {
-        for (const key of [
-            '01',
-            String(Number.MAX_SAFE_INTEGER + 1),
-        ]) {
-            expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [requestWithOverrides({[key]: pageOverride()})], {abortEarly: true}))
-                .toThrow('page override number');
-            expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
-                ...request,
-                layoutByPage: {[key]: 'single-uncut-page'},
-            }], {abortEarly: true})).toThrow('layout classifications');
+        for (const key of ['01', String(Number.MAX_SAFE_INTEGER + 1)]) {
+            expect(() =>
+                v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [requestWithOverrides({[key]: pageOverride()})], {abortEarly: true}),
+            ).toThrow('page override number');
+            expect(() =>
+                v.parse(
+                    SCAN_CLEANUP_START_ARGS_SCHEMA,
+                    [
+                        {
+                            ...request,
+                            layoutByPage: {[key]: 'single-uncut-page'},
+                        },
+                    ],
+                    {abortEarly: true},
+                ),
+            ).toThrow('layout classifications');
         }
     });
 
@@ -701,17 +968,28 @@ describe('scan-cleanup IPC request codecs', () => {
             options: invalidOptions,
         };
 
-        expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
-            ...request,
-            options: invalidOptions,
-        }], {abortEarly: true}))
-            .toThrow('page override number');
+        expect(() =>
+            v.parse(
+                SCAN_CLEANUP_START_ARGS_SCHEMA,
+                [
+                    {
+                        ...request,
+                        options: invalidOptions,
+                    },
+                ],
+                {abortEarly: true},
+            ),
+        ).toThrow('page override number');
         expect(() => v.parse(SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA, [preview], {abortEarly: true})).toThrow('page override number');
         expect(() => v.parse(SCAN_CLEANUP_DETECTION_ARGS_SCHEMA, [detection], {abortEarly: true})).toThrow('page override number');
-        expect(() => decodeScanCleanupSettingsUpdateRequest({document: {
-            sourceSha256: 'a'.repeat(64),
-            patch: {overrides: invalidOptions.pageOverrides},
-        }})).toThrow('page override number');
+        expect(() =>
+            decodeScanCleanupSettingsUpdateRequest({
+                document: {
+                    sourceSha256: 'a'.repeat(64),
+                    patch: {overrides: invalidOptions.pageOverrides},
+                },
+            }),
+        ).toThrow('page override number');
     });
 
     it('bounds and NUL-rejects paths, revisions, owner IDs, request IDs, and job IDs', () => {
@@ -726,29 +1004,67 @@ describe('scan-cleanup IPC request codecs', () => {
             documentRevision: request.documentRevision,
             options: request.options,
         };
-        expect(() => v.parse(SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA, [{
-            ...preview,
-            requestId: 'x'.repeat(SCAN_CLEANUP_INPUT_MAX_ID_BYTES + 1),
-        }], {abortEarly: true})).toThrow('request id');
-        expect(() => v.parse(SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA, [{
-            ...preview,
-            ownerId: 'owner\0suffix',
-        }], {abortEarly: true})).toThrow('owner id');
-        expect(() => v.parse(SCAN_CLEANUP_DETECTION_ARGS_SCHEMA, [{
-            ...detection,
-            documentRevision: 'revision\0suffix',
-        }], {abortEarly: true})).toThrow('document revision');
-        expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
-            ...request,
-            sourcePdfPath: `/${'x'.repeat(SCAN_CLEANUP_INPUT_MAX_PATH_BYTES)}`,
-        }], {abortEarly: true})).toThrow('source PDF path');
-        expect(() => v.parse(SCAN_CLEANUP_OWNED_JOB_ARGS_SCHEMA, [
-            'job\0suffix',
-            {
-                ownerId: 'owner',
-                documentRevision: 'revision',
-            },
-        ], {abortEarly: true})).toThrow('job id');
+        expect(() =>
+            v.parse(
+                SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA,
+                [
+                    {
+                        ...preview,
+                        requestId: 'x'.repeat(SCAN_CLEANUP_INPUT_MAX_ID_BYTES + 1),
+                    },
+                ],
+                {abortEarly: true},
+            ),
+        ).toThrow('request id');
+        expect(() =>
+            v.parse(
+                SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA,
+                [
+                    {
+                        ...preview,
+                        ownerId: 'owner\0suffix',
+                    },
+                ],
+                {abortEarly: true},
+            ),
+        ).toThrow('owner id');
+        expect(() =>
+            v.parse(
+                SCAN_CLEANUP_DETECTION_ARGS_SCHEMA,
+                [
+                    {
+                        ...detection,
+                        documentRevision: 'revision\0suffix',
+                    },
+                ],
+                {abortEarly: true},
+            ),
+        ).toThrow('document revision');
+        expect(() =>
+            v.parse(
+                SCAN_CLEANUP_START_ARGS_SCHEMA,
+                [
+                    {
+                        ...request,
+                        sourcePdfPath: `/${'x'.repeat(SCAN_CLEANUP_INPUT_MAX_PATH_BYTES)}`,
+                    },
+                ],
+                {abortEarly: true},
+            ),
+        ).toThrow('source PDF path');
+        expect(() =>
+            v.parse(
+                SCAN_CLEANUP_OWNED_JOB_ARGS_SCHEMA,
+                [
+                    'job\0suffix',
+                    {
+                        ownerId: 'owner',
+                        documentRevision: 'revision',
+                    },
+                ],
+                {abortEarly: true},
+            ),
+        ).toThrow('job id');
     });
 
     it('accepts convex, concave, and either-winding simple polygons', () => {
@@ -774,28 +1090,32 @@ describe('scan-cleanup IPC request codecs', () => {
                 yNormalized: 0.9,
             },
         ];
-        for (const points of [
-            triangle.points,
-            [...triangle.points].reverse(),
-            concavePoints,
-        ]) {
-            expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [requestWithOverrides({'1': pageOverride({
-                picture: [],
-                fill: [{
-                    points,
-                    rotationDegrees: 0,
-                }],
-            })})], {abortEarly: true})).not.toThrow();
+        for (const points of [triangle.points, [...triangle.points].reverse(), concavePoints]) {
+            expect(() =>
+                v.parse(
+                    SCAN_CLEANUP_START_ARGS_SCHEMA,
+                    [
+                        requestWithOverrides({
+                            '1': pageOverride({
+                                picture: [],
+                                fill: [
+                                    {
+                                        points,
+                                        rotationDegrees: 0,
+                                    },
+                                ],
+                            }),
+                        }),
+                    ],
+                    {abortEarly: true},
+                ),
+            ).not.toThrow();
         }
     });
 
     it('rejects duplicate, degenerate, intersecting, and overlapping polygons', () => {
         const invalidPolygons = [
-            [
-                triangle.points[0],
-                triangle.points[1],
-                triangle.points[0],
-            ],
+            [triangle.points[0], triangle.points[1], triangle.points[0]],
             [
                 {
                     xNormalized: 0,
@@ -864,66 +1184,113 @@ describe('scan-cleanup IPC request codecs', () => {
             ],
         ];
         for (const points of invalidPolygons) {
-            expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [requestWithOverrides({'1': pageOverride({
-                picture: [],
-                fill: [{
-                    points,
-                    rotationDegrees: 0,
-                }],
-            })})], {abortEarly: true})).toThrow(/duplicate|near-zero|intersecting|overlapping/u);
+            expect(() =>
+                v.parse(
+                    SCAN_CLEANUP_START_ARGS_SCHEMA,
+                    [
+                        requestWithOverrides({
+                            '1': pageOverride({
+                                picture: [],
+                                fill: [
+                                    {
+                                        points,
+                                        rotationDegrees: 0,
+                                    },
+                                ],
+                            }),
+                        }),
+                    ],
+                    {abortEarly: true},
+                ),
+            ).toThrow(/duplicate|near-zero|intersecting|overlapping/u);
         }
     });
 
     it('applies zone, vertex, and legacy-storage caps at settings IPC boundaries', () => {
-        expect(() => decodeScanCleanupSettingsUpdateRequest({document: {
-            sourceSha256: 'a'.repeat(64),
-            patch: {overrides: {'1': pageOverride({
-                picture: [],
-                fill: Array.from({length: SCAN_CLEANUP_INPUT_MAX_ZONES_PER_PAGE + 1}, () => triangle),
-            })}},
-        }})).toThrow('too many scan-cleanup manual zones');
+        expect(() =>
+            decodeScanCleanupSettingsUpdateRequest({
+                document: {
+                    sourceSha256: 'a'.repeat(64),
+                    patch: {
+                        overrides: {
+                            '1': pageOverride({
+                                picture: [],
+                                fill: Array.from({length: SCAN_CLEANUP_INPUT_MAX_ZONES_PER_PAGE + 1}, () => triangle),
+                            }),
+                        },
+                    },
+                },
+            }),
+        ).toThrow('too many scan-cleanup manual zones');
         const tooManyVertices = Array.from({length: SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON + 1}, (_unused, index) => {
-            const radians = index * Math.PI * 2 / (SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON + 1);
+            const radians = (index * Math.PI * 2) / (SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON + 1);
             return {
                 xNormalized: 0.5 + 0.4 * Math.cos(radians),
                 yNormalized: 0.5 + 0.4 * Math.sin(radians),
             };
         });
-        expect(() => decodeScanCleanupSettingsUpdateRequest({document: {
-            sourceSha256: 'a'.repeat(64),
-            patch: {overrides: {'1': pageOverride({
-                picture: [],
-                fill: [{
-                    points: tooManyVertices,
-                    rotationDegrees: 0,
-                }],
-            })}},
-        }})).toThrow('fill zone');
-        expect(() => decodeScanCleanupSettingsReadRequest({legacyStorage: {
-            settingsRaw: 'x'.repeat(SCAN_CLEANUP_LEGACY_STORAGE_MAX_BYTES + 1),
-            documentOverridesRaw: null,
-        }})).toThrow('byte limit');
+        expect(() =>
+            decodeScanCleanupSettingsUpdateRequest({
+                document: {
+                    sourceSha256: 'a'.repeat(64),
+                    patch: {
+                        overrides: {
+                            '1': pageOverride({
+                                picture: [],
+                                fill: [
+                                    {
+                                        points: tooManyVertices,
+                                        rotationDegrees: 0,
+                                    },
+                                ],
+                            }),
+                        },
+                    },
+                },
+            }),
+        ).toThrow('fill zone');
+        expect(() =>
+            decodeScanCleanupSettingsReadRequest({
+                legacyStorage: {
+                    settingsRaw: 'x'.repeat(SCAN_CLEANUP_LEGACY_STORAGE_MAX_BYTES + 1),
+                    documentOverridesRaw: null,
+                },
+            }),
+        ).toThrow('byte limit');
     });
 
     it('enforces aggregate page, zone, and vertex budgets across decoded overrides', () => {
         const pageBudget = createScanCleanupInputBudget();
         pageBudget.pages = SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES;
-        expect(() => decodeScanCleanupPageOverrides({'1': pageOverride()}, pageBudget))
-            .toThrow('too many scan-cleanup page overrides');
+        expect(() => decodeScanCleanupPageOverrides({'1': pageOverride()}, pageBudget)).toThrow('too many scan-cleanup page overrides');
 
         const zoneBudget = createScanCleanupInputBudget();
         zoneBudget.zones = SCAN_CLEANUP_INPUT_MAX_ZONES;
-        expect(() => decodeScanCleanupPageOverrides({'1': pageOverride({
-            picture: [],
-            fill: [triangle],
-        })}, zoneBudget)).toThrow('too many scan-cleanup manual zones');
+        expect(() =>
+            decodeScanCleanupPageOverrides(
+                {
+                    '1': pageOverride({
+                        picture: [],
+                        fill: [triangle],
+                    }),
+                },
+                zoneBudget,
+            ),
+        ).toThrow('too many scan-cleanup manual zones');
 
         const vertexBudget = createScanCleanupInputBudget();
         vertexBudget.vertices = SCAN_CLEANUP_INPUT_MAX_VERTICES - 2;
-        expect(() => decodeScanCleanupPageOverrides({'1': pageOverride({
-            picture: [],
-            fill: [triangle],
-        })}, vertexBudget)).toThrow('too many scan-cleanup manual-zone vertices');
+        expect(() =>
+            decodeScanCleanupPageOverrides(
+                {
+                    '1': pageOverride({
+                        picture: [],
+                        fill: [triangle],
+                    }),
+                },
+                vertexBudget,
+            ),
+        ).toThrow('too many scan-cleanup manual-zone vertices');
     });
 
     it('enforces the native per-page manual-zone vertex ceiling', () => {
@@ -934,7 +1301,7 @@ describe('scan-cleanup IPC request codecs', () => {
             const centerY = 0.08 + row * 0.105;
             return {
                 points: Array.from({length: SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON}, (_unused, pointIndex) => {
-                    const angle = pointIndex * 2 * Math.PI / SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON;
+                    const angle = (pointIndex * 2 * Math.PI) / SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON;
                     return {
                         xNormalized: centerX + 0.02 * Math.cos(angle),
                         yNormalized: centerY + 0.02 * Math.sin(angle),
@@ -943,13 +1310,14 @@ describe('scan-cleanup IPC request codecs', () => {
                 rotationDegrees: 0 as const,
             };
         };
-        const pageOverrides = (polygonCount: number) => ({'1': pageOverride({
-            picture: [],
-            fill: Array.from({length: polygonCount}, (_unused, index) => polygon(index)),
-        })});
+        const pageOverrides = (polygonCount: number) => ({
+            '1': pageOverride({
+                picture: [],
+                fill: Array.from({length: polygonCount}, (_unused, index) => polygon(index)),
+            }),
+        });
 
         expect(() => decodeScanCleanupPageOverrides(pageOverrides(128))).not.toThrow();
-        expect(() => decodeScanCleanupPageOverrides(pageOverrides(129)))
-            .toThrow('too many scan-cleanup manual-zone vertices on one page');
+        expect(() => decodeScanCleanupPageOverrides(pageOverrides(129))).toThrow('too many scan-cleanup manual-zone vertices on one page');
     });
 });

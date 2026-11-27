@@ -1,20 +1,13 @@
-import { open } from 'node:fs/promises';
-import {
-    basename,
-    dirname,
-    resolve,
-} from 'node:path';
-import { DEFAULT_DJVU_SOURCE_DPI } from '@contracts/djvuConversionPolicy';
-import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
-import {
-    buildDjvuPageComponentMap,
-    normalizeDjvuOutlineTree,
-} from '@djvu-core/djvuOutline';
-import { runDjvuEngine } from '@electron/features/djvu/main/djvuEnginePool';
-import { getCachedDjvuHasText } from '@electron/features/djvu/main/getCachedDjvuHasText';
-import { createLogger } from '@electron/utils/createLogger';
-import { isAbortError } from '@electron/utils/abort';
-import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
+import {open} from 'node:fs/promises';
+import {basename, dirname, resolve} from 'node:path';
+import {DEFAULT_DJVU_SOURCE_DPI} from '@contracts/djvuConversionPolicy';
+import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
+import {buildDjvuPageComponentMap, normalizeDjvuOutlineTree} from '@djvu-core/djvuOutline';
+import {runDjvuEngine} from '@electron/features/djvu/main/djvuEnginePool';
+import {getCachedDjvuHasText} from '@electron/features/djvu/main/getCachedDjvuHasText';
+import {createLogger} from '@electron/utils/createLogger';
+import {isAbortError} from '@electron/utils/abort';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 
 const logger = createLogger('djvu-metadata');
 const DJVU_METADATA_TIMEOUT_MS = 20_000;
@@ -26,30 +19,33 @@ interface IDjvuMetadataOptions {
 }
 
 export async function getDjvuPageCount(filePath: string, options: IDjvuMetadataOptions = {}) {
-    const info = await runDjvuEngine({
-        type: 'getDocInfo',
-        djvuPath: filePath,
-    }, {
-        ...(options.signal ? { signal: options.signal } : {}),
-        timeoutMs: DJVU_METADATA_TIMEOUT_MS,
-    });
+    const info = await runDjvuEngine(
+        {
+            type: 'getDocInfo',
+            djvuPath: filePath,
+        },
+        {
+            ...(options.signal ? {signal: options.signal} : {}),
+            timeoutMs: DJVU_METADATA_TIMEOUT_MS,
+        },
+    );
     if (!Number.isSafeInteger(info.pageCount) || info.pageCount <= 0) {
         throw new Error(`Invalid DjVu page count: ${info.pageCount}`);
     }
     return info.pageCount;
 }
 
-export async function getDjvuOutlineBookmarks(
-    filePath: string,
-    options: IDjvuMetadataOptions = {},
-): Promise<IPdfBookmarkEntry[]> {
-    const outline = await runDjvuEngine({
-        type: 'getOutline',
-        djvuPath: filePath,
-    }, {
-        ...(options.signal ? { signal: options.signal } : {}),
-        timeoutMs: DJVU_METADATA_TIMEOUT_MS,
-    });
+export async function getDjvuOutlineBookmarks(filePath: string, options: IDjvuMetadataOptions = {}): Promise<IPdfBookmarkEntry[]> {
+    const outline = await runDjvuEngine(
+        {
+            type: 'getOutline',
+            djvuPath: filePath,
+        },
+        {
+            ...(options.signal ? {signal: options.signal} : {}),
+            timeoutMs: DJVU_METADATA_TIMEOUT_MS,
+        },
+    );
     if (outline.raw.length === 0) {
         return [];
     }
@@ -58,28 +54,31 @@ export async function getDjvuOutlineBookmarks(
 }
 
 export async function getDjvuPageComponentMap(filePath: string, options: IDjvuMetadataOptions = {}) {
-    const info = await runDjvuEngine({
-        type: 'getDocInfo',
-        djvuPath: filePath,
-    }, {
-        ...(options.signal ? { signal: options.signal } : {}),
-        timeoutMs: DJVU_METADATA_TIMEOUT_MS,
-    });
+    const info = await runDjvuEngine(
+        {
+            type: 'getDocInfo',
+            djvuPath: filePath,
+        },
+        {
+            ...(options.signal ? {signal: options.signal} : {}),
+            timeoutMs: DJVU_METADATA_TIMEOUT_MS,
+        },
+    );
     return buildDjvuPageComponentMap(info.files);
 }
 
-export async function getDjvuMetadata(
-    filePath: string,
-    options: IDjvuMetadataOptions = {},
-): Promise<Record<string, string>> {
+export async function getDjvuMetadata(filePath: string, options: IDjvuMetadataOptions = {}): Promise<Record<string, string>> {
     try {
-        return await runDjvuEngine({
-            type: 'getMetadata',
-            djvuPath: filePath,
-        }, {
-            ...(options.signal ? { signal: options.signal } : {}),
-            timeoutMs: DJVU_METADATA_TIMEOUT_MS,
-        });
+        return await runDjvuEngine(
+            {
+                type: 'getMetadata',
+                djvuPath: filePath,
+            },
+            {
+                ...(options.signal ? {signal: options.signal} : {}),
+                timeoutMs: DJVU_METADATA_TIMEOUT_MS,
+            },
+        );
     } catch (error) {
         if (isAbortError(error)) {
             throw error;
@@ -101,35 +100,40 @@ export async function getDjvuIndirectComponentPaths(filePath: string, options: I
     } finally {
         await file.close();
     }
-    const isIndirect = header.toString('latin1', 0, 4) === 'AT&T'
-        && header.toString('latin1', 12, 20) === 'DJVMDIRM'
-        && (header[24]! & 0x80) === 0;
+    const isIndirect =
+        header.toString('latin1', 0, 4) === 'AT&T' && header.toString('latin1', 12, 20) === 'DJVMDIRM' && (header[24]! & 0x80) === 0;
     if (!isIndirect) {
         return [];
     }
-    const info = await runDjvuEngine({
-        type: 'getDocInfo',
-        djvuPath: filePath,
-    }, {
-        ...(options.signal ? { signal: options.signal } : {}),
-        timeoutMs: DJVU_METADATA_TIMEOUT_MS,
-    });
-    const names = info.files.map(entry => entry.id || entry.name).filter(Boolean);
-    if (names.some(name => name !== basename(name) || name === '.' || name === '..')) {
+    const info = await runDjvuEngine(
+        {
+            type: 'getDocInfo',
+            djvuPath: filePath,
+        },
+        {
+            ...(options.signal ? {signal: options.signal} : {}),
+            timeoutMs: DJVU_METADATA_TIMEOUT_MS,
+        },
+    );
+    const names = info.files.map((entry) => entry.id || entry.name).filter(Boolean);
+    if (names.some((name) => name !== basename(name) || name === '.' || name === '..')) {
         throw new Error('Indirect DjVu names a component outside its folder');
     }
-    return [...new Set(names.map(name => resolve(dirname(filePath), name)))];
+    return [...new Set(names.map((name) => resolve(dirname(filePath), name)))];
 }
 
 export async function getDjvuResolution(filePath: string, options: IDjvuMetadataOptions = {}) {
     try {
-        const info = await runDjvuEngine({
-            type: 'getDocInfo',
-            djvuPath: filePath,
-        }, {
-            ...(options.signal ? { signal: options.signal } : {}),
-            timeoutMs: DJVU_METADATA_TIMEOUT_MS,
-        });
+        const info = await runDjvuEngine(
+            {
+                type: 'getDocInfo',
+                djvuPath: filePath,
+            },
+            {
+                ...(options.signal ? {signal: options.signal} : {}),
+                timeoutMs: DJVU_METADATA_TIMEOUT_MS,
+            },
+        );
         return Number.isSafeInteger(info.sourceDpi) && info.sourceDpi > 0 ? info.sourceDpi : DEFAULT_DJVU_SOURCE_DPI;
     } catch (error) {
         if (isAbortError(error) || getUnprovenNativeTerminationDetail(error) !== undefined) {

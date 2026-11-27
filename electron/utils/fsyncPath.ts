@@ -1,9 +1,5 @@
-import { open } from 'node:fs/promises';
-import {
-    closeSync,
-    fsyncSync,
-    openSync,
-} from 'node:fs';
+import {open} from 'node:fs/promises';
+import {closeSync, fsyncSync, openSync} from 'node:fs';
 
 /**
  * Flush a file's contents to disk. Opened read-write because Windows rejects

@@ -1,19 +1,10 @@
 import {readDocumentBytes} from '@tests/e2e/electron/helpers/electronApiHelpers';
-import { getErrorMessage } from '@contracts/getErrorMessage';
+import {getErrorMessage} from '@contracts/getErrorMessage';
 import {createHash} from 'node:crypto';
-import {
-    chmod, readFile, stat, writeFile,
-} from 'node:fs/promises';
+import {chmod, readFile, stat, writeFile} from 'node:fs/promises';
 import {dirname} from 'node:path';
-import {
-    PDFDocument, PDFName, PDFString,
-} from 'pdf-lib';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {PDFDocument, PDFName, PDFString} from 'pdf-lib';
+import {afterEach, describe, expect, it} from 'vitest';
 import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
 import type {IEvbTestApi} from '@app/types/evbTestApi';
 import {
@@ -22,10 +13,7 @@ import {
     createMultiPageTextFixturePdf,
     readPdfPageSnapshots,
 } from '@tests/e2e/electron/helpers/fixtures';
-import {
-    startElectronE2ESession,
-    type IElectronE2ESession,
-} from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {startElectronE2ESession, type IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
     readWorkspaceStateValues,
     getWorkspaceToolbarSnapshot,
@@ -45,11 +33,7 @@ import {
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {expectWithinTimingBudget} from '@tests/e2e/electron/helpers/timingBudget';
 import {observeRendererErrors} from '@tests/e2e/electron/helpers/rendererErrorObservation';
-import {
-    clickAsUser,
-    clickFoundAsUser,
-    revealForPointer,
-} from '@tests/e2e/electron/helpers/userInput';
+import {clickAsUser, clickFoundAsUser, revealForPointer} from '@tests/e2e/electron/helpers/userInput';
 import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {waitForAnimationFrames} from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
 import {clickAnnotationTool} from '@tests/e2e/electron/helpers/viewerAnnotations';
@@ -72,7 +56,7 @@ interface IPageMutationFrame {
     sidebar: {
         left: number;
         width: number;
-        height: number
+        height: number;
     } | null;
     generation: string | null;
     revision: string | null;
@@ -80,7 +64,7 @@ interface IPageMutationFrame {
     viewportLifecycle: string | null;
     pageRect: {
         width: number;
-        height: number
+        height: number;
     } | null;
     canvasSizes: Array<[number, number]>;
     mainRaster: {
@@ -111,7 +95,7 @@ interface IPageMutationProbeFields {
     __pageMutationBaselineCanvases?: Map<number, HTMLCanvasElement>;
     __pageMutationCanvasResets?: Array<{
         page: number;
-        stack: string | null
+        stack: string | null;
     }>;
     __pageMutationFrames?: IPageMutationFrame[];
     __pageMutationSampling?: boolean;
@@ -152,65 +136,23 @@ const initialRanges: IPdfPageLabelRange[] = [
 
 function toRoman(value: number) {
     const parts: Array<[number, string]> = [
-        [
-            1000,
-            'M',
-        ],
-        [
-            900,
-            'CM',
-        ],
-        [
-            500,
-            'D',
-        ],
-        [
-            400,
-            'CD',
-        ],
-        [
-            100,
-            'C',
-        ],
-        [
-            90,
-            'XC',
-        ],
-        [
-            50,
-            'L',
-        ],
-        [
-            40,
-            'XL',
-        ],
-        [
-            10,
-            'X',
-        ],
-        [
-            9,
-            'IX',
-        ],
-        [
-            5,
-            'V',
-        ],
-        [
-            4,
-            'IV',
-        ],
-        [
-            1,
-            'I',
-        ],
+        [1000, 'M'],
+        [900, 'CM'],
+        [500, 'D'],
+        [400, 'CD'],
+        [100, 'C'],
+        [90, 'XC'],
+        [50, 'L'],
+        [40, 'XL'],
+        [10, 'X'],
+        [9, 'IX'],
+        [5, 'V'],
+        [4, 'IV'],
+        [1, 'I'],
     ];
     let remaining = value;
     let result = '';
-    for (const [
-        unit,
-        symbol,
-    ] of parts) {
+    for (const [unit, symbol] of parts) {
         while (remaining >= unit) {
             result += symbol;
             remaining -= unit;
@@ -229,23 +171,22 @@ function toAlpha(value: number) {
 }
 
 function labelForPage(page: number, ranges: readonly IPdfPageLabelRange[]) {
-    const range = ranges.reduce((current, candidate) => (
-        candidate.startPage <= page ? candidate : current
-    ));
+    const range = ranges.reduce((current, candidate) => (candidate.startPage <= page ? candidate : current));
     // A range without a numbering style labels its pages with the prefix alone.
     if (range.style === null) {
         return range.prefix;
     }
     const number = range.startNumber + page - range.startPage;
-    const value = range.style === 'r'
-        ? toRoman(number).toLowerCase()
-        : range.style === 'R'
-            ? toRoman(number)
-            : range.style === 'a'
+    const value =
+        range.style === 'r'
+            ? toRoman(number).toLowerCase()
+            : range.style === 'R'
+              ? toRoman(number)
+              : range.style === 'a'
                 ? toAlpha(number).toLowerCase()
                 : range.style === 'A'
-                    ? toAlpha(number)
-                    : String(number);
+                  ? toAlpha(number)
+                  : String(number);
     return `${range.prefix}${value}`;
 }
 
@@ -254,92 +195,92 @@ function labelsFromRanges(totalPages: number, ranges: readonly IPdfPageLabelRang
 }
 
 async function waitForLabels(session: IElectronE2ESession, expected: readonly string[]) {
-    await expect.poll(async () => {
-        let state: {
-            pageLabels?: string[] | Record<string, string> | null;
-            pageLabelRanges?: IPdfPageLabelRange[];
-            pageLabelsResolved?: boolean;
-        };
-        try {
-            state = await readWorkspaceStateValues<{
-                pageLabels?: string[] | Record<string, string> | null;
-                pageLabelRanges?: IPdfPageLabelRange[];
-                pageLabelsResolved?: boolean;
-            }>(session.page, [
-                'pageLabels',
-                'pageLabelRanges',
-                'pageLabelsResolved',
-            ]);
-        } catch {
-            return null;
-        }
-        if (state.pageLabelsResolved !== true || state.pageLabels !== null) {
-            return null;
-        }
-        const ranges = state.pageLabelRanges ?? [];
-        return labelsFromRanges(expected.length, ranges);
-    }, {timeout: 60_000}).toEqual(expected);
+    await expect
+        .poll(
+            async () => {
+                let state: {
+                    pageLabels?: string[] | Record<string, string> | null;
+                    pageLabelRanges?: IPdfPageLabelRange[];
+                    pageLabelsResolved?: boolean;
+                };
+                try {
+                    state = await readWorkspaceStateValues<{
+                        pageLabels?: string[] | Record<string, string> | null;
+                        pageLabelRanges?: IPdfPageLabelRange[];
+                        pageLabelsResolved?: boolean;
+                    }>(session.page, ['pageLabels', 'pageLabelRanges', 'pageLabelsResolved']);
+                } catch {
+                    return null;
+                }
+                if (state.pageLabelsResolved !== true || state.pageLabels !== null) {
+                    return null;
+                }
+                const ranges = state.pageLabelRanges ?? [];
+                return labelsFromRanges(expected.length, ranges);
+            },
+            {timeout: 60_000},
+        )
+        .toEqual(expected);
 }
 
 async function waitForSemanticLabels(session: IElectronE2ESession, expected: readonly string[]) {
-    await expect.poll(async () => {
-        try {
-            const state = await readWorkspaceStateValues<{
-                pageLabels?: string[] | Record<string, string> | null;
-                pageLabelRanges?: IPdfPageLabelRange[];
-                totalPages?: number;
-                pageLabelsResolved?: boolean;
-            }>(session.page, [
-                'pageLabels',
-                'pageLabelRanges',
-                'totalPages',
-                'pageLabelsResolved',
-            ]);
-            if (state.pageLabelsResolved !== true) {
-                return false;
-            }
-            if (state.pageLabels === null) {
-                return labelsFromRanges(expected.length, state.pageLabelRanges ?? []);
-            }
-            const labels = Array.isArray(state.pageLabels)
-                ? state.pageLabels
-                : Object.values(state.pageLabels as Record<string, string>);
-            return labels.length === expected.length
-                && state.totalPages === expected.length
-                ? labels
-                : false;
-        } catch {
-            return false;
-        }
-    }, {timeout: 60_000}).toEqual(expected);
+    await expect
+        .poll(
+            async () => {
+                try {
+                    const state = await readWorkspaceStateValues<{
+                        pageLabels?: string[] | Record<string, string> | null;
+                        pageLabelRanges?: IPdfPageLabelRange[];
+                        totalPages?: number;
+                        pageLabelsResolved?: boolean;
+                    }>(session.page, ['pageLabels', 'pageLabelRanges', 'totalPages', 'pageLabelsResolved']);
+                    if (state.pageLabelsResolved !== true) {
+                        return false;
+                    }
+                    if (state.pageLabels === null) {
+                        return labelsFromRanges(expected.length, state.pageLabelRanges ?? []);
+                    }
+                    const labels = Array.isArray(state.pageLabels)
+                        ? state.pageLabels
+                        : Object.values(state.pageLabels as Record<string, string>);
+                    return labels.length === expected.length && state.totalPages === expected.length ? labels : false;
+                } catch {
+                    return false;
+                }
+            },
+            {timeout: 60_000},
+        )
+        .toEqual(expected);
 }
 
 async function waitForPageOperation(session: IElectronE2ESession) {
     const readProgress = async () => {
         try {
-            return (await readWorkspaceStateValues<{isPageOperationInProgress?: boolean}>(
-                session.page,
-                ['isPageOperationInProgress'],
-            )).isPageOperationInProgress;
+            return (await readWorkspaceStateValues<{isPageOperationInProgress?: boolean}>(session.page, ['isPageOperationInProgress']))
+                .isPageOperationInProgress;
         } catch {
             return undefined;
         }
     };
     await expect.poll(readProgress, {timeout: 20_000}).toBe(true);
-    await new Promise(resolve => setTimeout(resolve, 10_000));
+    await new Promise((resolve) => setTimeout(resolve, 10_000));
 }
 
 async function waitForPageOperationComplete(session: IElectronE2ESession) {
-    await expect.poll(async () => {
-        try {
-            return (await readWorkspaceStateValues<{isPageOperationInProgress?: boolean}>(
-                session.page,
-                ['isPageOperationInProgress'],
-            )).isPageOperationInProgress;
-        } catch {
-            return undefined;
-        }
-    }, {timeout: 60_000}).toBe(false);
+    await expect
+        .poll(
+            async () => {
+                try {
+                    return (
+                        await readWorkspaceStateValues<{isPageOperationInProgress?: boolean}>(session.page, ['isPageOperationInProgress'])
+                    ).isPageOperationInProgress;
+                } catch {
+                    return undefined;
+                }
+            },
+            {timeout: 60_000},
+        )
+        .toBe(false);
 }
 
 /**
@@ -349,29 +290,26 @@ async function waitForPageOperationComplete(session: IElectronE2ESession) {
  * has the page count it produces.
  */
 async function waitForPageOperationResult(session: IElectronE2ESession, totalPages: number) {
-    await expect.poll(async () => {
-        try {
-            const state = await readWorkspaceStateValues<{
-                isPageOperationInProgress?: boolean;
-                totalPages?: number;
-            }>(session.page, [
-                'isPageOperationInProgress',
-                'totalPages',
-            ]);
-            return state.isPageOperationInProgress === false && state.totalPages === totalPages;
-        } catch {
-            return false;
-        }
-    }, {timeout: 60_000}).toBe(true);
+    await expect
+        .poll(
+            async () => {
+                try {
+                    const state = await readWorkspaceStateValues<{
+                        isPageOperationInProgress?: boolean;
+                        totalPages?: number;
+                    }>(session.page, ['isPageOperationInProgress', 'totalPages']);
+                    return state.isPageOperationInProgress === false && state.totalPages === totalPages;
+                } catch {
+                    return false;
+                }
+            },
+            {timeout: 60_000},
+        )
+        .toBe(true);
 }
 
 async function runCommand<T>(session: IElectronE2ESession, name: string, args: unknown[]) {
-    if ([
-        'handleSave',
-        'handlePageDelete',
-        'handlePageReorder',
-        'handlePageMove',
-    ].includes(name)) {
+    if (['handleSave', 'handlePageDelete', 'handlePageReorder', 'handlePageMove'].includes(name)) {
         const value = await requireWorkspaceCommand<T>(session.page, name, args);
         if (name === 'handleSave') {
             return value;
@@ -381,20 +319,20 @@ async function runCommand<T>(session: IElectronE2ESession, name: string, args: u
         await waitForViewerInteractive(session.page, 60_000);
         return value;
     }
-    const called = await session.page.evaluate((payload: {
-        args: unknown[];
-        name: string
-    }) => {
-        const api = (window as Window & {__evbTestApi?: IEvbTestApi}).__evbTestApi;
-        if (!api) {
-            return false;
-        }
-        void api.callActiveWorkspaceCommand(payload.name, payload.args).catch(() => undefined);
-        return true;
-    }, {
-        args,
-        name,
-    });
+    const called = await session.page.evaluate(
+        (payload: {args: unknown[]; name: string}) => {
+            const api = (window as Window & {__evbTestApi?: IEvbTestApi}).__evbTestApi;
+            if (!api) {
+                return false;
+            }
+            void api.callActiveWorkspaceCommand(payload.name, payload.args).catch(() => undefined);
+            return true;
+        },
+        {
+            args,
+            name,
+        },
+    );
     expect(called, `${name} should be exposed`).toBe(true);
     if (name !== 'handleSave') {
         await waitForPageOperation(session);
@@ -423,11 +361,7 @@ async function insertOnePageThroughWorkspace(session: IElectronE2ESession, sourc
     expect(point.y, 'drop on the lower half to insert after the final page').toBeGreaterThan(point.middle);
     const client = await page.createCDPSession();
     try {
-        for (const type of [
-            'dragEnter',
-            'dragOver',
-            'drop',
-        ] as const) {
+        for (const type of ['dragEnter', 'dragOver', 'drop'] as const) {
             await client.send('Input.dispatchDragEvent', {
                 type,
                 x: point.x,
@@ -470,23 +404,33 @@ describe('Electron E2E, compact page labels through structural operations', () =
         });
         const {page} = session;
         await waitForViewerInteractive(page);
-        expect(await page.$eval('.page-controls-total', element => element.textContent?.trim())).toBe('2');
+        expect(await page.$eval('.page-controls-total', (element) => element.textContent?.trim())).toBe('2');
         await openDocumentSidebarTab(page, 'Pages');
         await clickAsUser(page, '[data-thumbnail-page="1"]', {button: 'right'});
-        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-            .find(item => item.textContent?.trim() === 'Insert Pages After'), null, {description: 'Insert Pages from File after the first page'});
+        await clickFoundAsUser(
+            page,
+            () =>
+                Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+                    (item) => item.textContent?.trim() === 'Insert Pages After',
+                ),
+            null,
+            {description: 'Insert Pages from File after the first page'},
+        );
 
         await page.waitForFunction(() => document.querySelector('.page-controls-total')?.textContent?.trim() === '3');
         await goToPageViaToolbar(page, 2);
         await waitForToolbarCurrentPage(page, 2);
         await page.waitForFunction(() => {
             const insertedPage = document.querySelector('.page_container[data-page="2"]');
-            return insertedPage?.classList.contains('page_container--rendered')
-                && insertedPage.querySelector('.text-layer')?.textContent?.includes('E2E Multi Page Fixture 1/1');
+            return (
+                insertedPage?.classList.contains('page_container--rendered') &&
+                insertedPage.querySelector('.text-layer')?.textContent?.includes('E2E Multi Page Fixture 1/1')
+            );
         });
-        expect(await page.$eval('.page-controls-total', element => element.textContent?.trim())).toBe('3');
-        expect(await page.$eval('.page_container[data-page="2"] .text-layer', element => element.textContent))
-            .toContain('E2E Multi Page Fixture 1/1');
+        expect(await page.$eval('.page-controls-total', (element) => element.textContent?.trim())).toBe('3');
+        expect(await page.$eval('.page_container[data-page="2"] .text-layer', (element) => element.textContent)).toContain(
+            'E2E Multi Page Fixture 1/1',
+        );
     });
 
     // C4: a refused edit is told once; I1/A3: it keeps bytes, edits and Undo.
@@ -495,26 +439,26 @@ describe('Electron E2E, compact page labels through structural operations', () =
             preserveFailureArtifacts = true;
             await session?.captureFailureArtifacts(failure.task.name);
         }, 15_000);
-        for (const variant of [
-            'duplicate',
-            'unreadable',
-        ] as const) {
+        for (const variant of ['duplicate', 'unreadable'] as const) {
             const pdfPath = await createMultiPageTextFixturePdf(`page-refusal-${variant}-${Date.now()}.pdf`, 3);
             const pdf = await PDFDocument.load(await readFile(pdfPath));
-            pdf.catalog.set(PDFName.of('PageLabels'), pdf.context.obj({Nums: variant === 'duplicate'
-                ? [
-                    0,
-                    pdf.context.obj({S: 'r'}),
-                    0,
-                    pdf.context.obj({
-                        S: 'r',
-                        P: PDFString.of('x-'),
-                    }),
-                ]
-                : [
-                    0,
-                    pdf.context.obj({S: 'UnreadableStyle'}),
-                ]}));
+            pdf.catalog.set(
+                PDFName.of('PageLabels'),
+                pdf.context.obj({
+                    Nums:
+                        variant === 'duplicate'
+                            ? [
+                                  0,
+                                  pdf.context.obj({S: 'r'}),
+                                  0,
+                                  pdf.context.obj({
+                                      S: 'r',
+                                      P: PDFString.of('x-'),
+                                  }),
+                              ]
+                            : [0, pdf.context.obj({S: 'UnreadableStyle'})],
+                }),
+            );
             pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
             pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
             await writeFile(pdfPath, await pdf.save());
@@ -526,23 +470,15 @@ describe('Electron E2E, compact page labels through structural operations', () =
             const {page} = session;
             await waitForPdfLoaded(page, 60_000);
             await waitForViewerInteractive(page, 60_000);
-            const readState = () => readWorkspaceStateValues<{
-                workingCopyPath?: string;
-                pageLabelsResolved?: boolean;
-                totalPages?: number;
-                dirtyState?: {hasPendingUnsavedChanges: boolean};
-            }>(page, [
-                'workingCopyPath',
-                'pageLabelsResolved',
-                'totalPages',
-                'dirtyState',
-            ]);
+            const readState = () =>
+                readWorkspaceStateValues<{
+                    workingCopyPath?: string;
+                    pageLabelsResolved?: boolean;
+                    totalPages?: number;
+                    dirtyState?: {hasPendingUnsavedChanges: boolean};
+                }>(page, ['workingCopyPath', 'pageLabelsResolved', 'totalPages', 'dirtyState']);
             if (variant === 'duplicate') {
-                await waitForSemanticLabels(session, [
-                    'x-i',
-                    'x-ii',
-                    'x-iii',
-                ]);
+                await waitForSemanticLabels(session, ['x-i', 'x-ii', 'x-iii']);
             } else {
                 await expect.poll(async () => (await readState()).pageLabelsResolved).toBe(false);
             }
@@ -553,20 +489,24 @@ describe('Electron E2E, compact page labels through structural operations', () =
             const deleteSecondPage = async () => {
                 await openDocumentSidebarTab(page, 'Pages');
                 await clickAsUser(page, '.editor-pane.is-active [data-thumbnail-page="2"]', {button: 'right'});
-                await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-                    .find(item => item.textContent?.trim() === 'Delete Pages'), null, {description: 'Delete page 2'});
+                await clickFoundAsUser(
+                    page,
+                    () =>
+                        Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+                            (item) => item.textContent?.trim() === 'Delete Pages',
+                        ),
+                    null,
+                    {description: 'Delete page 2'},
+                );
             };
-            const readToasts = () => page.$$eval('.app-toast-failure', nodes => nodes.map(node => node.textContent?.trim() ?? ''));
+            const readToasts = () => page.$$eval('.app-toast-failure', (nodes) => nodes.map((node) => node.textContent?.trim() ?? ''));
             await deleteSecondPage();
             if (variant === 'duplicate') {
                 await expect.poll(async () => (await readState()).totalPages, {timeout: 30_000}).toBe(2);
-                await waitForSemanticLabels(session, [
-                    'x-i',
-                    'x-iii',
-                ]);
+                await waitForSemanticLabels(session, ['x-i', 'x-iii']);
                 expect(await readToasts()).toEqual([]);
                 await saveViaVisibleToolbar(page, 60_000);
-                expect((await readPdfPageSnapshots(pdfPath)).map(saved => saved.textSnippet)).toEqual([
+                expect((await readPdfPageSnapshots(pdfPath)).map((saved) => saved.textSnippet)).toEqual([
                     expect.stringContaining('E2E Multi Page Fixture 1/3'),
                     expect.stringContaining('E2E Multi Page Fixture 3/3'),
                 ]);
@@ -576,13 +516,16 @@ describe('Electron E2E, compact page labels through structural operations', () =
                 continue;
             }
             await waitForPageOperationComplete(session);
-            console.log('[core65 refusal]', JSON.stringify({
-                fixtureSha256: createHash('sha256').update(originalBytes).digest('hex'),
-                state: await readState(),
-                toasts: await readToasts(),
-                originalUnchanged: originalBytes.equals(await readFile(pdfPath)),
-                workingUnchanged: workingBytes.equals(await readDocumentBytes(page, workingPath!)),
-            }));
+            console.log(
+                '[core65 refusal]',
+                JSON.stringify({
+                    fixtureSha256: createHash('sha256').update(originalBytes).digest('hex'),
+                    state: await readState(),
+                    toasts: await readToasts(),
+                    originalUnchanged: originalBytes.equals(await readFile(pdfPath)),
+                    workingUnchanged: workingBytes.equals(await readDocumentBytes(page, workingPath!)),
+                }),
+            );
             await expect.poll(readToasts, {timeout: 5_000}).toEqual([expect.stringContaining('Failed to delete pages')]);
             expect((await readToasts())[0]).toContain('Your edits remain open here.');
             expect((await readToasts())[0]).not.toContain('UnreadableStyle');
@@ -597,12 +540,17 @@ describe('Electron E2E, compact page labels through structural operations', () =
             await goToPageViaToolbar(page, 1);
             await clickAnnotationTool(page, 'Rectangle');
             const layer = '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-layer';
-            const bounds = await page.$eval(layer, element => element.getBoundingClientRect().toJSON());
+            const bounds = await page.$eval(layer, (element) => element.getBoundingClientRect().toJSON());
             const start = {
                 x: bounds.left + bounds.width * 0.3,
                 y: bounds.top + bounds.height * 0.3,
             };
-            expect(await page.evaluate(point => Boolean(document.elementFromPoint(point.x, point.y)?.closest('.pdf-annotation-editor-layer')), start)).toBe(true);
+            expect(
+                await page.evaluate(
+                    (point) => Boolean(document.elementFromPoint(point.x, point.y)?.closest('.pdf-annotation-editor-layer')),
+                    start,
+                ),
+            ).toBe(true);
             await page.mouse.move(start.x, start.y);
             await page.mouse.down();
             await page.mouse.move(start.x + 70, start.y + 45, {steps: 6});
@@ -612,7 +560,7 @@ describe('Electron E2E, compact page labels through structural operations', () =
             await page.waitForSelector(mark, {visible: true});
             await expect.poll(async () => (await readState()).dirtyState?.hasPendingUnsavedChanges).toBe(true);
             const dirtyHistory = await getWorkspaceToolbarSnapshot(page);
-            const paintedMark = await page.$eval(mark, element => element.getBoundingClientRect().toJSON());
+            const paintedMark = await page.$eval(mark, (element) => element.getBoundingClientRect().toJSON());
             await deleteSecondPage();
             await expect.poll(readToasts, {timeout: 10_000}).toEqual([expect.stringContaining('Failed to delete pages')]);
             await waitForPageOperationComplete(session);
@@ -620,18 +568,21 @@ describe('Electron E2E, compact page labels through structural operations', () =
             expect(retainedState.totalPages).toBe(3);
             expect(retainedState.dirtyState?.hasPendingUnsavedChanges).toBe(true);
             const retainedHistory = await getWorkspaceToolbarSnapshot(page);
-            console.log('[core65 pending retention]', JSON.stringify({
-                state: retainedState,
-                dirtyHistory,
-                retainedHistory,
-                originalUnchanged: originalBytes.equals(await readFile(pdfPath)),
-                workingUnchanged: workingBytes.equals(await readDocumentBytes(page, workingPath!)),
-            }));
+            console.log(
+                '[core65 pending retention]',
+                JSON.stringify({
+                    state: retainedState,
+                    dirtyHistory,
+                    retainedHistory,
+                    originalUnchanged: originalBytes.equals(await readFile(pdfPath)),
+                    workingUnchanged: workingBytes.equals(await readDocumentBytes(page, workingPath!)),
+                }),
+            );
             expect(retainedHistory?.canUndo).toBe(dirtyHistory?.canUndo);
             expect(retainedHistory?.canRedo).toBe(dirtyHistory?.canRedo);
             expect(await readFile(pdfPath)).toEqual(originalBytes);
             expect(await readDocumentBytes(page, workingPath!)).toEqual(workingBytes);
-            expect(await page.$eval(mark, element => element.getBoundingClientRect().toJSON())).toEqual(paintedMark);
+            expect(await page.$eval(mark, (element) => element.getBoundingClientRect().toJSON())).toEqual(paintedMark);
             await clickAsUser(page, '.app-toast-failure [data-slot="close"]');
             await clickToolbarButtonWhenEnabled(page, 'Undo');
             await page.waitForSelector(mark, {hidden: true});
@@ -655,18 +606,23 @@ describe('Electron E2E, compact page labels through structural operations', () =
         const {page} = session;
         await waitForPdfLoaded(page, 60_000);
         await waitForViewerInteractive(page, 60_000);
-        const readState = () => readWorkspaceStateValues<{
-            workingCopyPath?: string;
-            totalPages?: number
-        }>(page, [
-            'workingCopyPath',
-            'totalPages',
-        ]);
+        const readState = () =>
+            readWorkspaceStateValues<{
+                workingCopyPath?: string;
+                totalPages?: number;
+            }>(page, ['workingCopyPath', 'totalPages']);
         const deleteSecondPage = async () => {
             await openDocumentSidebarTab(page, 'Pages');
             await clickAsUser(page, '.editor-pane.is-active [data-thumbnail-page="2"]', {button: 'right'});
-            await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-                .find(item => item.textContent?.trim() === 'Delete Pages'), null, {description: 'Delete page 2'});
+            await clickFoundAsUser(
+                page,
+                () =>
+                    Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+                        (item) => item.textContent?.trim() === 'Delete Pages',
+                    ),
+                null,
+                {description: 'Delete page 2'},
+            );
         };
         // A successful edit and real Undo establish the existing history baseline.
         await deleteSecondPage();
@@ -685,13 +641,16 @@ describe('Electron E2E, compact page labels through structural operations', () =
             await chmod(directory, 0o555);
             await deleteSecondPage();
             await waitForPageOperationComplete(session);
-            const readToasts = () => page.$$eval('.app-toast-failure', nodes => nodes.map(node => node.textContent?.trim() ?? ''));
+            const readToasts = () => page.$$eval('.app-toast-failure', (nodes) => nodes.map((node) => node.textContent?.trim() ?? ''));
             await expect.poll(readToasts, {timeout: 5_000}).toEqual([expect.stringContaining('Failed to delete pages')]);
             const toast = (await readToasts())[0]!;
-            console.log('[core65 dispatched refusal]', JSON.stringify({
-                toast,
-                state: await readState(),
-            }));
+            console.log(
+                '[core65 dispatched refusal]',
+                JSON.stringify({
+                    toast,
+                    state: await readState(),
+                }),
+            );
             expect(toast).toContain('Error ID:');
             expect(toast).not.toContain('The document could not be prepared safely for this operation.');
             expect(await readFile(pdfPath)).toEqual(originalBytes);
@@ -732,15 +691,20 @@ describe('Electron E2E, compact page labels through structural operations', () =
                     const state = (window as IE2EWindow).__evbTestApi?.readActiveWorkspaceStateValues(['isPageOperationInProgress']);
                     const busy = state?.isPageOperationInProgress === true;
                     sawBusy ||= busy;
-                    const controls = [...document.querySelectorAll<HTMLButtonElement>('.page-selection-bar-actions button, .page-context-menu button')]
-                        .filter(button => /^(?:delete|rotate|insert)/iu.test(button.textContent?.trim() || button.getAttribute('aria-label') || ''));
+                    const controls = [
+                        ...document.querySelectorAll<HTMLButtonElement>('.page-selection-bar-actions button, .page-context-menu button'),
+                    ].filter((button) =>
+                        /^(?:delete|rotate|insert)/iu.test(button.textContent?.trim() || button.getAttribute('aria-label') || ''),
+                    );
                     samples.push({
                         elapsedMs: performance.now() - started,
                         busy,
-                        enabled: controls.some(button => !button.disabled),
+                        enabled: controls.some((button) => !button.disabled),
                         total: document.querySelector('.page-controls-total')?.textContent?.trim() ?? '',
                         current: document.querySelector('.page-controls-current-primary')?.textContent?.trim() ?? '',
-                        thumbnails: [...document.querySelectorAll<HTMLElement>('.pdf-thumbnails [data-thumbnail-page]')].map(element => Number(element.dataset.thumbnailPage)),
+                        thumbnails: [...document.querySelectorAll<HTMLElement>('.pdf-thumbnails [data-thumbnail-page]')].map((element) =>
+                            Number(element.dataset.thumbnailPage),
+                        ),
                     });
                     if (sawBusy && !busy && samples.at(-1)?.total === '7') {
                         clearInterval(timer);
@@ -749,185 +713,195 @@ describe('Electron E2E, compact page labels through structural operations', () =
                 }, 25);
             });
         });
-        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-            .find(item => item.textContent?.trim() === 'Delete Pages'), null, {description: 'Delete the last page'});
+        await clickFoundAsUser(
+            page,
+            () =>
+                Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+                    (item) => item.textContent?.trim() === 'Delete Pages',
+                ),
+            null,
+            {description: 'Delete the last page'},
+        );
         // Reopen controls as soon as the operation says they are available.
-        await page.waitForFunction(() => (window as IE2EWindow).__evbTestApi?.readActiveWorkspaceStateValues(['isPageOperationInProgress']).isPageOperationInProgress === false, {
-            polling: 25,
-            timeout: 60_000,
-        });
+        await page.waitForFunction(
+            () =>
+                (window as IE2EWindow).__evbTestApi?.readActiveWorkspaceStateValues(['isPageOperationInProgress'])
+                    .isPageOperationInProgress === false,
+            {
+                polling: 25,
+                timeout: 60_000,
+            },
+        );
         await clickAsUser(page, '[data-thumbnail-page="7"]', {button: 'right'});
         const samples = await observation;
         const completed = samples.find((sample, index) => index > 0 && samples[index - 1]!.busy && !sample.busy);
-        console.log('[pageopdone]', JSON.stringify({
-            completed,
-            samples,
-        }));
+        console.log(
+            '[pageopdone]',
+            JSON.stringify({
+                completed,
+                samples,
+            }),
+        );
         expect(completed).toMatchObject({
             total: '7',
             current: '7',
         });
         expect(completed?.thumbnails).toContain(7);
         expect(completed?.thumbnails).not.toContain(8);
-        expect(samples.filter(sample => sample.enabled && sample.total === '8' && sample.elapsedMs > (samples.find(entry => entry.busy)?.elapsedMs ?? Infinity))).toEqual([]);
+        expect(
+            samples.filter(
+                (sample) =>
+                    sample.enabled &&
+                    sample.total === '8' &&
+                    sample.elapsedMs > (samples.find((entry) => entry.busy)?.elapsedMs ?? Infinity),
+            ),
+        ).toEqual([]);
         await page.keyboard.press('Escape');
         await clickToolbarButtonWhenEnabled(page, 'Undo');
         // Undo keeps page 7, so that page number cannot signal completion.
         await waitForWorkspaceHistorySettled(page);
         await waitForToolbarCurrentPage(page, 7);
-        await expect.poll(async () => page.$eval('.page-controls-total', element => element.textContent?.trim())).toBe('8');
+        await expect.poll(async () => page.$eval('.page-controls-total', (element) => element.textContent?.trim())).toBe('8');
     }, 90_000);
 
-    it.each([
-        'fit-width',
-        'custom',
-    ])('keeps the remapped reading page after deleting an earlier page at %s', async (zoomMode) => {
-        const pdfPath = await createMultiPageTextFixturePdf(`delete-before-reading-${Date.now()}.pdf`, 8);
-        session = await startElectronE2ESession(`e2e-delete-before-reading-${Date.now()}`, {initialOpenPaths: [pdfPath]});
-        const {page} = session;
-        await waitForViewerInteractive(page);
-        await openDocumentSidebarTab(page, 'Pages');
-        if (zoomMode === 'custom') {
-            await clickAsUser(page, '#editor-global-toolbar-host .zoom-controls-display');
-            await clickAsUser(page, '.zoom-chip-custom-input', {count: 3});
-            await page.keyboard.type('140');
-            await page.keyboard.press('Enter');
-        }
-        await goToPageViaToolbar(page, 5);
-        await waitForViewportQuiet(page);
-        const box = await page.$eval('[data-document-viewer-chassis-viewport]', element => element.getBoundingClientRect().toJSON());
-        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-        await page.mouse.wheel({deltaY: 230});
-        await waitForViewportQuiet(page);
-        const zoomBefore = await page.$eval('.zoom-controls-display-value', element => element.textContent);
+    it.each(['fit-width', 'custom'])(
+        'keeps the remapped reading page after deleting an earlier page at %s',
+        async (zoomMode) => {
+            const pdfPath = await createMultiPageTextFixturePdf(`delete-before-reading-${Date.now()}.pdf`, 8);
+            session = await startElectronE2ESession(`e2e-delete-before-reading-${Date.now()}`, {initialOpenPaths: [pdfPath]});
+            const {page} = session;
+            await waitForViewerInteractive(page);
+            await openDocumentSidebarTab(page, 'Pages');
+            if (zoomMode === 'custom') {
+                await clickAsUser(page, '#editor-global-toolbar-host .zoom-controls-display');
+                await clickAsUser(page, '.zoom-chip-custom-input', {count: 3});
+                await page.keyboard.type('140');
+                await page.keyboard.press('Enter');
+            }
+            await goToPageViaToolbar(page, 5);
+            await waitForViewportQuiet(page);
+            const box = await page.$eval('[data-document-viewer-chassis-viewport]', (element) => element.getBoundingClientRect().toJSON());
+            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+            await page.mouse.wheel({deltaY: 230});
+            await waitForViewportQuiet(page);
+            const zoomBefore = await page.$eval('.zoom-controls-display-value', (element) => element.textContent);
 
-        await clickAsUser(page, '[data-thumbnail-page="2"]', {button: 'right'});
-        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-            .find(item => item.textContent?.trim() === 'Delete Pages'), null, {description: 'Delete the earlier page'});
-        await waitForPageOperationResult(session!, 7);
-        await waitForViewerInteractive(page);
-        await waitForViewportQuiet(page);
-        const readingPage = await page.evaluate(() => {
-            const viewport = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]')!;
-            const box = viewport.getBoundingClientRect();
-            const centre = box.top + viewport.clientTop + viewport.clientHeight / 2;
-            const container = [...viewport.querySelectorAll<HTMLElement>('.page_container')].find(element => {
-                const bounds = element.getBoundingClientRect();
-                return bounds.top <= centre && bounds.bottom > centre;
+            await clickAsUser(page, '[data-thumbnail-page="2"]', {button: 'right'});
+            await clickFoundAsUser(
+                page,
+                () =>
+                    Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+                        (item) => item.textContent?.trim() === 'Delete Pages',
+                    ),
+                null,
+                {description: 'Delete the earlier page'},
+            );
+            await waitForPageOperationResult(session!, 7);
+            await waitForViewerInteractive(page);
+            await waitForViewportQuiet(page);
+            const readingPage = await page.evaluate(() => {
+                const viewport = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]')!;
+                const box = viewport.getBoundingClientRect();
+                const centre = box.top + viewport.clientTop + viewport.clientHeight / 2;
+                const container = [...viewport.querySelectorAll<HTMLElement>('.page_container')].find((element) => {
+                    const bounds = element.getBoundingClientRect();
+                    return bounds.top <= centre && bounds.bottom > centre;
+                });
+                return {
+                    page: Number(container?.dataset.page),
+                    painted: container?.classList.contains('page_container--rendered'),
+                    text: container?.querySelector('.text-layer')?.textContent,
+                };
             });
-            return {
-                page: Number(container?.dataset.page),
-                painted: container?.classList.contains('page_container--rendered'),
-                text: container?.querySelector('.text-layer')?.textContent,
+            expect(readingPage.page).toBe(4);
+            expect(readingPage.painted).toBe(true);
+            expect(readingPage.text).toContain('E2E Multi Page Fixture 5/8');
+            expect(await page.$eval('.zoom-controls-display-value', (element) => element.textContent)).toBe(zoomBefore);
+        },
+        90_000,
+    );
+
+    it(
+        'keeps every compact label through mutations, save, and reopen',
+        async () => {
+            const pdfPath = await createCompactPageLabelsFixturePdf(`compact-page-labels-${Date.now()}.pdf`, PAGE_COUNT);
+            const insertionSourcePath = await createMultiPageTextFixturePdf(`compact-page-labels-insert-${Date.now()}.pdf`, 1);
+            let expected = labelsFromRanges(PAGE_COUNT, initialRanges);
+            session = await startElectronE2ESession(`e2e-compact-page-labels-${Date.now()}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            await waitForPdfLoaded(session.page, 60_000);
+            await waitForViewerInteractive(session.page, 60_000);
+            await waitForLabels(session, expected);
+
+            await runCommand(session, 'handlePageRotate', [[1], 90]);
+            await waitForPageOperationComplete(session);
+
+            await runCommand(session, 'handlePageDelete', [[20]]);
+            expected = expected.filter((_, index) => index !== 19);
+            await waitForSemanticLabels(session, expected);
+            const denseCheckpoint = await readWorkspaceStateValues<{
+                pageLabels?: string[] | Record<string, string> | null;
+                totalPages?: number;
+            }>(session.page, ['pageLabels', 'totalPages']);
+            expect(denseCheckpoint.totalPages).toBe(200);
+            expect(denseCheckpoint.pageLabels).not.toBeNull();
+
+            const reorder = Array.from({length: expected.length}, (_, index) => index + 1);
+            [reorder[29], reorder[30]] = [reorder[30]!, reorder[29]!];
+            expected = reorder.map((page) => expected[page - 1]!);
+            await runCommand(session, 'handlePageReorder', [reorder]);
+
+            await runCommand(session, 'handleCropPages', [
+                [40],
+                {
+                    top: 5,
+                    bottom: 5,
+                    left: 5,
+                    right: 5,
+                },
+            ]);
+
+            const move = {
+                pageCount: expected.length,
+                startPage: 50,
+                endPage: 50,
+                insertAt: 120,
             };
-        });
-        expect(readingPage.page).toBe(4);
-        expect(readingPage.painted).toBe(true);
-        expect(readingPage.text).toContain('E2E Multi Page Fixture 5/8');
-        expect(await page.$eval('.zoom-controls-display-value', element => element.textContent)).toBe(zoomBefore);
-    }, 90_000);
+            const moved = expected.splice(move.startPage - 1, 1)[0]!;
+            expected.splice(move.insertAt - 1, 0, moved);
+            await runCommand(session, 'handlePageMove', [move]);
 
-    it('keeps every compact label through mutations, save, and reopen', async () => {
-        const pdfPath = await createCompactPageLabelsFixturePdf(
-            `compact-page-labels-${Date.now()}.pdf`,
-            PAGE_COUNT,
-        );
-        const insertionSourcePath = await createMultiPageTextFixturePdf(
-            `compact-page-labels-insert-${Date.now()}.pdf`,
-            1,
-        );
-        let expected = labelsFromRanges(PAGE_COUNT, initialRanges);
-        session = await startElectronE2ESession(`e2e-compact-page-labels-${Date.now()}`, {
-            clean: true,
-            initialOpenPaths: [pdfPath],
-        });
-        await waitForPdfLoaded(session.page, 60_000);
-        await waitForViewerInteractive(session.page, 60_000);
-        await waitForLabels(session, expected);
+            const insertionAfterPage = await insertOnePageThroughWorkspace(session, insertionSourcePath);
+            // An unlabelled source page continues the destination Appendix alphabetic range.
+            expected.splice(insertionAfterPage, 0, 'Appendix-zz');
+            await waitForSemanticLabels(session, expected);
 
-        await runCommand(session, 'handlePageRotate', [
-            [1],
-            90,
-        ]);
-        await waitForPageOperationComplete(session);
+            await runCommand(session, 'handleSave', []);
 
-        await runCommand(session, 'handlePageDelete', [[20]]);
-        expected = expected.filter((_, index) => index !== 19);
-        await waitForSemanticLabels(session, expected);
-        const denseCheckpoint = await readWorkspaceStateValues<{
-            pageLabels?: string[] | Record<string, string> | null;
-            totalPages?: number;
-        }>(session.page, [
-            'pageLabels',
-            'totalPages',
-        ]);
-        expect(denseCheckpoint.totalPages).toBe(200);
-        expect(denseCheckpoint.pageLabels).not.toBeNull();
-
-        const reorder = Array.from({length: expected.length}, (_, index) => index + 1);
-        [
-            reorder[29],
-            reorder[30],
-        ] = [
-            reorder[30]!,
-            reorder[29]!,
-        ];
-        expected = reorder.map(page => expected[page - 1]!);
-        await runCommand(session, 'handlePageReorder', [reorder]);
-
-        await runCommand(session, 'handleCropPages', [
-            [40],
-            {
-                top: 5,
-                bottom: 5,
-                left: 5,
-                right: 5,
-            },
-        ]);
-
-        const move = {
-            pageCount: expected.length,
-            startPage: 50,
-            endPage: 50,
-            insertAt: 120,
-        };
-        const moved = expected.splice(move.startPage - 1, 1)[0]!;
-        expected.splice(move.insertAt - 1, 0, moved);
-        await runCommand(session, 'handlePageMove', [move]);
-
-        const insertionAfterPage = await insertOnePageThroughWorkspace(session, insertionSourcePath);
-        // An unlabelled source page continues the destination Appendix alphabetic range.
-        expected.splice(insertionAfterPage, 0, 'Appendix-zz');
-        await waitForSemanticLabels(session, expected);
-
-        await runCommand(session, 'handleSave', []);
-
-        const savedSession = session;
-        session = null;
-        await savedSession.stop();
-        session = await startElectronE2ESession(`e2e-compact-page-labels-reopen-${Date.now()}`, {
-            clean: true,
-            initialOpenPaths: [pdfPath],
-        });
-        await waitForPdfLoaded(session.page, 60_000);
-        await waitForViewerInteractive(session.page, 60_000);
-        await waitForSemanticLabels(session, expected);
-        const finalState = await readWorkspaceStateValues<{
-            pageLabels?: string[] | Record<string, string> | null;
-            totalPages?: number;
-        }>(session.page, [
-            'pageLabels',
-            'totalPages',
-        ]);
-        expect(finalState.totalPages).toBe(201);
-        expect(finalState.pageLabels).toBeNull();
-    }, TEST_TIMEOUT_MS);
+            const savedSession = session;
+            session = null;
+            await savedSession.stop();
+            session = await startElectronE2ESession(`e2e-compact-page-labels-reopen-${Date.now()}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            await waitForPdfLoaded(session.page, 60_000);
+            await waitForViewerInteractive(session.page, 60_000);
+            await waitForSemanticLabels(session, expected);
+            const finalState = await readWorkspaceStateValues<{
+                pageLabels?: string[] | Record<string, string> | null;
+                totalPages?: number;
+            }>(session.page, ['pageLabels', 'totalPages']);
+            expect(finalState.totalPages).toBe(201);
+            expect(finalState.pageLabels).toBeNull();
+        },
+        TEST_TIMEOUT_MS,
+    );
 
     it('keeps viewer chrome and commits Fit Width before a rotated page first paints', async () => {
-        const pdfPath = await createMultiPageTextFixturePdf(
-            `page-mutation-viewer-continuity-${Date.now()}.pdf`,
-            3,
-        );
+        const pdfPath = await createMultiPageTextFixturePdf(`page-mutation-viewer-continuity-${Date.now()}.pdf`, 3);
         session = await startElectronE2ESession(`e2e-page-mutation-viewer-${Date.now()}`, {
             clean: true,
             initialOpenPaths: [pdfPath],
@@ -940,18 +914,17 @@ describe('Electron E2E, compact page labels through structural operations', () =
         await waitForToolbarCurrentPage(session.page, 2, 60_000);
 
         const zoomDisplayPoint = await session.page.evaluate(() => {
-            const display = Array.from(document.querySelectorAll<HTMLElement>('.zoom-controls-display'))
-                .find((element) => {
-                    const rect = element.getBoundingClientRect();
-                    return rect.width > 0 && rect.height > 0;
-                });
+            const display = Array.from(document.querySelectorAll<HTMLElement>('.zoom-controls-display')).find((element) => {
+                const rect = element.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0;
+            });
             if (!display) {
                 return null;
             }
             const rect = display.getBoundingClientRect();
             return {
-                x: rect.left + (rect.width / 2),
-                y: rect.top + (rect.height / 2),
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
             };
         });
         expect(zoomDisplayPoint).not.toBeNull();
@@ -959,25 +932,26 @@ describe('Electron E2E, compact page labels through structural operations', () =
             return;
         }
         await session.page.mouse.click(zoomDisplayPoint.x, zoomDisplayPoint.y);
-        await session.page.waitForFunction(() => Array.from(
-            document.querySelectorAll<HTMLButtonElement>('button.zoom-toggle-btn'),
-        ).some(button => {
-            const rect = button.getBoundingClientRect();
-            return rect.width > 0 && rect.height > 0 && /Fit Width/iu.test(button.textContent ?? '');
-        }), {timeout: 60_000});
+        await session.page.waitForFunction(
+            () =>
+                Array.from(document.querySelectorAll<HTMLButtonElement>('button.zoom-toggle-btn')).some((button) => {
+                    const rect = button.getBoundingClientRect();
+                    return rect.width > 0 && rect.height > 0 && /Fit Width/iu.test(button.textContent ?? '');
+                }),
+            {timeout: 60_000},
+        );
         const fitWidthPoint = await session.page.evaluate(() => {
-            const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button.zoom-toggle-btn'))
-                .find((candidate) => {
-                    const rect = candidate.getBoundingClientRect();
-                    return rect.width > 0 && rect.height > 0 && /Fit Width/iu.test(candidate.textContent ?? '');
-                });
+            const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button.zoom-toggle-btn')).find((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0 && /Fit Width/iu.test(candidate.textContent ?? '');
+            });
             if (!button) {
                 return null;
             }
             const rect = button.getBoundingClientRect();
             return {
-                x: rect.left + (rect.width / 2),
-                y: rect.top + (rect.height / 2),
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
             };
         });
         expect(fitWidthPoint).not.toBeNull();
@@ -987,101 +961,95 @@ describe('Electron E2E, compact page labels through structural operations', () =
         await session.page.mouse.click(fitWidthPoint.x, fitWidthPoint.y);
         await waitForWorkspaceToolbarSnapshot(session.page, {zoomMode: 'fit-width'}, {timeoutMs: 60_000});
         await waitForAnimationFrames(session.page, 4);
-        await session.page.waitForFunction(() => {
-            const item = document.querySelector<HTMLElement>('[data-thumbnail-page="2"]');
-            const page = document.querySelector<HTMLElement>('.page_container[data-page="2"]');
-            return Boolean(item && page?.querySelector('canvas'));
-        }, {timeout: 60_000});
-        await session.page.waitForFunction(() => {
-            const item = document.querySelector<HTMLElement>('[data-thumbnail-page="2"]');
-            const thumbnailCanvas = item?.querySelector<HTMLCanvasElement>('canvas');
-            const page = document.querySelector<HTMLElement>('.page_container[data-page="2"]');
-            const pageCanvas = page?.querySelector<HTMLCanvasElement>('.page_canvas__render-layer > canvas');
-            if (
-                !thumbnailCanvas
-                || !pageCanvas
-                || pageCanvas.width === 0
-                || pageCanvas.height === 0
-            ) {
-                return false;
-            }
-            // Read the painted pixels at full size. A 24 x 24 downscale
-            // averages a page of sparse text to near white under an
-            // area-averaging (software) canvas, so a painted page read blank.
-            const sample = document.createElement('canvas');
-            sample.width = pageCanvas.width;
-            sample.height = pageCanvas.height;
-            const context = sample.getContext('2d');
-            if (!context) {
-                return false;
-            }
-            context.drawImage(pageCanvas, 0, 0);
-            const pixels = context.getImageData(0, 0, sample.width, sample.height).data;
-            for (let index = 0; index < pixels.length; index += 4) {
-                if (pixels[index]! < 240 || pixels[index + 1]! < 240 || pixels[index + 2]! < 240) {
-                    return true;
+        await session.page.waitForFunction(
+            () => {
+                const item = document.querySelector<HTMLElement>('[data-thumbnail-page="2"]');
+                const page = document.querySelector<HTMLElement>('.page_container[data-page="2"]');
+                return Boolean(item && page?.querySelector('canvas'));
+            },
+            {timeout: 60_000},
+        );
+        await session.page.waitForFunction(
+            () => {
+                const item = document.querySelector<HTMLElement>('[data-thumbnail-page="2"]');
+                const thumbnailCanvas = item?.querySelector<HTMLCanvasElement>('canvas');
+                const page = document.querySelector<HTMLElement>('.page_container[data-page="2"]');
+                const pageCanvas = page?.querySelector<HTMLCanvasElement>('.page_canvas__render-layer > canvas');
+                if (!thumbnailCanvas || !pageCanvas || pageCanvas.width === 0 || pageCanvas.height === 0) {
+                    return false;
                 }
-            }
-            return false;
-        }, {timeout: 60_000});
-        await session.page.waitForFunction(() => {
-            const activeHost = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-            ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-            return [
-                1,
-                3,
-            ].every(pageNumber => {
-                const item = activeHost?.querySelector<HTMLElement>(
-                    `[data-thumbnail-page="${pageNumber}"]`,
-                );
-                return Boolean(item && (
-                    Array.from(item.querySelectorAll('canvas')).some(canvas => canvas.width > 0 && canvas.height > 0)
-                    || Array.from(item.querySelectorAll('img')).some(image => image.complete && image.naturalWidth > 0)
-                ));
-            });
-        }, {timeout: 60_000});
+                // Read the painted pixels at full size. A 24 x 24 downscale
+                // averages a page of sparse text to near white under an
+                // area-averaging (software) canvas, so a painted page read blank.
+                const sample = document.createElement('canvas');
+                sample.width = pageCanvas.width;
+                sample.height = pageCanvas.height;
+                const context = sample.getContext('2d');
+                if (!context) {
+                    return false;
+                }
+                context.drawImage(pageCanvas, 0, 0);
+                const pixels = context.getImageData(0, 0, sample.width, sample.height).data;
+                for (let index = 0; index < pixels.length; index += 4) {
+                    if (pixels[index]! < 240 || pixels[index + 1]! < 240 || pixels[index + 2]! < 240) {
+                        return true;
+                    }
+                }
+                return false;
+            },
+            {timeout: 60_000},
+        );
+        await session.page.waitForFunction(
+            () => {
+                const activeHost =
+                    document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]') ??
+                    document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+                return [1, 3].every((pageNumber) => {
+                    const item = activeHost?.querySelector<HTMLElement>(`[data-thumbnail-page="${pageNumber}"]`);
+                    return Boolean(
+                        item &&
+                        (Array.from(item.querySelectorAll('canvas')).some((canvas) => canvas.width > 0 && canvas.height > 0) ||
+                            Array.from(item.querySelectorAll('img')).some((image) => image.complete && image.naturalWidth > 0)),
+                    );
+                });
+            },
+            {timeout: 60_000},
+        );
         const baselineNeighbours = await session.page.evaluate(() => {
-            const activeHost = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-            ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-            return [
-                1,
-                3,
-            ].map(pageNumber => {
-                const item = activeHost?.querySelector<HTMLElement>(
-                    `[data-thumbnail-page="${pageNumber}"]`,
-                ) ?? null;
+            const activeHost =
+                document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]') ??
+                document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            return [1, 3].map((pageNumber) => {
+                const item = activeHost?.querySelector<HTMLElement>(`[data-thumbnail-page="${pageNumber}"]`) ?? null;
                 return {
                     page: pageNumber,
                     label: item?.getAttribute('aria-label') ?? item?.textContent?.trim() ?? null,
-                    painted: Boolean(item && (
-                        Array.from(item.querySelectorAll('canvas')).some(canvas => canvas.width > 0 && canvas.height > 0)
-                        || Array.from(item.querySelectorAll('img')).some(image => image.complete && image.naturalWidth > 0)
-                    )),
+                    painted: Boolean(
+                        item &&
+                        (Array.from(item.querySelectorAll('canvas')).some((canvas) => canvas.width > 0 && canvas.height > 0) ||
+                            Array.from(item.querySelectorAll('img')).some((image) => image.complete && image.naturalWidth > 0)),
+                    ),
                 };
             });
         });
-        expect(baselineNeighbours.every(item => item.painted), JSON.stringify(baselineNeighbours)).toBe(true);
+        expect(
+            baselineNeighbours.every((item) => item.painted),
+            JSON.stringify(baselineNeighbours),
+        ).toBe(true);
 
         await session.page.evaluate(() => {
             const probe = window as TPageMutationProbeWindow;
-            const activeHost = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-            ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const activeHost =
+                document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]') ??
+                document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
             const widthDescriptor = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, 'width');
-            const baselineCanvases = probe.__pageMutationBaselineCanvases = new Map<number, HTMLCanvasElement>();
+            const baselineCanvases = (probe.__pageMutationBaselineCanvases = new Map<number, HTMLCanvasElement>());
             const canvasResets: NonNullable<IPageMutationProbeFields['__pageMutationCanvasResets']> = [];
             const frameSamples: IPageMutationFrame[] = [];
             probe.__pageMutationCanvasResets = canvasResets;
             probe.__pageMutationFrames = frameSamples;
-            for (const pageNumber of [
-                1,
-                3,
-            ]) {
-                const canvas = activeHost?.querySelector<HTMLCanvasElement>(
-                    `[data-thumbnail-page="${pageNumber}"] canvas`,
-                );
+            for (const pageNumber of [1, 3]) {
+                const canvas = activeHost?.querySelector<HTMLCanvasElement>(`[data-thumbnail-page="${pageNumber}"] canvas`);
                 if (!canvas || !widthDescriptor?.get || !widthDescriptor.set) {
                     continue;
                 }
@@ -1113,13 +1081,9 @@ describe('Electron E2E, compact page labels through structural operations', () =
                 }
                 const rect = element.getBoundingClientRect();
                 const style = window.getComputedStyle(element);
-                return rect.width > 0 && rect.height > 0
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden';
+                return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
             };
-            const firstVisible = (selector: string) => Array.from(
-                document.querySelectorAll<HTMLElement>(selector),
-            ).find(isVisible) ?? null;
+            const firstVisible = (selector: string) => Array.from(document.querySelectorAll<HTMLElement>(selector)).find(isVisible) ?? null;
             const inspectCanvas = (canvas: HTMLCanvasElement | null) => {
                 if (!canvas || canvas.width === 0 || canvas.height === 0) {
                     return {
@@ -1152,18 +1116,17 @@ describe('Electron E2E, compact page labels through structural operations', () =
                 const transform = window.getComputedStyle(canvas).transform;
                 const matrix = new DOMMatrix(transform === 'none' ? undefined : transform);
                 const isQuarterTurn = Math.abs(matrix.a) < 0.1 && Math.abs(matrix.b) > 0.9;
-                const contentAspect = isQuarterTurn
-                    ? canvas.height / canvas.width
-                    : canvas.width / canvas.height;
+                const contentAspect = isQuarterTurn ? canvas.height / canvas.width : canvas.width / canvas.height;
                 const rect = canvas.getBoundingClientRect();
                 const style = window.getComputedStyle(canvas);
                 return {
-                    painted: inkPixels > 0
-                        && rect.width > 0
-                        && rect.height > 0
-                        && style.display !== 'none'
-                        && style.visibility !== 'hidden'
-                        && style.opacity !== '0',
+                    painted:
+                        inkPixels > 0 &&
+                        rect.width > 0 &&
+                        rect.height > 0 &&
+                        style.display !== 'none' &&
+                        style.visibility !== 'hidden' &&
+                        style.opacity !== '0',
                     inkPixels,
                     contentAspect,
                 };
@@ -1172,9 +1135,9 @@ describe('Electron E2E, compact page labels through structural operations', () =
                 if (probe.__pageMutationSampling !== true) {
                     return;
                 }
-                const activeHost = document.querySelector<HTMLElement>(
-                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-                ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+                const activeHost =
+                    document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]') ??
+                    document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
                 const target = activeHost?.querySelector<HTMLElement>('.page_container[data-page="2"]') ?? null;
                 const viewer = activeHost?.querySelector<HTMLElement>('.document-viewer-viewport') ?? null;
                 const chassis = activeHost?.querySelector<HTMLElement>('.document-viewer-chassis') ?? null;
@@ -1182,99 +1145,85 @@ describe('Electron E2E, compact page labels through structural operations', () =
                 if (!probe.__pageMutationBaselineCanvases) {
                     return;
                 }
-                const pageCanvases = Array.from(target?.querySelectorAll<HTMLCanvasElement>(
-                    '.page_canvas__render-layer > canvas',
-                ) ?? []);
-                const canvasSizes = pageCanvases
-                    .map(canvas => [
-                        canvas.width,
-                        canvas.height,
-                    ] as [number, number]);
+                const pageCanvases = Array.from(target?.querySelectorAll<HTMLCanvasElement>('.page_canvas__render-layer > canvas') ?? []);
+                const canvasSizes = pageCanvases.map((canvas) => [canvas.width, canvas.height] as [number, number]);
                 const mainRaster = inspectCanvas(pageCanvases[0] ?? null);
-                const pageAspect = pageRect && pageRect.height > 0
-                    ? pageRect.width / pageRect.height
-                    : null;
-                const mainRasterAspectError = mainRaster.contentAspect !== null && pageAspect !== null
-                    ? Math.abs(Math.log(mainRaster.contentAspect / pageAspect))
-                    : null;
-                const zoom = firstVisible('.zoom-controls-display-value, .zoom-controls-display')
-                    ?.textContent?.replace(/\s+/gu, ' ').trim() ?? null;
+                const pageAspect = pageRect && pageRect.height > 0 ? pageRect.width / pageRect.height : null;
+                const mainRasterAspectError =
+                    mainRaster.contentAspect !== null && pageAspect !== null
+                        ? Math.abs(Math.log(mainRaster.contentAspect / pageAspect))
+                        : null;
+                const zoom =
+                    firstVisible('.zoom-controls-display-value, .zoom-controls-display')?.textContent?.replace(/\s+/gu, ' ').trim() ?? null;
                 const now = performance.now();
                 if (zoom !== probe.__pageMutationLastZoom) {
                     probe.__pageMutationLastZoom = zoom;
                     probe.__pageMutationLastZoomChangeAt = now;
                 }
-                if (pageRect && pageRect.width > pageRect.height
-                    && canvasSizes.some(([
-                        width,
-                        height,
-                    ]) => width > height)) {
+                if (pageRect && pageRect.width > pageRect.height && canvasSizes.some(([width, height]) => width > height)) {
                     probe.__pageMutationFirstLandscapeRasterAt ??= now;
                 }
                 const clickAt = probe.__pageMutationClickAt ?? null;
-                const operationState = (window as Window & {__evbTestApi?: IEvbTestApi})
-                    .__evbTestApi?.readActiveWorkspaceStateValues<{isPageOperationInProgress?: boolean}>(['isPageOperationInProgress']);
+                const operationState = (window as Window & {__evbTestApi?: IEvbTestApi}).__evbTestApi?.readActiveWorkspaceStateValues<{
+                    isPageOperationInProgress?: boolean;
+                }>(['isPageOperationInProgress']);
                 const sidebar = activeHost?.querySelector<HTMLElement>('[data-testid="document-sidebar"]') ?? null;
                 const sidebarRect = sidebar?.getBoundingClientRect();
-                const targetThumbnail = activeHost?.querySelector<HTMLElement>(
-                    '[data-thumbnail-page="2"]',
-                ) ?? null;
+                const targetThumbnail = activeHost?.querySelector<HTMLElement>('[data-thumbnail-page="2"]') ?? null;
                 const targetThumbnailCanvas = targetThumbnail?.querySelector<HTMLCanvasElement>('canvas') ?? null;
                 const targetThumbnailPaint = inspectCanvas(targetThumbnailCanvas);
                 const targetThumbnailCanvasRect = targetThumbnailCanvas?.getBoundingClientRect();
                 const targetThumbnailFrameRect = targetThumbnail
                     ?.querySelector<HTMLElement>('[data-document-thumbnail-frame]')
                     ?.getBoundingClientRect();
-                const neighbourThumbnails = [
-                    1,
-                    3,
-                ].map(pageNumber => {
-                    const item = activeHost?.querySelector<HTMLElement>(
-                        `[data-thumbnail-page="${pageNumber}"]`,
-                    ) ?? null;
+                const neighbourThumbnails = [1, 3].map((pageNumber) => {
+                    const item = activeHost?.querySelector<HTMLElement>(`[data-thumbnail-page="${pageNumber}"]`) ?? null;
                     const canvas = item?.querySelector<HTMLCanvasElement>('canvas') ?? null;
-                    const painted = Boolean(item && (
-                        Array.from(item.querySelectorAll('canvas')).some(canvas => canvas.width > 0 && canvas.height > 0)
-                        || Array.from(item.querySelectorAll('img')).some(image => image.complete && image.naturalWidth > 0)
-                    ));
+                    const painted = Boolean(
+                        item &&
+                        (Array.from(item.querySelectorAll('canvas')).some((canvas) => canvas.width > 0 && canvas.height > 0) ||
+                            Array.from(item.querySelectorAll('img')).some((image) => image.complete && image.naturalWidth > 0)),
+                    );
                     return {
                         page: pageNumber,
                         label: item?.getAttribute('aria-label') ?? item?.textContent?.trim() ?? null,
                         painted,
                         sameCanvas: canvas !== null && canvas === baselineCanvases.get(pageNumber),
-                        canvasSize: canvas ? [
-                            canvas.width,
-                            canvas.height,
-                        ] as [number, number] : null,
+                        canvasSize: canvas ? ([canvas.width, canvas.height] as [number, number]) : null,
                     };
                 });
                 const pageSkeleton = target?.querySelector<HTMLElement>('.document-page-skeleton') ?? null;
                 const frame: IPageMutationFrame = {
                     elapsedMs: now,
-                    msSinceClick: clickAt === null
-                        ? null
-                        : now - clickAt,
-                    toolbar: firstVisible('#editor-global-toolbar-host .page-controls-display, .page-controls-display')
-                        ?.textContent?.replace(/\s+/gu, ' ').trim() ?? null,
+                    msSinceClick: clickAt === null ? null : now - clickAt,
+                    toolbar:
+                        firstVisible('#editor-global-toolbar-host .page-controls-display, .page-controls-display')
+                            ?.textContent?.replace(/\s+/gu, ' ')
+                            .trim() ?? null,
                     zoom,
-                    fitWidth: viewer?.classList.contains('pdfViewer--fit-width') === true
-                        || viewer?.getAttribute('data-pdf-zoom-mode') === 'fit-width',
-                    sidebar: isVisible(sidebar) && sidebarRect
-                        ? {
-                            left: sidebarRect.left,
-                            width: sidebarRect.width,
-                            height: sidebarRect.height,
-                        }
-                        : null,
+                    fitWidth:
+                        viewer?.classList.contains('pdfViewer--fit-width') === true ||
+                        viewer?.getAttribute('data-pdf-zoom-mode') === 'fit-width',
+                    sidebar:
+                        isVisible(sidebar) && sidebarRect
+                            ? {
+                                  left: sidebarRect.left,
+                                  width: sidebarRect.width,
+                                  height: sidebarRect.height,
+                              }
+                            : null,
                     generation: chassis?.getAttribute('data-open-surface-generation') ?? null,
                     revision: chassis?.getAttribute('data-open-surface-document-revision') ?? null,
-                    phase: activeHost?.querySelector<HTMLElement>('[data-open-surface-phase]')
-                        ?.getAttribute('data-open-surface-phase') ?? null,
+                    phase:
+                        activeHost?.querySelector<HTMLElement>('[data-open-surface-phase]')?.getAttribute('data-open-surface-phase') ??
+                        null,
                     viewportLifecycle: chassis?.getAttribute('data-viewport-lifecycle') ?? null,
-                    pageRect: pageRect ? {
-                        width: pageRect.width,
-                        height: pageRect.height,
-                    } : null,
+                    pageRect: pageRect
+                        ? {
+                              width: pageRect.width,
+                              height: pageRect.height,
+                          }
+                        : null,
                     canvasSizes,
                     mainRaster: {
                         ...mainRaster,
@@ -1282,31 +1231,27 @@ describe('Electron E2E, compact page labels through structural operations', () =
                     },
                     targetThumbnailPainted: targetThumbnailPaint.painted,
                     targetThumbnail: {
-                        frameLandscape: targetThumbnailFrameRect && targetThumbnailFrameRect.height > 0
-                            ? targetThumbnailFrameRect.width > targetThumbnailFrameRect.height
-                            : null,
+                        frameLandscape:
+                            targetThumbnailFrameRect && targetThumbnailFrameRect.height > 0
+                                ? targetThumbnailFrameRect.width > targetThumbnailFrameRect.height
+                                : null,
                         // The canvas box keeps the bitmap's aspect, so the page is not stretched.
-                        contained: targetThumbnailCanvas !== null
-                            && targetThumbnailCanvasRect !== undefined
-                            && targetThumbnailCanvas.height > 0
-                            && Math.abs(
-                                targetThumbnailCanvasRect.width
-                                - targetThumbnailCanvasRect.height * targetThumbnailCanvas.width / targetThumbnailCanvas.height,
+                        contained:
+                            targetThumbnailCanvas !== null &&
+                            targetThumbnailCanvasRect !== undefined &&
+                            targetThumbnailCanvas.height > 0 &&
+                            Math.abs(
+                                targetThumbnailCanvasRect.width -
+                                    (targetThumbnailCanvasRect.height * targetThumbnailCanvas.width) / targetThumbnailCanvas.height,
                             ) <= 1,
                         // The portrait slot stays fixed while the contained bitmap rotates.
-                        bitmapLandscape: targetThumbnailPaint.contentAspect === null
-                            ? null
-                            : targetThumbnailPaint.contentAspect > 1,
+                        bitmapLandscape: targetThumbnailPaint.contentAspect === null ? null : targetThumbnailPaint.contentAspect > 1,
                     },
                     pageSkeletonVisible: isVisible(pageSkeleton),
                     neighbourThumbnails,
                     scrollTop: viewer?.scrollTop ?? null,
-                    pageTopInViewport: target && viewer
-                        ? target.getBoundingClientRect().top - viewer.getBoundingClientRect().top
-                        : null,
-                    pageLeftInViewport: target && viewer
-                        ? target.getBoundingClientRect().left - viewer.getBoundingClientRect().left
-                        : null,
+                    pageTopInViewport: target && viewer ? target.getBoundingClientRect().top - viewer.getBoundingClientRect().top : null,
+                    pageLeftInViewport: target && viewer ? target.getBoundingClientRect().left - viewer.getBoundingClientRect().left : null,
                     viewportWidth: viewer?.clientWidth ?? null,
                     viewportHeight: viewer?.clientHeight ?? null,
                     operationBusy: operationState?.isPageOperationInProgress ?? null,
@@ -1320,15 +1265,13 @@ describe('Electron E2E, compact page labels through structural operations', () =
         // A reader's own scroll ends the toolbar navigation's anchor upkeep, so
         // the rotation has to keep the page in place by itself.
         const viewerPoint = await session.page.evaluate(() => {
-            const viewer = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active .document-viewer-viewport',
-            );
+            const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .document-viewer-viewport');
             const rect = viewer?.getBoundingClientRect();
             return rect && rect.width > 0 && rect.height > 0
                 ? {
-                    x: rect.left + rect.width / 2,
-                    y: rect.top + rect.height / 2,
-                }
+                      x: rect.left + rect.width / 2,
+                      y: rect.top + rect.height / 2,
+                  }
                 : null;
         });
         expect(viewerPoint).not.toBeNull();
@@ -1340,9 +1283,7 @@ describe('Electron E2E, compact page labels through structural operations', () =
         await waitForAnimationFrames(session.page, 30);
 
         const thumbnailPoint = await session.page.evaluate(() => {
-            const item = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active [data-thumbnail-page="2"]',
-            );
+            const item = document.querySelector<HTMLElement>('.editor-pane.is-active [data-thumbnail-page="2"]');
             if (!item) {
                 return null;
             }
@@ -1350,9 +1291,9 @@ describe('Electron E2E, compact page labels through structural operations', () =
             const rect = item.getBoundingClientRect();
             return rect.width > 0 && rect.height > 0
                 ? {
-                    x: rect.left + rect.width / 2,
-                    y: rect.top + rect.height / 2,
-                }
+                      x: rect.left + rect.width / 2,
+                      y: rect.top + rect.height / 2,
+                  }
                 : null;
         });
         expect(thumbnailPoint).not.toBeNull();
@@ -1360,12 +1301,17 @@ describe('Electron E2E, compact page labels through structural operations', () =
             return;
         }
         await session.page.mouse.click(thumbnailPoint.x, thumbnailPoint.y, {button: 'right'});
-        await session.page.waitForFunction(() => Array.from(
-            document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-        ).some(item => item.textContent?.toLowerCase().includes('rotate counterclockwise')), {timeout: 15_000});
+        await session.page.waitForFunction(
+            () =>
+                Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).some((item) =>
+                    item.textContent?.toLowerCase().includes('rotate counterclockwise'),
+                ),
+            {timeout: 15_000},
+        );
         const rotateMenuPoint = await session.page.evaluate(() => {
-            const item = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-                .find(candidate => candidate.textContent?.toLowerCase().includes('rotate counterclockwise'));
+            const item = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((candidate) =>
+                candidate.textContent?.toLowerCase().includes('rotate counterclockwise'),
+            );
             if (!item) {
                 return null;
             }
@@ -1383,20 +1329,25 @@ describe('Electron E2E, compact page labels through structural operations', () =
             (window as TPageMutationProbeWindow).__pageMutationClickAt = performance.now();
         });
         await session.page.mouse.click(rotateMenuPoint.x, rotateMenuPoint.y);
-        await session.page.waitForFunction(() => {
-            const probe = window as TPageMutationProbeWindow;
-            const now = performance.now();
-            const firstLandscapeRasterAt = probe.__pageMutationFirstLandscapeRasterAt;
-            const lastZoomChangeAt = probe.__pageMutationLastZoomChangeAt;
-            const lastFrame = probe.__pageMutationFrames?.at(-1);
-            return firstLandscapeRasterAt !== null
-                && firstLandscapeRasterAt !== undefined
-                && now - firstLandscapeRasterAt >= 2_000
-                && lastZoomChangeAt !== null
-                && lastZoomChangeAt !== undefined
-                && now - lastZoomChangeAt >= 500
-                && lastFrame?.operationBusy === false;
-        }, {timeout: 60_000});
+        await session.page.waitForFunction(
+            () => {
+                const probe = window as TPageMutationProbeWindow;
+                const now = performance.now();
+                const firstLandscapeRasterAt = probe.__pageMutationFirstLandscapeRasterAt;
+                const lastZoomChangeAt = probe.__pageMutationLastZoomChangeAt;
+                const lastFrame = probe.__pageMutationFrames?.at(-1);
+                return (
+                    firstLandscapeRasterAt !== null &&
+                    firstLandscapeRasterAt !== undefined &&
+                    now - firstLandscapeRasterAt >= 2_000 &&
+                    lastZoomChangeAt !== null &&
+                    lastZoomChangeAt !== undefined &&
+                    now - lastZoomChangeAt >= 500 &&
+                    lastFrame?.operationBusy === false
+                );
+            },
+            {timeout: 60_000},
+        );
         const frames = await session.page.evaluate(() => {
             const probe = window as TPageMutationProbeWindow;
             probe.__pageMutationSampling = false;
@@ -1405,19 +1356,14 @@ describe('Electron E2E, compact page labels through structural operations', () =
                 thumbnailBitmapResets: probe.__pageMutationCanvasResets ?? [],
             };
         });
-        const {
-            frames: sampledFrames,
-            thumbnailBitmapResets,
-        } = frames;
+        const {frames: sampledFrames, thumbnailBitmapResets} = frames;
 
-        const firstRotatedRasterIndex = sampledFrames.findIndex(frame => (
-            frame.pageRect !== null
-            && frame.pageRect.width > frame.pageRect.height
-            && frame.canvasSizes.some(([
-                width,
-                height,
-            ]) => width > height)
-        ));
+        const firstRotatedRasterIndex = sampledFrames.findIndex(
+            (frame) =>
+                frame.pageRect !== null &&
+                frame.pageRect.width > frame.pageRect.height &&
+                frame.canvasSizes.some(([width, height]) => width > height),
+        );
         expect(firstRotatedRasterIndex, JSON.stringify(frames)).toBeGreaterThanOrEqual(0);
         const initialFrame = sampledFrames[0];
         const firstRotatedRaster = sampledFrames[firstRotatedRasterIndex];
@@ -1430,125 +1376,128 @@ describe('Electron E2E, compact page labels through structural operations', () =
         }
 
         expect(initialFrame.revision).not.toBe(finalFrame.revision);
-        expect(new Set(sampledFrames.map(frame => frame.generation))).toEqual(new Set([initialFrame.generation]));
-        const postClickFrames = sampledFrames.filter(frame => frame.msSinceClick !== null && frame.msSinceClick >= 0);
-        expect(postClickFrames.every(frame => frame.phase === 'ready' && frame.viewportLifecycle === 'ready')).toBe(true);
-        expect(postClickFrames.every(frame => frame.sidebar !== null)).toBe(true);
-        expect(postClickFrames.every(frame => frame.fitWidth)).toBe(true);
-        expect(postClickFrames.every(frame => frame.toolbar !== null && !/[-–—]\s*\/\s*0/u.test(frame.toolbar))).toBe(true);
-        expect(postClickFrames.every(frame => /2\s*\/\s*3/u.test(frame.toolbar ?? ''))).toBe(true);
-        expect(postClickFrames.every(frame => frame.mainRaster.painted), JSON.stringify(
-            postClickFrames.filter(frame => !frame.mainRaster.painted).slice(0, 6),
-        )).toBe(true);
-        const preClickFrame = sampledFrames.filter(frame => frame.msSinceClick === null || frame.msSinceClick < 0).at(-1);
-        const viewportHeight = await session.page.evaluate(() => document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .document-viewer-viewport',
-        )?.clientHeight ?? 0);
-        const pageOutOfViewFrames = postClickFrames.filter(frame => (
-            frame.pageTopInViewport === null
-            || frame.pageRect === null
-            || frame.pageTopInViewport + frame.pageRect.height <= 0
-            || frame.pageTopInViewport >= viewportHeight
-        ));
-        expect(pageOutOfViewFrames, JSON.stringify(pageOutOfViewFrames.slice(0, 4).map(frame => ({
-            msSinceClick: frame.msSinceClick,
-            pageTopInViewport: frame.pageTopInViewport,
-            scrollTop: frame.scrollTop,
-        })))).toEqual([]);
+        expect(new Set(sampledFrames.map((frame) => frame.generation))).toEqual(new Set([initialFrame.generation]));
+        const postClickFrames = sampledFrames.filter((frame) => frame.msSinceClick !== null && frame.msSinceClick >= 0);
+        expect(postClickFrames.every((frame) => frame.phase === 'ready' && frame.viewportLifecycle === 'ready')).toBe(true);
+        expect(postClickFrames.every((frame) => frame.sidebar !== null)).toBe(true);
+        expect(postClickFrames.every((frame) => frame.fitWidth)).toBe(true);
+        expect(postClickFrames.every((frame) => frame.toolbar !== null && !/[-–—]\s*\/\s*0/u.test(frame.toolbar))).toBe(true);
+        expect(postClickFrames.every((frame) => /2\s*\/\s*3/u.test(frame.toolbar ?? ''))).toBe(true);
+        expect(
+            postClickFrames.every((frame) => frame.mainRaster.painted),
+            JSON.stringify(postClickFrames.filter((frame) => !frame.mainRaster.painted).slice(0, 6)),
+        ).toBe(true);
+        const preClickFrame = sampledFrames.filter((frame) => frame.msSinceClick === null || frame.msSinceClick < 0).at(-1);
+        const viewportHeight = await session.page.evaluate(
+            () => document.querySelector<HTMLElement>('.editor-pane.is-active .document-viewer-viewport')?.clientHeight ?? 0,
+        );
+        const pageOutOfViewFrames = postClickFrames.filter(
+            (frame) =>
+                frame.pageTopInViewport === null ||
+                frame.pageRect === null ||
+                frame.pageTopInViewport + frame.pageRect.height <= 0 ||
+                frame.pageTopInViewport >= viewportHeight,
+        );
+        expect(
+            pageOutOfViewFrames,
+            JSON.stringify(
+                pageOutOfViewFrames.slice(0, 4).map((frame) => ({
+                    msSinceClick: frame.msSinceClick,
+                    pageTopInViewport: frame.pageTopInViewport,
+                    scrollTop: frame.scrollTop,
+                })),
+            ),
+        ).toEqual([]);
         // R3 keeps a document point, mapped through the counterclockwise turn.
         // A page edge moves when the page becomes shorter, even with no anchor drift.
         const before = preClickFrame!;
         const oldX = (before.viewportWidth! / 2 - before.pageLeftInViewport!) / before.pageRect!.width;
         const oldY = (before.viewportHeight! / 2 - before.pageTopInViewport!) / before.pageRect!.height;
-        const pageDrift = postClickFrames.map(frame => ({
+        const pageDrift = postClickFrames.map((frame) => ({
             msSinceClick: frame.msSinceClick,
-            drift: Math.abs((frame.pageTopInViewport ?? Number.POSITIVE_INFINITY)
-                + (frame.pageRect!.width > frame.pageRect!.height ? 1 - oldX : oldY) * frame.pageRect!.height
-                - frame.viewportHeight! / 2),
+            drift: Math.abs(
+                (frame.pageTopInViewport ?? Number.POSITIVE_INFINITY) +
+                    (frame.pageRect!.width > frame.pageRect!.height ? 1 - oldX : oldY) * frame.pageRect!.height -
+                    frame.viewportHeight! / 2,
+            ),
         }));
-        const driftedFrames = pageDrift.filter(frame => !(frame.drift <= 1));
-        expect(driftedFrames, JSON.stringify({
-            preClickTop: preClickFrame?.pageTopInViewport,
-            drifted: driftedFrames.slice(0, 6),
-        })).toEqual([]);
-        const stretchedFrames = postClickFrames.filter(frame => (
-            frame.mainRaster.painted
-            && frame.mainRaster.aspectError !== null
-            && frame.mainRaster.aspectError > 0.08
-        ));
+        const driftedFrames = pageDrift.filter((frame) => !(frame.drift <= 1));
+        expect(
+            driftedFrames,
+            JSON.stringify({
+                preClickTop: preClickFrame?.pageTopInViewport,
+                drifted: driftedFrames.slice(0, 6),
+            }),
+        ).toEqual([]);
+        const stretchedFrames = postClickFrames.filter(
+            (frame) => frame.mainRaster.painted && frame.mainRaster.aspectError !== null && frame.mainRaster.aspectError > 0.08,
+        );
         expect(stretchedFrames, JSON.stringify(stretchedFrames.slice(0, 6))).toEqual([]);
         let consecutiveBlankThumbnailFrames = 0;
         let maximumBlankThumbnailFrames = 0;
         for (const frame of postClickFrames) {
-            consecutiveBlankThumbnailFrames = frame.targetThumbnailPainted
-                ? 0
-                : consecutiveBlankThumbnailFrames + 1;
-            maximumBlankThumbnailFrames = Math.max(
-                maximumBlankThumbnailFrames,
-                consecutiveBlankThumbnailFrames,
-            );
+            consecutiveBlankThumbnailFrames = frame.targetThumbnailPainted ? 0 : consecutiveBlankThumbnailFrames + 1;
+            maximumBlankThumbnailFrames = Math.max(maximumBlankThumbnailFrames, consecutiveBlankThumbnailFrames);
         }
         expect(maximumBlankThumbnailFrames).toBeLessThanOrEqual(1);
-        const distortedThumbnailFrames = postClickFrames.filter(frame => (
-            frame.targetThumbnailPainted
-            && !frame.targetThumbnail.contained
-        ));
-        expect(distortedThumbnailFrames, JSON.stringify(distortedThumbnailFrames.slice(0, 6).map(frame => ({
-            msSinceClick: frame.msSinceClick,
-            revision: frame.revision,
-            targetThumbnail: frame.targetThumbnail,
-        })))).toEqual([]);
+        const distortedThumbnailFrames = postClickFrames.filter(
+            (frame) => frame.targetThumbnailPainted && !frame.targetThumbnail.contained,
+        );
+        expect(
+            distortedThumbnailFrames,
+            JSON.stringify(
+                distortedThumbnailFrames.slice(0, 6).map((frame) => ({
+                    msSinceClick: frame.msSinceClick,
+                    revision: frame.revision,
+                    targetThumbnail: frame.targetThumbnail,
+                })),
+            ),
+        ).toEqual([]);
         expect(initialFrame.targetThumbnail.frameLandscape).toBe(false);
         expect(finalFrame.targetThumbnail.frameLandscape).toBe(false);
         expect(initialFrame.targetThumbnail.bitmapLandscape).toBe(false);
         expect(finalFrame.targetThumbnail.bitmapLandscape).toBe(true);
-        const firstFinalScaleFrame = postClickFrames.find(frame => (
-            frame.pageRect !== null
-            && frame.pageRect.width > frame.pageRect.height
-            && frame.mainRaster.painted
-            && frame.mainRaster.aspectError !== null
-            && frame.mainRaster.aspectError <= 0.08
-        ));
+        const firstFinalScaleFrame = postClickFrames.find(
+            (frame) =>
+                frame.pageRect !== null &&
+                frame.pageRect.width > frame.pageRect.height &&
+                frame.mainRaster.painted &&
+                frame.mainRaster.aspectError !== null &&
+                frame.mainRaster.aspectError <= 0.08,
+        );
         expect(firstFinalScaleFrame, JSON.stringify(postClickFrames.slice(0, 10))).toBeDefined();
         // 500 ms is the target on the nightly macOS runner, which enforces it;
         // other hosts report a miss (docs/contributing/ci.md).
         expectWithinTimingBudget(firstFinalScaleFrame?.msSinceClick, 500, JSON.stringify(firstFinalScaleFrame));
         expect(firstFinalScaleFrame?.zoom).toBe(finalFrame.zoom);
-        expect(postClickFrames.filter(frame => frame.pageRect && frame.pageRect.width > frame.pageRect.height)
-            .every(frame => frame.zoom === finalFrame.zoom)).toBe(true);
-        expect(postClickFrames.filter(frame => frame.revision !== initialFrame.revision)
-            .every(frame => !frame.pageSkeletonVisible)).toBe(true);
-        const unpaintedNeighbourFrames = sampledFrames.filter(frame => (
-            frame.neighbourThumbnails.length !== 2
-            || frame.neighbourThumbnails.some(item => !item.painted)
-        )).map(frame => ({
-            elapsedMs: frame.elapsedMs,
-            revision: frame.revision,
-            neighbourThumbnails: frame.neighbourThumbnails,
-        }));
-        expect(unpaintedNeighbourFrames, JSON.stringify({
-            thumbnailBitmapResets: thumbnailBitmapResets.slice(0, 4),
-            unpaintedNeighbourFrames: unpaintedNeighbourFrames.slice(0, 6),
-        })).toEqual([]);
-        expect(finalFrame.neighbourThumbnails.map(item => [
-            item.page,
-            item.label,
-            item.painted,
-            item.sameCanvas,
-            item.canvasSize,
-        ])).toEqual(initialFrame.neighbourThumbnails.map(item => [
-            item.page,
-            item.label,
-            item.painted,
-            item.sameCanvas,
-            item.canvasSize,
-        ]));
+        expect(
+            postClickFrames
+                .filter((frame) => frame.pageRect && frame.pageRect.width > frame.pageRect.height)
+                .every((frame) => frame.zoom === finalFrame.zoom),
+        ).toBe(true);
+        expect(
+            postClickFrames.filter((frame) => frame.revision !== initialFrame.revision).every((frame) => !frame.pageSkeletonVisible),
+        ).toBe(true);
+        const unpaintedNeighbourFrames = sampledFrames
+            .filter((frame) => frame.neighbourThumbnails.length !== 2 || frame.neighbourThumbnails.some((item) => !item.painted))
+            .map((frame) => ({
+                elapsedMs: frame.elapsedMs,
+                revision: frame.revision,
+                neighbourThumbnails: frame.neighbourThumbnails,
+            }));
+        expect(
+            unpaintedNeighbourFrames,
+            JSON.stringify({
+                thumbnailBitmapResets: thumbnailBitmapResets.slice(0, 4),
+                unpaintedNeighbourFrames: unpaintedNeighbourFrames.slice(0, 6),
+            }),
+        ).toEqual([]);
+        expect(
+            finalFrame.neighbourThumbnails.map((item) => [item.page, item.label, item.painted, item.sameCanvas, item.canvasSize]),
+        ).toEqual(initialFrame.neighbourThumbnails.map((item) => [item.page, item.label, item.painted, item.sameCanvas, item.canvasSize]));
         expect(firstRotatedRaster.zoom).toBe(finalFrame.zoom);
-        expect(sampledFrames.slice(firstRotatedRasterIndex).every(frame => frame.zoom === finalFrame.zoom)).toBe(true);
-        expect(firstRotatedRaster.canvasSizes.some(([
-            width,
-            height,
-        ]) => width > height)).toBe(true);
+        expect(sampledFrames.slice(firstRotatedRasterIndex).every((frame) => frame.zoom === finalFrame.zoom)).toBe(true);
+        expect(firstRotatedRaster.canvasSizes.some(([width, height]) => width > height)).toBe(true);
     }, 180_000);
     it('deletes the visible final page and keeps the remaining page painted', async ({onTestFailed}) => {
         // As the shared session fixture does: a failed capture is told, not
@@ -1561,10 +1510,7 @@ describe('Electron E2E, compact page labels through structural operations', () =
                 console.warn(`[E2E artifacts] Failed to capture failure state: ${getErrorMessage(error)}`);
             }
         }, 15_000);
-        const pdfPath = await createMultiPageTextFixturePdf(
-            `delete-visible-final-page-${Date.now()}.pdf`,
-            2,
-        );
+        const pdfPath = await createMultiPageTextFixturePdf(`delete-visible-final-page-${Date.now()}.pdf`, 2);
         session = await startElectronE2ESession(`e2e-delete-visible-final-page-${Date.now()}`, {
             clean: true,
             initialOpenPaths: [pdfPath],
@@ -1578,47 +1524,72 @@ describe('Electron E2E, compact page labels through structural operations', () =
         await waitForToolbarCurrentPage(page, 2);
         await page.waitForSelector(`${host} .page_container--rendered[data-page="2"] canvas`, {timeout: 30_000});
 
-        await clickFoundAsUser(page, (selector: string) => Array.from(document.querySelectorAll<HTMLElement>(
-            `${selector} [data-document-thumbnail-item]`,
-        )).filter(item => item.getBoundingClientRect().width > 0)[1], host, {
-            description: 'page 2 thumbnail',
-            button: 'right',
-        });
-        await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-            .find(item => item.textContent?.trim() === label && item.getBoundingClientRect().width > 0), 'Delete Pages', {description: 'Delete Pages'});
+        await clickFoundAsUser(
+            page,
+            (selector: string) =>
+                Array.from(document.querySelectorAll<HTMLElement>(`${selector} [data-document-thumbnail-item]`)).filter(
+                    (item) => item.getBoundingClientRect().width > 0,
+                )[1],
+            host,
+            {
+                description: 'page 2 thumbnail',
+                button: 'right',
+            },
+        );
+        await clickFoundAsUser(
+            page,
+            (label: string) =>
+                Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+                    (item) => item.textContent?.trim() === label && item.getBoundingClientRect().width > 0,
+                ),
+            'Delete Pages',
+            {description: 'Delete Pages'},
+        );
 
         const readTotalPages = async () => (await readWorkspaceStateValues<{totalPages?: number}>(page, ['totalPages'])).totalPages;
         // What a person sees of one page: its canvas inside the viewer's
         // visible box with ink on it, and the text the page renders.
-        const readVisiblePage = (viewerPage: typeof page, pageNumber: number) => viewerPage.evaluate((selector: string, number: number) => {
-            const viewer = document.querySelector<HTMLElement>(`${selector} .pdfViewer`);
-            const container = document.querySelector<HTMLElement>(`${selector} .page_container--rendered[data-page="${number}"]`);
-            const canvas = container?.querySelector<HTMLCanvasElement>('canvas') ?? null;
-            const viewerRect = viewer?.getBoundingClientRect();
-            const rect = canvas?.getBoundingClientRect();
-            const visibleWidth = rect && viewerRect ? Math.min(rect.right, viewerRect.right) - Math.max(rect.left, viewerRect.left) : 0;
-            const visibleHeight = rect && viewerRect ? Math.min(rect.bottom, viewerRect.bottom) - Math.max(rect.top, viewerRect.top) : 0;
-            let inkPixels = 0;
-            if (canvas && canvas.width > 0 && canvas.height > 0) {
-                const data = canvas.getContext('2d')?.getImageData(0, 0, canvas.width, canvas.height).data;
-                for (let index = 0; data && index < data.length; index += 4) {
-                    if (data[index]! < 128 && data[index + 3]! > 0) {
-                        inkPixels += 1;
+        const readVisiblePage = (viewerPage: typeof page, pageNumber: number) =>
+            viewerPage.evaluate(
+                (selector: string, number: number) => {
+                    const viewer = document.querySelector<HTMLElement>(`${selector} .pdfViewer`);
+                    const container = document.querySelector<HTMLElement>(`${selector} .page_container--rendered[data-page="${number}"]`);
+                    const canvas = container?.querySelector<HTMLCanvasElement>('canvas') ?? null;
+                    const viewerRect = viewer?.getBoundingClientRect();
+                    const rect = canvas?.getBoundingClientRect();
+                    const visibleWidth =
+                        rect && viewerRect ? Math.min(rect.right, viewerRect.right) - Math.max(rect.left, viewerRect.left) : 0;
+                    const visibleHeight =
+                        rect && viewerRect ? Math.min(rect.bottom, viewerRect.bottom) - Math.max(rect.top, viewerRect.top) : 0;
+                    let inkPixels = 0;
+                    if (canvas && canvas.width > 0 && canvas.height > 0) {
+                        const data = canvas.getContext('2d')?.getImageData(0, 0, canvas.width, canvas.height).data;
+                        for (let index = 0; data && index < data.length; index += 4) {
+                            if (data[index]! < 128 && data[index + 3]! > 0) {
+                                inkPixels += 1;
+                            }
+                        }
                     }
-                }
-            }
-            return {
-                workspaceError: document.body.innerText.includes('Unable to load the document workspace'),
-                visible: visibleWidth > 0 && visibleHeight > 0,
-                inkPixels,
-                text: (container?.querySelector('.text-layer')?.textContent ?? '').replace(/\s+/gu, ' ').trim(),
-            };
-        }, host, pageNumber);
+                    return {
+                        workspaceError: document.body.innerText.includes('Unable to load the document workspace'),
+                        visible: visibleWidth > 0 && visibleHeight > 0,
+                        inkPixels,
+                        text: (container?.querySelector('.text-layer')?.textContent ?? '').replace(/\s+/gu, ' ').trim(),
+                    };
+                },
+                host,
+                pageNumber,
+            );
         const expectPageShown = async (viewerPage: typeof page, pageNumber: number, text: string) => {
-            await expect.poll(async () => {
-                const shown = await readVisiblePage(viewerPage, pageNumber);
-                return shown.visible && shown.inkPixels > 0 && shown.text.includes(text);
-            }, {timeout: 30_000}).toBe(true);
+            await expect
+                .poll(
+                    async () => {
+                        const shown = await readVisiblePage(viewerPage, pageNumber);
+                        return shown.visible && shown.inkPixels > 0 && shown.text.includes(text);
+                    },
+                    {timeout: 30_000},
+                )
+                .toBe(true);
             expect((await readVisiblePage(viewerPage, pageNumber)).workspaceError).toBe(false);
         };
 
@@ -1640,7 +1611,7 @@ describe('Electron E2E, compact page labels through structural operations', () =
 
         await saveViaVisibleToolbar(page, 60_000);
         const savedPages = await readPdfPageSnapshots(pdfPath);
-        expect(savedPages.map(saved => saved.textSnippet)).toEqual([expect.stringContaining('E2E Multi Page Fixture 1/2')]);
+        expect(savedPages.map((saved) => saved.textSnippet)).toEqual([expect.stringContaining('E2E Multi Page Fixture 1/2')]);
         const savedSession = session;
         session = null;
         await savedSession.stop();
@@ -1654,7 +1625,7 @@ describe('Electron E2E, compact page labels through structural operations', () =
         await expectPageShown(session.page, 1, 'E2E Multi Page Fixture 1/2');
     }, 180_000);
 
-    it('keeps the reader\'s zoom through Undo and Redo of a large, file-backed page edit', async ({onTestFailed}) => {
+    it("keeps the reader's zoom through Undo and Redo of a large, file-backed page edit", async ({onTestFailed}) => {
         onTestFailed(async (failure) => {
             preserveFailureArtifacts = true;
             try {
@@ -1673,9 +1644,10 @@ describe('Electron E2E, compact page labels through structural operations', () =
         const host = '.workspace-host[data-workspace-active="true"]';
         await waitForPdfLoaded(page, 90_000);
         await waitForViewerInteractive(page, 90_000);
-        const readZoomLabel = () => page.evaluate(() => (
-            document.querySelector('#editor-global-toolbar-host .zoom-controls-display-value')?.textContent?.trim() ?? ''
-        ));
+        const readZoomLabel = () =>
+            page.evaluate(
+                () => document.querySelector('#editor-global-toolbar-host .zoom-controls-display-value')?.textContent?.trim() ?? '',
+            );
         const defaultZoomLabel = await readZoomLabel();
         await clickToolbarButtonWhenEnabled(page, 'Zoom In');
         await expect.poll(readZoomLabel, {timeout: 30_000}).not.toBe(defaultZoomLabel);
@@ -1683,14 +1655,27 @@ describe('Electron E2E, compact page labels through structural operations', () =
         const readTotalPages = async () => (await readWorkspaceStateValues<{totalPages?: number}>(page, ['totalPages'])).totalPages;
 
         await openDocumentSidebarTab(page, 'Pages');
-        await clickFoundAsUser(page, (selector: string) => Array.from(document.querySelectorAll<HTMLElement>(
-            `${selector} [data-document-thumbnail-item]`,
-        )).filter(item => item.getBoundingClientRect().width > 0)[1], host, {
-            description: 'page 2 thumbnail',
-            button: 'right',
-        });
-        await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-            .find(item => item.textContent?.trim() === label && item.getBoundingClientRect().width > 0), 'Delete Pages', {description: 'Delete Pages'});
+        await clickFoundAsUser(
+            page,
+            (selector: string) =>
+                Array.from(document.querySelectorAll<HTMLElement>(`${selector} [data-document-thumbnail-item]`)).filter(
+                    (item) => item.getBoundingClientRect().width > 0,
+                )[1],
+            host,
+            {
+                description: 'page 2 thumbnail',
+                button: 'right',
+            },
+        );
+        await clickFoundAsUser(
+            page,
+            (label: string) =>
+                Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+                    (item) => item.textContent?.trim() === label && item.getBoundingClientRect().width > 0,
+                ),
+            'Delete Pages',
+            {description: 'Delete Pages'},
+        );
         await expect.poll(readTotalPages, {timeout: 60_000}).toBe(3);
         await waitForViewerInteractive(page, 90_000);
         expect(await readZoomLabel()).toBe(readerZoomLabel);
@@ -1708,10 +1693,7 @@ describe('Electron E2E, compact page labels through structural operations', () =
     // Issue #961: deleting the page in view leaves the old visible range past
     // the new end of the document. The remaining page must stay on screen.
     it('keeps the remaining page on screen after deleting the page in view', async () => {
-        const pdfPath = await createMultiPageTextFixturePdf(
-            `delete-visible-last-page-${Date.now()}.pdf`,
-            2,
-        );
+        const pdfPath = await createMultiPageTextFixturePdf(`delete-visible-last-page-${Date.now()}.pdf`, 2);
         session = await startElectronE2ESession(`e2e-delete-visible-last-page-${Date.now()}`, {
             clean: true,
             initialOpenPaths: [pdfPath],
@@ -1728,17 +1710,24 @@ describe('Electron E2E, compact page labels through structural operations', () =
         const lastThumbnail = '.pdf-thumbnails [data-thumbnail-page="2"]';
         await clickAsUser(page, lastThumbnail);
         await clickAsUser(page, lastThumbnail, {button: 'right'});
-        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-            .find(item => item.textContent?.trim() === 'Delete Pages' && item.getBoundingClientRect().width > 0), null, {description: 'Delete Pages'});
+        await clickFoundAsUser(
+            page,
+            () =>
+                Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+                    (item) => item.textContent?.trim() === 'Delete Pages' && item.getBoundingClientRect().width > 0,
+                ),
+            null,
+            {description: 'Delete Pages'},
+        );
 
-        await page.waitForFunction(() => (
-            document.querySelector('.workspace-host__loading[role="alert"]') !== null
-            || (
-                document.querySelectorAll('.pdf-thumbnails [data-thumbnail-page]').length === 1
-                && document.querySelector('#pdf-viewer .page_container[data-page="1"] canvas') !== null
-                && document.querySelector('#pdf-viewer .page_container[data-page="2"]') === null
-            )
-        ), {timeout: 60_000});
+        await page.waitForFunction(
+            () =>
+                document.querySelector('.workspace-host__loading[role="alert"]') !== null ||
+                (document.querySelectorAll('.pdf-thumbnails [data-thumbnail-page]').length === 1 &&
+                    document.querySelector('#pdf-viewer .page_container[data-page="1"] canvas') !== null &&
+                    document.querySelector('#pdf-viewer .page_container[data-page="2"]') === null),
+            {timeout: 60_000},
+        );
         // A failure panel ends the wait early; the assertion names what is on screen.
         const surface = await page.evaluate(() => ({
             failurePanel: document.querySelector<HTMLElement>('.workspace-host__loading[role="alert"]')?.innerText ?? null,

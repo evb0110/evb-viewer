@@ -1,12 +1,8 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { compareAnnotationCommentSummaries } from '@app/utils/pdfAnnotationComments';
-import { isNoteEligible } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isNoteEligible';
-import { isSelectionInteractionTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isSelectionInteractionTool';
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import {describe, expect, it} from 'vitest';
+import {compareAnnotationCommentSummaries} from '@app/utils/pdfAnnotationComments';
+import {isNoteEligible} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isNoteEligible';
+import {isSelectionInteractionTool} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isSelectionInteractionTool';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import {requireEpochMs} from '@contracts/timestamps';
 import {requirePageNumber} from '@contracts/pageNumbers';
 

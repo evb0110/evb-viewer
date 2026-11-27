@@ -1,26 +1,15 @@
-import type {
-    IPdfDocumentPageLease,
-    IPdfPage,
-} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type {IPdfDocumentPageLease, IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
-import { ref } from 'vue';
-import type { MaybeRefOrGetter } from 'vue';
+import {ref} from 'vue';
+import type {MaybeRefOrGetter} from 'vue';
 
-import {
-    requirePageIndex,
-    requirePageNumber,
-} from '@contracts/pageNumbers';
-import type { IPdfSearchMatch } from '@app/types/pdfUi';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { cast } from '@tests/helpers/cast';
-import { usePdfRendererTextLayerController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererTextLayerController';
-import { usePdfTextLayerRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer';
+import {requirePageIndex, requirePageNumber} from '@contracts/pageNumbers';
+import type {IPdfSearchMatch} from '@app/types/pdfUi';
+import {describe, expect, it, vi} from 'vitest';
+import {cast} from '@tests/helpers/cast';
+import {usePdfRendererTextLayerController} from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererTextLayerController';
+import {usePdfTextLayerRenderer} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer';
 import {
     createPdfViewportScrollActivityTracker,
     type IPdfViewportScrollActivity,
@@ -38,14 +27,11 @@ const pdfjsStructure = vi.hoisted(() => ({
 // each text item as a span and hold the optional structure tree until the
 // test releases it.
 vi.mock('@app/services/pdfjs/pdfViewerFacade', () => ({
-    createPdfjsTextLayer: (options: {
-        textContentSource: {items: Array<{str: string}>};
-        container: HTMLElement;
-    }) => {
+    createPdfjsTextLayer: (options: {textContentSource: {items: Array<{str: string}>}; container: HTMLElement}) => {
         const textDivs: HTMLElement[] = [];
         return {
             textDivs,
-            textContentItemsStr: options.textContentSource.items.map(item => item.str),
+            textContentItemsStr: options.textContentSource.items.map((item) => item.str),
             async render() {
                 for (const item of options.textContentSource.items) {
                     const span = document.createElement('span');
@@ -68,15 +54,16 @@ vi.mock('@app/services/pdfjs/pdfViewerFacade', () => ({
             promise,
         });
         return {
-            render: () => promise.then(() => {
-                if (!pdfjsStructure.renderStructElement) {
-                    return null;
-                }
-                const tree = document.createElement('span');
-                tree.className = 'structTree';
-                tree.dataset.structPage = String(options.page.pageNumber);
-                return tree;
-            }),
+            render: () =>
+                promise.then(() => {
+                    if (!pdfjsStructure.renderStructElement) {
+                        return null;
+                    }
+                    const tree = document.createElement('span');
+                    tree.className = 'structTree';
+                    tree.dataset.structPage = String(options.page.pageNumber);
+                    return tree;
+                }),
             updateTextLayer() {},
         };
     },
@@ -96,12 +83,14 @@ function createPage(text: string, withStructure = false, pageNumber = 1) {
     });
 }
 
-function createHarness(options: {
-    scrollActivity?: IPdfViewportScrollActivity;
-    currentSearchMatch?: MaybeRefOrGetter<IPdfSearchMatch | null>;
-    viewportContainer?: MaybeRefOrGetter<HTMLElement | null>;
-    leasePage?: (pageNumber: number) => Promise<IPdfDocumentPageLease>;
-} = {}) {
+function createHarness(
+    options: {
+        scrollActivity?: IPdfViewportScrollActivity;
+        currentSearchMatch?: MaybeRefOrGetter<IPdfSearchMatch | null>;
+        viewportContainer?: MaybeRefOrGetter<HTMLElement | null>;
+        leasePage?: (pageNumber: number) => Promise<IPdfDocumentPageLease>;
+    } = {},
+) {
     const viewport = document.createElement('div');
     viewport.className = 'pdfViewer';
     const container = document.createElement('div');
@@ -278,7 +267,7 @@ describe('usePdfRendererTextLayerController', () => {
             await expect(second).resolves.toBe(true);
             expect(harness.textLayerDiv.textContent).toBe('Page 1 keeps its line');
         } finally {
-            pdfjsStructure.holds.forEach(hold => hold.resolve());
+            pdfjsStructure.holds.forEach((hold) => hold.resolve());
             harness.dispose();
         }
     });
@@ -316,7 +305,7 @@ describe('usePdfRendererTextLayerController', () => {
             expect(harness.renderLayer.querySelector('.structTree')?.getAttribute('data-struct-page')).toBe('1');
         } finally {
             pdfjsStructure.renderStructElement = false;
-            pdfjsStructure.holds.forEach(hold => hold.resolve());
+            pdfjsStructure.holds.forEach((hold) => hold.resolve());
             scrollActivity.reset();
             vi.useRealTimers();
             harness.dispose();
@@ -380,12 +369,10 @@ describe('usePdfRendererTextLayerController', () => {
             await vi.advanceTimersByTimeAsync(120);
             await vi.waitFor(() => expect(pdfjsStructure.holds).toHaveLength(1));
             pdfjsStructure.holds[0]!.resolve();
-            await vi.waitFor(() => expect(
-                harness.renderLayer.querySelector('.structTree')?.getAttribute('data-struct-page'),
-            ).toBe('1'));
+            await vi.waitFor(() => expect(harness.renderLayer.querySelector('.structTree')?.getAttribute('data-struct-page')).toBe('1'));
         } finally {
             pdfjsStructure.renderStructElement = false;
-            pdfjsStructure.holds.forEach(hold => hold.resolve());
+            pdfjsStructure.holds.forEach((hold) => hold.resolve());
             scrollActivity.reset();
             vi.useRealTimers();
             harness.dispose();
@@ -409,10 +396,17 @@ describe('usePdfRendererTextLayerController', () => {
 
             scrollActivity.markMotion(harness.viewport);
             const page1 = createPage('Page 1 text', true, 1);
-            await expect(harness.render(page1, 1, () => {
-                harness.textLayerDiv.replaceWith(incomingText);
-                return true;
-            }, incomingText)).resolves.toBe(true);
+            await expect(
+                harness.render(
+                    page1,
+                    1,
+                    () => {
+                        harness.textLayerDiv.replaceWith(incomingText);
+                        return true;
+                    },
+                    incomingText,
+                ),
+            ).resolves.toBe(true);
             expect(incomingText.isConnected).toBe(true);
             expect(pdfjsStructure.holds).toHaveLength(0);
 
@@ -437,7 +431,7 @@ describe('usePdfRendererTextLayerController', () => {
             expect(harness.renderLayer.querySelector('.structTree')).toBeNull();
         } finally {
             pdfjsStructure.renderStructElement = false;
-            pdfjsStructure.holds.forEach(hold => hold.resolve());
+            pdfjsStructure.holds.forEach((hold) => hold.resolve());
             scrollActivity.reset();
             vi.useRealTimers();
             harness.dispose();
@@ -452,7 +446,8 @@ describe('usePdfRendererTextLayerController', () => {
         const page1 = createPage('Leased page 1', true, 1);
         const releaseFirst = vi.fn();
         const releaseSecond = vi.fn();
-        const leasePage = vi.fn()
+        const leasePage = vi
+            .fn()
             .mockResolvedValueOnce({
                 page: page1,
                 release: releaseFirst,
@@ -496,7 +491,7 @@ describe('usePdfRendererTextLayerController', () => {
             expect(harness.renderLayer.querySelector('.structTree')).toBeNull();
         } finally {
             pdfjsStructure.renderStructElement = false;
-            pdfjsStructure.holds.forEach(hold => hold.resolve());
+            pdfjsStructure.holds.forEach((hold) => hold.resolve());
             scrollActivity.reset();
             vi.useRealTimers();
             harness.dispose();
@@ -566,7 +561,7 @@ describe('usePdfRendererTextLayerController', () => {
             expect(stagedRenderLayer.querySelector('.structTree')).not.toBeNull();
         } finally {
             pdfjsStructure.renderStructElement = false;
-            pdfjsStructure.holds.forEach(hold => hold.resolve());
+            pdfjsStructure.holds.forEach((hold) => hold.resolve());
             scrollActivity.reset();
             vi.useRealTimers();
             otherPane.remove();

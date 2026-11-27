@@ -18,18 +18,12 @@ import {
     type ISearchIndexCoverage,
     type ISearchIndexResponse,
 } from '@contracts/searchIndexWire';
-import {
-    registerMainOperation,
-    runWithMainOperationCancellationSignal,
-} from '@electron/operation-lifecycle/mainOperationLifecycle';
+import {registerMainOperation, runWithMainOperationCancellationSignal} from '@electron/operation-lifecycle/mainOperationLifecycle';
 import type {IPageText} from '@electron/features/search/pageText';
 import {runPdfSearchWorkerCommand} from '@electron/features/search/pdfSearchWorkerClient';
 import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
-import {
-    getWorkingCopyDerivedPath,
-    isWorkingCopyDocumentPath,
-} from '@electron/file-access/documentStore';
+import {getWorkingCopyDerivedPath, isWorkingCopyDocumentPath} from '@electron/file-access/documentStore';
 import * as v from 'valibot';
 
 /**
@@ -109,10 +103,7 @@ async function collectIndexInputInMemory(
         signal.throwIfAborted();
         const textBytes = Buffer.byteLength(page.text);
         totalTextBytes += textBytes;
-        if (
-            textBytes > SEARCH_INDEX_TEXT_BUDGET.maxPageTextBytes
-            || totalTextBytes > SEARCH_INDEX_TEXT_BUDGET.maxTotalTextBytes
-        ) {
+        if (textBytes > SEARCH_INDEX_TEXT_BUDGET.maxPageTextBytes || totalTextBytes > SEARCH_INDEX_TEXT_BUDGET.maxTotalTextBytes) {
             const overBudgetRecord = encodePdfSearchPageRecord({
                 pageNumber: page.pageNumber,
                 overBudget: true,
@@ -151,20 +142,23 @@ async function runIndexBuild(
         await collectIndexInputInMemory(
             document.readPages(signal, pageCount, reportProgress),
             input,
-            page => reportProgress(page.pageNumber),
+            (page) => reportProgress(page.pageNumber),
             signal,
         );
         const pagesBuffer = concatUint8Arrays(input.chunks, input.writtenBytes);
         input.chunks.length = 0;
-        rawCoverage = await runPdfSearchWorkerCommand({
-            op: 'index',
-            indexPath: document.indexPath,
-            documentRevision: indexRevision(document),
-            ...(pageCount !== undefined && pageCount > 0 ? {pageCount} : {}),
-            maxPageTextBytes: SEARCH_INDEX_TEXT_BUDGET.maxPageTextBytes,
-            maxTotalTextBytes: SEARCH_INDEX_TEXT_BUDGET.maxTotalTextBytes,
-            pagesBuffer,
-        }, signal);
+        rawCoverage = await runPdfSearchWorkerCommand(
+            {
+                op: 'index',
+                indexPath: document.indexPath,
+                documentRevision: indexRevision(document),
+                ...(pageCount !== undefined && pageCount > 0 ? {pageCount} : {}),
+                maxPageTextBytes: SEARCH_INDEX_TEXT_BUDGET.maxPageTextBytes,
+                maxTotalTextBytes: SEARCH_INDEX_TEXT_BUDGET.maxTotalTextBytes,
+                pagesBuffer,
+            },
+            signal,
+        );
     } finally {
         input.chunks.length = 0;
     }
@@ -219,10 +213,7 @@ function startIndexBuild(document: ISearchIndexedDocument, key: string) {
  */
 function reserveIndexBuild(document: ISearchIndexedDocument) {
     const key = `${document.indexPath}\0${document.documentRevision}`;
-    return builds.get(key) ?? runWithMainOperationCancellationSignal(
-        SHARED_BUILD_CANCELLATION,
-        () => startIndexBuild(document, key),
-    );
+    return builds.get(key) ?? runWithMainOperationCancellationSignal(SHARED_BUILD_CANCELLATION, () => startIndexBuild(document, key));
 }
 
 /** Waits for a build, following its progress until it settles or `signal` aborts. */
@@ -261,10 +252,7 @@ export function buildSearchIndex(
 
 /** Stops index builds for a document whose revision moved on. */
 export function cancelSearchIndexBuilds(indexPath: string) {
-    for (const [
-        key,
-        build,
-    ] of builds) {
+    for (const [key, build] of builds) {
         if (key.startsWith(`${indexPath}\0`)) {
             build.cancel();
         }
@@ -327,15 +315,20 @@ function followProvisionalMatches(
     let finished = false;
     let running: Promise<void> | null = null;
     const search = async (pagesBuffer: Uint8Array) => {
-        const raw = await runPdfSearchWorkerCommand({
-            op: 'searchPages',
-            documentRevision: indexRevision(document),
-            allowRegex: false,
-            pagesBuffer,
-            ...queryFields,
-        }, controller.signal);
+        const raw = await runPdfSearchWorkerCommand(
+            {
+                op: 'searchPages',
+                documentRevision: indexRevision(document),
+                allowRegex: false,
+                pagesBuffer,
+                ...queryFields,
+            },
+            controller.signal,
+        );
         const response = parseSearchResponse(raw);
-        if (controller.signal.aborted || (!reported && response.results.length === 0)) return;
+        if (controller.signal.aborted || (!reported && response.results.length === 0)) {
+            return;
+        }
         reported = true;
         onMatches({
             results: response.results,
@@ -346,28 +339,29 @@ function followProvisionalMatches(
         finished ||= response.truncated;
     };
     const schedule = () => {
-        const {
-            chunks,
-            writtenBytes,
-        } = build.input;
+        const {chunks, writtenBytes} = build.input;
         if (
-            finished
-            || running !== null
-            || controller.signal.aborted
-            || chunks.length === 0
-            || writtenBytes <= searchedBytes * PROVISIONAL_RESCAN_GROWTH
-        ) return;
+            finished ||
+            running !== null ||
+            controller.signal.aborted ||
+            chunks.length === 0 ||
+            writtenBytes <= searchedBytes * PROVISIONAL_RESCAN_GROWTH
+        ) {
+            return;
+        }
         const snapshot = concatUint8Arrays(chunks);
         searchedBytes = snapshot.byteLength;
-        running = search(snapshot).catch((error: unknown) => {
-            finished = true;
-            if (!controller.signal.aborted) {
-                log.debug('Provisional search matches stopped', {error: getErrorMessage(error)});
-            }
-        }).finally(() => {
-            running = null;
-            schedule();
-        });
+        running = search(snapshot)
+            .catch((error: unknown) => {
+                finished = true;
+                if (!controller.signal.aborted) {
+                    log.debug('Provisional search matches stopped', {error: getErrorMessage(error)});
+                }
+            })
+            .finally(() => {
+                running = null;
+                schedule();
+            });
     };
     const follower = {onProgress: schedule};
     build.followers.add(follower);
@@ -375,7 +369,9 @@ function followProvisionalMatches(
     return async () => {
         controller.abort();
         build.followers.delete(follower);
-        while (running !== null) await running;
+        while (running !== null) {
+            await running;
+        }
     };
 }
 
@@ -407,12 +403,18 @@ export async function searchIndexedDocument(
     } = {},
 ): Promise<ISearchIndexResponse> {
     const queryFields = searchQueryFields(query, options);
-    const runSearch = async () => unwrapIndexAnswer(await runPdfSearchWorkerCommand({
-        op: 'search',
-        indexPath: document.indexPath,
-        documentRevision: indexRevision(document),
-        ...queryFields,
-    }, context.signal));
+    const runSearch = async () =>
+        unwrapIndexAnswer(
+            await runPdfSearchWorkerCommand(
+                {
+                    op: 'search',
+                    indexPath: document.indexPath,
+                    documentRevision: indexRevision(document),
+                    ...queryFields,
+                },
+                context.signal,
+            ),
+        );
 
     let response = await runSearch();
     if (response === null) {
@@ -424,9 +426,10 @@ export async function searchIndexedDocument(
         // Only the first window of a literal query is shown before the index
         // exists: rescanning a growing document for a regex that matches empty
         // at every position repeats work the index does once.
-        const stopProvisionalMatches = context.onProvisionalMatches && !options.useRegex && (options.resultOffset ?? 0) === 0
-            ? followProvisionalMatches(build, document, queryFields, context.onProvisionalMatches)
-            : null;
+        const stopProvisionalMatches =
+            context.onProvisionalMatches && !options.useRegex && (options.resultOffset ?? 0) === 0
+                ? followProvisionalMatches(build, document, queryFields, context.onProvisionalMatches)
+                : null;
         try {
             await awaitIndexBuild(build, context.onIndexProgress, context.signal);
         } finally {
@@ -445,11 +448,16 @@ export async function ensureSearchIndex(
         onIndexProgress?: (pagesScanned: number) => void;
     } = {},
 ): Promise<ISearchIndexCoverage> {
-    const coverage = unwrapIndexAnswer(await runPdfSearchWorkerCommand({
-        op: 'stat',
-        indexPath: document.indexPath,
-        documentRevision: indexRevision(document),
-    }, context.signal));
+    const coverage = unwrapIndexAnswer(
+        await runPdfSearchWorkerCommand(
+            {
+                op: 'stat',
+                indexPath: document.indexPath,
+                documentRevision: indexRevision(document),
+            },
+            context.signal,
+        ),
+    );
     const parsed = v.safeParse(SEARCH_INDEX_COVERAGE_SCHEMA, coverage, {abortEarly: true});
     if (parsed.success) {
         return parsed.output;

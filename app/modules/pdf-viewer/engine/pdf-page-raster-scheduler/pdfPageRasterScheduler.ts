@@ -1,5 +1,5 @@
-import { isAbortError } from '@contracts/isAbortError';
-import type { TPageNumber } from '@contracts/pageNumbers';
+import {isAbortError} from '@contracts/isAbortError';
+import type {TPageNumber} from '@contracts/pageNumbers';
 
 import type {
     IPdfDocument,
@@ -12,23 +12,17 @@ import {
     runCoordinatedPdfPageRender,
     type TPdfPageOperationSettlementCapture,
 } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
-import type { TPdfRenderContinuationPriority } from '@app/modules/pdf-viewer/engine/pdf-render-continuation-scheduler/pdfRenderContinuationScheduler';
+import type {TPdfRenderContinuationPriority} from '@app/modules/pdf-viewer/engine/pdf-render-continuation-scheduler/pdfRenderContinuationScheduler';
 import {
     createPdfRenderSupervisor,
     type IPdfRenderSupervisor,
 } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
-import type {
-    IWorkspaceSurfaceBudgetController,
-    IWorkspaceSurfaceLease,
-} from '@app/modules/document-viewer/public';
-import {
-    RGBA_BYTES_PER_PIXEL,
-    workspaceSurfaceBudgetController,
-} from '@app/modules/document-viewer/public';
-import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
-import { getErrorMessage } from '@app/utils/error';
-import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
-import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
+import type {IWorkspaceSurfaceBudgetController, IWorkspaceSurfaceLease} from '@app/modules/document-viewer/public';
+import {RGBA_BYTES_PER_PIXEL, workspaceSurfaceBudgetController} from '@app/modules/document-viewer/public';
+import {PDF_PAGE_RENDER_TIMEOUT_MS} from '@app/constants/timeouts';
+import {getErrorMessage} from '@app/utils/error';
+import {logPdfRenderTrace} from '@app/utils/pdfRenderTrace';
+import type {IPageRenderStallPayload} from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
 
 export type TPdfRasterLane =
     | 'navigation-target'
@@ -84,18 +78,18 @@ export interface IPdfRasterRenderTarget<TPrepared> {
 
 export type TPdfRasterOutcome =
     | {
-        readonly status: 'committed';
-        readonly demand: IPdfRasterDemand;
-    }
+          readonly status: 'committed';
+          readonly demand: IPdfRasterDemand;
+      }
     | {
-        readonly status: 'cancelled' | 'discarded';
-        readonly demand: IPdfRasterDemand;
-    }
+          readonly status: 'cancelled' | 'discarded';
+          readonly demand: IPdfRasterDemand;
+      }
     | {
-        readonly status: 'failed';
-        readonly demand: IPdfRasterDemand;
-        readonly error: unknown;
-    };
+          readonly status: 'failed';
+          readonly demand: IPdfRasterDemand;
+          readonly error: unknown;
+      };
 
 export interface IPdfRasterInvalidation {
     readonly reason: string;
@@ -190,7 +184,7 @@ const LANE_ORDER: Record<TPdfRasterLane, number> = {
     'viewport-nearby': 300,
     'thumbnail-current': 200,
     'thumbnail-visible': 200,
-    'prefetch': 100,
+    prefetch: 100,
 };
 const LANE_CONTINUATION_PRIORITY: Record<TPdfRasterLane, TPdfRenderContinuationPriority> = {
     'navigation-target': 'navigation-target',
@@ -199,7 +193,7 @@ const LANE_CONTINUATION_PRIORITY: Record<TPdfRasterLane, TPdfRenderContinuationP
     'viewport-nearby': 'nearby',
     'thumbnail-current': 'thumbnail',
     'thumbnail-visible': 'thumbnail',
-    'prefetch': 'prefetch',
+    prefetch: 'prefetch',
 };
 let nextSchedulerScopeId = 0;
 
@@ -211,17 +205,16 @@ function createLaneCounts() {
         'viewport-nearby': 0,
         'thumbnail-current': 0,
         'thumbnail-visible': 0,
-        'prefetch': 0,
+        prefetch: 0,
     } satisfies Record<TPdfRasterLane, number>;
 }
 
-function isSameDocumentFence(
-    left: IPdfRasterDocumentFence,
-    right: IPdfRasterDocumentFence,
-) {
-    return left.loadToken === right.loadToken
-        && left.documentVersion === right.documentVersion
-        && left.documentRevision === right.documentRevision;
+function isSameDocumentFence(left: IPdfRasterDocumentFence, right: IPdfRasterDocumentFence) {
+    return (
+        left.loadToken === right.loadToken &&
+        left.documentVersion === right.documentVersion &&
+        left.documentRevision === right.documentRevision
+    );
 }
 
 function createWorkKey(targetId: string, demand: IPdfRasterDemand) {
@@ -232,9 +225,7 @@ function createDemandIdentity(sourceId: string, targetId: string, pageNumber: TP
     return `${sourceId}\0${targetId}\0${String(pageNumber)}`;
 }
 
-export function createPdfPageRasterScheduler(
-    options: ICreatePdfPageRasterSchedulerOptions,
-): IPdfPageRasterScheduler {
+export function createPdfPageRasterScheduler(options: ICreatePdfPageRasterSchedulerOptions): IPdfPageRasterScheduler {
     const maxConcurrency = Math.max(1, Math.trunc(options.maxConcurrency ?? 2));
     const renderSupervisor = options.renderSupervisor ?? createPdfRenderSupervisor();
     const surfaceBudget = options.surfaceBudget ?? workspaceSurfaceBudgetController;
@@ -254,25 +245,19 @@ export function createPdfPageRasterScheduler(
     }
 
     function isDemandCurrent(work: IRasterWork) {
-        if (
-            !accepting
-            || work.controller.signal.aborted
-            || !isSameDocumentFence(work.demand.documentFence, options.documentFence)
-        ) {
+        if (!accepting || work.controller.signal.aborted || !isSameDocumentFence(work.demand.documentFence, options.documentFence)) {
             return false;
         }
         if (work.oneShot) {
             return true;
         }
-        const identity = createDemandIdentity(
-            work.sourceId,
-            work.target.id,
-            work.demand.pageNumber,
-        );
+        const identity = createDemandIdentity(work.sourceId, work.target.id, work.demand.pageNumber);
         const current = currentDemandByIdentity.get(identity);
-        return current?.renderKey === work.demand.renderKey
-            && current.consumerGeneration === work.demand.consumerGeneration
-            && demandKeysBySource.get(work.sourceId)?.has(work.key) === true;
+        return (
+            current?.renderKey === work.demand.renderKey &&
+            current.consumerGeneration === work.demand.consumerGeneration &&
+            demandKeysBySource.get(work.sourceId)?.has(work.key) === true
+        );
     }
 
     function releaseReservation(work: IRasterWork) {
@@ -286,7 +271,10 @@ export function createPdfPageRasterScheduler(
     }
 
     function isPageVisiblyDemanded(work: IRasterWork) {
-        const lane = (currentDemandByIdentity.get(createDemandIdentity(work.sourceId, work.target.id, work.demand.pageNumber)) ?? residents.get(work.key)?.demand)?.lane;
+        const lane = (
+            currentDemandByIdentity.get(createDemandIdentity(work.sourceId, work.target.id, work.demand.pageNumber)) ??
+            residents.get(work.key)?.demand
+        )?.lane;
         return lane === 'navigation-target' || lane === 'viewport-visible';
     }
 
@@ -322,10 +310,14 @@ export function createPdfPageRasterScheduler(
     }
 
     function settleWork(work: IRasterWork, outcome: TPdfRasterOutcome | 'committed' | 'cancelled' | 'discarded') {
-        work.resolve?.(typeof outcome === 'string' ? {
-            status: outcome,
-            demand: work.demand,
-        } : outcome);
+        work.resolve?.(
+            typeof outcome === 'string'
+                ? {
+                      status: outcome,
+                      demand: work.demand,
+                  }
+                : outcome,
+        );
         work.resolve = null;
     }
 
@@ -335,7 +327,9 @@ export function createPdfPageRasterScheduler(
         settleWork(work, 'cancelled');
         if (work.stage !== 'rendering' && work.stage !== 'committing') {
             releaseReservation(work);
-            if (work.prepared !== null) discardPrepared(work);
+            if (work.prepared !== null) {
+                discardPrepared(work);
+            }
             releaseTarget(work, reason);
         }
     }
@@ -349,14 +343,12 @@ export function createPdfPageRasterScheduler(
     }
 
     function compareWork(left: IRasterWork, right: IRasterWork) {
-        return LANE_ORDER[right.demand.lane] - LANE_ORDER[left.demand.lane]
-            || (
-                left.demand.lane === right.demand.lane
-                    ? left.policyCompare(left.demand, right.demand)
-                    : 0
-            )
-            || left.demand.ordinal - right.demand.ordinal
-            || left.sequence - right.sequence;
+        return (
+            LANE_ORDER[right.demand.lane] - LANE_ORDER[left.demand.lane] ||
+            (left.demand.lane === right.demand.lane ? left.policyCompare(left.demand, right.demand) : 0) ||
+            left.demand.ordinal - right.demand.ordinal ||
+            left.sequence - right.sequence
+        );
     }
 
     // Only the minimum is needed, and the queue can change between dequeues
@@ -365,7 +357,9 @@ export function createPdfPageRasterScheduler(
     function takeNextWork() {
         let next: IRasterWork | null = null;
         for (const work of queued.values()) {
-            if (inFlight.has(work.key)) continue;
+            if (inFlight.has(work.key)) {
+                continue;
+            }
             if (next === null || compareWork(work, next) < 0) {
                 next = work;
             }
@@ -395,7 +389,9 @@ export function createPdfPageRasterScheduler(
         // A settled attempt is never reused: renewed demand queues a fresh one.
         work.controller.abort();
         settleWork(work, outcome);
-        if (!current) return;
+        if (!current) {
+            return;
+        }
         try {
             work.target.onRenderUncommitted?.(outcome);
         } catch (error) {
@@ -410,8 +406,12 @@ export function createPdfPageRasterScheduler(
         let committed = false;
         let requeue = false;
         const commitRaster = () => {
-            if (committed) return true;
-            if (!isDemandCurrent(work) || !work.reservation) return false;
+            if (committed) {
+                return true;
+            }
+            if (!isDemandCurrent(work) || !work.reservation) {
+                return false;
+            }
             const reservation = work.reservation;
             work.prepared = null;
             work.reservation = null;
@@ -423,10 +423,7 @@ export function createPdfPageRasterScheduler(
                 target: work.target,
             };
             const pagePrefix = `${work.target.id}\0${String(work.demand.pageNumber)}\0`;
-            for (const [
-                key,
-                previous,
-            ] of [...residents]) {
+            for (const [key, previous] of [...residents]) {
                 if (key.startsWith(pagePrefix)) {
                     releaseResident(previous, 'raster-replaced');
                 }
@@ -443,19 +440,13 @@ export function createPdfPageRasterScheduler(
                 return;
             }
             work.stage = 'leased';
-            const pageLease = await options.leasePage(
-                work.demand.pageNumber,
-                work.demand.retention,
-                work.controller.signal,
-            );
+            const pageLease = await options.leasePage(work.demand.pageNumber, work.demand.retention, work.controller.signal);
             work.pageLease = pageLease;
             if (!isDemandCurrent(work)) {
                 settleWork(work, 'cancelled');
                 return;
             }
-            const category = work.demand.lane.startsWith('thumbnail')
-                ? 'pdf-thumbnail-canvas'
-                : 'pdf-page-canvas';
+            const category = work.demand.lane.startsWith('thumbnail') ? 'pdf-thumbnail-canvas' : 'pdf-page-canvas';
             const reservationRequest: Parameters<typeof surfaceBudget.reserve>[0] = {
                 scopeId: surfaceScopeId,
                 category,
@@ -470,10 +461,10 @@ export function createPdfPageRasterScheduler(
                     }
                 },
             };
-            work.reservation = work.demand.lane === 'navigation-target'
-                || work.demand.lane === 'viewport-visible'
-                ? surfaceBudget.reserve(reservationRequest)
-                : surfaceBudget.tryReserve(reservationRequest);
+            work.reservation =
+                work.demand.lane === 'navigation-target' || work.demand.lane === 'viewport-visible'
+                    ? surfaceBudget.reserve(reservationRequest)
+                    : surfaceBudget.tryReserve(reservationRequest);
             // A speculative raster that does not fit waits until it is needed.
             if (!work.reservation) {
                 settleUncommitted(work, {status: 'discarded', demand: work.demand});
@@ -481,7 +472,9 @@ export function createPdfPageRasterScheduler(
             }
             work.stage = 'preparing';
             const reserveAdditionalBytes = (bytes: number) => {
-                if (!isDemandCurrent(work)) throw new DOMException('The raster resource demand changed', 'AbortError');
+                if (!isDemandCurrent(work)) {
+                    throw new DOMException('The raster resource demand changed', 'AbortError');
+                }
                 if (!work.reservation?.resize(reservationRequest.bytes + bytes)) {
                     throw new RangeError(`PDF appearance resources exceed the workspace budget for page ${String(work.demand.pageNumber)}`);
                 }
@@ -490,7 +483,7 @@ export function createPdfPageRasterScheduler(
                 work.demand,
                 pageLease.page,
                 work.controller.signal,
-                settlement => captureWorkSettlement(work, settlement),
+                (settlement) => captureWorkSettlement(work, settlement),
                 reserveAdditionalBytes,
             );
             if (!work.prepared) {
@@ -505,7 +498,9 @@ export function createPdfPageRasterScheduler(
                 return;
             }
             const additionalBytes = work.target.additionalResourceBytes?.(work.prepared) ?? 0;
-            if (additionalBytes > 0) reserveAdditionalBytes(additionalBytes);
+            if (additionalBytes > 0) {
+                reserveAdditionalBytes(additionalBytes);
+            }
             work.stage = 'rendering';
             await runCoordinatedPdfPageRender({
                 owner: work.target.id,
@@ -527,19 +522,17 @@ export function createPdfPageRasterScheduler(
                         sourceId: work.sourceId,
                         targetId: work.target.id,
                     },
-                    onRenderStall: payload => work.target.onRenderStall?.(payload),
+                    onRenderStall: (payload) => work.target.onRenderStall?.(payload),
                     payload: {
                         pageNumber: work.demand.pageNumber,
                         stage: 'canvas-render',
                         timeoutMs: PDF_PAGE_RENDER_TIMEOUT_MS,
                     },
                     renderSupervisor,
-                    shouldNotify: () => isDemandCurrent(work) && (
-                        work.demand.lane === 'navigation-target'
-                        || work.demand.lane === 'viewport-visible'
-                    ),
+                    shouldNotify: () =>
+                        isDemandCurrent(work) && (work.demand.lane === 'navigation-target' || work.demand.lane === 'viewport-visible'),
                 },
-                captureSettlement: settlement => captureWorkSettlement(work, settlement),
+                captureSettlement: (settlement) => captureWorkSettlement(work, settlement),
             });
             if (!isDemandCurrent(work)) {
                 discardPrepared(work);
@@ -569,7 +562,9 @@ export function createPdfPageRasterScheduler(
                 settleUncommitted(work, {status: 'failed', demand: work.demand, error});
             }
         } finally {
-            if (work.coordinatedOperationSettlements.size > 0) await Promise.allSettled(work.coordinatedOperationSettlements);
+            if (work.coordinatedOperationSettlements.size > 0) {
+                await Promise.allSettled(work.coordinatedOperationSettlements);
+            }
             work.pageLease?.release();
             work.pageLease = null;
             if (inFlight.get(work.key) === work) {
@@ -673,28 +668,17 @@ export function createPdfPageRasterScheduler(
         if (!accepting) {
             return;
         }
-        const demands = request.policy.expand(request.input).filter(demand => (
-            isSameDocumentFence(demand.documentFence, options.documentFence)
-        ));
+        const demands = request.policy
+            .expand(request.input)
+            .filter((demand) => isSameDocumentFence(demand.documentFence, options.documentFence));
         const nextKeys = new Set<string>();
         const previousKeys = demandKeysBySource.get(request.sourceId) ?? new Set<string>();
         for (const demand of demands) {
-            const identity = createDemandIdentity(
-                request.sourceId,
-                request.target.id,
-                demand.pageNumber,
-            );
+            const identity = createDemandIdentity(request.sourceId, request.target.id, demand.pageNumber);
             currentDemandByIdentity.set(identity, demand);
-            nextKeys.add(enqueue(
-                request.sourceId,
-                demand,
-                request.target,
-                request.policy.compareWithinLane,
-                false,
-                null,
-            ));
+            nextKeys.add(enqueue(request.sourceId, demand, request.target, request.policy.compareWithinLane, false, null));
         }
-        const demandedPages = new Set(demands.map(demand => demand.pageNumber));
+        const demandedPages = new Set(demands.map((demand) => demand.pageNumber));
         demandKeysBySource.set(request.sourceId, nextKeys);
         for (const key of previousKeys) {
             if (nextKeys.has(key)) {
@@ -715,13 +699,10 @@ export function createPdfPageRasterScheduler(
                 releaseResident(resident, 'demand-replaced');
             }
         }
-        for (const [
-            identity,
-            demand,
-        ] of currentDemandByIdentity) {
+        for (const [identity, demand] of currentDemandByIdentity) {
             if (
-                identity.startsWith(`${request.sourceId}\0${request.target.id}\0`)
-                && !nextKeys.has(createWorkKey(request.target.id, demand))
+                identity.startsWith(`${request.sourceId}\0${request.target.id}\0`) &&
+                !nextKeys.has(createWorkKey(request.target.id, demand))
             ) {
                 currentDemandByIdentity.delete(identity);
             }
@@ -729,15 +710,8 @@ export function createPdfPageRasterScheduler(
         schedulePump();
     }
 
-    function request<TPrepared>(requestOptions: {
-        sourceId: string;
-        demand: IPdfRasterDemand;
-        target: IPdfRasterRenderTarget<TPrepared>;
-    }) {
-        if (
-            !accepting
-            || !isSameDocumentFence(requestOptions.demand.documentFence, options.documentFence)
-        ) {
+    function request<TPrepared>(requestOptions: {sourceId: string; demand: IPdfRasterDemand; target: IPdfRasterRenderTarget<TPrepared>}) {
+        if (!accepting || !isSameDocumentFence(requestOptions.demand.documentFence, options.documentFence)) {
             return Promise.resolve({
                 status: 'cancelled',
                 demand: requestOptions.demand,
@@ -756,27 +730,17 @@ export function createPdfPageRasterScheduler(
     }
 
     function invalidate(scope: IPdfRasterInvalidation) {
-        if (
-            scope.documentFence
-            && !isSameDocumentFence(scope.documentFence, options.documentFence)
-        ) {
+        if (scope.documentFence && !isSameDocumentFence(scope.documentFence, options.documentFence)) {
             return;
         }
         const pages = scope.pages ? new Set(scope.pages) : null;
-        const matches = (sourceId: string, demand: IPdfRasterDemand) => (
-            (scope.sourceId === undefined || sourceId === scope.sourceId)
-            && (!pages || pages.has(demand.pageNumber))
-        );
-        const invalidatesDocument = Boolean(scope.documentFence)
-            && scope.sourceId === undefined
-            && !pages;
+        const matches = (sourceId: string, demand: IPdfRasterDemand) =>
+            (scope.sourceId === undefined || sourceId === scope.sourceId) && (!pages || pages.has(demand.pageNumber));
+        const invalidatesDocument = Boolean(scope.documentFence) && scope.sourceId === undefined && !pages;
         if (invalidatesDocument) {
             accepting = false;
         }
-        for (const work of new Set([
-            ...queued.values(),
-            ...inFlight.values(),
-        ])) {
+        for (const work of new Set([...queued.values(), ...inFlight.values()])) {
             if (matches(work.sourceId, work.demand)) {
                 cancelWork(work, scope.reason);
             }
@@ -786,10 +750,7 @@ export function createPdfPageRasterScheduler(
                 releaseResident(resident, scope.reason);
             }
         }
-        for (const [
-            sourceId,
-            keys,
-        ] of demandKeysBySource) {
+        for (const [sourceId, keys] of demandKeysBySource) {
             if (scope.sourceId === undefined || sourceId === scope.sourceId) {
                 for (const key of [...keys]) {
                     const work = getIndexedWork(key);
@@ -806,18 +767,15 @@ export function createPdfPageRasterScheduler(
     // Cancels the source's pending work only. Its committed rasters stay on
     // screen until the next demand replaces or releases them.
     async function cancelSource(sourceId: string) {
-        const cancelled = [...new Set([
-            ...queued.values(),
-            ...inFlight.values(),
-        ])].filter(work => work.sourceId === sourceId);
+        const cancelled = [...new Set([...queued.values(), ...inFlight.values()])].filter((work) => work.sourceId === sourceId);
         const workSettlements = cancelled
-            .map(work => work.execution)
+            .map((work) => work.execution)
             .filter((execution): execution is Promise<void> => execution !== null);
         for (const work of cancelled) {
             cancelWork(work, 'source-cancelled');
         }
         const keys = demandKeysBySource.get(sourceId);
-        for (const key of [...keys ?? []]) {
+        for (const key of [...(keys ?? [])]) {
             if (!residents.has(key)) {
                 keys?.delete(key);
             }
@@ -862,13 +820,13 @@ export function createPdfPageRasterScheduler(
             queueDepth: queued.size,
             queuedByLane,
             inFlightByLane,
-            inFlightPages: [...inFlight.values()].map(work => ({
+            inFlightPages: [...inFlight.values()].map((work) => ({
                 lane: work.demand.lane,
                 pageNumber: work.demand.pageNumber,
                 sourceId: work.sourceId,
                 targetId: work.target.id,
             })),
-            residentPages: [...residents.values()].map(resident => ({
+            residentPages: [...residents.values()].map((resident) => ({
                 lane: resident.demand.lane,
                 pageNumber: resident.demand.pageNumber,
                 sourceId: resident.sourceId,
@@ -880,7 +838,7 @@ export function createPdfPageRasterScheduler(
 
     async function runDisposal() {
         const workSettlements = [...inFlight.values()]
-            .map(work => work.execution)
+            .map((work) => work.execution)
             .filter((execution): execution is Promise<void> => execution !== null);
         invalidate({
             documentFence: options.documentFence,

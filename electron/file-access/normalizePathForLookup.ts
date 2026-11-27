@@ -1,12 +1,6 @@
 import {spawnSync} from 'node:child_process';
 import {realpathSync} from 'node:fs';
-import {
-    dirname,
-    join,
-    relative,
-    resolve,
-    win32,
-} from 'node:path';
+import {dirname, join, relative, resolve, win32} from 'node:path';
 
 const windowsCaseSensitivityByDirectory = new Map<string, boolean | null>();
 
@@ -47,25 +41,17 @@ function resolveWindowsDirectoryLookup(directoryPath: string): IWindowsDirectory
                     resolvedPath: currentPath,
                 };
             }
-            const result = spawnSync(
-                'fsutil.exe',
-                [
-                    'file',
-                    'queryCaseSensitiveInfo',
-                    realDirectoryPath,
-                ],
-                {
-                    encoding: 'utf8',
-                    windowsHide: true,
-                    timeout: 1_000,
-                },
-            );
+            const result = spawnSync('fsutil.exe', ['file', 'queryCaseSensitiveInfo', realDirectoryPath], {
+                encoding: 'utf8',
+                windowsHide: true,
+                timeout: 1_000,
+            });
             const output = `${String(result.stdout)}\n${String(result.stderr)}`;
             const caseSensitive = /case sensitive attribute .* is enabled/iu.test(output)
                 ? true
                 : /case sensitive attribute .* is disabled/iu.test(output)
-                    ? false
-                    : null;
+                  ? false
+                  : null;
             windowsCaseSensitivityByDirectory.set(realDirectoryPath, caseSensitive);
             return {
                 caseSensitive,
@@ -105,12 +91,10 @@ export function normalizePathForLookup(filePath: string) {
             // Only the ordinary case-insensitive result is folded; an unknown or
             // case-sensitive share keeps its spelling.
             const directory = resolveWindowsDirectoryLookup(win32.dirname(resolvedWindowsPath));
-            const missingLeafPath = directory.realPath && directory.resolvedPath
-                ? win32.join(
-                    directory.realPath,
-                    win32.relative(directory.resolvedPath, resolvedWindowsPath),
-                )
-                : resolvedWindowsPath;
+            const missingLeafPath =
+                directory.realPath && directory.resolvedPath
+                    ? win32.join(directory.realPath, win32.relative(directory.resolvedPath, resolvedWindowsPath))
+                    : resolvedWindowsPath;
             return normalizeWindowsPathCase(missingLeafPath, directory.caseSensitive);
         }
     }
@@ -137,4 +121,3 @@ function resolvePosixMissingLeafLookup(resolvedPath: string) {
     }
     return resolvedPath;
 }
-

@@ -12,12 +12,8 @@ import type {
  * list show, so the header never changes shape when a run takes over from
  * analysis and every internal stage has a named row.
  */
-export const SCAN_CLEANUP_ACTIVITY_PHASES = [
-    'analyze',
-    'clean',
-    'finish',
-] as const;
-type TScanCleanupActivityPhase = typeof SCAN_CLEANUP_ACTIVITY_PHASES[number];
+export const SCAN_CLEANUP_ACTIVITY_PHASES = ['analyze', 'clean', 'finish'] as const;
+type TScanCleanupActivityPhase = (typeof SCAN_CLEANUP_ACTIVITY_PHASES)[number];
 
 const SCAN_CLEANUP_ACTIVITY_STEPS = [
     {
@@ -50,9 +46,9 @@ const SCAN_CLEANUP_ACTIVITY_STEPS = [
     },
 ] as const satisfies ReadonlyArray<{
     id: string;
-    phase: TScanCleanupActivityPhase
+    phase: TScanCleanupActivityPhase;
 }>;
-export type TScanCleanupActivityStep = typeof SCAN_CLEANUP_ACTIVITY_STEPS[number]['id'];
+export type TScanCleanupActivityStep = (typeof SCAN_CLEANUP_ACTIVITY_STEPS)[number]['id'];
 export type TScanCleanupActivityStepState = 'done' | 'active' | 'waiting';
 
 /**
@@ -60,13 +56,7 @@ export type TScanCleanupActivityStepState = 'done' | 'active' | 'waiting';
  * activities; a run reports its job stage directly.
  */
 type TScanCleanupActivityDetail =
-    | 'queued'
-    | 'read'
-    | 'detect'
-    | 'compare'
-    | 'calibrate'
-    | 'starting'
-    | Exclude<TScanCleanupProgressStage, 'queued' | 'detecting'>;
+    'queued' | 'read' | 'detect' | 'compare' | 'calibrate' | 'starting' | Exclude<TScanCleanupProgressStage, 'queued' | 'detecting'>;
 
 export interface IScanCleanupActivityCount {
     completed: number;
@@ -119,21 +109,9 @@ export interface IScanCleanupRunActivityInput {
     committing: boolean;
 }
 
-const PREPARE_STAGES: ReadonlySet<TScanCleanupProgressStage> = new Set([
-    'normalizing',
-    'probing',
-    'extracting',
-]);
-const CLEAN_STAGES: ReadonlySet<TScanCleanupProgressStage> = new Set([
-    'rasterizing',
-    'classifying',
-    'rendering',
-    'detecting',
-]);
-const BUILD_STAGES: ReadonlySet<TScanCleanupProgressStage> = new Set([
-    'collecting',
-    'assembling',
-]);
+const PREPARE_STAGES: ReadonlySet<TScanCleanupProgressStage> = new Set(['normalizing', 'probing', 'extracting']);
+const CLEAN_STAGES: ReadonlySet<TScanCleanupProgressStage> = new Set(['rasterizing', 'classifying', 'rendering', 'detecting']);
+const BUILD_STAGES: ReadonlySet<TScanCleanupProgressStage> = new Set(['collecting', 'assembling']);
 
 function clampUnits(value: number | undefined, total: number) {
     return Math.min(total, Math.max(0, Math.trunc(value ?? 0)));
@@ -143,7 +121,7 @@ function stepViews(
     states: Readonly<Record<TScanCleanupActivityStep, TScanCleanupActivityStepState>>,
     counts: Readonly<Partial<Record<TScanCleanupActivityStep, IScanCleanupActivityCount>>>,
 ): IScanCleanupActivityStepView[] {
-    return SCAN_CLEANUP_ACTIVITY_STEPS.map(step => ({
+    return SCAN_CLEANUP_ACTIVITY_STEPS.map((step) => ({
         id: step.id,
         phase: step.phase,
         state: states[step.id],
@@ -151,16 +129,11 @@ function stepViews(
     }));
 }
 
-function resolveAnalysis(
-    detection: IScanCleanupDetectionActivityInput,
-    run: boolean,
-): IScanCleanupActivity {
+function resolveAnalysis(detection: IScanCleanupDetectionActivityInput, run: boolean): IScanCleanupActivity {
     const progress = detection.progress;
     // The job's own page count is authoritative once it has reported; the
     // viewer's count covers the queued moment before it.
-    const total = Math.max(1, Math.trunc(progress !== null && progress.totalUnits > 0
-        ? progress.totalUnits
-        : detection.totalPages));
+    const total = Math.max(1, Math.trunc(progress !== null && progress.totalUnits > 0 ? progress.totalUnits : detection.totalPages));
     const analyzed = clampUnits(detection.analyzedPages, total);
     // A page is read before it is analyzed, so the read count never trails
     // the verdicts even when a frame reports only one of them.
@@ -179,11 +152,13 @@ function resolveAnalysis(
     const detail: TScanCleanupActivityDetail = queued
         ? 'queued'
         : verdictsComplete
-            ? detection.calibrating ? 'calibrate' : 'compare'
-            : analyzed === 0 && read < total ? 'read' : 'detect';
-    const step: TScanCleanupActivityStep = detail === 'queued' || detail === 'read'
-        ? 'read'
-        : detail === 'detect' ? 'detect' : 'compare';
+          ? detection.calibrating
+              ? 'calibrate'
+              : 'compare'
+          : analyzed === 0 && read < total
+            ? 'read'
+            : 'detect';
+    const step: TScanCleanupActivityStep = detail === 'queued' || detail === 'read' ? 'read' : detail === 'detect' ? 'detect' : 'compare';
     return {
         run,
         phase: 'analyze',
@@ -192,39 +167,45 @@ function resolveAnalysis(
         // The sentence's count measures the work it names. Once every page has
         // a verdict, "158 of 158" would read as finished while the document-wide
         // re-check still runs, so that step counts only the pages it re-read.
-        count: step === 'compare'
-            ? rechecked > 0 ? {completed: rechecked} : null
-            : {
-                completed: detail === 'read' ? read : analyzed,
-                total,
-            },
+        count:
+            step === 'compare'
+                ? rechecked > 0
+                    ? {completed: rechecked}
+                    : null
+                : {
+                      completed: detail === 'read' ? read : analyzed,
+                      total,
+                  },
         fraction: analyzed === 0 && read === 0 ? null : analyzed / total,
         bufferFraction: read / total,
         ...(progress?.etaSeconds === undefined || verdictsComplete ? {} : {etaSeconds: progress.etaSeconds}),
-        ...(progress?.activeSubPageStage === undefined
-            || queued
-            || (verdictsComplete && !(progress.activePageNumbers && progress.activePageNumbers.length > 0))
+        ...(progress?.activeSubPageStage === undefined ||
+        queued ||
+        (verdictsComplete && !(progress.activePageNumbers && progress.activePageNumbers.length > 0))
             ? {}
             : {activeSubPageStage: progress.activeSubPageStage}),
-        steps: stepViews({
-            read: read >= total || verdictsComplete ? 'done' : queued ? 'waiting' : 'active',
-            detect: verdictsComplete ? 'done' : analyzed > 0 || read > 0 ? 'active' : 'waiting',
-            compare: verdictsComplete ? 'active' : 'waiting',
-            prepare: 'waiting',
-            clean: 'waiting',
-            build: 'waiting',
-            open: 'waiting',
-        }, {
-            read: {
-                completed: read,
-                total,
+        steps: stepViews(
+            {
+                read: read >= total || verdictsComplete ? 'done' : queued ? 'waiting' : 'active',
+                detect: verdictsComplete ? 'done' : analyzed > 0 || read > 0 ? 'active' : 'waiting',
+                compare: verdictsComplete ? 'active' : 'waiting',
+                prepare: 'waiting',
+                clean: 'waiting',
+                build: 'waiting',
+                open: 'waiting',
             },
-            detect: {
-                completed: analyzed,
-                total,
+            {
+                read: {
+                    completed: read,
+                    total,
+                },
+                detect: {
+                    completed: analyzed,
+                    total,
+                },
+                ...(rechecked > 0 ? {compare: {completed: rechecked}} : {}),
             },
-            ...(rechecked > 0 ? {compare: {completed: rechecked}} : {}),
-        }),
+        ),
     };
 }
 
@@ -234,26 +215,27 @@ function resolveRun(run: IScanCleanupRunActivityInput): IScanCleanupActivity {
     const counted = progress !== null && progress.totalUnits > 1;
     const count = counted
         ? {
-            completed: clampUnits(progress.completedUnits, progress.totalUnits),
-            total: progress.totalUnits,
-        }
+              completed: clampUnits(progress.completedUnits, progress.totalUnits),
+              total: progress.totalUnits,
+          }
         : undefined;
-    const step: TScanCleanupActivityStep = run.committing || stage === 'handoff'
-        ? 'open'
-        : BUILD_STAGES.has(stage)
-            ? 'build'
-            : CLEAN_STAGES.has(stage) ? 'clean' : 'prepare';
-    const phase = SCAN_CLEANUP_ACTIVITY_STEPS.find(candidate => candidate.id === step)!.phase;
-    const stepIndex = SCAN_CLEANUP_ACTIVITY_STEPS.findIndex(candidate => candidate.id === step);
+    const step: TScanCleanupActivityStep =
+        run.committing || stage === 'handoff' ? 'open' : BUILD_STAGES.has(stage) ? 'build' : CLEAN_STAGES.has(stage) ? 'clean' : 'prepare';
+    const phase = SCAN_CLEANUP_ACTIVITY_STEPS.find((candidate) => candidate.id === step)!.phase;
+    const stepIndex = SCAN_CLEANUP_ACTIVITY_STEPS.findIndex((candidate) => candidate.id === step);
     const detail: TScanCleanupActivityDetail = run.committing
         ? 'handoff'
         : run.starting || progress === null || stage === 'queued'
-            ? 'starting'
-            : stage === 'detecting' ? 'rendering' : stage;
-    const states = Object.fromEntries(SCAN_CLEANUP_ACTIVITY_STEPS.map((candidate, index) => [
-        candidate.id,
-        index < stepIndex ? 'done' : index === stepIndex ? 'active' : 'waiting',
-    ])) as Record<TScanCleanupActivityStep, TScanCleanupActivityStepState>;
+          ? 'starting'
+          : stage === 'detecting'
+            ? 'rendering'
+            : stage;
+    const states = Object.fromEntries(
+        SCAN_CLEANUP_ACTIVITY_STEPS.map((candidate, index) => [
+            candidate.id,
+            index < stepIndex ? 'done' : index === stepIndex ? 'active' : 'waiting',
+        ]),
+    ) as Record<TScanCleanupActivityStep, TScanCleanupActivityStepState>;
     // Each segment bar fills phase-locally (0..1) rather than inheriting the
     // whole-run weighted percentage, which jumped into Clean at ~26% for 0 of N.
     let fraction: number | null = null;
@@ -267,9 +249,7 @@ function resolveRun(run: IScanCleanupRunActivityInput): IScanCleanupActivity {
         } else {
             const rasterized = Math.max(
                 completed,
-                progress.rasterizedUnits === undefined
-                    ? 0
-                    : clampUnits(progress.rasterizedUnits, total),
+                progress.rasterizedUnits === undefined ? 0 : clampUnits(progress.rasterizedUnits, total),
             );
             bufferFraction = rasterized / total;
             fraction = completed === 0 && rasterized === 0 ? null : completed / total;
@@ -278,17 +258,16 @@ function resolveRun(run: IScanCleanupRunActivityInput): IScanCleanupActivity {
         if (run.committing) {
             fraction = 0.95;
         } else if (stage === 'handoff') {
-            const unitFraction = progress !== null && progress.totalUnits > 0
-                ? clampUnits(progress.completedUnits, progress.totalUnits) / progress.totalUnits
-                : 0;
+            const unitFraction =
+                progress !== null && progress.totalUnits > 0
+                    ? clampUnits(progress.completedUnits, progress.totalUnits) / progress.totalUnits
+                    : 0;
             fraction = 0.75 + 0.2 * unitFraction;
         } else if (progress !== null && progress.totalUnits > 0) {
             const completed = clampUnits(progress.completedUnits, progress.totalUnits);
             if (completed > 0) {
                 const unitFraction = completed / progress.totalUnits;
-                fraction = stage === 'collecting'
-                    ? 0.1 * unitFraction
-                    : 0.1 + 0.65 * unitFraction;
+                fraction = stage === 'collecting' ? 0.1 * unitFraction : 0.1 + 0.65 * unitFraction;
             }
         }
     }
@@ -321,9 +300,7 @@ export function resolveScanCleanupActivity(input: {
     run: IScanCleanupRunActivityInput | null;
 }): IScanCleanupActivity | null {
     if (input.run !== null) {
-        return input.run.waitingForDetection
-            ? resolveAnalysis(input.detection, true)
-            : resolveRun(input.run);
+        return input.run.waitingForDetection ? resolveAnalysis(input.detection, true) : resolveRun(input.run);
     }
     return input.detection.pending ? resolveAnalysis(input.detection, false) : null;
 }

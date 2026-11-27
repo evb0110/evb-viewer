@@ -21,11 +21,11 @@ function isSameFatalRuntimeError(
     failure: FailureReceipt | null,
 ) {
     return Boolean(
-        current
-        && current.kind === kind
-        && current.detail === detail
-        && current.source === source
-        && current.failure?.eventId === failure?.eventId,
+        current &&
+        current.kind === kind &&
+        current.detail === detail &&
+        current.source === source &&
+        current.failure?.eventId === failure?.eventId,
     );
 }
 
@@ -33,10 +33,7 @@ export const useFatalRuntimeError = () => {
     const fatalRuntimeError = useState<IFatalRuntimeError | null>('fatal-runtime-error', () => null);
 
     function setFatalRuntimeError(presentation: IFailurePresentation): void;
-    function setFatalRuntimeError(
-        kind: TFatalRuntimeErrorKind,
-        presentation: IFailurePresentation,
-    ): void;
+    function setFatalRuntimeError(kind: TFatalRuntimeErrorKind, presentation: IFailurePresentation): void;
     function setFatalRuntimeError(
         kindOrPresentation: TFatalRuntimeErrorKind | IFailurePresentation,
         presentationArgument?: IFailurePresentation,

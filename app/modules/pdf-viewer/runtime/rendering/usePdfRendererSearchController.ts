@@ -1,17 +1,11 @@
-import type {
-    MaybeRefOrGetter,
-    Ref,
-} from 'vue';
-import { clamp } from 'es-toolkit/math';
-import type {
-    IPdfPageMatches,
-    IPdfSearchMatch,
-} from '@app/types/pdfUi';
-import { createPdfSearchMatchScroller } from '@app/modules/pdf-viewer/engine/pdf-search-match-scroller/createPdfSearchMatchScroller';
-import type { IPdfRendererSearchNavigationOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
-import type { usePdfTextLayerRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { logPdfNav } from '@app/utils/logPdfNav';
+import type {MaybeRefOrGetter, Ref} from 'vue';
+import {clamp} from 'es-toolkit/math';
+import type {IPdfPageMatches, IPdfSearchMatch} from '@app/types/pdfUi';
+import {createPdfSearchMatchScroller} from '@app/modules/pdf-viewer/engine/pdf-search-match-scroller/createPdfSearchMatchScroller';
+import type {IPdfRendererSearchNavigationOptions} from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
+import type {usePdfTextLayerRenderer} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {logPdfNav} from '@app/utils/logPdfNav';
 
 interface IUsePdfRendererSearchControllerOptions extends IPdfRendererSearchNavigationOptions {
     container: Ref<HTMLElement | null>;
@@ -44,21 +38,16 @@ export const usePdfRendererSearchController = (options: IUsePdfRendererSearchCon
         try {
             textLayerRenderer.applyAllSearchHighlights(containerRoot);
         } catch (error) {
-            BrowserLogger.error(
-                'pdf-renderer',
-                'Failed to apply search highlights',
-                error,
-                {code: 'RENDERER_PDF_SEARCH_OPERATION_FAILED'},
-            );
+            BrowserLogger.error('pdf-renderer', 'Failed to apply search highlights', error, {code: 'RENDERER_PDF_SEARCH_OPERATION_FAILED'});
         }
     }
 
     const searchMatchScroller = createPdfSearchMatchScroller({
         getCurrentSearchMatch: () => toValue(currentSearchMatch),
-        getCurrentSearchPageMatches: pageIndex => toValue(searchPageMatches).get(pageIndex) ?? null,
-        ...(options.scrollToPage ? { scrollToPage: options.scrollToPage } : {}),
-        ...(options.revealSearchNavigationTarget ? { revealSearchNavigationTarget: options.revealSearchNavigationTarget } : {}),
-        ...(options.endSearchNavigation ? { endSearchNavigation: options.endSearchNavigation } : {}),
+        getCurrentSearchPageMatches: (pageIndex) => toValue(searchPageMatches).get(pageIndex) ?? null,
+        ...(options.scrollToPage ? {scrollToPage: options.scrollToPage} : {}),
+        ...(options.revealSearchNavigationTarget ? {revealSearchNavigationTarget: options.revealSearchNavigationTarget} : {}),
+        ...(options.endSearchNavigation ? {endSearchNavigation: options.endSearchNavigation} : {}),
     });
 
     let lastHandledSearchNavigationId = 0;
@@ -91,16 +80,8 @@ export const usePdfRendererSearchController = (options: IUsePdfRendererSearchCon
     );
 
     watch(
-        () => [
-            toValue(isActive),
-            isLoading.value,
-            toValue(currentSearchMatchNavigationId),
-        ] as const,
-        ([
-            active,
-            loading,
-            navigationId,
-        ]) => {
+        () => [toValue(isActive), isLoading.value, toValue(currentSearchMatchNavigationId)] as const,
+        ([active, loading, navigationId]) => {
             if (!active) {
                 return;
             }
@@ -112,9 +93,8 @@ export const usePdfRendererSearchController = (options: IUsePdfRendererSearchCon
             }
 
             const currentMatchValue = toValue(currentSearchMatch);
-            const matchPageIndex = currentMatchValue && numPages.value > 0
-                ? clamp(currentMatchValue.pageIndex, 0, numPages.value - 1)
-                : null;
+            const matchPageIndex =
+                currentMatchValue && numPages.value > 0 ? clamp(currentMatchValue.pageIndex, 0, numPages.value - 1) : null;
 
             if (matchPageIndex === null) {
                 searchMatchScroller.invalidatePendingRequests();

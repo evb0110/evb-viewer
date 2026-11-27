@@ -32,9 +32,7 @@ function normalizeSelectionPageCount(pageCount: number) {
     return pageCount;
 }
 
-export function createComplementOfPageSelection(
-    selection: TPageSelection,
-): IComplementPageSelection {
+export function createComplementOfPageSelection(selection: TPageSelection): IComplementPageSelection {
     if (selection.kind === 'explicit') {
         return createComplementPageSelection(selection.pageCount, selection.pages);
     }
@@ -45,10 +43,7 @@ export function createComplementOfPageSelection(
     };
 }
 
-export function createPredicatePageSelection(
-    pageCount: number,
-    predicate: TPageSelectionPredicate,
-): IPredicatePageSelection {
+export function createPredicatePageSelection(pageCount: number, predicate: TPageSelectionPredicate): IPredicatePageSelection {
     const normalizedPageCount = normalizeSelectionPageCount(pageCount);
     return {
         kind: 'predicate',
@@ -57,11 +52,7 @@ export function createPredicatePageSelection(
     };
 }
 
-export function createPageMoveRanges(
-    pageCount: number,
-    ranges: readonly IPageMoveRangeSegment[],
-    insertAt: number,
-): IPageMoveRanges {
+export function createPageMoveRanges(pageCount: number, ranges: readonly IPageMoveRangeSegment[], insertAt: number): IPageMoveRanges {
     const normalizedPageCount = normalizeSelectionPageCount(pageCount);
     if (normalizedPageCount === 0) {
         throw new RangeError('Page move requires a non-empty document');
@@ -74,10 +65,7 @@ export function createPageMoveRanges(
     }
 
     const normalized = [...ranges].map((segment) => {
-        const {
-            startPage,
-            endPage,
-        } = segment;
+        const {startPage, endPage} = segment;
         const normalizedStart = normalizeSelectionPage(startPage, normalizedPageCount);
         const normalizedEnd = normalizeSelectionPage(endPage, normalizedPageCount);
         if (normalizedStart > normalizedEnd) {
@@ -106,12 +94,7 @@ export function createPageMoveRanges(
     };
 }
 
-export function createPageMoveRange(
-    pageCount: number,
-    startPage: number,
-    endPage: number,
-    insertAt: number,
-): IPageMoveRange {
+export function createPageMoveRange(pageCount: number, startPage: number, endPage: number, insertAt: number): IPageMoveRange {
     const normalizedPageCount = normalizeSelectionPageCount(pageCount);
     if (normalizedPageCount === 0) {
         throw new RangeError('Page move requires a non-empty document');
@@ -169,10 +152,7 @@ export {
 
 type TSortedPagesCache = Map<readonly number[], readonly number[]>;
 
-function getSortedUniquePages(
-    pages: readonly number[],
-    cache?: TSortedPagesCache,
-): readonly number[] {
+function getSortedUniquePages(pages: readonly number[], cache?: TSortedPagesCache): readonly number[] {
     const cached = cache?.get(pages);
     if (cached !== undefined) {
         return cached;
@@ -184,18 +164,12 @@ function getSortedUniquePages(
             break;
         }
     }
-    const sorted = strictlyIncreasing
-        ? pages
-        : [...new Set(pages)].sort((left, right) => left - right);
+    const sorted = strictlyIncreasing ? pages : [...new Set(pages)].sort((left, right) => left - right);
     cache?.set(pages, sorted);
     return sorted;
 }
 
-function containsPage(
-    pages: readonly number[],
-    page: number,
-    cache?: TSortedPagesCache,
-) {
+function containsPage(pages: readonly number[], page: number, cache?: TSortedPagesCache) {
     if (!cache) {
         return pages.includes(page);
     }
@@ -204,11 +178,7 @@ function containsPage(
     return sorted[index] === page;
 }
 
-function isPageSelectedWithCache(
-    selection: TPageSelection,
-    page: number,
-    cache?: TSortedPagesCache,
-): boolean {
+function isPageSelectedWithCache(selection: TPageSelection, page: number, cache?: TSortedPagesCache): boolean {
     if (!Number.isSafeInteger(page) || page < 1 || page > selection.pageCount) {
         return false;
     }
@@ -245,9 +215,7 @@ function isPageSelectedWithCache(
             if (selection.excludedPages !== undefined) {
                 return !containsPage(selection.excludedPages, page, cache);
             }
-            return selection.excludedSelection === undefined
-                ? true
-                : !isPageSelectedWithCache(selection.excludedSelection, page, cache);
+            return selection.excludedSelection === undefined ? true : !isPageSelectedWithCache(selection.excludedSelection, page, cache);
     }
 }
 
@@ -270,18 +238,19 @@ export function pageSelectionCount(selection: TPageSelection): number {
         }
         case 'exceptions': {
             const cache: TSortedPagesCache = new Map();
-            const included = selection.includedPages.filter(page => !isPageSelectedWithCache(selection.base, page, cache)).length;
-            const excluded = selection.excludedPages.filter(page => isPageSelectedWithCache(selection.base, page, cache)).length;
+            const included = selection.includedPages.filter((page) => !isPageSelectedWithCache(selection.base, page, cache)).length;
+            const excluded = selection.excludedPages.filter((page) => isPageSelectedWithCache(selection.base, page, cache)).length;
             return pageSelectionCount(selection.base) + included - excluded;
         }
         case 'mapped':
             return pageSelectionCount(selection.source);
         case 'complement': {
-            const excludedCount = selection.excludedPages !== undefined
-                ? selection.excludedPages.length
-                : selection.excludedSelection === undefined
-                    ? 0
-                    : pageSelectionCount(selection.excludedSelection);
+            const excludedCount =
+                selection.excludedPages !== undefined
+                    ? selection.excludedPages.length
+                    : selection.excludedSelection === undefined
+                      ? 0
+                      : pageSelectionCount(selection.excludedSelection);
             return selection.pageCount - excludedCount;
         }
     }
@@ -297,20 +266,15 @@ interface IPageMappingSegment {
     count: number;
 }
 
-function appendPageMapping(
-    mappings: IPageMappingSegment[],
-    fromPageNumber: number,
-    toPageNumber: number,
-    count: number,
-) {
+function appendPageMapping(mappings: IPageMappingSegment[], fromPageNumber: number, toPageNumber: number, count: number) {
     if (count <= 0) {
         return;
     }
     const previous = mappings.at(-1);
     if (
-        previous
-        && previous.fromPageNumber + previous.count === fromPageNumber
-        && previous.toPageNumber + previous.count === toPageNumber
+        previous &&
+        previous.fromPageNumber + previous.count === fromPageNumber &&
+        previous.toPageNumber + previous.count === toPageNumber
     ) {
         previous.count += count;
         return;
@@ -329,14 +293,13 @@ function appendPageMapping(
 function createPageMoveMappings(move: TPageMoveOperation): IPageMappingSegment[] {
     const selectedRanges: IPageMoveRangeSegment[] = isPageMoveRanges(move)
         ? move.ranges
-        : [{
-            startPage: move.startPage,
-            endPage: move.endPage,
-        }];
-    const selectedCount = selectedRanges.reduce(
-        (count, segment) => count + segment.endPage - segment.startPage + 1,
-        0,
-    );
+        : [
+              {
+                  startPage: move.startPage,
+                  endPage: move.endPage,
+              },
+          ];
+    const selectedCount = selectedRanges.reduce((count, segment) => count + segment.endPage - segment.startPage + 1, 0);
     const restInsertIndex = pageMoveRangesRestInsertIndex({
         pageCount: move.pageCount,
         ranges: selectedRanges,
@@ -366,12 +329,7 @@ function createPageMoveMappings(move: TPageMoveOperation): IPageMappingSegment[]
             appendPageMapping(mappings, startPage, destinationPage, beforeCount);
             destinationPage += beforeCount;
             appendSelected();
-            appendPageMapping(
-                mappings,
-                startPage + beforeCount,
-                destinationPage,
-                rangeCount - beforeCount,
-            );
+            appendPageMapping(mappings, startPage + beforeCount, destinationPage, rangeCount - beforeCount);
             destinationPage += rangeCount - beforeCount;
             inserted = true;
         } else {
@@ -395,10 +353,7 @@ function createPageMoveMappings(move: TPageMoveOperation): IPageMappingSegment[]
     return mappings;
 }
 
-function findFirstMappingEndingAtOrAfter(
-    mappings: readonly IPageMappingSegment[],
-    pageNumber: number,
-) {
+function findFirstMappingEndingAtOrAfter(mappings: readonly IPageMappingSegment[], pageNumber: number) {
     let low = 0;
     let high = mappings.length;
     while (low < high) {
@@ -472,7 +427,9 @@ function* iteratePageSelectionRange(
         case 'none':
             return;
         case 'all':
-            for (let page = start; page <= end; page += 1) yield page;
+            for (let page = start; page <= end; page += 1) {
+                yield page;
+            }
             return;
         case 'explicit': {
             const pages = getSortedUniquePages(selection.pages, sortedCache);
@@ -488,45 +445,59 @@ function* iteratePageSelectionRange(
         case 'range': {
             const rangeStart = Math.max(start, selection.startPage);
             const rangeEnd = Math.min(end, selection.endPage);
-            for (let page = rangeStart; page <= rangeEnd; page += 1) yield page;
+            for (let page = rangeStart; page <= rangeEnd; page += 1) {
+                yield page;
+            }
             return;
         }
         case 'predicate': {
             let page = start;
-            if (selection.predicate === 'even' && page % 2 !== 0) page += 1;
-            if (selection.predicate === 'odd' && page % 2 === 0) page += 1;
-            for (; page <= end; page += 2) yield page;
+            if (selection.predicate === 'even' && page % 2 !== 0) {
+                page += 1;
+            }
+            if (selection.predicate === 'odd' && page % 2 === 0) {
+                page += 1;
+            }
+            for (; page <= end; page += 2) {
+                yield page;
+            }
             return;
         }
         case 'complement': {
             if (selection.excludedPages !== undefined) {
                 const excludedPages = getSortedUniquePages(selection.excludedPages, sortedCache);
                 let nextPage = start;
-                for (
-                    let index = lowerBoundPage(excludedPages, start);
-                    index < excludedPages.length;
-                    index += 1
-                ) {
+                for (let index = lowerBoundPage(excludedPages, start); index < excludedPages.length; index += 1) {
                     const excludedPage = excludedPages[index]!;
                     if (excludedPage > end) {
                         break;
                     }
-                    for (let page = nextPage; page < excludedPage; page += 1) yield page;
+                    for (let page = nextPage; page < excludedPage; page += 1) {
+                        yield page;
+                    }
                     nextPage = excludedPage + 1;
                 }
-                for (let page = nextPage; page <= end; page += 1) yield page;
+                for (let page = nextPage; page <= end; page += 1) {
+                    yield page;
+                }
                 return;
             }
             if (selection.excludedSelection === undefined) {
-                for (let page = start; page <= end; page += 1) yield page;
+                for (let page = start; page <= end; page += 1) {
+                    yield page;
+                }
                 return;
             }
             let nextPage = start;
             for (const excludedPage of iteratePageSelectionRange(selection.excludedSelection, start, end, sortedCache)) {
-                for (let page = nextPage; page < excludedPage; page += 1) yield page;
+                for (let page = nextPage; page < excludedPage; page += 1) {
+                    yield page;
+                }
                 nextPage = excludedPage + 1;
             }
-            for (let page = nextPage; page <= end; page += 1) yield page;
+            for (let page = nextPage; page <= end; page += 1) {
+                yield page;
+            }
             return;
         }
         case 'exceptions': {
@@ -574,15 +545,14 @@ function* iteratePageSelectionRange(
     }
 }
 
-function* iterateMappedPageSelection(
-    selection: IMappedPageSelection,
-    sortedCache: TSortedPagesCache = new Map(),
-): Generator<number> {
-    let mappings: IPageMappingSegment[] = [{
-        fromPageNumber: 1,
-        toPageNumber: 1,
-        count: selection.pageCount,
-    }];
+function* iterateMappedPageSelection(selection: IMappedPageSelection, sortedCache: TSortedPagesCache = new Map()): Generator<number> {
+    let mappings: IPageMappingSegment[] = [
+        {
+            fromPageNumber: 1,
+            toPageNumber: 1,
+            count: selection.pageCount,
+        },
+    ];
     for (const move of selection.moves) {
         mappings = composePageMoveMappings(mappings, createPageMoveMappings(move));
     }
@@ -604,16 +574,22 @@ export function* iteratePageSelection(selection: TPageSelection): Generator<numb
         case 'none':
             return;
         case 'all':
-            for (let page = 1; page <= selection.pageCount; page += 1) yield page;
+            for (let page = 1; page <= selection.pageCount; page += 1) {
+                yield page;
+            }
             return;
         case 'explicit':
             yield* selection.pages;
             return;
         case 'range':
-            for (let page = selection.startPage; page <= selection.endPage; page += 1) yield page;
+            for (let page = selection.startPage; page <= selection.endPage; page += 1) {
+                yield page;
+            }
             return;
         case 'predicate':
-            for (let page = selection.predicate === 'even' ? 2 : 1; page <= selection.pageCount; page += 2) yield page;
+            for (let page = selection.predicate === 'even' ? 2 : 1; page <= selection.pageCount; page += 2) {
+                yield page;
+            }
             return;
         case 'exceptions':
             yield* iteratePageSelectionRange(selection, 1, selection.pageCount);
@@ -639,12 +615,7 @@ function* mergePageRangeSources(
     let pending: IPageMoveRangeSegment | null = null;
 
     while (!leftNext.done || !rightNext.done) {
-        const next = rightNext.done || (
-            !leftNext.done
-            && leftNext.value.startPage <= rightNext.value.startPage
-        )
-            ? leftNext
-            : rightNext;
+        const next = rightNext.done || (!leftNext.done && leftNext.value.startPage <= rightNext.value.startPage) ? leftNext : rightNext;
         if (next === leftNext) {
             leftNext = leftIterator.next();
         } else {
@@ -759,22 +730,19 @@ function* iterateMappedPageSelectionRanges(
     selection: IMappedPageSelection,
     sortedCache: TSortedPagesCache = new Map(),
 ): Generator<IPageMoveRangeSegment> {
-    let mappings: IPageMappingSegment[] = [{
-        fromPageNumber: 1,
-        toPageNumber: 1,
-        count: selection.pageCount,
-    }];
+    let mappings: IPageMappingSegment[] = [
+        {
+            fromPageNumber: 1,
+            toPageNumber: 1,
+            count: selection.pageCount,
+        },
+    ];
     for (const move of selection.moves) {
         mappings = composePageMoveMappings(mappings, createPageMoveMappings(move));
     }
     for (const mapping of mappings) {
         const mappingEnd = mapping.fromPageNumber + mapping.count - 1;
-        for (const sourceRange of iteratePageSelectionRangesWithin(
-            selection.source,
-            mapping.fromPageNumber,
-            mappingEnd,
-            sortedCache,
-        )) {
+        for (const sourceRange of iteratePageSelectionRangesWithin(selection.source, mapping.fromPageNumber, mappingEnd, sortedCache)) {
             yield {
                 startPage: mapping.toPageNumber + sourceRange.startPage - mapping.fromPageNumber,
                 endPage: mapping.toPageNumber + sourceRange.endPage - mapping.fromPageNumber,
@@ -832,11 +800,12 @@ function* iteratePageSelectionRangesWithin(
             return;
         }
         case 'complement': {
-            const excludedRanges = selection.excludedPages === undefined
-                ? selection.excludedSelection === undefined
-                    ? []
-                    : iteratePageSelectionRangesWithin(selection.excludedSelection, start, end, sortedCache)
-                : iterateExplicitPageSelectionRangesWithin(getSortedUniquePages(selection.excludedPages, sortedCache), start, end);
+            const excludedRanges =
+                selection.excludedPages === undefined
+                    ? selection.excludedSelection === undefined
+                        ? []
+                        : iteratePageSelectionRangesWithin(selection.excludedSelection, start, end, sortedCache)
+                    : iterateExplicitPageSelectionRangesWithin(getSortedUniquePages(selection.excludedPages, sortedCache), start, end);
             let nextPage = start;
             for (const excludedRange of excludedRanges) {
                 if (excludedRange.endPage < start) {
@@ -873,12 +842,7 @@ function* iteratePageSelectionRangesWithin(
                     excludedPages,
                     excludedStartIndex,
                 ),
-                iterateExplicitPageSelectionRangesWithin(
-                    includedPages,
-                    start,
-                    end,
-                    excludedPages,
-                ),
+                iterateExplicitPageSelectionRangesWithin(includedPages, start, end, excludedPages),
             );
             return;
         }
@@ -904,9 +868,7 @@ function* iteratePageSelectionRangesWithin(
  * select-all, ranges, and complements proportional to their structural
  * descriptions instead of walking every page in the document.
  */
-export function* iteratePageSelectionRanges(
-    selection: TPageSelection,
-): Generator<IPageMoveRangeSegment> {
+export function* iteratePageSelectionRanges(selection: TPageSelection): Generator<IPageMoveRangeSegment> {
     yield* iteratePageSelectionRangesWithin(selection, 1, selection.pageCount);
 }
 
@@ -914,10 +876,7 @@ export function* iteratePageSelectionRanges(
  * Produces bounded native-operation batches.  The generator itself retains
  * only the current batch, so callers can process select-all on large files.
  */
-export function* iteratePageSelectionBatches(
-    selection: TPageSelection,
-    options: IPageSelectionBatchOptions = {},
-): Generator<number[]> {
+export function* iteratePageSelectionBatches(selection: TPageSelection, options: IPageSelectionBatchOptions = {}): Generator<number[]> {
     const batchSize = options.batchSize ?? 1_024;
     if (!Number.isSafeInteger(batchSize) || batchSize <= 0) {
         throw new RangeError('Page selection batchSize must be a positive safe integer');
@@ -930,15 +889,16 @@ export function* iteratePageSelectionBatches(
             batch = [];
         }
     }
-    if (batch.length > 0) yield batch;
+    if (batch.length > 0) {
+        yield batch;
+    }
 }
 
-export function materializePageSelection(
-    selection: TPageSelection,
-    options: IPageSelectionBatchOptions = {},
-) {
+export function materializePageSelection(selection: TPageSelection, options: IPageSelectionBatchOptions = {}) {
     const pages: number[] = [];
-    for (const batch of iteratePageSelectionBatches(selection, options)) pages.push(...batch);
+    for (const batch of iteratePageSelectionBatches(selection, options)) {
+        pages.push(...batch);
+    }
     return pages;
 }
 
@@ -973,27 +933,24 @@ export function togglePageSelection(selection: TPageSelection, page: number): TP
     }
     if (selection.kind === 'explicit') {
         const next = selection.pages.includes(page)
-            ? selection.pages.filter(candidate => candidate !== page)
-            : [
-                ...selection.pages,
-                page,
-            ];
+            ? selection.pages.filter((candidate) => candidate !== page)
+            : [...selection.pages, page];
         return createExplicitPageSelection(selection.pageCount, next);
     }
     if (selection.kind === 'complement' && selection.excludedPages !== undefined) {
         const next = selection.excludedPages.includes(page)
-            ? selection.excludedPages.filter(candidate => candidate !== page)
-            : [
-                ...selection.excludedPages,
-                page,
-            ];
+            ? selection.excludedPages.filter((candidate) => candidate !== page)
+            : [...selection.excludedPages, page];
         return createComplementPageSelection(selection.pageCount, next);
     }
     if (selection.kind === 'exceptions') {
-        const included = selection.includedPages.filter(candidate => candidate !== page);
-        const excluded = selection.excludedPages.filter(candidate => candidate !== page);
-        if (isPageSelected(selection, page)) excluded.push(page);
-        else included.push(page);
+        const included = selection.includedPages.filter((candidate) => candidate !== page);
+        const excluded = selection.excludedPages.filter((candidate) => candidate !== page);
+        if (isPageSelected(selection, page)) {
+            excluded.push(page);
+        } else {
+            included.push(page);
+        }
         return createExceptionPageSelection(selection.base, included, excluded);
     }
     // A range or predicate stays compact when one page is toggled.  The
@@ -1003,15 +960,11 @@ export function togglePageSelection(selection: TPageSelection, page: number): TP
         : createExceptionPageSelection(selection, [page], []);
 }
 
-
 function isPageMoveRanges(move: TPageMoveOperation): move is IPageMoveRanges {
     return 'ranges' in move && Array.isArray(move.ranges);
 }
 
-export function createMappedPageSelection(
-    source: TPageSelection,
-    move: TPageMoveOperation,
-): TPageSelection {
+export function createMappedPageSelection(source: TPageSelection, move: TPageMoveOperation): TPageSelection {
     if (source.pageCount !== move.pageCount) {
         throw new RangeError('Mapped page selection and move must use the same page count');
     }
@@ -1020,10 +973,7 @@ export function createMappedPageSelection(
     }
     if (source.kind === 'mapped') {
         let base = source.source;
-        const moves = [
-            ...source.moves,
-            move,
-        ];
+        const moves = [...source.moves, move];
         while (base.kind === 'mapped') {
             moves.unshift(...base.moves);
             base = base.source;
@@ -1080,12 +1030,16 @@ export function pageMoveRangesRestInsertIndex(move: IPageMoveRanges) {
 
 export function isPageMoveRangesNoOp(move: IPageMoveRanges) {
     const [range] = move.ranges;
-    return range !== undefined && move.ranges.length === 1 && isPageMoveNoOp({
-        pageCount: move.pageCount,
-        startPage: range.startPage,
-        endPage: range.endPage,
-        insertAt: move.insertAt,
-    });
+    return (
+        range !== undefined &&
+        move.ranges.length === 1 &&
+        isPageMoveNoOp({
+            pageCount: move.pageCount,
+            startPage: range.startPage,
+            endPage: range.endPage,
+            insertAt: move.insertAt,
+        })
+    );
 }
 
 export function isPageMoveOperationNoOp(move: TPageMoveOperation) {
@@ -1125,7 +1079,7 @@ function restPageAtIndex(restIndex: number, move: IPageMoveRanges) {
 function createPageNumberAfterPageMoveRanges(move: IPageMoveRanges) {
     const restInsertIndex = pageMoveRangesRestInsertIndex(move);
     const selectedCount = pageMoveRangesSelectedPageCount(move);
-    const segmentEnds = move.ranges.map(segment => segment.endPage);
+    const segmentEnds = move.ranges.map((segment) => segment.endPage);
     const selectedBeforeSegment: number[] = [];
     move.ranges.reduce((count, segment) => {
         selectedBeforeSegment.push(count);
@@ -1140,9 +1094,7 @@ function createPageNumberAfterPageMoveRanges(move: IPageMoveRanges) {
             return restInsertIndex + selectedBefore + page - segment.startPage + 1;
         }
         const restIndex = page - 1 - selectedBefore;
-        return restIndex < restInsertIndex
-            ? restIndex + 1
-            : restIndex + selectedCount + 1;
+        return restIndex < restInsertIndex ? restIndex + 1 : restIndex + selectedCount + 1;
     };
 }
 
@@ -1153,17 +1105,13 @@ function mapPageNumberBeforePageMoveRanges(page: number, move: IPageMoveRanges) 
     if (page >= destinationStart && page < destinationStart + selectedCount) {
         return selectedPageAtOffset(page - destinationStart, move);
     }
-    const restIndex = page < destinationStart
-        ? page - 1
-        : page - selectedCount - 1;
+    const restIndex = page < destinationStart ? page - 1 : page - selectedCount - 1;
     return restPageAtIndex(restIndex, move);
 }
 
 /** Maps original pages after `move`; create it once to map many pages. */
 export function createPageNumberAfterPageMove(move: TPageMoveOperation): (page: number) => number {
-    return isPageMoveRanges(move)
-        ? createPageNumberAfterPageMoveRanges(move)
-        : page => mapPageNumberAfterPageMove(page, move);
+    return isPageMoveRanges(move) ? createPageNumberAfterPageMoveRanges(move) : (page) => mapPageNumberAfterPageMove(page, move);
 }
 
 export function mapPageNumberAfterPageMove(page: number, move: TPageMoveOperation): number {
@@ -1179,12 +1127,8 @@ export function mapPageNumberAfterPageMove(page: number, move: TPageMoveOperatio
     if (page >= move.startPage && page <= move.endPage) {
         return restInsertIndex + page - move.startPage + 1;
     }
-    const restIndex = page < move.startPage
-        ? page - 1
-        : move.startPage - 1 + page - move.endPage - 1;
-    return restIndex < restInsertIndex
-        ? restIndex + 1
-        : restIndex + length + 1;
+    const restIndex = page < move.startPage ? page - 1 : move.startPage - 1 + page - move.endPage - 1;
+    return restIndex < restInsertIndex ? restIndex + 1 : restIndex + length + 1;
 }
 
 /** Maps a destination page back to its original page after a move. */
@@ -1203,12 +1147,8 @@ export function mapPageNumberBeforePageMove(page: number, move: TPageMoveOperati
     if (page >= destinationStart && page < destinationStart + length) {
         return move.startPage + page - destinationStart;
     }
-    const restIndex = page < destinationStart
-        ? page - 1
-        : page - length - 1;
-    return restIndex < move.startPage - 1
-        ? restIndex + 1
-        : restIndex + length + 1;
+    const restIndex = page < destinationStart ? page - 1 : page - length - 1;
+    return restIndex < move.startPage - 1 ? restIndex + 1 : restIndex + length + 1;
 }
 
 /** Builds a full permutation for small/browser-only implementations. */
@@ -1217,7 +1157,9 @@ export function buildPageMoveOrder(move: IPageMoveRange) {
     const restInsertIndex = pageMoveRestInsertIndex(move);
     let restIndex = 0;
     for (let page = 1; page <= move.pageCount; page += 1) {
-        if (page >= move.startPage && page <= move.endPage) continue;
+        if (page >= move.startPage && page <= move.endPage) {
+            continue;
+        }
         if (restIndex === restInsertIndex) {
             for (let movedPage = move.startPage; movedPage <= move.endPage; movedPage += 1) {
                 order.push(movedPage);
@@ -1251,9 +1193,5 @@ export function buildPageMoveRangesOrder(move: IPageMoveRanges) {
         }
     }
     const restInsertIndex = pageMoveRangesRestInsertIndex(move);
-    return [
-        ...restPages.slice(0, restInsertIndex),
-        ...selectedPages,
-        ...restPages.slice(restInsertIndex),
-    ];
+    return [...restPages.slice(0, restInsertIndex), ...selectedPages, ...restPages.slice(restInsertIndex)];
 }

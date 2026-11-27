@@ -1,15 +1,8 @@
-import type { WebContents } from 'electron';
-import { extname } from 'path';
-import type {
-    IOcrCancelResult,
-    IOcrJobStartResult,
-} from '@contracts/electronApiOcr';
-import {
-    createJobId,
-    parseJobId,
-    requireJobId,
-} from '@contracts/shared';
-import type { IPlatformMainSenderContext } from '@contracts/platformFeature';
+import type {WebContents} from 'electron';
+import {extname} from 'path';
+import type {IOcrCancelResult, IOcrJobStartResult} from '@contracts/electronApiOcr';
+import {createJobId, parseJobId, requireJobId} from '@contracts/shared';
+import type {IPlatformMainSenderContext} from '@contracts/platformFeature';
 import {AVAILABLE_OCR_LANGUAGES} from '@electron/features/ocr/availableLanguages';
 import {
     buildOcrErrorEnvelope,
@@ -18,22 +11,12 @@ import {
     validateCancelRequestId,
     validateCreateSearchablePdfPayload,
 } from '@electron/features/ocr/contracts';
-import {
-    handleOcrAcknowledgeResultFile,
-    handleOcrCancel,
-    handleOcrCreateSearchablePdfAsync,
-} from '@electron/features/ocr/main/jobManager';
-import { createLogger } from '@electron/utils/createLogger';
-import {
-    readDocumentTextSnapshot,
-    readDocumentTextWindow,
-} from '@electron/features/ocr/main/documentText';
-import { getOcrLanguageModelStates } from '@electron/features/ocr/languageModels';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import {
-    resolveAllowedReadPath,
-    resolveAllowedWritePath,
-} from '@electron/utils/pathValidator';
+import {handleOcrAcknowledgeResultFile, handleOcrCancel, handleOcrCreateSearchablePdfAsync} from '@electron/features/ocr/main/jobManager';
+import {createLogger} from '@electron/utils/createLogger';
+import {readDocumentTextSnapshot, readDocumentTextWindow} from '@electron/features/ocr/main/documentText';
+import {getOcrLanguageModelStates} from '@electron/features/ocr/languageModels';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import {resolveAllowedReadPath, resolveAllowedWritePath} from '@electron/utils/pathValidator';
 import {
     ensureWorkingCopyMaterialized,
     getWorkingCopyBackingEntry,
@@ -42,7 +25,7 @@ import {
     WorkingCopyMaterializationError,
 } from '@electron/file-access/documentStore';
 import {registerMainOperation} from '@electron/operation-lifecycle/mainOperationLifecycle';
-import { getErrorMessage } from '@electron/utils/error';
+import {getErrorMessage} from '@electron/utils/error';
 
 const log = createLogger('ocr-ipc');
 type TOcrOperationContext = IPlatformMainSenderContext<WebContents>;
@@ -59,10 +42,7 @@ function getOcrRequestKey(senderId: number, requestId: string) {
     return `${senderId}:${requestId}`;
 }
 
-function beginOcrRequest(
-    context: TOcrOperationContext,
-    requestId: string,
-) {
+function beginOcrRequest(context: TOcrOperationContext, requestId: string) {
     const request: IOcrRequest = {
         senderId: context.senderId,
         requestId,
@@ -94,13 +74,8 @@ function cancelOcrRequest(senderId: number, requestId: string) {
 }
 
 export async function handleOcrGetLanguages() {
-    const modelStates = new Map(
-        (await getOcrLanguageModelStates()).map(item => [
-            item.code,
-            item.state,
-        ]),
-    );
-    return AVAILABLE_OCR_LANGUAGES.map(language => ({
+    const modelStates = new Map((await getOcrLanguageModelStates()).map((item) => [item.code, item.state]));
+    return AVAILABLE_OCR_LANGUAGES.map((language) => ({
         ...language,
         modelState: modelStates.get(language.code) ?? 'missing',
     }));
@@ -120,11 +95,12 @@ export async function handleResolveDocumentTextCatalog(
         return await runCancellableTextRead(
             context,
             logicalPath,
-            signal => runWithWorkingCopyReadBacking(
-                logicalPath,
-                physicalPath => readDocumentTextSnapshot(logicalPath, physicalPath, documentRevision, pageCount, signal),
-                {ownerWebContentsId: context.senderId},
-            ),
+            (signal) =>
+                runWithWorkingCopyReadBacking(
+                    logicalPath,
+                    (physicalPath) => readDocumentTextSnapshot(logicalPath, physicalPath, documentRevision, pageCount, signal),
+                    {ownerWebContentsId: context.senderId},
+                ),
             request,
         );
     } finally {
@@ -148,21 +124,23 @@ export async function handleResolveDocumentTextCatalogWindow(
         return await runCancellableTextRead(
             context,
             logicalPath,
-            signal => runWithWorkingCopyReadBacking(
-                logicalPath,
-                physicalPath => readDocumentTextWindow(
+            (signal) =>
+                runWithWorkingCopyReadBacking(
                     logicalPath,
-                    physicalPath,
-                    documentRevision,
-                    {
-                        firstPage,
-                        lastPage,
-                        pageCount,
-                    },
-                    signal,
+                    (physicalPath) =>
+                        readDocumentTextWindow(
+                            logicalPath,
+                            physicalPath,
+                            documentRevision,
+                            {
+                                firstPage,
+                                lastPage,
+                                pageCount,
+                            },
+                            signal,
+                        ),
+                    {ownerWebContentsId: context.senderId},
                 ),
-                {ownerWebContentsId: context.senderId},
-            ),
             request,
         );
     } finally {
@@ -213,15 +191,10 @@ async function runCancellableTextRead<T>(
         kind: 'abortable-work',
         ownerWebContentsId: context.senderId,
         workingCopyPath: logicalPath,
-        cancel: reason => log.debug(`Document text read cancelled: ${reason}`),
+        cancel: (reason) => log.debug(`Document text read cancelled: ${reason}`),
     });
     try {
-        return await read(request
-            ? AbortSignal.any([
-                operation.signal,
-                request.controller.signal,
-            ])
-            : operation.signal);
+        return await read(request ? AbortSignal.any([operation.signal, request.controller.signal]) : operation.signal);
     } finally {
         operation.complete();
     }
@@ -250,18 +223,16 @@ async function validateOcrSourcePdfPath(sourcePdfPath: string, senderWebContents
 }
 
 /** The file holding the document's bytes, which the OCR job reads; the document is validated by its ref. */
-async function validateOcrPersistenceSourcePdfPath(
-    sourcePdfPath: string,
-    senderWebContentsId: number,
-    signal: AbortSignal,
-) {
+async function validateOcrPersistenceSourcePdfPath(sourcePdfPath: string, senderWebContentsId: number, signal: AbortSignal) {
     const documentRef = await validateOcrSourcePdfPath(sourcePdfPath, senderWebContentsId);
     try {
-        return (await ensureWorkingCopyMaterialized(documentRef, {
-            ownerWebContentsId: senderWebContentsId,
-            reason: 'ocr-persist',
-            signal,
-        })).physicalWorkingCopyPath;
+        return (
+            await ensureWorkingCopyMaterialized(documentRef, {
+                ownerWebContentsId: senderWebContentsId,
+                reason: 'ocr-persist',
+                signal,
+            })
+        ).physicalWorkingCopyPath;
     } catch (error) {
         if (error instanceof WorkingCopyMaterializationError) {
             throw error;
@@ -281,12 +252,7 @@ export async function handleOcrCreateSearchablePdf(
     let request: IOcrRequest | undefined;
 
     try {
-        const payload = validateCreateSearchablePdfPayload(
-            sourcePdfPathPayload,
-            pagesPayload,
-            requestIdPayload,
-            renderDpiOrOptionsPayload,
-        );
+        const payload = validateCreateSearchablePdfPayload(sourcePdfPathPayload, pagesPayload, requestIdPayload, renderDpiOrOptionsPayload);
 
         jobId = requireJobId(payload.requestId);
         // Registered before the working copy is prepared, so a cancel during
@@ -307,17 +273,10 @@ export async function handleOcrCreateSearchablePdf(
         );
 
         if (!result.started && result.error) {
-            const {
-                errorCode,
-                ...publicResult
-            } = result;
+            const {errorCode, ...publicResult} = result;
             return {
                 ...publicResult,
-                errorEnvelope: buildOcrErrorEnvelope(
-                    errorCode ?? 'OCR_INTERNAL_ERROR',
-                    result.error,
-                    {retryable: true},
-                ),
+                errorEnvelope: buildOcrErrorEnvelope(errorCode ?? 'OCR_INTERNAL_ERROR', result.error, {retryable: true}),
             };
         }
 
@@ -336,17 +295,12 @@ export async function handleOcrCreateSearchablePdf(
     }
 }
 
-export function handleOcrCancelValidated(
-    context: TOcrOperationContext,
-    requestIdPayload: unknown,
-): IOcrCancelResult {
+export function handleOcrCancelValidated(context: TOcrOperationContext, requestIdPayload: unknown): IOcrCancelResult {
     try {
         const requestId = validateCancelRequestId(requestIdPayload);
         const ocrRequestCanceled = cancelOcrRequest(context.senderId, requestId);
         const jobResult = handleOcrCancel(context, requestId);
-        return ocrRequestCanceled && !jobResult.canceled
-            ? {canceled: true}
-            : jobResult;
+        return ocrRequestCanceled && !jobResult.canceled ? {canceled: true} : jobResult;
     } catch (error) {
         const envelope = toOcrErrorEnvelope(error);
         log.warn(`ocr:cancel rejected: ${envelope.message}`);

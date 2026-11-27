@@ -1,4 +1,4 @@
-import type { Ref } from 'vue';
+import type {Ref} from 'vue';
 import type {IDocumentOpenSurfaceSession} from '@app/modules/document-viewer/public';
 
 interface IUseDocumentOpenVisualSettleOptions {
@@ -20,28 +20,19 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
         generation: number;
     } | null>(null);
     watch(
-        [
-            options.openSurface.snapshot,
-            options.openSurface.viewportSession,
-        ],
-        ([
-            surface,
-            viewport,
-        ]) => {
+        [options.openSurface.snapshot, options.openSurface.viewportSession],
+        ([surface, viewport]) => {
             const identity = surface.identity;
             // A page that could not be drawn is told on screen, with its
             // Retry; waiting for its pixels would leave the open unsettled.
-            const pageErrorShown = viewport.lifecycle === 'failed'
-                && viewport.visual.kind === 'page'
-                && viewport.visual.presentation === 'error'
-                && viewport.visual.generation === viewport.generation;
+            const pageErrorShown =
+                viewport.lifecycle === 'failed' &&
+                viewport.visual.kind === 'page' &&
+                viewport.visual.presentation === 'error' &&
+                viewport.visual.generation === viewport.generation;
             if (
-                identity === null
-                || !pageErrorShown && (
-                    surface.phase !== 'ready'
-                    || surface.presentation !== 'committed'
-                    || viewport.lifecycle !== 'ready'
-                )
+                identity === null ||
+                (!pageErrorShown && (surface.phase !== 'ready' || surface.presentation !== 'committed' || viewport.lifecycle !== 'ready'))
             ) {
                 return;
             }
@@ -67,24 +58,29 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
         // eviction of the on-screen canvas), until the replacement paints.
         const viewport = options.openSurface.viewportSession.value;
         const visual = viewport.visual;
-        const residentVisualLost = visual.kind === 'page'
-            && visual.presentation === 'skeleton'
-            && (viewport.committedPage === null || visual.pageNumber === viewport.committedPage);
-        return identity !== null
-            && committed?.generation === surface.generation
-            && committed.documentId === identity.documentId
-            && committed.documentRevision === identity.documentRevision
-            && !residentVisualLost;
+        const residentVisualLost =
+            visual.kind === 'page' &&
+            visual.presentation === 'skeleton' &&
+            (viewport.committedPage === null || visual.pageNumber === viewport.committedPage);
+        return (
+            identity !== null &&
+            committed?.generation === surface.generation &&
+            committed.documentId === identity.documentId &&
+            committed.documentRevision === identity.documentRevision &&
+            !residentVisualLost
+        );
     });
     const hasOpenError = computed(() => Boolean(options.pdfError.value) || Boolean(options.djvuError.value));
-    const documentOpenSettled = computed(() => hasOpenError.value || (
-        options.showDjvuSource.value
-            ? !options.isLoading.value && initialDocumentVisualReady.value
-            // The committed surface proves the current PDF has been painted.
-            // Its workspace document projection can arrive later when a view
-            // opens in the background; it does not own visual completion.
-            : initialDocumentVisualReady.value
-    ));
+    const documentOpenSettled = computed(
+        () =>
+            hasOpenError.value ||
+            (options.showDjvuSource.value
+                ? !options.isLoading.value && initialDocumentVisualReady.value
+                : // The committed surface proves the current PDF has been painted.
+                  // Its workspace document projection can arrive later when a view
+                  // opens in the background; it does not own visual completion.
+                  initialDocumentVisualReady.value),
+    );
 
     return {
         documentOpenSettled,

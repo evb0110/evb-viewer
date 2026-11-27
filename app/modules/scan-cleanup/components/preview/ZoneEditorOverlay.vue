@@ -22,18 +22,17 @@
                 v-for="zone in renderedZones"
                 :key="zone.id"
                 class="zone-editor-polygon"
-                :class="[
-                    `is-${zone.selection.kind}`,
-                    {'is-selected': isSelected(zone.selection)},
-                ]"
+                :class="[`is-${zone.selection.kind}`, {'is-selected': isSelected(zone.selection)}]"
                 :points="polygonPoints(zone.polygon)"
                 vector-effect="non-scaling-stroke"
                 tabindex="0"
                 role="button"
-                :aria-label="t('scanCleanup.zones.zoneLabel', {
-                    number: zone.selection.index + 1,
-                    kind: t(`scanCleanup.zones.${zone.selection.kind}`),
-                })"
+                :aria-label="
+                    t('scanCleanup.zones.zoneLabel', {
+                        number: zone.selection.index + 1,
+                        kind: t(`scanCleanup.zones.${zone.selection.kind}`),
+                    })
+                "
                 :aria-pressed="isSelected(zone.selection)"
                 @focus="!disabled && emit('update:selected', zone.selection)"
                 @pointerdown.stop="startMoving($event, zone.selection, zone.polygon)"
@@ -55,9 +54,11 @@
                 class="zone-editor-handle"
                 :class="`is-${handle}`"
                 :style="handleStyle(handle)"
-                :aria-label="t('scanCleanup.zones.resizeHandle', {
-                    direction: t(`scanCleanup.zones.corners.${handle}`),
-                })"
+                :aria-label="
+                    t('scanCleanup.zones.resizeHandle', {
+                        direction: t(`scanCleanup.zones.corners.${handle}`),
+                    })
+                "
                 @pointerdown.stop="startResizing($event, handle)"
                 @keydown="resizeByKey($event, handle)"
             />
@@ -158,22 +159,20 @@ const emit = defineEmits<{
 const {t} = useTypedI18n();
 const editor = ref<HTMLElement | null>(null);
 const draft = shallowRef<TZoneDrag | null>(null);
-const handles: readonly TScanCleanupZoneCorner[] = [
-    'nw',
-    'ne',
-    'se',
-    'sw',
-];
+const handles: readonly TScanCleanupZoneCorner[] = ['nw', 'ne', 'se', 'sw'];
 const frameStyle = computed<CSSProperties>(() => ({
     height: `${frame.height}px`,
     left: `${frame.left}px`,
     top: `${frame.top}px`,
     width: `${frame.width}px`,
 }));
-const zones = computed<IScanCleanupManualZones>(() => manualZones ?? {
-    picture: [],
-    fill: [],
-});
+const zones = computed<IScanCleanupManualZones>(
+    () =>
+        manualZones ?? {
+            picture: [],
+            fill: [],
+        },
+);
 
 let nextZoneKeyId = 0;
 let previousTrackedZones: Record<TScanCleanupZoneKind, ITrackedZone[]> = {
@@ -188,7 +187,7 @@ function createZoneId(kind: TScanCleanupZoneKind) {
 }
 
 function zonePolygonSignature(polygon: IScanCleanupNormalizedZonePolygon) {
-    return `${polygon.rotationDegrees}:${polygon.points.map(point => `${point.xNormalized},${point.yNormalized}`).join(';')}`;
+    return `${polygon.rotationDegrees}:${polygon.points.map((point) => `${point.xNormalized},${point.yNormalized}`).join(';')}`;
 }
 
 function reconcileTrackedZones(
@@ -198,10 +197,10 @@ function reconcileTrackedZones(
     pendingDeletedIndex: number | null,
 ): ITrackedZone[] {
     if (
-        pendingDeletedIndex !== null
-        && pendingDeletedIndex >= 0
-        && pendingDeletedIndex < previous.length
-        && signatures.length === previous.length - 1
+        pendingDeletedIndex !== null &&
+        pendingDeletedIndex >= 0 &&
+        pendingDeletedIndex < previous.length &&
+        signatures.length === previous.length - 1
     ) {
         const remaining = previous.filter((_, index) => index !== pendingDeletedIndex);
         return signatures.map((signature, index) => ({
@@ -217,9 +216,7 @@ function reconcileTrackedZones(
     }
     const used = new Set<number>();
     return signatures.map((signature) => {
-        const matchIndex = previous.findIndex(
-            (entry, index) => !used.has(index) && entry.signature === signature,
-        );
+        const matchIndex = previous.findIndex((entry, index) => !used.has(index) && entry.signature === signature);
         if (matchIndex >= 0) {
             used.add(matchIndex);
             return {
@@ -239,7 +236,7 @@ const zoneIdsByKind = computed<Record<TScanCleanupZoneKind, string[]>>(() => {
     pendingDeletedZone = null;
     const nextPicture = reconcileTrackedZones(
         'picture',
-        zones.value.picture.map(zone => `${zone.layer}:${zonePolygonSignature(zone.polygon)}`),
+        zones.value.picture.map((zone) => `${zone.layer}:${zonePolygonSignature(zone.polygon)}`),
         previousTrackedZones.picture,
         deletion?.kind === 'picture' ? deletion.index : null,
     );
@@ -254,8 +251,8 @@ const zoneIdsByKind = computed<Record<TScanCleanupZoneKind, string[]>>(() => {
         fill: nextFill,
     };
     return {
-        picture: nextPicture.map(entry => entry.id),
-        fill: nextFill.map(entry => entry.id),
+        picture: nextPicture.map((entry) => entry.id),
+        fill: nextFill.map((entry) => entry.id),
     };
 });
 
@@ -264,10 +261,11 @@ const renderedZones = computed<IRenderedZone[]>(() => {
     const fillIds = zoneIdsByKind.value.fill;
     const picture = zones.value.picture.map((zone, index): IRenderedZone => ({
         id: pictureIds[index] ?? `picture-${index}`,
-        polygon: draftPolygon({
-            kind: 'picture',
-            index,
-        }) ?? zone.polygon,
+        polygon:
+            draftPolygon({
+                kind: 'picture',
+                index,
+            }) ?? zone.polygon,
         selection: {
             kind: 'picture',
             index,
@@ -275,33 +273,33 @@ const renderedZones = computed<IRenderedZone[]>(() => {
     }));
     const fill = zones.value.fill.map((polygon, index): IRenderedZone => ({
         id: fillIds[index] ?? `fill-${index}`,
-        polygon: draftPolygon({
-            kind: 'fill',
-            index,
-        }) ?? polygon,
+        polygon:
+            draftPolygon({
+                kind: 'fill',
+                index,
+            }) ?? polygon,
         selection: {
             kind: 'fill',
             index,
         },
     }));
-    return [
-        ...picture,
-        ...fill,
-    ];
+    return [...picture, ...fill];
 });
 const selectedPolygon = computed(() => {
     if (!selected) {
         return null;
     }
-    return renderedZones.value.find(zone => isSelected(zone.selection))?.polygon ?? null;
+    return renderedZones.value.find((zone) => isSelected(zone.selection))?.polygon ?? null;
 });
-const selectedBounds = computed(() => selectedPolygon.value
-    ? resolveScanCleanupZoneBounds(selectedPolygon.value)
-    : null);
-const deleteStyle = computed<CSSProperties>(() => selectedBounds.value ? {
-    left: `${selectedBounds.value.right * 100}%`,
-    top: `${selectedBounds.value.top * 100}%`,
-} : {});
+const selectedBounds = computed(() => (selectedPolygon.value ? resolveScanCleanupZoneBounds(selectedPolygon.value) : null));
+const deleteStyle = computed<CSSProperties>(() =>
+    selectedBounds.value
+        ? {
+              left: `${selectedBounds.value.right * 100}%`,
+              top: `${selectedBounds.value.top * 100}%`,
+          }
+        : {},
+);
 
 function sameSelection(left: IScanCleanupZoneSelection, right: IScanCleanupZoneSelection) {
     return left.kind === right.kind && left.index === right.index;
@@ -320,22 +318,25 @@ function draftPolygon(selection: IScanCleanupZoneSelection) {
 }
 
 function polygonPoints(polygon: IScanCleanupNormalizedZonePolygon) {
-    return polygon.points
-        .map(point => `${point.xNormalized},${point.yNormalized}`)
-        .join(' ');
+    return polygon.points.map((point) => `${point.xNormalized},${point.yNormalized}`).join(' ');
 }
 
 function pointFromEvent(event: PointerEvent) {
     const rect = editor.value?.getBoundingClientRect();
-    return previewPxToNormalizedZonePoint({
-        xPx: event.clientX,
-        yPx: event.clientY,
-    }, rect ? {
-        height: rect.height,
-        left: rect.left,
-        top: rect.top,
-        width: rect.width,
-    } : frame);
+    return previewPxToNormalizedZonePoint(
+        {
+            xPx: event.clientX,
+            yPx: event.clientY,
+        },
+        rect
+            ? {
+                  height: rect.height,
+                  left: rect.left,
+                  top: rect.top,
+                  width: rect.width,
+              }
+            : frame,
+    );
 }
 
 function capturePointer(event: PointerEvent) {
@@ -361,11 +362,7 @@ function startDrawing(event: PointerEvent) {
     };
 }
 
-function startMoving(
-    event: PointerEvent,
-    selection: IScanCleanupZoneSelection,
-    polygon: IScanCleanupNormalizedZonePolygon,
-) {
+function startMoving(event: PointerEvent, selection: IScanCleanupZoneSelection, polygon: IScanCleanupNormalizedZonePolygon) {
     if (!capturePointer(event)) {
         return;
     }
@@ -401,12 +398,7 @@ function updateDrag(event: PointerEvent) {
     }
     const point = pointFromEvent(event);
     if (current.kind === 'drawing') {
-        current.polygon = createScanCleanupRectangleZone(
-            current.start,
-            point,
-            rotationDegrees,
-            0,
-        );
+        current.polygon = createScanCleanupRectangleZone(current.start, point, rotationDegrees, 0);
     } else if (current.kind === 'moving') {
         current.polygon = moveScanCleanupZonePolygon(
             current.original,
@@ -421,7 +413,7 @@ function updateDrag(event: PointerEvent) {
 
 function cloneZones() {
     return {
-        picture: zones.value.picture.map(zone => ({
+        picture: zones.value.picture.map((zone) => ({
             layer: zone.layer,
             polygon: cloneScanCleanupZonePolygon(zone.polygon),
         })),
@@ -429,11 +421,7 @@ function cloneZones() {
     };
 }
 
-function replaceZone(
-    next: IScanCleanupManualZones,
-    selection: IScanCleanupZoneSelection,
-    polygon: IScanCleanupNormalizedZonePolygon,
-) {
+function replaceZone(next: IScanCleanupManualZones, selection: IScanCleanupZoneSelection, polygon: IScanCleanupNormalizedZonePolygon) {
     if (selection.kind === 'picture') {
         const current = next.picture[selection.index];
         if (current) {
@@ -447,20 +435,18 @@ function replaceZone(
     }
 }
 
-function samePolygon(
-    left: IScanCleanupNormalizedZonePolygon,
-    right: IScanCleanupNormalizedZonePolygon,
-) {
-    return left.rotationDegrees === right.rotationDegrees
-        && left.points.length === right.points.length
-        && left.points.every((point, index) => {
+function samePolygon(left: IScanCleanupNormalizedZonePolygon, right: IScanCleanupNormalizedZonePolygon) {
+    return (
+        left.rotationDegrees === right.rotationDegrees &&
+        left.points.length === right.points.length &&
+        left.points.every((point, index) => {
             const other = right.points[index];
             if (!other) {
                 return false;
             }
-            return point.xNormalized === other.xNormalized
-                && point.yNormalized === other.yNormalized;
-        });
+            return point.xNormalized === other.xNormalized && point.yNormalized === other.yNormalized;
+        })
+    );
 }
 
 // Arrow keys move the focused corner by 1% of the frame, 5% with Shift, as
@@ -468,27 +454,13 @@ function samePolygon(
 function resizeByKey(event: KeyboardEvent, corner: TScanCleanupZoneCorner) {
     const polygon = selectedPolygon.value;
     const bounds = selectedBounds.value;
-    const [
-        dx,
-        dy,
-    ] = {
-        ArrowLeft: [
-            -1,
-            0,
-        ],
-        ArrowRight: [
-            1,
-            0,
-        ],
-        ArrowUp: [
-            0,
-            -1,
-        ],
-        ArrowDown: [
-            0,
-            1,
-        ],
-    }[event.key] ?? [];
+    const [dx, dy] =
+        {
+            ArrowLeft: [-1, 0],
+            ArrowRight: [1, 0],
+            ArrowUp: [0, -1],
+            ArrowDown: [0, 1],
+        }[event.key] ?? [];
     if (disabled || !selected || !polygon || !bounds || dx === undefined || dy === undefined) {
         return;
     }
@@ -514,22 +486,19 @@ function finishDrag(event: PointerEvent) {
         return;
     }
     if (current.kind === 'drawing') {
-        const polygon = createScanCleanupRectangleZone(
-            current.start,
-            pointFromEvent(event),
-            rotationDegrees,
-        );
+        const polygon = createScanCleanupRectangleZone(current.start, pointFromEvent(event), rotationDegrees);
         if (polygon) {
             const next = cloneZones();
-            const selection: IScanCleanupZoneSelection = zoneKind === 'picture'
-                ? {
-                    kind: 'picture',
-                    index: next.picture.length,
-                }
-                : {
-                    kind: 'fill',
-                    index: next.fill.length,
-                };
+            const selection: IScanCleanupZoneSelection =
+                zoneKind === 'picture'
+                    ? {
+                          kind: 'picture',
+                          index: next.picture.length,
+                      }
+                    : {
+                          kind: 'fill',
+                          index: next.fill.length,
+                      };
             if (selection.kind === 'picture') {
                 next.picture.push({
                     layer: 'painter2',
@@ -580,7 +549,7 @@ function deleteSelectedZone() {
     } else {
         next.fill.splice(selected.index, 1);
     }
-    pendingDeletedZone = { ...selected };
+    pendingDeletedZone = {...selected};
     emit('update:manualZones', next);
     emit('update:selected', null);
 }
@@ -596,24 +565,15 @@ function handleStyle(corner: TScanCleanupZoneCorner): CSSProperties {
     };
 }
 
-watch(
-    [
-        () => rotationDegrees,
-        () => disabled,
-    ],
-    ([
-        nextRotationDegrees,
-        isDisabled,
-    ], [previousRotationDegrees]) => {
-        const rotationChanged = nextRotationDegrees !== previousRotationDegrees;
-        if (rotationChanged || isDisabled) {
-            cancelDrag();
-        }
-        if (rotationChanged) {
-            emit('update:selected', null);
-        }
-    },
-);
+watch([() => rotationDegrees, () => disabled], ([nextRotationDegrees, isDisabled], [previousRotationDegrees]) => {
+    const rotationChanged = nextRotationDegrees !== previousRotationDegrees;
+    if (rotationChanged || isDisabled) {
+        cancelDrag();
+    }
+    if (rotationChanged) {
+        emit('update:selected', null);
+    }
+});
 </script>
 
 <style scoped>
@@ -647,20 +607,12 @@ watch(
 }
 
 .zone-editor-polygon.is-picture {
-    fill: color-mix(
-        in srgb,
-        var(--app-scan-zone-picture-color) var(--app-scan-zone-overlay-opacity),
-        transparent
-    );
+    fill: color-mix(in srgb, var(--app-scan-zone-picture-color) var(--app-scan-zone-overlay-opacity), transparent);
     stroke: var(--app-scan-zone-picture-color);
 }
 
 .zone-editor-polygon.is-fill {
-    fill: color-mix(
-        in srgb,
-        var(--app-scan-zone-fill-color) var(--app-scan-zone-overlay-opacity),
-        transparent
-    );
+    fill: color-mix(in srgb, var(--app-scan-zone-fill-color) var(--app-scan-zone-overlay-opacity), transparent);
     stroke: var(--app-scan-zone-fill-color);
 }
 
@@ -702,9 +654,6 @@ watch(
     position: absolute;
     z-index: var(--app-z-local-overlay);
     pointer-events: auto;
-    transform: translate(
-        calc(-100% - var(--app-space-sm)),
-        calc(-100% - var(--app-space-sm))
-    );
+    transform: translate(calc(-100% - var(--app-space-sm)), calc(-100% - var(--app-space-sm)));
 }
 </style>

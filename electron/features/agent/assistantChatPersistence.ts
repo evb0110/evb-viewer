@@ -1,28 +1,8 @@
-import {
-    createHash,
-    randomBytes,
-} from 'node:crypto';
-import {
-    mkdirSync,
-    type BigIntStats,
-} from 'fs';
-import {
-    appendFile,
-    copyFile,
-    mkdir,
-    readFile,
-    readdir,
-    rename,
-    rm,
-    stat,
-    writeFile,
-} from 'fs/promises';
-import {
-    basename,
-    dirname,
-    join,
-} from 'path';
-import { app } from 'electron';
+import {createHash, randomBytes} from 'node:crypto';
+import {mkdirSync, type BigIntStats} from 'fs';
+import {appendFile, copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile} from 'fs/promises';
+import {basename, dirname, join} from 'path';
+import {app} from 'electron';
 import type {
     IAgentAssistantChatScope,
     IAgentAssistantErrorEnvelope,
@@ -32,20 +12,14 @@ import type {
     TAgentAssistantProviderId,
     TAgentAssistantSpeedMode,
 } from '@contracts/agent';
-import { isErrnoException } from '@contracts/runtimeGuards';
-import { ASSISTANT_INSTANCE_ID_PATTERN } from '@contracts/assistant';
-import { isDocumentRevisionInfo } from '@contracts/documentRevision';
-import {
-    inferDocumentRefBackend, parseDocumentRef,
-} from '@contracts/documentRef';
-import {
-    isEpochMs,
-    parseIsoTimestamp,
-    type TIsoTimestamp,
-} from '@contracts/timestamps';
+import {isErrnoException} from '@contracts/runtimeGuards';
+import {ASSISTANT_INSTANCE_ID_PATTERN} from '@contracts/assistant';
+import {isDocumentRevisionInfo} from '@contracts/documentRevision';
+import {inferDocumentRefBackend, parseDocumentRef} from '@contracts/documentRef';
+import {isEpochMs, parseIsoTimestamp, type TIsoTimestamp} from '@contracts/timestamps';
 import {parseTabId} from '@contracts/windowTabs';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
 import type {IAssistantSessionScopeBinding} from '@electron/features/agent/assistantMcpSessionScope';
 import {fsyncParentDirectory} from '@electron/utils/atomicReplace';
 import {fsyncFile} from '@electron/utils/fsyncPath';
@@ -58,44 +32,43 @@ const ASSISTANT_CHAT_PERSISTENCE_SCHEMA_VERSION = 1;
 /** Version-1 records carry the turn owner of the release that wrote them. */
 type TAssistantTurnOwnerState =
     | {
-        phase: 'idle';
-        generation: number;
-        turnId: null;
-        localTurnId: null;
-    }
+          phase: 'idle';
+          generation: number;
+          turnId: null;
+          localTurnId: null;
+      }
     | {
-        phase: 'starting';
-        generation: number;
-        localTurnId: string;
-        providerTurnId: null;
-        scope: IAssistantSessionScopeBinding;
-    }
+          phase: 'starting';
+          generation: number;
+          localTurnId: string;
+          providerTurnId: null;
+          scope: IAssistantSessionScopeBinding;
+      }
     | {
-        phase: 'running';
-        generation: number;
-        localTurnId: string;
-        providerTurnId: string;
-        scope: IAssistantSessionScopeBinding;
-    }
+          phase: 'running';
+          generation: number;
+          localTurnId: string;
+          providerTurnId: string;
+          scope: IAssistantSessionScopeBinding;
+      }
     | {
-        phase: 'interrupting';
-        generation: number;
-        localTurnId: string;
-        providerTurnId: string | null;
-        scope: IAssistantSessionScopeBinding;
-    }
+          phase: 'interrupting';
+          generation: number;
+          localTurnId: string;
+          providerTurnId: string | null;
+          scope: IAssistantSessionScopeBinding;
+      }
     | {
-        phase: 'error';
-        generation: number;
-        turnId: null;
-        localTurnId: null;
-        error: string;
-    };
+          phase: 'error';
+          generation: number;
+          turnId: null;
+          localTurnId: null;
+          error: string;
+      };
 
 function isAssistantTurnActive(owner: TAssistantTurnOwnerState) {
     return owner.phase === 'starting' || owner.phase === 'running' || owner.phase === 'interrupting';
 }
-
 
 const ASSISTANT_CHAT_STORAGE_DIR = 'assistant-chat';
 const ASSISTANT_CHAT_SESSION_DIR = 'sessions';
@@ -173,32 +146,29 @@ function sessionFileIdentity(fileStat: BigIntStats) {
 
 type TPersistedAssistantChatRecord =
     | {
-        schemaVersion: typeof ASSISTANT_CHAT_PERSISTENCE_SCHEMA_VERSION;
-        type: 'session-snapshot';
-        key: string;
-        writtenAt: string;
-        session: IPersistedAssistantChatSession;
-    }
+          schemaVersion: typeof ASSISTANT_CHAT_PERSISTENCE_SCHEMA_VERSION;
+          type: 'session-snapshot';
+          key: string;
+          writtenAt: string;
+          session: IPersistedAssistantChatSession;
+      }
     | {
-        schemaVersion: typeof ASSISTANT_CHAT_PERSISTENCE_SCHEMA_VERSION;
-        type: 'session-reset';
-        key: string;
-        writtenAt: string;
-    }
+          schemaVersion: typeof ASSISTANT_CHAT_PERSISTENCE_SCHEMA_VERSION;
+          type: 'session-reset';
+          key: string;
+          writtenAt: string;
+      }
     | {
-        schemaVersion: typeof ASSISTANT_CHAT_PERSISTENCE_SCHEMA_VERSION;
-        type: 'session-snapshot-ref';
-        keyDigest: string;
-        writtenAt: string;
-        blobFile: string;
-        sha256: string;
-        sizeBytes: number;
-    };
+          schemaVersion: typeof ASSISTANT_CHAT_PERSISTENCE_SCHEMA_VERSION;
+          type: 'session-snapshot-ref';
+          keyDigest: string;
+          writtenAt: string;
+          blobFile: string;
+          sha256: string;
+          sizeBytes: number;
+      };
 
-export type TAssistantChatPersistenceFailureCode =
-    | 'write-failed'
-    | 'maintenance-failed'
-    | 'snapshot-too-large';
+export type TAssistantChatPersistenceFailureCode = 'write-failed' | 'maintenance-failed' | 'snapshot-too-large';
 
 export class AssistantChatPersistenceError extends Error {
     readonly code: TAssistantChatPersistenceFailureCode;
@@ -293,7 +263,7 @@ function randomSuffix() {
 }
 
 async function atomicWriteJsonFile(filePath: string, payload: unknown) {
-    await mkdir(dirname(filePath), { recursive: true });
+    await mkdir(dirname(filePath), {recursive: true});
     const tempPath = join(dirname(filePath), `.${basename(filePath)}.${randomSuffix()}.tmp`);
     await writeFile(tempPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
     await fsyncFile(tempPath);
@@ -315,13 +285,11 @@ function clonePersistedSession(session: IPersistedAssistantChatSession): IPersis
             const attachments = message.attachments;
             return {
                 ...message,
-                ...(attachments === undefined
-                    ? {}
-                    : {attachments: attachments.map(attachment => ({...attachment}))}),
+                ...(attachments === undefined ? {} : {attachments: attachments.map((attachment) => ({...attachment}))}),
             };
         }),
         lastAccessedAtMs: session.lastAccessedAtMs,
-        ...(session.lastError === undefined ? {} : { lastError: session.lastError }),
+        ...(session.lastError === undefined ? {} : {lastError: session.lastError}),
     };
 }
 
@@ -351,18 +319,16 @@ function isOptionalDocumentBackend(value: unknown) {
 
 function isWorkspaceCommandTarget(value: unknown): value is TAgentWorkspaceCommandTarget {
     if (
-        !isObject(value)
-        || typeof value.tabId !== 'string'
-        || value.tabId.length === 0
-        || typeof value.sessionId !== 'string'
-        || value.sessionId.length === 0
-        || !isNullableString(value.documentRef)
-        || !isOptionalDocumentBackend(value.documentBackend)
-        || !isOptionalNullableString(value.documentInstanceId)
-        || (
-            value.documentRevisionToken !== undefined
-            && (typeof value.documentRevisionToken !== 'string' || value.documentRevisionToken.length === 0)
-        )
+        !isObject(value) ||
+        typeof value.tabId !== 'string' ||
+        value.tabId.length === 0 ||
+        typeof value.sessionId !== 'string' ||
+        value.sessionId.length === 0 ||
+        !isNullableString(value.documentRef) ||
+        !isOptionalDocumentBackend(value.documentBackend) ||
+        !isOptionalNullableString(value.documentInstanceId) ||
+        (value.documentRevisionToken !== undefined &&
+            (typeof value.documentRevisionToken !== 'string' || value.documentRevisionToken.length === 0))
     ) {
         return false;
     }
@@ -372,112 +338,99 @@ function isWorkspaceCommandTarget(value: unknown): value is TAgentWorkspaceComma
 }
 
 function isAssistantChatScope(value: unknown): value is IAgentAssistantChatScope {
-    return isObject(value)
-        && value.kind === 'document'
-        && typeof value.key === 'string'
-        && value.key.length > 0
-        && isNullableString(value.title)
-        && isOptionalNullableString(value.tabId)
-        && isOptionalNullableString(value.documentSessionKey)
-        && isOptionalNullableString(value.documentInstanceId)
-        && isOptionalNullableString(value.documentRef)
-        && isOptionalDocumentBackend(value.documentBackend)
-        && (
-            value.documentIdentity === undefined
-            || value.documentIdentity === null
-            || isDocumentRevisionInfo(value.documentIdentity)
-        )
-        && (
-            value.commandTarget === undefined
-            || isWorkspaceCommandTarget(value.commandTarget)
-        );
+    return (
+        isObject(value) &&
+        value.kind === 'document' &&
+        typeof value.key === 'string' &&
+        value.key.length > 0 &&
+        isNullableString(value.title) &&
+        isOptionalNullableString(value.tabId) &&
+        isOptionalNullableString(value.documentSessionKey) &&
+        isOptionalNullableString(value.documentInstanceId) &&
+        isOptionalNullableString(value.documentRef) &&
+        isOptionalDocumentBackend(value.documentBackend) &&
+        (value.documentIdentity === undefined || value.documentIdentity === null || isDocumentRevisionInfo(value.documentIdentity)) &&
+        (value.commandTarget === undefined || isWorkspaceCommandTarget(value.commandTarget))
+    );
 }
 
 function isAssistantErrorEnvelope(value: unknown) {
-    return isObject(value)
-        && (
-            value.code === 'AUTH_REQUIRED'
-            || value.code === 'INSTALL_MISSING'
-            || value.code === 'LOGIN_CANCELLED'
-            || value.code === 'USER_INTERRUPTED'
-            || value.code === 'MODEL_UNAVAILABLE'
-            || value.code === 'RUNTIME_UNAVAILABLE'
-            || value.code === 'PROVIDER_RATE_LIMITED'
-            || value.code === 'INTERNAL'
-        )
-        && typeof value.message === 'string'
-        && typeof value.retryable === 'boolean'
-        && isObject(value.details)
-        && isEpochMs(value.details.timestamp);
+    return (
+        isObject(value) &&
+        (value.code === 'AUTH_REQUIRED' ||
+            value.code === 'INSTALL_MISSING' ||
+            value.code === 'LOGIN_CANCELLED' ||
+            value.code === 'USER_INTERRUPTED' ||
+            value.code === 'MODEL_UNAVAILABLE' ||
+            value.code === 'RUNTIME_UNAVAILABLE' ||
+            value.code === 'PROVIDER_RATE_LIMITED' ||
+            value.code === 'INTERNAL') &&
+        typeof value.message === 'string' &&
+        typeof value.retryable === 'boolean' &&
+        isObject(value.details) &&
+        isEpochMs(value.details.timestamp)
+    );
 }
 
 function isAssistantImageAttachment(value: unknown) {
-    return isObject(value)
-        && value.type === 'image'
-        && typeof value.id === 'string'
-        && typeof value.name === 'string'
-        && typeof value.mimeType === 'string'
-        && typeof value.dataUrl === 'string'
-        && typeof value.sizeBytes === 'number'
-        && Number.isFinite(value.sizeBytes)
-        && value.sizeBytes > 0;
+    return (
+        isObject(value) &&
+        value.type === 'image' &&
+        typeof value.id === 'string' &&
+        typeof value.name === 'string' &&
+        typeof value.mimeType === 'string' &&
+        typeof value.dataUrl === 'string' &&
+        typeof value.sizeBytes === 'number' &&
+        Number.isFinite(value.sizeBytes) &&
+        value.sizeBytes > 0
+    );
 }
 
-const PERSISTED_MESSAGE_ROLES = new Set([
-    'user',
-    'assistant',
-    'system',
-    'reasoning',
-    'tool',
-]);
-const PERSISTED_MESSAGE_STATUSES = new Set([
-    'streaming',
-    'completed',
-    'interrupted',
-    'failed',
-]);
+const PERSISTED_MESSAGE_ROLES = new Set(['user', 'assistant', 'system', 'reasoning', 'tool']);
+const PERSISTED_MESSAGE_STATUSES = new Set(['streaming', 'completed', 'interrupted', 'failed']);
 
 function isOptionalString(value: unknown) {
     return value === undefined || typeof value === 'string';
 }
 
 function isAssistantChatMessage(value: unknown): value is IPersistedAssistantMessage {
-    return isObject(value)
-        && typeof value.id === 'string'
-        && typeof value.role === 'string'
-        && PERSISTED_MESSAGE_ROLES.has(value.role)
-        && typeof value.text === 'string'
-        && parseIsoTimestamp(value.createdAt) !== null
-        && (
-            value.attachments === undefined
-            || Array.isArray(value.attachments) && value.attachments.every(isAssistantImageAttachment)
-        )
-        && (value.turnId === undefined || value.turnId === null || typeof value.turnId === 'string')
-        && (value.status === undefined || typeof value.status === 'string' && PERSISTED_MESSAGE_STATUSES.has(value.status))
-        && isOptionalString(value.toolName)
-        && isOptionalString(value.toolDetail)
-        && (value.completedAt === undefined || parseIsoTimestamp(value.completedAt) !== null)
-        && (value.pending === undefined || typeof value.pending === 'boolean')
-        && isOptionalString(value.error)
-        && (value.errorEnvelope === undefined || isAssistantErrorEnvelope(value.errorEnvelope));
+    return (
+        isObject(value) &&
+        typeof value.id === 'string' &&
+        typeof value.role === 'string' &&
+        PERSISTED_MESSAGE_ROLES.has(value.role) &&
+        typeof value.text === 'string' &&
+        parseIsoTimestamp(value.createdAt) !== null &&
+        (value.attachments === undefined || (Array.isArray(value.attachments) && value.attachments.every(isAssistantImageAttachment))) &&
+        (value.turnId === undefined || value.turnId === null || typeof value.turnId === 'string') &&
+        (value.status === undefined || (typeof value.status === 'string' && PERSISTED_MESSAGE_STATUSES.has(value.status))) &&
+        isOptionalString(value.toolName) &&
+        isOptionalString(value.toolDetail) &&
+        (value.completedAt === undefined || parseIsoTimestamp(value.completedAt) !== null) &&
+        (value.pending === undefined || typeof value.pending === 'boolean') &&
+        isOptionalString(value.error) &&
+        (value.errorEnvelope === undefined || isAssistantErrorEnvelope(value.errorEnvelope))
+    );
 }
 
 function isAssistantSessionScopeBinding(value: unknown): value is IAssistantSessionScopeBinding {
-    return isObject(value)
-        && typeof value.sessionKey === 'string'
-        && value.sessionKey.length > 0
-        && typeof value.scopeKey === 'string'
-        && value.scopeKey.length > 0
-        && (value.provider === 'codex' || value.provider === 'claude')
-        && isNonNegativeInteger(value.turnGeneration)
-        && isSafeInteger(value.windowId)
-        && parseTabId(value.tabId) !== null
-        && isOptionalNullableString(value.documentSessionKey)
-        && (value.documentRef === null || parseDocumentRef(value.documentRef) !== null)
-        && isOptionalDocumentBackend(value.documentBackend)
-        && isOptionalNullableString(value.documentInstanceId)
-        && (value.documentIdentity === null || isDocumentRevisionInfo(value.documentIdentity))
-        && (value.commandTarget === undefined || isWorkspaceCommandTarget(value.commandTarget));
+    return (
+        isObject(value) &&
+        typeof value.sessionKey === 'string' &&
+        value.sessionKey.length > 0 &&
+        typeof value.scopeKey === 'string' &&
+        value.scopeKey.length > 0 &&
+        (value.provider === 'codex' || value.provider === 'claude') &&
+        isNonNegativeInteger(value.turnGeneration) &&
+        isSafeInteger(value.windowId) &&
+        parseTabId(value.tabId) !== null &&
+        isOptionalNullableString(value.documentSessionKey) &&
+        (value.documentRef === null || parseDocumentRef(value.documentRef) !== null) &&
+        isOptionalDocumentBackend(value.documentBackend) &&
+        isOptionalNullableString(value.documentInstanceId) &&
+        (value.documentIdentity === null || isDocumentRevisionInfo(value.documentIdentity)) &&
+        (value.commandTarget === undefined || isWorkspaceCommandTarget(value.commandTarget))
+    );
 }
 
 function isAssistantTurnOwner(value: unknown): value is TAssistantTurnOwnerState {
@@ -488,24 +441,23 @@ function isAssistantTurnOwner(value: unknown): value is TAssistantTurnOwnerState
         return value.turnId === null && value.localTurnId === null;
     }
     if (value.phase === 'error') {
-        return value.turnId === null
-            && value.localTurnId === null
-            && typeof value.error === 'string';
+        return value.turnId === null && value.localTurnId === null && typeof value.error === 'string';
     }
     if (value.phase === 'starting') {
-        return typeof value.localTurnId === 'string'
-            && value.providerTurnId === null
-            && isAssistantSessionScopeBinding(value.scope)
-            && value.scope.turnGeneration === value.generation;
+        return (
+            typeof value.localTurnId === 'string' &&
+            value.providerTurnId === null &&
+            isAssistantSessionScopeBinding(value.scope) &&
+            value.scope.turnGeneration === value.generation
+        );
     }
     if (value.phase === 'running' || value.phase === 'interrupting') {
-        return typeof value.localTurnId === 'string'
-            && (
-                value.phase === 'interrupting' && value.providerTurnId === null
-                || typeof value.providerTurnId === 'string'
-            )
-            && isAssistantSessionScopeBinding(value.scope)
-            && value.scope.turnGeneration === value.generation;
+        return (
+            typeof value.localTurnId === 'string' &&
+            ((value.phase === 'interrupting' && value.providerTurnId === null) || typeof value.providerTurnId === 'string') &&
+            isAssistantSessionScopeBinding(value.scope) &&
+            value.scope.turnGeneration === value.generation
+        );
     }
     return false;
 }
@@ -514,19 +466,22 @@ function isPersistedSession(value: unknown): value is IPersistedAssistantChatSes
     if (!isObject(value)) {
         return false;
     }
-    return (value.provider === 'codex' || value.provider === 'claude')
-        && (value.instanceId === undefined || typeof value.instanceId === 'string' && ASSISTANT_INSTANCE_ID_PATTERN.test(value.instanceId))
-        && isAssistantChatScope(value.scope)
-        && typeof value.model === 'string'
-        && typeof value.effort === 'string'
-        && (value.speedMode === 'fast' || value.speedMode === 'standard')
-        && (typeof value.providerThreadId === 'string' || value.providerThreadId === null)
-        && isAssistantTurnOwner(value.turnOwner)
-        && Array.isArray(value.messages)
-        && value.messages.every(isAssistantChatMessage)
-        && typeof value.lastAccessedAtMs === 'number'
-        && Number.isFinite(value.lastAccessedAtMs)
-        && (value.lastError === undefined || typeof value.lastError === 'string');
+    return (
+        (value.provider === 'codex' || value.provider === 'claude') &&
+        (value.instanceId === undefined ||
+            (typeof value.instanceId === 'string' && ASSISTANT_INSTANCE_ID_PATTERN.test(value.instanceId))) &&
+        isAssistantChatScope(value.scope) &&
+        typeof value.model === 'string' &&
+        typeof value.effort === 'string' &&
+        (value.speedMode === 'fast' || value.speedMode === 'standard') &&
+        (typeof value.providerThreadId === 'string' || value.providerThreadId === null) &&
+        isAssistantTurnOwner(value.turnOwner) &&
+        Array.isArray(value.messages) &&
+        value.messages.every(isAssistantChatMessage) &&
+        typeof value.lastAccessedAtMs === 'number' &&
+        Number.isFinite(value.lastAccessedAtMs) &&
+        (value.lastError === undefined || typeof value.lastError === 'string')
+    );
 }
 
 function parsePersistedRecord(line: string): TPersistedAssistantChatRecord | null {
@@ -541,34 +496,34 @@ function parsePersistedRecord(line: string): TPersistedAssistantChatRecord | nul
         return null;
     }
     if (
-        parsed.type === 'session-reset'
-        && typeof parsed.key === 'string'
-        && parsed.key.length > 0
-        && typeof parsed.writtenAt === 'string'
+        parsed.type === 'session-reset' &&
+        typeof parsed.key === 'string' &&
+        parsed.key.length > 0 &&
+        typeof parsed.writtenAt === 'string'
     ) {
         return parsed as TPersistedAssistantChatRecord;
     }
     if (
-        parsed.type === 'session-snapshot'
-        && typeof parsed.key === 'string'
-        && parsed.key.length > 0
-        && typeof parsed.writtenAt === 'string'
-        && isPersistedSession(parsed.session)
+        parsed.type === 'session-snapshot' &&
+        typeof parsed.key === 'string' &&
+        parsed.key.length > 0 &&
+        typeof parsed.writtenAt === 'string' &&
+        isPersistedSession(parsed.session)
     ) {
         return parsed as TPersistedAssistantChatRecord;
     }
     if (
-        parsed.type === 'session-snapshot-ref'
-        && typeof parsed.keyDigest === 'string'
-        && /^[a-f0-9]{64}$/u.test(parsed.keyDigest)
-        && typeof parsed.writtenAt === 'string'
-        && typeof parsed.blobFile === 'string'
-        && /^[a-f0-9]{64}\.json$/u.test(parsed.blobFile)
-        && typeof parsed.sha256 === 'string'
-        && /^[a-f0-9]{64}$/u.test(parsed.sha256)
-        && typeof parsed.sizeBytes === 'number'
-        && Number.isSafeInteger(parsed.sizeBytes)
-        && parsed.sizeBytes > 0
+        parsed.type === 'session-snapshot-ref' &&
+        typeof parsed.keyDigest === 'string' &&
+        /^[a-f0-9]{64}$/u.test(parsed.keyDigest) &&
+        typeof parsed.writtenAt === 'string' &&
+        typeof parsed.blobFile === 'string' &&
+        /^[a-f0-9]{64}\.json$/u.test(parsed.blobFile) &&
+        typeof parsed.sha256 === 'string' &&
+        /^[a-f0-9]{64}$/u.test(parsed.sha256) &&
+        typeof parsed.sizeBytes === 'number' &&
+        Number.isSafeInteger(parsed.sizeBytes) &&
+        parsed.sizeBytes > 0
     ) {
         return parsed as TPersistedAssistantChatRecord;
     }
@@ -641,16 +596,18 @@ function createPersistedSnapshotRecord(
 // Compatibility for pre-004d174623 document-session scopes. Remove only when
 // importing schema-1 chats from those releases is no longer supported.
 function legacyDocumentScopeKey(entry: IRecoveredAssistantChatSessionFile) {
-    const {
-        provider, scope,
-    } = entry.session;
-    if (!scope.key.startsWith('document-session:')
-        || scope.key === 'document-session:'
-        || entry.key !== `${provider}:${scope.key}`) return null;
+    const {provider, scope} = entry.session;
+    if (!scope.key.startsWith('document-session:') || scope.key === 'document-session:' || entry.key !== `${provider}:${scope.key}`) {
+        return null;
+    }
     const documentRef = parseDocumentRef(scope.documentRef);
-    if (documentRef === null) return null;
+    if (documentRef === null) {
+        return null;
+    }
     const backend = inferDocumentRefBackend(documentRef);
-    if (scope.documentBackend !== undefined && scope.documentBackend !== backend) return null;
+    if (scope.documentBackend !== undefined && scope.documentBackend !== backend) {
+        return null;
+    }
     return `document:${backend}:${documentRef}`;
 }
 
@@ -688,19 +645,17 @@ export class AssistantChatPersistence {
         this.maxArchives = options.maxArchives ?? DEFAULT_ASSISTANT_CHAT_MAX_ARCHIVES;
         this.snapshotDebounceMs = options.snapshotDebounceMs ?? DEFAULT_ASSISTANT_CHAT_SNAPSHOT_DEBOUNCE_MS;
         this.now = options.now ?? Date.now;
-        this.onError = options.onError ?? ((message, error) => {
-            logger.warn(`${message}: ${getErrorMessage(error)}`);
-        });
-        mkdirSync(this.sessionsDir, { recursive: true });
-        mkdirSync(this.archiveDir, { recursive: true });
+        this.onError =
+            options.onError ??
+            ((message, error) => {
+                logger.warn(`${message}: ${getErrorMessage(error)}`);
+            });
+        mkdirSync(this.sessionsDir, {recursive: true});
+        mkdirSync(this.archiveDir, {recursive: true});
         this.snapshotStorage = new AssistantChatSnapshotStorage<IPersistedAssistantChatSession, 1>({
             blobsDir: this.blobsDir,
             maxSessionBytes: this.maxSessionBytes,
-            createTooLargeError: (key, message) => new AssistantChatPersistenceError(
-                'snapshot-too-large',
-                key,
-                message,
-            ),
+            createTooLargeError: (key, message) => new AssistantChatPersistenceError('snapshot-too-large', key, message),
             parseRecord: parsePersistedRecord,
         });
     }
@@ -729,8 +684,10 @@ export class AssistantChatPersistence {
                 migrationFailure = this.toPersistenceError('scope-migration', error);
             }
         });
-        if (migrationFailure) throw migrationFailure;
-        const recovered = entries.map(entry => ({
+        if (migrationFailure) {
+            throw migrationFailure;
+        }
+        const recovered = entries.map((entry) => ({
             ...entry,
             session: interruptRecoveredSession(entry.session),
         }));
@@ -743,23 +700,31 @@ export class AssistantChatPersistence {
     async recoverSession(key: string): Promise<IRecoveredAssistantChatSession | null> {
         let recovered = null as IRecoveredAssistantChatSession | AssistantChatPersistenceError | null;
         this.forcePendingSnapshot(key, true);
-        await this.enqueue(key, async () => {
-            try {
-                if (!this.legacyScopesMigrated && /^(codex|claude):document:/u.test(key)) {
-                    await this.adoptLegacyDocumentScopes(await this.readSessionEntries());
+        await this.enqueue(
+            key,
+            async () => {
+                try {
+                    if (!this.legacyScopesMigrated && /^(codex|claude):document:/u.test(key)) {
+                        await this.adoptLegacyDocumentScopes(await this.readSessionEntries());
+                    }
+                    const {entry} = await this.readSessionForRecovery(key);
+                    if (entry) {
+                        recovered = {
+                            ...entry,
+                            session: interruptRecoveredSession(entry.session),
+                        };
+                    }
+                } catch (error) {
+                    recovered = this.toPersistenceError(key, error);
+                    this.onError(`Failed to recover assistant chat session "${key}" during lookup`, recovered);
                 }
-                const {entry} = await this.readSessionForRecovery(key);
-                if (entry) recovered = {
-                    ...entry,
-                    session: interruptRecoveredSession(entry.session),
-                };
-            } catch (error) {
-                recovered = this.toPersistenceError(key, error);
-                this.onError(`Failed to recover assistant chat session "${key}" during lookup`, recovered);
-            }
-        }, true);
+            },
+            true,
+        );
         // Report failure after the queued callback settles, so a retry is usable.
-        if (recovered instanceof AssistantChatPersistenceError) throw recovered;
+        if (recovered instanceof AssistantChatPersistenceError) {
+            throw recovered;
+        }
         return recovered;
     }
 
@@ -770,34 +735,42 @@ export class AssistantChatPersistence {
     }> {
         const legacyName = `${Buffer.from(key).toString('base64url')}.jsonl`;
         const paths = [this.sessionPath(key)];
-        if (Buffer.byteLength(legacyName) <= 255) paths.push(join(this.sessionsDir, legacyName));
+        if (Buffer.byteLength(legacyName) <= 255) {
+            paths.push(join(this.sessionsDir, legacyName));
+        }
         const archives = await this.readSessionArchives(key);
         const isBarrier = (reason: string) => reason === 'reset' || reason === 'corrupt' || reason === 'scope-migrated';
-        const retiredLegacyKey = /^(codex|claude):document-session:/u.test(key)
-            && archives.some(archive => archive.reason === 'scope-migrated');
+        const retiredLegacyKey =
+            /^(codex|claude):document-session:/u.test(key) && archives.some((archive) => archive.reason === 'scope-migrated');
         for (const candidate of [
-            ...paths.map(filePath => ({
+            ...paths.map((filePath) => ({
                 filePath,
                 reason: 'live',
             })),
             ...archives,
         ]) {
-            if (isBarrier(candidate.reason) || candidate.reason !== 'live' && retiredLegacyKey) return {
-                entry: null,
-                blocksImport: true,
-            };
+            if (isBarrier(candidate.reason) || (candidate.reason !== 'live' && retiredLegacyKey)) {
+                return {
+                    entry: null,
+                    blocksImport: true,
+                };
+            }
             let contents: string;
             try {
                 contents = await this.readSessionContents(candidate.filePath, key);
             } catch (error) {
-                if (isErrnoException(error) && error.code === 'ENOENT') continue;
+                if (isErrnoException(error) && error.code === 'ENOENT') {
+                    continue;
+                }
                 throw error;
             }
             let file;
             try {
                 file = this.recoverSessionContents(candidate.filePath, key, contents);
             } catch (error) {
-                if (error instanceof AssistantChatPersistenceError) throw error;
+                if (error instanceof AssistantChatPersistenceError) {
+                    throw error;
+                }
                 await this.quarantineCorruptSession(candidate.filePath);
                 this.onError(`Failed to recover assistant chat session "${key}" during lookup`, error);
                 return {
@@ -806,16 +779,18 @@ export class AssistantChatPersistence {
                 };
             }
             return {
-                entry: file ? {
-                    key: file.key,
-                    session: file.session,
-                    filePath: candidate.filePath,
-                    lastAccessedAtMs: file.session.lastAccessedAtMs,
-                    sizeBytes: Buffer.byteLength(contents),
-                } : null,
+                entry: file
+                    ? {
+                          key: file.key,
+                          session: file.session,
+                          filePath: candidate.filePath,
+                          lastAccessedAtMs: file.session.lastAccessedAtMs,
+                          sizeBytes: Buffer.byteLength(contents),
+                      }
+                    : null,
                 // An empty/reset transcript and explicit reset/corrupt archives
                 // must never be treated as an automatically-created empty chat.
-                blocksImport: !file || archives.some(archive => archive.reason === 'reset' || archive.reason === 'corrupt'),
+                blocksImport: !file || archives.some((archive) => archive.reason === 'reset' || archive.reason === 'corrupt'),
             };
         }
         return {
@@ -826,20 +801,27 @@ export class AssistantChatPersistence {
 
     /** Runs inside the existing write queue, before any recovered grants escape. */
     private async adoptLegacyDocumentScopes(entries: IAssistantChatSessionEntry[]) {
-        if (this.legacyScopesMigrated) return entries;
+        if (this.legacyScopesMigrated) {
+            return entries;
+        }
         // A transiently unreadable live transcript keeps the pass retryable.
         const completeRead = (await this.listSessionFiles()).length === entries.length;
         const candidates: IRecoveredAssistantChatSessionFile[] = [...entries];
         // Discover old logical keys even when their only retained copy was evicted.
         // Choose the newest archive per filename prefix before reading its bytes.
-        const newest = new Map<string, {
-            filePath: string;
-            reason: string;
-            time: number
-        }>();
+        const newest = new Map<
+            string,
+            {
+                filePath: string;
+                reason: string;
+                time: number;
+            }
+        >();
         for (const file of await readdir(this.archiveDir, {withFileTypes: true})) {
             const match = /^(.*)\.(evicted|expired|reset|corrupt|scope-migrated)\.(\d+)\.[a-f0-9]+\.jsonl$/u.exec(file.name);
-            if (!file.isFile() || !match) continue;
+            if (!file.isFile() || !match) {
+                continue;
+            }
             const candidate = {
                 filePath: join(this.archiveDir, file.name),
                 reason: match[2]!,
@@ -847,19 +829,29 @@ export class AssistantChatPersistence {
             };
             const previous = newest.get(match[1]!);
             const terminal = (reason: string) => /^(reset|corrupt|scope-migrated)$/u.test(reason);
-            if (!previous || candidate.time > previous.time
-                || candidate.time === previous.time && (
-                    Number(terminal(candidate.reason)) > Number(terminal(previous.reason))
-                    || terminal(candidate.reason) === terminal(previous.reason) && candidate.filePath > previous.filePath
-                )) newest.set(match[1]!, candidate);
+            if (
+                !previous ||
+                candidate.time > previous.time ||
+                (candidate.time === previous.time &&
+                    (Number(terminal(candidate.reason)) > Number(terminal(previous.reason)) ||
+                        (terminal(candidate.reason) === terminal(previous.reason) && candidate.filePath > previous.filePath)))
+            ) {
+                newest.set(match[1]!, candidate);
+            }
         }
         for (const archive of newest.values()) {
-            if (archive.reason !== 'evicted' && archive.reason !== 'expired') continue;
+            if (archive.reason !== 'evicted' && archive.reason !== 'expired') {
+                continue;
+            }
             try {
                 const entry = await this.recoverSessionFileAsync(archive.filePath);
-                if (entry) candidates.push(entry);
+                if (entry) {
+                    candidates.push(entry);
+                }
             } catch (error) {
-                if (error instanceof AssistantChatPersistenceError) throw error;
+                if (error instanceof AssistantChatPersistenceError) {
+                    throw error;
+                }
                 await this.quarantineCorruptSession(archive.filePath);
                 this.onError('Failed to inspect archived assistant chat scope', error);
             }
@@ -867,30 +859,38 @@ export class AssistantChatPersistence {
         const groups = new Map<string, Set<string>>();
         for (const entry of candidates) {
             const scopeKey = legacyDocumentScopeKey(entry);
-            if (scopeKey === null) continue;
+            if (scopeKey === null) {
+                continue;
+            }
             const key = `${entry.session.provider}:${scopeKey}`;
             const group = groups.get(key) ?? new Set<string>();
             group.add(entry.key);
             groups.set(key, group);
         }
         let changed = false;
-        for (const [
-            key,
-            oldKeys,
-        ] of [...groups].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
+        for (const [key, oldKeys] of [...groups].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
             const current = await this.readSessionForRecovery(key);
             const legacy: IAssistantChatSessionEntry[] = [];
             for (const oldKey of oldKeys) {
                 const source = await this.readSessionForRecovery(oldKey);
                 if (source.entry) {
                     const scopeKey = legacyDocumentScopeKey(source.entry);
-                    if (scopeKey !== null && `${source.entry.session.provider}:${scopeKey}` === key) legacy.push(source.entry);
+                    if (scopeKey !== null && `${source.entry.session.provider}:${scopeKey}` === key) {
+                        legacy.push(source.entry);
+                    }
                 }
             }
-            const hasConversation = (entry: IAssistantChatSessionEntry) => entry.session.messages.length > 0 || entry.session.providerThreadId !== null;
-            legacy.sort((a, b) => Number(hasConversation(b)) - Number(hasConversation(a))
-                || b.lastAccessedAtMs - a.lastAccessedAtMs || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-            if (legacy.length === 0) continue;
+            const hasConversation = (entry: IAssistantChatSessionEntry) =>
+                entry.session.messages.length > 0 || entry.session.providerThreadId !== null;
+            legacy.sort(
+                (a, b) =>
+                    Number(hasConversation(b)) - Number(hasConversation(a)) ||
+                    b.lastAccessedAtMs - a.lastAccessedAtMs ||
+                    (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
+            );
+            if (legacy.length === 0) {
+                continue;
+            }
             let canonical = current.entry;
             if (!current.blocksImport && (!canonical || !hasConversation(canonical))) {
                 const winner = legacy[0]!;
@@ -900,7 +900,9 @@ export class AssistantChatPersistence {
                     key: key.slice(`${session.provider}:`.length),
                 };
                 // Retain any existing empty transcript before replacing it.
-                if (canonical) await this.archiveSessionFile(canonical.filePath, 'scope-backup');
+                if (canonical) {
+                    await this.archiveSessionFile(canonical.filePath, 'scope-backup');
+                }
                 await this.snapshotStorage.writeBoundedSnapshot(this.sessionPath(key), createSnapshotRecord(key, session), key);
                 canonical = {
                     key,
@@ -913,7 +915,9 @@ export class AssistantChatPersistence {
             }
             // A reset/corrupt canonical entry forbids adoption, but old histories
             // still retire to protected backups instead of being re-imported.
-            if (!canonical && !current.blocksImport) continue;
+            if (!canonical && !current.blocksImport) {
+                continue;
+            }
             if (canonical && canonical.filePath !== this.sessionPath(key)) {
                 const session = clonePersistedSession(interruptRecoveredSession(canonical.session));
                 await this.snapshotStorage.writeBoundedSnapshot(this.sessionPath(key), createSnapshotRecord(key, session), key);
@@ -927,21 +931,21 @@ export class AssistantChatPersistence {
             // Publication above is durable before any old live filename retires.
             for (const source of legacy) {
                 const oldName = `${Buffer.from(source.key).toString('base64url')}.jsonl`;
-                const paths = new Set([
-                    source.filePath,
-                    this.sessionPath(source.key),
-                ]);
-                if (Buffer.byteLength(oldName) <= 255) paths.add(join(this.sessionsDir, oldName));
+                const paths = new Set([source.filePath, this.sessionPath(source.key)]);
+                if (Buffer.byteLength(oldName) <= 255) {
+                    paths.add(join(this.sessionsDir, oldName));
+                }
                 for (const filePath of paths) {
-                    if (await this.pathExists(filePath)) await this.archiveSessionFile(filePath, 'scope-migrated');
+                    if (await this.pathExists(filePath)) {
+                        await this.archiveSessionFile(filePath, 'scope-migrated');
+                    }
                 }
                 changed = true;
             }
             // Retire a canonical base64 sibling too, so directory order cannot
             // replace the published hashed transcript on the next startup.
             for (const entry of entries) {
-                if (entry.key === key && entry.filePath !== canonical?.filePath
-                    && await this.pathExists(entry.filePath)) {
+                if (entry.key === key && entry.filePath !== canonical?.filePath && (await this.pathExists(entry.filePath))) {
                     await this.archiveSessionFile(entry.filePath, 'scope-migrated');
                     changed = true;
                 }
@@ -957,15 +961,14 @@ export class AssistantChatPersistence {
     }
 
     private async readSessionArchives(key: string) {
-        const prefixes = [
-            `${basename(this.sessionPath(key), '.jsonl')}.`,
-            `${Buffer.from(key).toString('base64url')}.`,
-        ];
+        const prefixes = [`${basename(this.sessionPath(key), '.jsonl')}.`, `${Buffer.from(key).toString('base64url')}.`];
         const entries = await readdir(this.archiveDir, {withFileTypes: true});
         const archives = [];
         for (const entry of entries) {
-            const prefix = prefixes.find(value => entry.name.startsWith(value));
-            const match = prefix && /^(evicted|expired|reset|corrupt|scope-migrated)\.(\d+)\.[a-f0-9]+\.jsonl$/u.exec(entry.name.slice(prefix.length));
+            const prefix = prefixes.find((value) => entry.name.startsWith(value));
+            const match =
+                prefix &&
+                /^(evicted|expired|reset|corrupt|scope-migrated)\.(\d+)\.[a-f0-9]+\.jsonl$/u.exec(entry.name.slice(prefix.length));
             if (entry.isFile() && match) {
                 archives.push({
                     filePath: join(this.archiveDir, entry.name),
@@ -975,9 +978,12 @@ export class AssistantChatPersistence {
             }
         }
         const terminal = (reason: string) => /^(reset|corrupt|scope-migrated)$/u.test(reason);
-        return archives.sort((left, right) => right.archivedAt - left.archivedAt
-            || Number(terminal(right.reason)) - Number(terminal(left.reason))
-            || (left.filePath < right.filePath ? -1 : left.filePath > right.filePath ? 1 : 0));
+        return archives.sort(
+            (left, right) =>
+                right.archivedAt - left.archivedAt ||
+                Number(terminal(right.reason)) - Number(terminal(left.reason)) ||
+                (left.filePath < right.filePath ? -1 : left.filePath > right.filePath ? 1 : 0),
+        );
     }
 
     // fallow-ignore-next-line unused-class-member
@@ -1008,7 +1014,7 @@ export class AssistantChatPersistence {
                 }
             }
             const sourcePath = this.sessionPath(key);
-            if (!await this.pathExists(sourcePath)) {
+            if (!(await this.pathExists(sourcePath))) {
                 return;
             }
             await this.archiveSessionFile(sourcePath, reason);
@@ -1021,7 +1027,7 @@ export class AssistantChatPersistence {
     // fallow-ignore-next-line unused-class-member
     removeSession(key: string): void {
         this.enqueueAfterSnapshots(key, async () => {
-            await rm(this.sessionPath(key), { force: true });
+            await rm(this.sessionPath(key), {force: true});
             await pruneAssistantChatArchives(this.archiveDir, this.maxArchives, this.onError);
             await this.writeIndex();
             await this.pruneSnapshotBlobs();
@@ -1052,19 +1058,20 @@ export class AssistantChatPersistence {
         this.writeOutcome = next;
         this.writeQueue = next.catch(() => undefined);
         this.queues.set(key, next);
-        void next.then(() => undefined, () => undefined).finally(() => {
-            if (this.queues.get(key) === next) {
-                this.queues.delete(key);
-            }
-        });
+        void next
+            .then(
+                () => undefined,
+                () => undefined,
+            )
+            .finally(() => {
+                if (this.queues.get(key) === next) {
+                    this.queues.delete(key);
+                }
+            });
         return next;
     }
 
-    private setPendingSnapshot(
-        key: string,
-        takeSnapshot: () => TPersistedAssistantChatRecord,
-        durable: boolean,
-    ) {
+    private setPendingSnapshot(key: string, takeSnapshot: () => TPersistedAssistantChatRecord, durable: boolean) {
         const existing = this.pendingSnapshots.get(key);
         if (existing?.timer) {
             clearTimeout(existing.timer);
@@ -1114,7 +1121,7 @@ export class AssistantChatPersistence {
     private schedulePendingSnapshot(key: string, allowConcurrent = false, allowRetry = false) {
         const pending = this.pendingSnapshots.get(key);
         const activeCount = this.activeSnapshotCounts.get(key) ?? 0;
-        if (!pending?.ready || pending.failure && !allowRetry || activeCount > 0 && !allowConcurrent) {
+        if (!pending?.ready || (pending.failure && !allowRetry) || (activeCount > 0 && !allowConcurrent)) {
             return;
         }
         this.activeSnapshotCounts.set(key, activeCount + 1);
@@ -1133,20 +1140,25 @@ export class AssistantChatPersistence {
                 current.ready = true;
             }
         });
-        void activeWrite.then(() => {
-            const current = this.pendingSnapshots.get(key);
-            if (current?.written === record) {
-                this.pendingSnapshots.delete(key);
-            }
-        }, () => undefined).finally(() => {
-            const remaining = (this.activeSnapshotCounts.get(key) ?? 1) - 1;
-            if (remaining === 0) {
-                this.activeSnapshotCounts.delete(key);
-            } else {
-                this.activeSnapshotCounts.set(key, remaining);
-            }
-            this.schedulePendingSnapshot(key);
-        });
+        void activeWrite
+            .then(
+                () => {
+                    const current = this.pendingSnapshots.get(key);
+                    if (current?.written === record) {
+                        this.pendingSnapshots.delete(key);
+                    }
+                },
+                () => undefined,
+            )
+            .finally(() => {
+                const remaining = (this.activeSnapshotCounts.get(key) ?? 1) - 1;
+                if (remaining === 0) {
+                    this.activeSnapshotCounts.delete(key);
+                } else {
+                    this.activeSnapshotCounts.set(key, remaining);
+                }
+                this.schedulePendingSnapshot(key);
+            });
     }
 
     private enqueueAfterSnapshots(key: string, task: () => Promise<void>) {
@@ -1155,9 +1167,7 @@ export class AssistantChatPersistence {
     }
 
     private hasPendingPersistenceWork() {
-        return this.queues.size > 0
-            || this.pendingSnapshots.size > 0
-            || this.activeSnapshotCounts.size > 0;
+        return this.queues.size > 0 || this.pendingSnapshots.size > 0 || this.activeSnapshotCounts.size > 0;
     }
 
     private async flushUntilIdle() {
@@ -1166,10 +1176,7 @@ export class AssistantChatPersistence {
             for (const key of this.pendingSnapshots.keys()) {
                 this.forcePendingSnapshot(key, false, true);
             }
-            const pending = [
-                ...this.queues.values(),
-                this.writeQueue,
-            ];
+            const pending = [...this.queues.values(), this.writeQueue];
             const settled = await Promise.allSettled(pending);
             for (const result of settled) {
                 if (result.status === 'fulfilled') {
@@ -1190,7 +1197,7 @@ export class AssistantChatPersistence {
     }
 
     private async appendRecord(key: string, record: TPersistedAssistantChatRecord) {
-        await mkdir(this.sessionsDir, { recursive: true });
+        await mkdir(this.sessionsDir, {recursive: true});
         const filePath = this.sessionPath(key);
         const storageRecord = await this.snapshotStorage.prepareRecordForStorage(record, key);
         await appendFile(filePath, `${JSON.stringify(storageRecord)}\n`, 'utf8');
@@ -1204,11 +1211,7 @@ export class AssistantChatPersistence {
                 error.code,
                 error.sessionKey,
                 error.message,
-                [...new Set([
-                    ...error.pendingKeys,
-                    ...this.pendingSnapshots.keys(),
-                    key,
-                ])],
+                [...new Set([...error.pendingKeys, ...this.pendingSnapshots.keys(), key])],
                 error,
             );
         }
@@ -1216,18 +1219,12 @@ export class AssistantChatPersistence {
             'write-failed',
             key,
             `Assistant chat persistence failed for "${key}": ${getErrorMessage(error)}`,
-            [...new Set([
-                ...this.pendingSnapshots.keys(),
-                key,
-            ])],
+            [...new Set([...this.pendingSnapshots.keys(), key])],
             error,
         );
     }
 
-    private async compactOversizedSession(
-        key: string,
-        latestStorageRecord: TPersistedAssistantChatRecord,
-    ) {
+    private async compactOversizedSession(key: string, latestStorageRecord: TPersistedAssistantChatRecord) {
         const filePath = this.sessionPath(key);
         if (latestStorageRecord.type === 'session-snapshot-ref') {
             await this.snapshotStorage.writeReference(filePath, latestStorageRecord);
@@ -1255,7 +1252,7 @@ export class AssistantChatPersistence {
             return;
         }
         if (!recovered) {
-            await rm(filePath, { force: true });
+            await rm(filePath, {force: true});
             return;
         }
         await this.snapshotStorage.writeBoundedSnapshot(
@@ -1274,7 +1271,9 @@ export class AssistantChatPersistence {
         try {
             return await readFile(filePath, 'utf8');
         } catch (error) {
-            if (isErrnoException(error) && error.code === 'ENOENT') throw error;
+            if (isErrnoException(error) && error.code === 'ENOENT') {
+                throw error;
+            }
             throw this.toPersistenceError(key, error);
         }
     }
@@ -1287,26 +1286,15 @@ export class AssistantChatPersistence {
         let key: string | null = null;
         let lastSession: IPersistedAssistantChatSession | null = null;
         const lines = contents.split(/\r?\n/u);
-        const lastContentLineIndex = lines.reduce(
-            (lastIndex, line, index) => line.trim() ? index : lastIndex,
-            -1,
-        );
-        for (const [
-            lineIndex,
-            rawLine,
-        ] of lines.entries()) {
+        const lastContentLineIndex = lines.reduce((lastIndex, line, index) => (line.trim() ? index : lastIndex), -1);
+        for (const [lineIndex, rawLine] of lines.entries()) {
             const line = rawLine.trim();
             if (!line) {
                 continue;
             }
             const record = parsePersistedRecord(line);
             if (!record) {
-                if (
-                    lineIndex === lines.length - 1
-                    && !contents.endsWith('\n')
-                    && key !== null
-                    && lastSession !== null
-                ) {
+                if (lineIndex === lines.length - 1 && !contents.endsWith('\n') && key !== null && lastSession !== null) {
                     try {
                         this.snapshotStorage.writeBoundedSnapshotSync(
                             filePath,
@@ -1322,7 +1310,7 @@ export class AssistantChatPersistence {
             }
             let resolvedSnapshot: {
                 key: string;
-                session: IPersistedAssistantChatSession
+                session: IPersistedAssistantChatSession;
             } | null = null;
             if (record.type === 'session-snapshot-ref') {
                 try {
@@ -1340,11 +1328,7 @@ export class AssistantChatPersistence {
                 };
             }
             const recordKey = resolvedSnapshot?.key ?? (record.type === 'session-reset' ? record.key : null);
-            if (
-                recordKey === null
-                || (expectedKey !== undefined && recordKey !== expectedKey)
-                || (key !== null && recordKey !== key)
-            ) {
+            if (recordKey === null || (expectedKey !== undefined && recordKey !== expectedKey) || (key !== null && recordKey !== key)) {
                 throw new Error('Assistant chat transcript contains records for different session keys.');
             }
             key = recordKey;
@@ -1357,14 +1341,14 @@ export class AssistantChatPersistence {
         }
         return key && lastSession
             ? {
-                key,
-                session: lastSession,
-            }
+                  key,
+                  session: lastSession,
+              }
             : null;
     }
 
     private async quarantineCorruptSession(filePath: string) {
-        if (!await this.pathExists(filePath)) {
+        if (!(await this.pathExists(filePath))) {
             return;
         }
         await this.archiveSessionFile(filePath, 'corrupt');
@@ -1373,10 +1357,7 @@ export class AssistantChatPersistence {
     private async archiveSessionFile(filePath: string, reason: string) {
         await mkdir(this.archiveDir, {recursive: true});
         const name = basename(filePath, '.jsonl').replace(/\.(?:evicted|expired|reset|corrupt|scope-migrated)\.\d+\.[a-f0-9]+$/u, '');
-        const archivedPath = join(
-            this.archiveDir,
-            `${name}.${reason}.${this.now()}.${randomSuffix()}.jsonl`,
-        );
+        const archivedPath = join(this.archiveDir, `${name}.${reason}.${this.now()}.${randomSuffix()}.jsonl`);
         if (reason === 'scope-backup') {
             await copyFile(filePath, archivedPath);
             await fsyncFile(archivedPath);
@@ -1392,36 +1373,33 @@ export class AssistantChatPersistence {
         if (entries.length <= this.maxSessions) {
             return entries;
         }
-        const removed = [...entries].sort((left, right) => left.lastAccessedAtMs - right.lastAccessedAtMs)
+        const removed = [...entries]
+            .sort((left, right) => left.lastAccessedAtMs - right.lastAccessedAtMs)
             .slice(0, entries.length - this.maxSessions);
         for (const entry of removed) {
             await this.archiveSessionFile(entry.filePath, 'evicted');
         }
         await pruneAssistantChatArchives(this.archiveDir, this.maxArchives, this.onError);
-        return entries.filter(entry => !removed.includes(entry));
+        return entries.filter((entry) => !removed.includes(entry));
     }
 
     private async pruneSnapshotBlobs() {
         const blobs = await readdir(this.blobsDir, {withFileTypes: true}).catch((error: unknown) => {
-            if (isErrnoException(error) && error.code === 'ENOENT') return [];
+            if (isErrnoException(error) && error.code === 'ENOENT') {
+                return [];
+            }
             throw error;
         });
-        if (!blobs.some(entry => entry.isFile() && entry.name.endsWith('.json'))) return;
-        await pruneAssistantChatSnapshotBlobs(
-            [
-                this.sessionsDir,
-                this.archiveDir,
-            ],
-            this.blobsDir,
-            parsePersistedRecord,
-            this.onError,
-        );
+        if (!blobs.some((entry) => entry.isFile() && entry.name.endsWith('.json'))) {
+            return;
+        }
+        await pruneAssistantChatSnapshotBlobs([this.sessionsDir, this.archiveDir], this.blobsDir, parsePersistedRecord, this.onError);
     }
 
     private async listSessionFiles() {
         let sessionEntries;
         try {
-            sessionEntries = await readdir(this.sessionsDir, { withFileTypes: true });
+            sessionEntries = await readdir(this.sessionsDir, {withFileTypes: true});
         } catch (error) {
             if (isErrnoException(error) && error.code === 'ENOENT') {
                 return [];
@@ -1431,22 +1409,20 @@ export class AssistantChatPersistence {
         return sessionEntries.flatMap((entry) => {
             const key = decodePersistenceSessionFileName(entry.name);
             return entry.isFile() && (key !== null || entry.name.endsWith('.jsonl'))
-                ? [{
-                    name: entry.name,
-                    key,
-                    filePath: join(this.sessionsDir, entry.name),
-                }]
+                ? [
+                      {
+                          name: entry.name,
+                          key,
+                          filePath: join(this.sessionsDir, entry.name),
+                      },
+                  ]
                 : [];
         });
     }
 
     /** Recovers one session file, quarantining a corrupt one, and records its index metadata. */
-    private async readSessionEntry(file: {
-        name: string;
-        key: string | null;
-        filePath: string
-    }) {
-        await new Promise<void>(resolve => setImmediate(resolve));
+    private async readSessionEntry(file: {name: string; key: string | null; filePath: string}) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
         let recovered: IRecoveredAssistantChatSessionFile | null;
         try {
             recovered = await this.recoverSessionFileAsync(file.filePath, file.key ?? undefined);
@@ -1486,7 +1462,9 @@ export class AssistantChatPersistence {
         const entries: IAssistantChatSessionEntry[] = [];
         for (const file of await this.listSessionFiles()) {
             const entry = await this.readSessionEntry(file);
-            if (entry) entries.push(entry);
+            if (entry) {
+                entries.push(entry);
+            }
         }
         return entries;
     }
@@ -1499,18 +1477,20 @@ export class AssistantChatPersistence {
      */
     private async readSessionIndexEntries() {
         const files = await this.listSessionFiles();
-        const listed = new Set(files.map(file => file.filePath));
+        const listed = new Set(files.map((file) => file.filePath));
         for (const filePath of this.indexedSessionFiles.keys()) {
-            if (!listed.has(filePath)) this.indexedSessionFiles.delete(filePath);
+            if (!listed.has(filePath)) {
+                this.indexedSessionFiles.delete(filePath);
+            }
         }
         const entries: TAssistantChatSessionIndexEntry[] = [];
         for (const file of files) {
             const fileStat = await stat(file.filePath, {bigint: true}).catch(() => null);
             const indexed = this.indexedSessionFiles.get(file.filePath);
-            const entry = fileStat && indexed?.identity === sessionFileIdentity(fileStat)
-                ? indexed
-                : await this.readSessionEntry(file);
-            if (entry) entries.push(entry);
+            const entry = fileStat && indexed?.identity === sessionFileIdentity(fileStat) ? indexed : await this.readSessionEntry(file);
+            if (entry) {
+                entries.push(entry);
+            }
         }
         return entries;
     }
@@ -1532,10 +1512,10 @@ export class AssistantChatPersistence {
     }
 
     private async writeIndex(entries?: readonly TAssistantChatSessionIndexEntry[]) {
-        const sessions = entries ?? await this.readSessionEntries();
+        const sessions = entries ?? (await this.readSessionEntries());
         await atomicWriteJsonFile(this.indexPath, {
             schemaVersion: ASSISTANT_CHAT_PERSISTENCE_SCHEMA_VERSION,
-            sessions: sessions.map(entry => ({
+            sessions: sessions.map((entry) => ({
                 key: entry.key,
                 file: basename(entry.filePath),
                 lastAccessedAtMs: entry.lastAccessedAtMs,

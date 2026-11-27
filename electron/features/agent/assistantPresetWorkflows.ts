@@ -1,8 +1,5 @@
-import {
-    AGENT_ASSISTANT_PRESET_IDS,
-    type TAgentAssistantPresetId,
-} from '@contracts/agent';
-import { isOneOf } from '@contracts/runtimeGuards';
+import {AGENT_ASSISTANT_PRESET_IDS, type TAgentAssistantPresetId} from '@contracts/agent';
+import {isOneOf} from '@contracts/runtimeGuards';
 
 // Universal, edge-case-aware workflows shared by the MCP prompts (prompts/get) and the
 // in-app assistant preset chips. Each workflow is a decision tree the model follows so a
@@ -39,7 +36,7 @@ export const ASSISTANT_BOOKMARK_WORKFLOW = [
 ].join('\n');
 
 export const ASSISTANT_PAGE_NUMBER_WORKFLOW = [
-    'Reconstruct the PDF page labels to match the document\'s real numbering, whatever scheme it uses.',
+    "Reconstruct the PDF page labels to match the document's real numbering, whatever scheme it uses.",
     ASSISTANT_DOCUMENT_EDIT_SAFETY_WORKFLOW,
     'In page-numbering requests, "number pages" means setting PDF page labels to match the document\'s visible printed numbering, not physical page indexes 1 through N. Use physical indexes only when the user explicitly asks for physical numbering.',
     'Read evb://document/{tabId}/page-labels. For small or already-indexed documents, inspect text coverage with document.inspect_text; for very large documents, scans, or previous timeouts, use bounded document.read_pages and document.capture_page_image probes instead of a full coverage pass. Use searchable/OCR text as evidence but never trust it blindly.',

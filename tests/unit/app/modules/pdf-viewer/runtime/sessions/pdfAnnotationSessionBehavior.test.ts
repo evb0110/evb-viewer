@@ -1,9 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {
@@ -14,9 +9,7 @@ import {
 import type {ITextMarkupEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requirePageIndex} from '@contracts/pageNumbers';
-import type {
-    IPdfAnnotationParseResult, TPdfAnnotationParseEntity,
-} from '@contracts/pdfAnnotationParseTypes';
+import type {IPdfAnnotationParseResult, TPdfAnnotationParseEntity} from '@contracts/pdfAnnotationParseTypes';
 
 const revisionToken = requireDocumentRevisionToken('drt1:annotation-session-behavior-test');
 
@@ -24,35 +17,39 @@ function writerParseResult(): IPdfAnnotationParseResult {
     return {
         documentRevisionToken: revisionToken,
         pageCount: 1,
-        entities: [{
-            kind: 'text-box',
-            pageIndex: requirePageIndex(0),
-            objectNumber: 11,
-            generationNumber: 0,
-            name: 'writer-text-box',
-            author: null,
-            createdAt: null,
-            modifiedAt: null,
-            text: 'writer text',
-            rect: {
-                left: 0.1,
-                top: 0.2,
-                width: 0.3,
-                height: 0.1,
+        entities: [
+            {
+                kind: 'text-box',
+                pageIndex: requirePageIndex(0),
+                objectNumber: 11,
+                generationNumber: 0,
+                name: 'writer-text-box',
+                author: null,
+                createdAt: null,
+                modifiedAt: null,
+                text: 'writer text',
+                rect: {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.3,
+                    height: 0.1,
+                },
+                rotation: 0,
+                fontSize: 12,
+                color: '#336699',
             },
-            rotation: 0,
-            fontSize: 12,
-            color: '#336699',
-        }],
-        foreign: [{
-            kind: 'foreign',
-            pageIndex: requirePageIndex(0),
-            objectNumber: 12,
-            generationNumber: 0,
-            name: 'link-12',
-            subtype: 'Link',
-            reason: 'Unsupported annotation subtype /Link',
-        }],
+        ],
+        foreign: [
+            {
+                kind: 'foreign',
+                pageIndex: requirePageIndex(0),
+                objectNumber: 12,
+                generationNumber: 0,
+                name: 'link-12',
+                subtype: 'Link',
+                reason: 'Unsupported annotation subtype /Link',
+            },
+        ],
     };
 }
 
@@ -74,18 +71,22 @@ function commitOptions(
 describe('PDF annotation session behavior', () => {
     it('keeps enrichment tied to current markup geometry', () => {
         const store = new AnnotationStore();
-        const parsedQuadPoints = [{
-            left: 0.1,
-            top: 0.2,
-            width: 0.3,
-            height: 0.04,
-        }];
-        const movedQuadPoints = [{
-            left: 0.5,
-            top: 0.2,
-            width: 0.3,
-            height: 0.04,
-        }];
+        const parsedQuadPoints = [
+            {
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.04,
+            },
+        ];
+        const movedQuadPoints = [
+            {
+                left: 0.5,
+                top: 0.2,
+                width: 0.3,
+                height: 0.04,
+            },
+        ];
         const markup: ITextMarkupEntity = {
             kind: 'text-markup',
             identity: {
@@ -107,28 +108,27 @@ describe('PDF annotation session behavior', () => {
             selectedText: null,
         };
         const created = store.createTextMarkup(markup);
-        const parsedEntities: TPdfAnnotationParseEntity[] = [{
-            kind: 'highlight',
-            name: 'parsed-highlight',
-            objectNumber: 12,
-            generationNumber: 0,
-            pageIndex: requirePageIndex(0),
-            author: null,
-            createdAt: null,
-            modifiedAt: null,
-            subtype: 'Highlight',
-            contents: '',
-            quadPoints: parsedQuadPoints,
-            color: '#ffff00',
-            opacity: 1,
-        }];
+        const parsedEntities: TPdfAnnotationParseEntity[] = [
+            {
+                kind: 'highlight',
+                name: 'parsed-highlight',
+                objectNumber: 12,
+                generationNumber: 0,
+                pageIndex: requirePageIndex(0),
+                author: null,
+                createdAt: null,
+                modifiedAt: null,
+                subtype: 'Highlight',
+                contents: '',
+                quadPoints: parsedQuadPoints,
+                color: '#ffff00',
+                opacity: 1,
+            },
+        ];
 
         applyParsedHighlightTextToStore({
             targetStore: store,
-            selectedTextByPdfRef: new Map([[
-                '12 0 R',
-                'selected text',
-            ]]),
+            selectedTextByPdfRef: new Map([['12 0 R', 'selected text']]),
             parsedEntities,
         });
         expect(store.get(created.identity.id)).toMatchObject({selectedText: 'selected text'});
@@ -140,10 +140,7 @@ describe('PDF annotation session behavior', () => {
         });
         applyParsedHighlightTextToStore({
             targetStore: store,
-            selectedTextByPdfRef: new Map([[
-                '12 0 R',
-                null,
-            ]]),
+            selectedTextByPdfRef: new Map([['12 0 R', null]]),
             parsedEntities,
         });
         expect(store.get(created.identity.id)).toMatchObject({
@@ -154,10 +151,7 @@ describe('PDF annotation session behavior', () => {
         store.updateTextMarkup(created.identity.id, {quadPoints: movedQuadPoints});
         applyParsedHighlightTextToStore({
             targetStore: store,
-            selectedTextByPdfRef: new Map([[
-                '12 0 R',
-                'stale text',
-            ]]),
+            selectedTextByPdfRef: new Map([['12 0 R', 'stale text']]),
             parsedEntities,
         });
         expect(store.get(created.identity.id)).toMatchObject({selectedText: null});
@@ -165,17 +159,16 @@ describe('PDF annotation session behavior', () => {
 
     it('publishes the complete imported preview result without partial enrichment', () => {
         const store = new AnnotationStore();
-        const quadPoints = [{
-            left: 0.1,
-            top: 0.2,
-            width: 0.3,
-            height: 0.04,
-        }];
+        const quadPoints = [
+            {
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.04,
+            },
+        ];
         const imported: ITextMarkupEntity[] = [];
-        for (const pdfRef of [
-            '12 0 R',
-            '13 0 R',
-        ]) {
+        for (const pdfRef of ['12 0 R', '13 0 R']) {
             imported.push({
                 kind: 'text-markup',
                 identity: {
@@ -199,25 +192,20 @@ describe('PDF annotation session behavior', () => {
         }
         store.replaceFromDocument(imported, []);
         const publishedPreviews: Array<Array<string | null>> = [];
-        store.subscribe(snapshotIncludingDeleted => publishedPreviews.push(snapshotIncludingDeleted.flatMap(entity => (
-            entity.kind === 'text-markup' && !entity.deleted ? [entity.selectedText ?? null] : []
-        ))));
+        store.subscribe((snapshotIncludingDeleted) =>
+            publishedPreviews.push(
+                snapshotIncludingDeleted.flatMap((entity) =>
+                    entity.kind === 'text-markup' && !entity.deleted ? [entity.selectedText ?? null] : [],
+                ),
+            ),
+        );
         const options = {
             targetStore: store,
             selectedTextByPdfRef: new Map([
-                [
-                    '12 0 R',
-                    'first preview',
-                ],
-                [
-                    '13 0 R',
-                    'second preview',
-                ],
+                ['12 0 R', 'first preview'],
+                ['13 0 R', 'second preview'],
             ]),
-            parsedEntities: [
-                12,
-                13,
-            ].map((objectNumber): TPdfAnnotationParseEntity => ({
+            parsedEntities: [12, 13].map((objectNumber): TPdfAnnotationParseEntity => ({
                 kind: 'highlight',
                 name: `parsed-${objectNumber}`,
                 objectNumber,
@@ -237,19 +225,15 @@ describe('PDF annotation session behavior', () => {
         applyParsedHighlightTextToStore(options);
         applyParsedHighlightTextToStore(options);
         expect(publishedPreviews).toEqual([
-            [
-                null,
-                null,
-            ],
-            [
-                'first preview',
-                'second preview',
-            ],
+            [null, null],
+            ['first preview', 'second preview'],
         ]);
-        expect(store.list().map(entity => ({
-            revision: entity.revision,
-            persistedRevision: entity.persistedRevision,
-        }))).toEqual([
+        expect(
+            store.list().map((entity) => ({
+                revision: entity.revision,
+                persistedRevision: entity.persistedRevision,
+            })),
+        ).toEqual([
             {
                 revision: 0,
                 persistedRevision: 0,
@@ -267,15 +251,19 @@ describe('PDF annotation session behavior', () => {
 
         expect(commitPdfAnnotationParseToStore(commitOptions(store))).toBe(true);
         expect(replaceFromDocument).toHaveBeenCalledTimes(1);
-        expect(store.list()).toMatchObject([{
-            kind: 'text-box',
-            text: 'writer text',
-            identity: {pdfRef: '11 0 R'},
-        }]);
-        expect(store.foreign).toMatchObject([{
-            subtype: 'Link',
-            name: 'link-12',
-        }]);
+        expect(store.list()).toMatchObject([
+            {
+                kind: 'text-box',
+                text: 'writer text',
+                identity: {pdfRef: '11 0 R'},
+            },
+        ]);
+        expect(store.foreign).toMatchObject([
+            {
+                subtype: 'Link',
+                name: 'link-12',
+            },
+        ]);
 
         const staleStore = new AnnotationStore();
         const local = staleStore.createTextBox({
@@ -303,10 +291,6 @@ describe('PDF annotation session behavior', () => {
 
         expect(commitPdfAnnotationParseToStore(commitOptions(staleStore))).toBe(true);
         expect(staleStore.get(local.identity.id)).toMatchObject({text: 'local edit'});
-        expect(staleStore.list().map(entity => entity.kind === 'text-box' && entity.text)).toEqual([
-            'local edit',
-            'writer text',
-        ]);
+        expect(staleStore.list().map((entity) => entity.kind === 'text-box' && entity.text)).toEqual(['local edit', 'writer text']);
     });
-
 });

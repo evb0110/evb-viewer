@@ -4,12 +4,7 @@ import {getErrorMessage} from '@app/utils/error';
 import {captureFailureForPresentation} from '@app/utils/failureReporter';
 import {isAbortError} from '@contracts/isAbortError';
 import {isRecord} from '@contracts/runtimeGuards';
-import {
-    getFailureReceipt,
-    isExpectedOutcome,
-    type ExpectedOutcome,
-    type ExpectedOutcomeCode,
-} from '@contracts/diagnostics/failureReceipt';
+import {getFailureReceipt, isExpectedOutcome, type ExpectedOutcome, type ExpectedOutcomeCode} from '@contracts/diagnostics/failureReceipt';
 export type TAssistantFailureAction =
     | 'refresh'
     | 'install'
@@ -41,9 +36,7 @@ function getAssistantErrorEnvelopeCode(error: unknown) {
     if (!isRecord(error) || !isRecord(error.errorEnvelope)) {
         return null;
     }
-    return typeof error.errorEnvelope.code === 'string'
-        ? error.errorEnvelope.code
-        : null;
+    return typeof error.errorEnvelope.code === 'string' ? error.errorEnvelope.code : null;
 }
 
 function isCancellationError(error: unknown) {
@@ -51,26 +44,16 @@ function isCancellationError(error: unknown) {
         return true;
     }
 
-    const name = isRecord(error) && typeof error.name === 'string'
-        ? error.name
-        : null;
-    if (
-        name === 'AbortException'
-        || name === 'RenderingCancelledException'
-    ) {
+    const name = isRecord(error) && typeof error.name === 'string' ? error.name : null;
+    if (name === 'AbortException' || name === 'RenderingCancelledException') {
         return true;
     }
 
-    const code = isRecord(error) && typeof error.code === 'string'
-        ? error.code
-        : null;
+    const code = isRecord(error) && typeof error.code === 'string' ? error.code : null;
     return code === 'ERR_CANCELED';
 }
 
-export function getAssistantExpectedOutcome(
-    error: unknown,
-    forcedCode?: ExpectedOutcomeCode,
-): ExpectedOutcome | null {
+export function getAssistantExpectedOutcome(error: unknown, forcedCode?: ExpectedOutcomeCode): ExpectedOutcome | null {
     if (forcedCode) {
         return {
             kind: 'expected',
@@ -82,15 +65,14 @@ export function getAssistantExpectedOutcome(
     }
 
     const errorCode = getAssistantErrorEnvelopeCode(error);
-    const expectedCode = errorCode === null
-        ? isCancellationError(error) ? 'canceled' : undefined
-        : EXPECTED_ASSISTANT_ERROR_OUTCOMES[errorCode];
+    const expectedCode =
+        errorCode === null ? (isCancellationError(error) ? 'canceled' : undefined) : EXPECTED_ASSISTANT_ERROR_OUTCOMES[errorCode];
     return expectedCode === undefined
         ? null
         : {
-            kind: 'expected',
-            code: expectedCode,
-        };
+              kind: 'expected',
+              code: expectedCode,
+          };
 }
 
 export interface IAssistantFailureOptions {
@@ -101,29 +83,21 @@ export interface IAssistantFailureOptions {
     section?: string;
 }
 
-export function captureAssistantFailure(
-    error: unknown,
-    options: IAssistantFailureOptions,
-): IFailurePresentation {
+export function captureAssistantFailure(error: unknown, options: IAssistantFailureOptions): IFailurePresentation {
     const existingFailure = getFailureReceipt(error);
     const capture = existingFailure
         ? {failure: existingFailure}
         : captureFailureForPresentation({
-            code: 'ASSISTANT_ACTION_FAILED',
-            local: {
-                source: options.section ?? 'assistant',
-                message: options.logMessage ?? options.title,
-                cause: error,
-                data: {action: options.action},
-            },
-        });
+              code: 'ASSISTANT_ACTION_FAILED',
+              local: {
+                  source: options.section ?? 'assistant',
+                  message: options.logMessage ?? options.title,
+                  cause: error,
+                  data: {action: options.action},
+              },
+          });
     const logMessage = options.logMessage ?? options.title;
-    BrowserLogger.error(
-        options.section ?? 'assistant',
-        logMessage,
-        error,
-        capture.failure,
-    );
+    BrowserLogger.error(options.section ?? 'assistant', logMessage, error, capture.failure);
 
     const description = options.description ?? getErrorMessage(error);
     return {

@@ -1,22 +1,14 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     canProceedAfterStaleArtifactCleanup,
     type IStaleSessionArtifactsCleanupResult,
 } from '@scripts/electron-run/electronRunSessionArtifacts';
 
-function cleanupResult(
-    kind: IStaleSessionArtifactsCleanupResult['kind'],
-): IStaleSessionArtifactsCleanupResult {
+function cleanupResult(kind: IStaleSessionArtifactsCleanupResult['kind']): IStaleSessionArtifactsCleanupResult {
     return {
         retained: kind !== 'clean',
         kind,
-        reason: kind === 'preserved-recovery'
-            ? 'workspace recovery evidence is present; retained for later recovery'
-            : null,
+        reason: kind === 'preserved-recovery' ? 'workspace recovery evidence is present; retained for later recovery' : null,
     };
 }
 

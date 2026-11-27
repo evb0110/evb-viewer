@@ -1,4 +1,4 @@
-import type { TPdfClampedVisibleRefineMode } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
+import type {TPdfClampedVisibleRefineMode} from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 
 const QUALITY_REFINE_INPUT_IDLE_MS = 160;
 
@@ -27,9 +27,7 @@ export interface IPdfRasterQualityRefineGate {
     synchronizeViewportInteractionEpoch: () => void;
 }
 
-export function createPdfRasterQualityRefineGate(
-    options: ICreatePdfRasterQualityRefineGateOptions,
-): IPdfRasterQualityRefineGate {
+export function createPdfRasterQualityRefineGate(options: ICreatePdfRasterQualityRefineGateOptions): IPdfRasterQualityRefineGate {
     let idleTimer: number | null = null;
     let observedInteractionEpoch = options.getInteractionEpoch();
     let lastInteractionAtMs = Date.now();
@@ -57,9 +55,10 @@ export function createPdfRasterQualityRefineGate(
             }
             synchronizeViewportInteractionEpoch();
             const remainingIdleMs = QUALITY_REFINE_INPUT_IDLE_MS - (Date.now() - lastInteractionAtMs);
-            const scheduling = typeof navigator === 'undefined'
-                ? undefined
-                : (navigator as Navigator & {scheduling?: {isInputPending?: () => boolean}}).scheduling;
+            const scheduling =
+                typeof navigator === 'undefined'
+                    ? undefined
+                    : (navigator as Navigator & {scheduling?: {isInputPending?: () => boolean}}).scheduling;
             const isInputPending = typeof scheduling?.isInputPending === 'function' && scheduling.isInputPending();
             if (remainingIdleMs <= 0 && !isInputPending) {
                 // A live viewport transaction holds the refine without a
@@ -69,10 +68,13 @@ export function createPdfRasterQualityRefineGate(
             // While the idle window is still open, come back exactly when it
             // closes; pending input has no such deadline, so it waits a full
             // idle window before asking again.
-            idleTimer ??= window.setTimeout(() => {
-                idleTimer = null;
-                options.requestReconcileFrame();
-            }, remainingIdleMs > 0 ? remainingIdleMs : QUALITY_REFINE_INPUT_IDLE_MS);
+            idleTimer ??= window.setTimeout(
+                () => {
+                    idleTimer = null;
+                    options.requestReconcileFrame();
+                },
+                remainingIdleMs > 0 ? remainingIdleMs : QUALITY_REFINE_INPUT_IDLE_MS,
+            );
             return false;
         },
         clearIdleTimer,

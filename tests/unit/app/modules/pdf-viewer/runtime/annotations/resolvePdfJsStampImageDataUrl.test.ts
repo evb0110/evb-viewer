@@ -1,13 +1,7 @@
 import {setBrowserLogSink} from '@app/utils/browserLogger';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {createPdfStampImageCache} from '@app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationStampImageResolver';
-import { resolvePdfJsStampImageDataUrl } from '@app/modules/pdf-viewer/runtime/annotations/resolvePdfJsStampImageDataUrl';
+import {resolvePdfJsStampImageDataUrl} from '@app/modules/pdf-viewer/runtime/annotations/resolvePdfJsStampImageDataUrl';
 
 const imageReference = {
     objectNumber: 11,
@@ -35,36 +29,24 @@ describe('resolvePdfJsStampImageDataUrl', () => {
         };
         vi.stubGlobal('document', {createElement: vi.fn(() => canvas)});
 
-        const page = {objs: new Map([[
-            'img_p0_1',
-            {
-                ref: '11R',
-                width: 2,
-                height: 1,
-                kind: 2,
-                data: new Uint8Array([
-                    1,
-                    2,
-                    3,
-                    4,
-                    5,
-                    6,
-                ]),
-            },
-        ]])};
+        const page = {
+            objs: new Map([
+                [
+                    'img_p0_1',
+                    {
+                        ref: '11R',
+                        width: 2,
+                        height: 1,
+                        kind: 2,
+                        data: new Uint8Array([1, 2, 3, 4, 5, 6]),
+                    },
+                ],
+            ]),
+        };
 
         expect(resolvePdfJsStampImageDataUrl(page, imageReference)).toBe('data:image/png;base64,stamp');
         expect(context.createImageData).toHaveBeenCalledWith(2, 1);
-        expect(output.data).toEqual(new Uint8ClampedArray([
-            1,
-            2,
-            3,
-            255,
-            4,
-            5,
-            6,
-            255,
-        ]));
+        expect(output.data).toEqual(new Uint8ClampedArray([1, 2, 3, 255, 4, 5, 6, 255]));
         expect(context.putImageData).toHaveBeenCalledWith(output, 0, 0);
     });
 
@@ -82,56 +64,40 @@ describe('resolvePdfJsStampImageDataUrl', () => {
         };
         vi.stubGlobal('document', {createElement: vi.fn(() => canvas)});
 
-        const page = {objs: new Map([[
-            'img_p0_1',
-            {
-                ref: '11R',
-                width: 2,
-                height: 1,
-                kind: 3,
-                data: new Uint8Array([
-                    1,
-                    2,
-                    3,
-                    4,
-                    5,
-                    6,
-                    7,
-                    8,
-                    9,
-                    10,
-                ]),
-            },
-        ]])};
+        const page = {
+            objs: new Map([
+                [
+                    'img_p0_1',
+                    {
+                        ref: '11R',
+                        width: 2,
+                        height: 1,
+                        kind: 3,
+                        data: new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]),
+                    },
+                ],
+            ]),
+        };
 
         expect(resolvePdfJsStampImageDataUrl(page, imageReference)).toBe('data:image/png;base64,stamp');
-        expect(output.data).toEqual(new Uint8ClampedArray([
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-        ]));
+        expect(output.data).toEqual(new Uint8ClampedArray([1, 2, 3, 4, 5, 6, 7, 8]));
     });
 
     it('returns null when the page has no matching decoded image', () => {
-        const page = {objs: new Map([[
-            'img_p0_1',
-            {
-                ref: '12R',
-                width: 1,
-                height: 1,
-                kind: 2,
-                data: new Uint8Array([
-                    1,
-                    2,
-                    3,
-                ]),
-            },
-        ]])};
+        const page = {
+            objs: new Map([
+                [
+                    'img_p0_1',
+                    {
+                        ref: '12R',
+                        width: 1,
+                        height: 1,
+                        kind: 2,
+                        data: new Uint8Array([1, 2, 3]),
+                    },
+                ],
+            ]),
+        };
 
         expect(resolvePdfJsStampImageDataUrl(page, imageReference)).toBeNull();
     });
@@ -150,34 +116,22 @@ describe('resolvePdfJsStampImageDataUrl', () => {
         };
         vi.stubGlobal('document', {createElement: vi.fn(() => canvas)});
 
-        const page = {objs: new Map([[
-            'img_p0_1',
-            {
-                ref: '11R',
-                width: 2,
-                height: 1,
-                data: new Uint8Array([
-                    1,
-                    2,
-                    3,
-                    4,
-                    5,
-                    6,
-                ]),
-            },
-        ]])};
+        const page = {
+            objs: new Map([
+                [
+                    'img_p0_1',
+                    {
+                        ref: '11R',
+                        width: 2,
+                        height: 1,
+                        data: new Uint8Array([1, 2, 3, 4, 5, 6]),
+                    },
+                ],
+            ]),
+        };
 
         expect(resolvePdfJsStampImageDataUrl(page, imageReference)).toBe('data:image/png;base64,stamp');
-        expect(output.data).toEqual(new Uint8ClampedArray([
-            1,
-            2,
-            3,
-            255,
-            4,
-            5,
-            6,
-            255,
-        ]));
+        expect(output.data).toEqual(new Uint8ClampedArray([1, 2, 3, 255, 4, 5, 6, 255]));
     });
 
     it('encodes a bitmap-backed page object used by browser PDF.js builds', () => {
@@ -194,16 +148,20 @@ describe('resolvePdfJsStampImageDataUrl', () => {
         };
         vi.stubGlobal('document', {createElement: vi.fn(() => canvas)});
 
-        const page = {objs: new Map([[
-            'img_p0_1',
-            {
-                ref: '11R',
-                width: 2,
-                height: 1,
-                data: null,
-                bitmap,
-            },
-        ]])};
+        const page = {
+            objs: new Map([
+                [
+                    'img_p0_1',
+                    {
+                        ref: '11R',
+                        width: 2,
+                        height: 1,
+                        data: null,
+                        bitmap,
+                    },
+                ],
+            ]),
+        };
 
         expect(resolvePdfJsStampImageDataUrl(page, imageReference)).toBe('data:image/png;base64,bitmap-stamp');
         expect(context.drawImage).toHaveBeenCalledWith(bitmap, 0, 0, 2, 1);
@@ -232,14 +190,29 @@ describe('resolvePdfJsStampImageDataUrl', () => {
 
 it('#1608 retains the bitmap conversion cause when an imported stamp cannot be drawn', () => {
     const retained: string[] = [];
-    setBrowserLogSink(entry => {if (entry.level === 'warn' || entry.level === 'error') retained.push(JSON.stringify(entry));});
+    setBrowserLogSink((entry) => {
+        if (entry.level === 'warn' || entry.level === 'error') {
+            retained.push(JSON.stringify(entry));
+        }
+    });
     vi.stubGlobal('window', {});
-    vi.stubGlobal('document', {createElement: () => ({width: 0, height: 0,
-        getContext: () => ({drawImage: () => {throw new Error('Stamp bitmap detached');}}),
-    })});
+    vi.stubGlobal('document', {
+        createElement: () => ({
+            width: 0,
+            height: 0,
+            getContext: () => ({
+                drawImage: () => {
+                    throw new Error('Stamp bitmap detached');
+                },
+            }),
+        }),
+    });
     try {
         const page = {objs: new Map([['stamp', {ref: '11R', width: 2, height: 1, data: null, bitmap: {width: 2, height: 1}}]])};
         expect(resolvePdfJsStampImageDataUrl(page, imageReference)).toBeNull();
         expect(retained.join(' ')).toContain('Stamp bitmap detached');
-    } finally {setBrowserLogSink(() => {}); vi.unstubAllGlobals();}
+    } finally {
+        setBrowserLogSink(() => {});
+        vi.unstubAllGlobals();
+    }
 });

@@ -1,10 +1,6 @@
 import {readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     PDF_DECRYPT_PASSWORD_MAX_BYTES,
     PDF_DECRYPT_OUTCOMES,
@@ -35,25 +31,27 @@ describe('pdf decrypt outcome guard', () => {
         expect(isPdfDecryptPassword('x'.repeat(PDF_DECRYPT_PASSWORD_MAX_BYTES + 1))).toBe(false);
         expect(isPdfDecryptRequest({password: 'x'.repeat(PDF_DECRYPT_PASSWORD_MAX_BYTES + 1)})).toBe(false);
         const maxMultibytePassword = `${'🔒'.repeat(1023)}€`;
-        expect(new TextEncoder().encode(maxMultibytePassword)).toHaveLength(
-            PDF_DECRYPT_PASSWORD_MAX_BYTES,
-        );
+        expect(new TextEncoder().encode(maxMultibytePassword)).toHaveLength(PDF_DECRYPT_PASSWORD_MAX_BYTES);
         expect(isPdfDecryptPassword(maxMultibytePassword)).toBe(true);
         expect(isPdfDecryptRequest({password: 3})).toBe(false);
         expect(isPdfDecryptRequest(null)).toBe(false);
     });
 
     it('validates well-formed decrypt results', () => {
-        expect(isPdfDecryptResult({
-            outcome: 'rewritten',
-            wasEncrypted: true,
-            revision: 6,
-        })).toBe(true);
-        expect(isPdfDecryptResult({
-            outcome: 'opened',
-            wasEncrypted: false,
-            revision: null,
-        })).toBe(true);
+        expect(
+            isPdfDecryptResult({
+                outcome: 'rewritten',
+                wasEncrypted: true,
+                revision: 6,
+            }),
+        ).toBe(true);
+        expect(
+            isPdfDecryptResult({
+                outcome: 'opened',
+                wasEncrypted: false,
+                revision: null,
+            }),
+        ).toBe(true);
     });
 
     it.each([
@@ -117,19 +115,15 @@ describe('pdf decrypt outcome guard', () => {
 
         expect(fixture.format).toBe('evb-pdf-decrypt');
         expect(fixture.schemaVersion).toBe(1);
-        expect(Object.keys(fixture).sort()).toEqual([
-            'format',
-            'outcome',
-            'revision',
-            'schemaVersion',
-            'wasEncrypted',
-        ]);
+        expect(Object.keys(fixture).sort()).toEqual(['format', 'outcome', 'revision', 'schemaVersion', 'wasEncrypted']);
         expect(isPdfDecryptOutcome(fixture.outcome)).toBe(true);
         expect(fixture.outcome).toBe('rewritten');
-        expect(isPdfDecryptResult({
-            outcome: fixture.outcome,
-            wasEncrypted: fixture.wasEncrypted,
-            revision: fixture.revision,
-        })).toBe(true);
+        expect(
+            isPdfDecryptResult({
+                outcome: fixture.outcome,
+                wasEncrypted: fixture.wasEncrypted,
+                revision: fixture.revision,
+            }),
+        ).toBe(true);
     });
 });

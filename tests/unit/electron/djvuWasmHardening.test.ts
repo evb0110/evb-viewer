@@ -1,36 +1,12 @@
-import {
-    mkdir,
-    mkdtemp,
-    readFile,
-    rm,
-    truncate,
-    writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import {
-    join,
-    resolve,
-} from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { Worker } from 'node:worker_threads';
+import {mkdir, mkdtemp, readFile, rm, truncate, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join, resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {Worker} from 'node:worker_threads';
 import esbuild from 'esbuild';
-import {
-    afterAll,
-    beforeAll,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type {
-    TDjvuEngineWorkerReply,
-    TDjvuEngineWorkerRequest,
-} from '@electron/features/djvu/main/djvuEngineProtocol';
-import {
-    createDjvuLibreEngine,
-    type IDjvuLibreEngine,
-    type TDjvuLibreModuleFactory,
-} from '@djvu-core/djvuLibreEngine';
+import {afterAll, beforeAll, describe, expect, it, vi} from 'vitest';
+import type {TDjvuEngineWorkerReply, TDjvuEngineWorkerRequest} from '@electron/features/djvu/main/djvuEngineProtocol';
+import {createDjvuLibreEngine, type IDjvuLibreEngine, type TDjvuLibreModuleFactory} from '@djvu-core/djvuLibreEngine';
 import {
     DJVU_MAX_COMPONENT_BYTES,
     DJVU_MAX_INDEX_BYTES,
@@ -42,15 +18,13 @@ import {
 const DJVU_TEST_TIMEOUT_MS = 60_000;
 
 // Real 64x48 grayscale IW44 chunk generated via `c44 -slice 74` (major=0x81, minor=0x02).
-const GRAY_IW44_64X48_HEX = (
-    '004a81020040003000d73ea400d8ff0c512531a83b716987311217cde7bbdd0d1d22540ec56bdce8261ba885812ee8c379798541264c4894d005cd78594dd356584241bef2813bd279a856b6528b2ff36cb53e9447b8ad3bd840c6c9ca16cea85a9066444424228f8c5dd0e1cbb0e9c720804df67c634be978'
-);
+const GRAY_IW44_64X48_HEX =
+    '004a81020040003000d73ea400d8ff0c512531a83b716987311217cde7bbdd0d1d22540ec56bdce8261ba885812ee8c379798541264c4894d005cd78594dd356584241bef2813bd279a856b6528b2ff36cb53e9447b8ad3bd840c6c9ca16cea85a9066444424228f8c5dd0e1cbb0e9c720804df67c634be978';
 
 // Valid indirect FORM:DJVM DIRM index listing:
 //   dict1.djvi (include), dict2.djvi (include), page1.djvu (page), page2.djvu (page)
-const INDIRECT_DIRM_WITH_TWO_DICTS_HEX = (
-    '41542654464f524d00000034444a564d4449524d00000028010004ffffc2bf8a21d8c882caf28d3943bb1f62b9520631be3be1f02240b555570e263f25300ffe'
-);
+const INDIRECT_DIRM_WITH_TWO_DICTS_HEX =
+    '41542654464f524d00000034444a564d4449524d00000028010004ffffc2bf8a21d8c882caf28d3943bb1f62b9520631be3be1f02240b555570e263f25300ffe';
 
 function hexToBytes(hex: string): Uint8Array {
     const out = new Uint8Array(hex.length / 2);
@@ -91,11 +65,7 @@ function makeForm(formType: string, chunks: readonly Uint8Array[], includeMagic 
     header.set(asciiBytes('FORM'), 0);
     new DataView(header.buffer).setUint32(4, 4 + body.byteLength);
     header.set(asciiBytes(formType), 8);
-    return concatBytes([
-        prefix,
-        header,
-        body,
-    ]);
+    return concatBytes([prefix, header, body]);
 }
 
 function makeInfoChunk(width: number, height: number, dpi = 300): Uint8Array {
@@ -127,7 +97,7 @@ function extractFirstChunkPayload(djvuBytes: Uint8Array, chunkId: string): Uint8
 
 function buildMalformedTextZoneTxta(zoneTypes: readonly number[]): Uint8Array {
     const text = asciiBytes('hello');
-    const totalBytes = 3 + text.byteLength + 1 + (zoneTypes.length * 17);
+    const totalBytes = 3 + text.byteLength + 1 + zoneTypes.length * 17;
     const buf = new Uint8Array(totalBytes);
     const view = new DataView(buf.buffer);
     // 24-bit text length
@@ -164,10 +134,12 @@ function buildMalformedTextZoneTxta(zoneTypes: readonly number[]): Uint8Array {
     return makeChunk('TXTa', buf);
 }
 
-function buildDir0BundledDjvu(pages: ReadonlyArray<{
-    name: string;
-    formBytes: Uint8Array;
-}>): Uint8Array {
+function buildDir0BundledDjvu(
+    pages: ReadonlyArray<{
+        name: string;
+        formBytes: Uint8Array;
+    }>,
+): Uint8Array {
     // Compute DIR0 payload size: 2 + sum(name.length + 1 + 1 + 4 + 4)
     const dir0BodySize = 2 + pages.reduce((sum, entry) => sum + asciiBytes(entry.name).byteLength + 10, 0);
     const dir0ChunkLen = 8 + dir0BodySize + (dir0BodySize & 1);
@@ -199,10 +171,7 @@ function buildDir0BundledDjvu(pages: ReadonlyArray<{
         pos += 4;
     }
     const dir0Chunk = makeChunk('DIR0', dir0Payload);
-    return makeForm('DJVM', [
-        dir0Chunk,
-        ...paddedPages,
-    ], true);
+    return makeForm('DJVM', [dir0Chunk, ...paddedPages], true);
 }
 
 describe('DjVuLibre WASM hardening (memory limits, text zones, legacy formats)', () => {
@@ -217,11 +186,10 @@ describe('DjVuLibre WASM hardening (memory limits, text zones, legacy formats)',
         tempDir = await mkdtemp(join(tmpdir(), 'djvu-wasm-hardening-'));
         engine = createDjvuLibreEngine({
             loadEngine: async () => {
-                const [
-                    imported,
-                    wasmBytes,
-                ] = await Promise.all([
-                    import(pathToFileURL(resolve(process.cwd(), 'public/wasm/evb-djvulibre.mjs')).href) as Promise<{ default: TDjvuLibreModuleFactory }>,
+                const [imported, wasmBytes] = await Promise.all([
+                    import(pathToFileURL(resolve(process.cwd(), 'public/wasm/evb-djvulibre.mjs')).href) as Promise<{
+                        default: TDjvuLibreModuleFactory;
+                    }>,
                     readFile(resolve(process.cwd(), 'public/wasm/evb-djvulibre.wasm')),
                 ]);
                 return {
@@ -263,11 +231,13 @@ describe('DjVuLibre WASM hardening (memory limits, text zones, legacy formats)',
                 return buf;
             });
 
-            await expect(readDjvuSourceLayout({
-                fileSize: fakeSize,
-                readRange,
-            })).rejects.toThrow(RangeError);
-            expect(requestedLengths.every(len => len <= 4 * 1024 * 1024)).toBe(true);
+            await expect(
+                readDjvuSourceLayout({
+                    fileSize: fakeSize,
+                    readRange,
+                }),
+            ).rejects.toThrow(RangeError);
+            expect(requestedLengths.every((len) => len <= 4 * 1024 * 1024)).toBe(true);
         });
 
         it('rejects oversized DIRM index chunks before reading them', async () => {
@@ -289,10 +259,12 @@ describe('DjVuLibre WASM hardening (memory limits, text zones, legacy formats)',
                 return buf;
             });
 
-            await expect(readDjvuSourceLayout({
-                fileSize: fakeSize,
-                readRange,
-            })).rejects.toThrow(RangeError);
+            await expect(
+                readDjvuSourceLayout({
+                    fileSize: fakeSize,
+                    readRange,
+                }),
+            ).rejects.toThrow(RangeError);
         });
 
         it('rejects oversized bundled components in readDjvuSourceLayout before full allocation', async () => {
@@ -340,11 +312,13 @@ describe('DjVuLibre WASM hardening (memory limits, text zones, legacy formats)',
                 fileSize: totalFileSize,
                 readRange,
             });
-            await expect(layout.readComponent({
-                index: 0,
-                name: 'huge.djvu',
-            })).rejects.toThrow(RangeError);
-            expect(requestedLengths.every(len => len <= 4 * 1024 * 1024)).toBe(true);
+            await expect(
+                layout.readComponent({
+                    index: 0,
+                    name: 'huge.djvu',
+                }),
+            ).rejects.toThrow(RangeError);
+            expect(requestedLengths.every((len) => len <= 4 * 1024 * 1024)).toBe(true);
         });
 
         it('rejects oversized indirect components before full read', async () => {
@@ -364,251 +338,276 @@ describe('DjVuLibre WASM hardening (memory limits, text zones, legacy formats)',
             const layout = await readDjvuSourceLayout({
                 fileSize: indexBytes.byteLength,
                 readRange: async (offset, length) => indexBytes.slice(offset, offset + length),
-                componentFiles: { readComponent: readComponentSpy },
+                componentFiles: {readComponent: readComponentSpy},
             });
 
-            await expect(layout.readComponent({
-                index: 2,
-                name: 'page1.djvu',
-            })).rejects.toThrow(RangeError);
+            await expect(
+                layout.readComponent({
+                    index: 2,
+                    name: 'page1.djvu',
+                }),
+            ).rejects.toThrow(RangeError);
             expect(readComponentSpy).toHaveBeenCalledWith('page1.djvu', 16);
         });
 
-        it('rejects oversized native page dimensions before JB2/IW44 decode even for a small preview', async () => {
-            // INFO claims 40000x40000 (1.6 GP > 128 MP) and Sjbz is intentionally corrupt.
-            // If decode ran first, DjVuLibre would throw a JB2 decode error instead of RangeError.
-            const corruptHugePage = makeForm('DJVU', [
-                makeInfoChunk(40_000, 40_000, 300),
-                makeChunk('Sjbz', new Uint8Array([
-                    0xff,
-                    0xfe,
-                    0xfd,
-                    0xfc,
-                ])),
-            ], true);
+        it(
+            'rejects oversized native page dimensions before JB2/IW44 decode even for a small preview',
+            async () => {
+                // INFO claims 40000x40000 (1.6 GP > 128 MP) and Sjbz is intentionally corrupt.
+                // If decode ran first, DjVuLibre would throw a JB2 decode error instead of RangeError.
+                const corruptHugePage = makeForm(
+                    'DJVU',
+                    [makeInfoChunk(40_000, 40_000, 300), makeChunk('Sjbz', new Uint8Array([0xff, 0xfe, 0xfd, 0xfc]))],
+                    true,
+                );
 
-            const doc = await engine.openDocument({ initBytes: corruptHugePage });
-            try {
-                await expect(doc.renderPage(1, {
-                    mode: 'color',
-                    pixelFormat: 'rgba',
-                    targetWidth: 200,
-                    targetHeight: 200,
-                })).rejects.toThrow(RangeError);
-            } finally {
-                doc.close();
-            }
-        }, DJVU_TEST_TIMEOUT_MS);
+                const doc = await engine.openDocument({initBytes: corruptHugePage});
+                try {
+                    await expect(
+                        doc.renderPage(1, {
+                            mode: 'color',
+                            pixelFormat: 'rgba',
+                            targetWidth: 200,
+                            targetHeight: 200,
+                        }),
+                    ).rejects.toThrow(RangeError);
+                } finally {
+                    doc.close();
+                }
+            },
+            DJVU_TEST_TIMEOUT_MS,
+        );
 
-        it('rejects oversized target raster dimensions before raster allocation', async () => {
-            const doc = await engine.openDocument({ initBytes: photoArtBytes });
-            try {
-                await expect(doc.renderPage(1, {
-                    mode: 'color',
-                    pixelFormat: 'rgba',
-                    targetWidth: 20_000,
-                    targetHeight: 20_000,
-                })).rejects.toThrow(RangeError);
-            } finally {
-                doc.close();
-            }
-        }, DJVU_TEST_TIMEOUT_MS);
+        it(
+            'rejects oversized target raster dimensions before raster allocation',
+            async () => {
+                const doc = await engine.openDocument({initBytes: photoArtBytes});
+                try {
+                    await expect(
+                        doc.renderPage(1, {
+                            mode: 'color',
+                            pixelFormat: 'rgba',
+                            targetWidth: 20_000,
+                            targetHeight: 20_000,
+                        }),
+                    ).rejects.toThrow(RangeError);
+                } finally {
+                    doc.close();
+                }
+            },
+            DJVU_TEST_TIMEOUT_MS,
+        );
 
-        it('still renders subsampled previews of huge-page.djvu cleanly', async () => {
-            const hugeBytes = new Uint8Array(await readFile(resolve('tests/fixtures/djvu/sources/huge-page.djvu')));
-            const doc = await engine.openDocument({ initBytes: hugeBytes });
-            try {
-                const rendered = await doc.renderPage(1, {
-                    mode: 'color',
-                    pixelFormat: 'rgb',
-                    targetWidth: 400,
-                    targetHeight: 320,
+        it(
+            'still renders subsampled previews of huge-page.djvu cleanly',
+            async () => {
+                const hugeBytes = new Uint8Array(await readFile(resolve('tests/fixtures/djvu/sources/huge-page.djvu')));
+                const doc = await engine.openDocument({initBytes: hugeBytes});
+                try {
+                    const rendered = await doc.renderPage(1, {
+                        mode: 'color',
+                        pixelFormat: 'rgb',
+                        targetWidth: 400,
+                        targetHeight: 320,
+                    });
+                    expect(rendered.present).toBe(true);
+                    expect(rendered.width).toBe(400);
+                    expect(rendered.height).toBe(320);
+                    expect(rendered.bytes.byteLength).toBe(400 * 320 * 3);
+                } finally {
+                    doc.close();
+                }
+            },
+            DJVU_TEST_TIMEOUT_MS,
+        );
+
+        it(
+            'rejects oversized sync components in the bridge before WASM heap allocation',
+            async () => {
+                const indexBytes = hexToBytes(INDIRECT_DIRM_WITH_TWO_DICTS_HEX);
+                const doc = await engine.openDocument({
+                    initBytes: indexBytes,
+                    readComponentSync: () => {
+                        throw new RangeError('Component exceeds byte limit before disk read');
+                    },
                 });
-                expect(rendered.present).toBe(true);
-                expect(rendered.width).toBe(400);
-                expect(rendered.height).toBe(320);
-                expect(rendered.bytes.byteLength).toBe(400 * 320 * 3);
-            } finally {
-                doc.close();
-            }
-        }, DJVU_TEST_TIMEOUT_MS);
+                try {
+                    await expect(doc.getPageInfo(1)).rejects.toThrow(RangeError);
+                } finally {
+                    doc.close();
+                }
+            },
+            DJVU_TEST_TIMEOUT_MS,
+        );
 
-        it('rejects oversized sync components in the bridge before WASM heap allocation', async () => {
-            const indexBytes = hexToBytes(INDIRECT_DIRM_WITH_TWO_DICTS_HEX);
-            const doc = await engine.openDocument({
-                initBytes: indexBytes,
-                readComponentSync: () => {
-                    throw new RangeError('Component exceeds byte limit before disk read');
-                },
-            });
-            try {
-                await expect(doc.getPageInfo(1)).rejects.toThrow(RangeError);
-            } finally {
-                doc.close();
-            }
-        }, DJVU_TEST_TIMEOUT_MS);
+        it(
+            'evicts unpinned shared dictionary components under the 32 MiB cache budget',
+            async () => {
+                const indexBytes = hexToBytes(INDIRECT_DIRM_WITH_TWO_DICTS_HEX);
+                // Each shared DJVI dictionary is ~18 MiB (individually < 32 MiB, combined 36 MiB > 32 MiB).
+                const padBytes = new Uint8Array(18 * 1024 * 1024);
+                const dict1Bytes = makeForm('DJVI', [makeChunk('PAD0', padBytes)], true);
+                const dict2Bytes = makeForm('DJVI', [makeChunk('PAD0', padBytes)], true);
+                const grayIw44 = hexToBytes(GRAY_IW44_64X48_HEX);
+                const page1Bytes = makeForm(
+                    'DJVU',
+                    [makeInfoChunk(64, 48, 300), makeChunk('INCL', asciiBytes('dict1.djvi')), makeChunk('BG44', grayIw44)],
+                    true,
+                );
+                const page2Bytes = makeForm(
+                    'DJVU',
+                    [makeInfoChunk(64, 48, 300), makeChunk('INCL', asciiBytes('dict2.djvi')), makeChunk('BG44', grayIw44)],
+                    true,
+                );
 
-        it('evicts unpinned shared dictionary components under the 32 MiB cache budget', async () => {
-            const indexBytes = hexToBytes(INDIRECT_DIRM_WITH_TWO_DICTS_HEX);
-            // Each shared DJVI dictionary is ~18 MiB (individually < 32 MiB, combined 36 MiB > 32 MiB).
-            const padBytes = new Uint8Array(18 * 1024 * 1024);
-            const dict1Bytes = makeForm('DJVI', [makeChunk('PAD0', padBytes)], true);
-            const dict2Bytes = makeForm('DJVI', [makeChunk('PAD0', padBytes)], true);
-            const grayIw44 = hexToBytes(GRAY_IW44_64X48_HEX);
-            const page1Bytes = makeForm('DJVU', [
-                makeInfoChunk(64, 48, 300),
-                makeChunk('INCL', asciiBytes('dict1.djvi')),
-                makeChunk('BG44', grayIw44),
-            ], true);
-            const page2Bytes = makeForm('DJVU', [
-                makeInfoChunk(64, 48, 300),
-                makeChunk('INCL', asciiBytes('dict2.djvi')),
-                makeChunk('BG44', grayIw44),
-            ], true);
-
-            const components = new Map<string, Uint8Array>([
-                [
-                    'dict1.djvi',
-                    dict1Bytes,
-                ],
-                [
-                    'dict2.djvi',
-                    dict2Bytes,
-                ],
-                [
-                    'page1.djvu',
-                    page1Bytes,
-                ],
-                [
-                    'page2.djvu',
-                    page2Bytes,
-                ],
-            ]);
-            const fetchCounts = new Map<string, number>();
-
-            const doc = await engine.openDocument({
-                initBytes: indexBytes,
-                cacheBytes: 4 * 1024 * 1024,
-                readComponentAsync: async (name) => {
-                    fetchCounts.set(name, (fetchCounts.get(name) ?? 0) + 1);
-                    const bytes = components.get(name);
-                    if (!bytes) {
-                        throw new Error(`Missing test component: ${name}`);
-                    }
-                    return bytes;
-                },
-            });
-            try {
-                const info = await doc.getDocInfo();
-                expect(info.files.filter(file => file.type === 'include').map(file => file.id)).toEqual([
-                    'dict1.djvi',
-                    'dict2.djvi',
+                const components = new Map<string, Uint8Array>([
+                    ['dict1.djvi', dict1Bytes],
+                    ['dict2.djvi', dict2Bytes],
+                    ['page1.djvu', page1Bytes],
+                    ['page2.djvu', page2Bytes],
                 ]);
+                const fetchCounts = new Map<string, number>();
 
-                const r1 = await doc.renderPage(1, {
-                    mode: 'color',
-                    pixelFormat: 'rgb',
+                const doc = await engine.openDocument({
+                    initBytes: indexBytes,
+                    cacheBytes: 4 * 1024 * 1024,
+                    readComponentAsync: async (name) => {
+                        fetchCounts.set(name, (fetchCounts.get(name) ?? 0) + 1);
+                        const bytes = components.get(name);
+                        if (!bytes) {
+                            throw new Error(`Missing test component: ${name}`);
+                        }
+                        return bytes;
+                    },
                 });
-                expect(r1.present).toBe(true);
-                expect(fetchCounts.get('dict1.djvi')).toBe(1);
+                try {
+                    const info = await doc.getDocInfo();
+                    expect(info.files.filter((file) => file.type === 'include').map((file) => file.id)).toEqual([
+                        'dict1.djvi',
+                        'dict2.djvi',
+                    ]);
 
-                const r2 = await doc.renderPage(2, {
-                    mode: 'color',
-                    pixelFormat: 'rgb',
+                    const r1 = await doc.renderPage(1, {
+                        mode: 'color',
+                        pixelFormat: 'rgb',
+                    });
+                    expect(r1.present).toBe(true);
+                    expect(fetchCounts.get('dict1.djvi')).toBe(1);
+
+                    const r2 = await doc.renderPage(2, {
+                        mode: 'color',
+                        pixelFormat: 'rgb',
+                    });
+                    expect(r2.present).toBe(true);
+                    expect(fetchCounts.get('dict2.djvi')).toBe(1);
+
+                    // dict1.djvi was unpinned after page 1 finished and evicted when dict2.djvi pushed
+                    // providedBytes over the 32 MiB cache budget; rendering page 1 again must re-fetch it.
+                    const r1Again = await doc.renderPage(1, {
+                        mode: 'color',
+                        pixelFormat: 'rgb',
+                    });
+                    expect(r1Again.present).toBe(true);
+                    expect(fetchCounts.get('dict1.djvi')).toBe(2);
+                } finally {
+                    doc.close();
+                }
+            },
+            DJVU_TEST_TIMEOUT_MS,
+        );
+
+        it(
+            'unpins and evicts an oversized cached page when a subsequent dictionary fetch rejects',
+            async () => {
+                const indexBytes = hexToBytes(INDIRECT_DIRM_WITH_TWO_DICTS_HEX);
+                const padBytes = new Uint8Array(33 * 1024 * 1024);
+                const hugePage1Bytes = makeForm(
+                    'DJVU',
+                    [
+                        makeInfoChunk(64, 48, 300),
+                        makeChunk('INCL', asciiBytes('dict1.djvi')),
+                        makeChunk('PAD0', padBytes),
+                        makeChunk('BG44', hexToBytes(GRAY_IW44_64X48_HEX)),
+                    ],
+                    true,
+                );
+
+                const fetchCounts = new Map<string, number>();
+                const doc = await engine.openDocument({
+                    initBytes: indexBytes,
+                    cacheBytes: 4 * 1024 * 1024,
+                    readComponentAsync: async (name) => {
+                        fetchCounts.set(name, (fetchCounts.get(name) ?? 0) + 1);
+                        if (name === 'page1.djvu') {
+                            return hugePage1Bytes;
+                        }
+                        throw new Error(`Missing dictionary ${name}`);
+                    },
                 });
-                expect(r2.present).toBe(true);
-                expect(fetchCounts.get('dict2.djvi')).toBe(1);
+                try {
+                    await expect(
+                        doc.renderPage(1, {
+                            mode: 'color',
+                            pixelFormat: 'rgb',
+                        }),
+                    ).rejects.toThrow('Missing dictionary dict1.djvi');
+                    expect(fetchCounts.get('page1.djvu')).toBe(1);
+                    expect(fetchCounts.get('dict1.djvi')).toBe(1);
 
-                // dict1.djvi was unpinned after page 1 finished and evicted when dict2.djvi pushed
-                // providedBytes over the 32 MiB cache budget; rendering page 1 again must re-fetch it.
-                const r1Again = await doc.renderPage(1, {
-                    mode: 'color',
-                    pixelFormat: 'rgb',
-                });
-                expect(r1Again.present).toBe(true);
-                expect(fetchCounts.get('dict1.djvi')).toBe(2);
-            } finally {
-                doc.close();
-            }
-        }, DJVU_TEST_TIMEOUT_MS);
+                    // The 33 MiB page must have been unpinned and evicted when the fetch failed,
+                    // so a second attempt must re-fetch page1.djvu rather than keeping > 32 MiB resident.
+                    await expect(
+                        doc.renderPage(1, {
+                            mode: 'color',
+                            pixelFormat: 'rgb',
+                        }),
+                    ).rejects.toThrow('Missing dictionary dict1.djvi');
+                    expect(fetchCounts.get('page1.djvu')).toBe(2);
+                } finally {
+                    doc.close();
+                }
+            },
+            DJVU_TEST_TIMEOUT_MS,
+        );
 
-        it('unpins and evicts an oversized cached page when a subsequent dictionary fetch rejects', async () => {
-            const indexBytes = hexToBytes(INDIRECT_DIRM_WITH_TWO_DICTS_HEX);
-            const padBytes = new Uint8Array(33 * 1024 * 1024);
-            const hugePage1Bytes = makeForm('DJVU', [
-                makeInfoChunk(64, 48, 300),
-                makeChunk('INCL', asciiBytes('dict1.djvi')),
-                makeChunk('PAD0', padBytes),
-                makeChunk('BG44', hexToBytes(GRAY_IW44_64X48_HEX)),
-            ], true);
+        it(
+            'rejects >16 MiB BGjp JPEG layers with oversized SOF dimensions before decompression',
+            async () => {
+                // Minimal valid JPEG SOI + SOF0 (40000x40000) followed by >16 MiB padding so a
+                // size-capped buffer scanner would miss it, while streaming SOF inspection catches it.
+                const bgjpPayload = new Uint8Array(17 * 1024 * 1024);
+                // SOI
+                bgjpPayload[0] = 0xff;
+                bgjpPayload[1] = 0xd8;
+                // SOF0 marker (0xFFC0), segment length 11, precision 8, height 40000, width 40000
+                bgjpPayload[2] = 0xff;
+                bgjpPayload[3] = 0xc0;
+                bgjpPayload[4] = 0x00;
+                bgjpPayload[5] = 0x0b;
+                bgjpPayload[6] = 0x08;
+                bgjpPayload[7] = (40_000 >>> 8) & 0xff;
+                bgjpPayload[8] = 40_000 & 0xff;
+                bgjpPayload[9] = (40_000 >>> 8) & 0xff;
+                bgjpPayload[10] = 40_000 & 0xff;
+                bgjpPayload[11] = 0x01;
+                const hugeJpegLayerPage = makeForm('DJVU', [makeInfoChunk(640, 480, 300), makeChunk('BGjp', bgjpPayload)], true);
 
-            const fetchCounts = new Map<string, number>();
-            const doc = await engine.openDocument({
-                initBytes: indexBytes,
-                cacheBytes: 4 * 1024 * 1024,
-                readComponentAsync: async (name) => {
-                    fetchCounts.set(name, (fetchCounts.get(name) ?? 0) + 1);
-                    if (name === 'page1.djvu') {
-                        return hugePage1Bytes;
-                    }
-                    throw new Error(`Missing dictionary ${name}`);
-                },
-            });
-            try {
-                await expect(doc.renderPage(1, {
-                    mode: 'color',
-                    pixelFormat: 'rgb',
-                })).rejects.toThrow('Missing dictionary dict1.djvi');
-                expect(fetchCounts.get('page1.djvu')).toBe(1);
-                expect(fetchCounts.get('dict1.djvi')).toBe(1);
-
-                // The 33 MiB page must have been unpinned and evicted when the fetch failed,
-                // so a second attempt must re-fetch page1.djvu rather than keeping > 32 MiB resident.
-                await expect(doc.renderPage(1, {
-                    mode: 'color',
-                    pixelFormat: 'rgb',
-                })).rejects.toThrow('Missing dictionary dict1.djvi');
-                expect(fetchCounts.get('page1.djvu')).toBe(2);
-            } finally {
-                doc.close();
-            }
-        }, DJVU_TEST_TIMEOUT_MS);
-
-        it('rejects >16 MiB BGjp JPEG layers with oversized SOF dimensions before decompression', async () => {
-            // Minimal valid JPEG SOI + SOF0 (40000x40000) followed by >16 MiB padding so a
-            // size-capped buffer scanner would miss it, while streaming SOF inspection catches it.
-            const bgjpPayload = new Uint8Array(17 * 1024 * 1024);
-            // SOI
-            bgjpPayload[0] = 0xff;
-            bgjpPayload[1] = 0xd8;
-            // SOF0 marker (0xFFC0), segment length 11, precision 8, height 40000, width 40000
-            bgjpPayload[2] = 0xff;
-            bgjpPayload[3] = 0xc0;
-            bgjpPayload[4] = 0x00;
-            bgjpPayload[5] = 0x0b;
-            bgjpPayload[6] = 0x08;
-            bgjpPayload[7] = (40_000 >>> 8) & 0xff;
-            bgjpPayload[8] = 40_000 & 0xff;
-            bgjpPayload[9] = (40_000 >>> 8) & 0xff;
-            bgjpPayload[10] = 40_000 & 0xff;
-            bgjpPayload[11] = 0x01;
-            const hugeJpegLayerPage = makeForm('DJVU', [
-                makeInfoChunk(640, 480, 300),
-                makeChunk('BGjp', bgjpPayload),
-            ], true);
-
-            const doc = await engine.openDocument({ initBytes: hugeJpegLayerPage });
-            try {
-                await expect(doc.renderPage(1, {
-                    mode: 'color',
-                    pixelFormat: 'rgb',
-                    targetWidth: 200,
-                    targetHeight: 150,
-                })).rejects.toThrow(RangeError);
-            } finally {
-                doc.close();
-            }
-        }, DJVU_TEST_TIMEOUT_MS);
+                const doc = await engine.openDocument({initBytes: hugeJpegLayerPage});
+                try {
+                    await expect(
+                        doc.renderPage(1, {
+                            mode: 'color',
+                            pixelFormat: 'rgb',
+                            targetWidth: 200,
+                            targetHeight: 150,
+                        }),
+                    ).rejects.toThrow(RangeError);
+                } finally {
+                    doc.close();
+                }
+            },
+            DJVU_TEST_TIMEOUT_MS,
+        );
 
         it('caps indirect component reads to the declared FORM length and rejects non-FORM siblings after 16 bytes', async () => {
             const indexBytes = hexToBytes(INDIRECT_DIRM_WITH_TWO_DICTS_HEX);
@@ -634,16 +633,15 @@ describe('DjVuLibre WASM hardening (memory limits, text zones, legacy formats)',
                 name: 'page1.djvu',
             });
             expect(small.byteLength).toBe(validSmallPage.byteLength);
-            expect(requestedLengths).toEqual([
-                16,
-                validSmallPage.byteLength,
-            ]);
+            expect(requestedLengths).toEqual([16, validSmallPage.byteLength]);
 
             requestedLengths.length = 0;
-            await expect(layout.readComponent({
-                index: 3,
-                name: 'page2.djvu',
-            })).rejects.toThrow('does not start with a valid FORM header');
+            await expect(
+                layout.readComponent({
+                    index: 3,
+                    name: 'page2.djvu',
+                }),
+            ).rejects.toThrow('does not start with a valid FORM header');
             expect(requestedLengths).toEqual([16]);
         });
     });
@@ -652,250 +650,259 @@ describe('DjVuLibre WASM hardening (memory limits, text zones, legacy formats)',
         it.each([
             {
                 label: 'deep chain of PAGE -> PAGE zones',
-                zoneTypes: Array.from({ length: 5000 }, () => 1),
+                zoneTypes: Array.from({length: 5000}, () => 1),
             },
             {
                 label: 'deep chain of WORD -> WORD zones',
-                zoneTypes: [
-                    1,
-                    ...Array.from({ length: 5000 }, () => 6),
-                ],
+                zoneTypes: [1, ...Array.from({length: 5000}, () => 6)],
             },
             {
                 label: 'inverted WORD -> LINE hierarchy',
-                zoneTypes: [
-                    1,
-                    6,
-                    5,
-                ],
+                zoneTypes: [1, 6, 5],
             },
-        ])('cleanly rejects $label on both pageHasText and getPageText without trapping WASM', async ({ zoneTypes }) => {
-            const malformed = makeForm('DJVU', [
-                makeInfoChunk(100, 100, 300),
-                buildMalformedTextZoneTxta(zoneTypes),
-            ], true);
+        ])(
+            'cleanly rejects $label on both pageHasText and getPageText without trapping WASM',
+            async ({zoneTypes}) => {
+                const malformed = makeForm('DJVU', [makeInfoChunk(100, 100, 300), buildMalformedTextZoneTxta(zoneTypes)], true);
 
-            const doc = await engine.openDocument({ initBytes: malformed });
-            try {
-                await expect(doc.pageHasText(1)).rejects.toThrow(/corrupt_text|Failed to probe/iu);
-                await expect(doc.getPageText(1, { includeZones: true })).rejects.toThrow(/corrupt_text|Failed to extract/iu);
-                await expect(doc.getPageText(1, { includeZones: false })).rejects.toThrow(/corrupt_text|Failed to extract/iu);
-            } finally {
-                doc.close();
-            }
+                const doc = await engine.openDocument({initBytes: malformed});
+                try {
+                    await expect(doc.pageHasText(1)).rejects.toThrow(/corrupt_text|Failed to probe/iu);
+                    await expect(doc.getPageText(1, {includeZones: true})).rejects.toThrow(/corrupt_text|Failed to extract/iu);
+                    await expect(doc.getPageText(1, {includeZones: false})).rejects.toThrow(/corrupt_text|Failed to extract/iu);
+                } finally {
+                    doc.close();
+                }
 
-            // Confirm the shared WASM instance did not trap and still renders valid documents.
-            const healthy = await engine.openDocument({ initBytes: photoArtBytes });
-            try {
-                const pageInfo = await healthy.getPageInfo(1);
-                expect(pageInfo.width).toBe(640);
-                expect(pageInfo.height).toBe(480);
-            } finally {
-                healthy.close();
-            }
-        }, DJVU_TEST_TIMEOUT_MS);
+                // Confirm the shared WASM instance did not trap and still renders valid documents.
+                const healthy = await engine.openDocument({initBytes: photoArtBytes});
+                try {
+                    const pageInfo = await healthy.getPageInfo(1);
+                    expect(pageInfo.width).toBe(640);
+                    expect(pageInfo.height).toBe(480);
+                } finally {
+                    healthy.close();
+                }
+            },
+            DJVU_TEST_TIMEOUT_MS,
+        );
     });
 
     describe('Finding 3: legacy FORM:DJVM+DIR0, FORM:BM44, and FORM:PM44 support', () => {
-        it('opens, inspects, and decodes standalone FORM:BM44 grayscale IW44 files (including with leading ANTa)', async () => {
-            const bm44Bytes = makeForm('BM44', [
-                makeChunk('ANTa', asciiBytes('(metadata (Title "BM44 with leading ANTa"))')),
-                makeChunk('BM44', hexToBytes(GRAY_IW44_64X48_HEX)),
-            ], true);
-            const layout = await readDjvuSourceLayout({
-                fileSize: bm44Bytes.byteLength,
-                readRange: async (offset, length) => bm44Bytes.slice(offset, offset + length),
-            });
-            const [head] = await layout.readComponentHeads([{
-                index: 0,
-                name: '',
-            }]);
-            expect(parseDjvuPageHead(head!, 1)).toEqual({
-                width: 64,
-                height: 48,
-                dpi: 100,
-            });
-
-            const doc = await engine.openDocument({ initBytes: layout.documentBytes });
-            try {
-                const docInfo = await doc.getDocInfo();
-                expect(docInfo.pageCount).toBe(1);
-                const pageInfo = await doc.getPageInfo(1);
-                expect(pageInfo).toMatchObject({
-                    width: 64,
-                    height: 48,
-                    dpi: 100,
-                    rotation: 0,
-                    pageType: 'photo',
-                });
-                const structure = await doc.getPageStructure(1);
-                expect(structure.info).toEqual({
-                    width: 64,
-                    height: 48,
-                    dpi: 100,
-                });
-                expect(structure.background).toMatchObject({
-                    present: true,
-                    kind: 'BM44',
-                    width: 64,
-                    height: 48,
-                });
-                const rendered = await doc.renderPage(1, {
-                    mode: 'color',
-                    pixelFormat: 'rgb',
-                });
-                expect(rendered.present).toBe(true);
-                expect(rendered.width).toBe(64);
-                expect(rendered.height).toBe(48);
-                expect(rendered.bytes.byteLength).toBe(64 * 48 * 3);
-            } finally {
-                doc.close();
-            }
-        }, DJVU_TEST_TIMEOUT_MS);
-
-        it('opens, inspects, and decodes standalone FORM:PM44 color IW44 files', async () => {
-            const pm44Bytes = makeForm('PM44', [makeChunk('PM44', photoArtBg44)], true);
-            const layout = await readDjvuSourceLayout({
-                fileSize: pm44Bytes.byteLength,
-                readRange: async (offset, length) => pm44Bytes.slice(offset, offset + length),
-            });
-            const [head] = await layout.readComponentHeads([{
-                index: 0,
-                name: '',
-            }]);
-            expect(parseDjvuPageHead(head!, 1)).toEqual({
-                width: 640,
-                height: 480,
-                dpi: 100,
-            });
-
-            const doc = await engine.openDocument({ initBytes: layout.documentBytes });
-            try {
-                const docInfo = await doc.getDocInfo();
-                expect(docInfo.pageCount).toBe(1);
-                const pageInfo = await doc.getPageInfo(1);
-                expect(pageInfo).toMatchObject({
-                    width: 640,
-                    height: 480,
-                    dpi: 100,
-                    rotation: 0,
-                    pageType: 'photo',
-                });
-                const structure = await doc.getPageStructure(1);
-                expect(structure.info).toEqual({
-                    width: 640,
-                    height: 480,
-                    dpi: 100,
-                });
-                expect(structure.background).toMatchObject({
-                    present: true,
-                    kind: 'PM44',
-                    width: 640,
-                    height: 480,
-                });
-                const rendered = await doc.renderPage(1, {
-                    mode: 'color',
-                    pixelFormat: 'rgb',
-                });
-                expect(rendered.present).toBe(true);
-                expect(rendered.width).toBe(640);
-                expect(rendered.height).toBe(480);
-                expect(rendered.bytes.byteLength).toBe(640 * 480 * 3);
-            } finally {
-                doc.close();
-            }
-        }, DJVU_TEST_TIMEOUT_MS);
-
-        it('opens, inspects, and decodes legacy multi-page FORM:DJVM with DIR0', async () => {
-            const page1Form = makeForm('DJVU', [
-                makeInfoChunk(64, 48, 200),
-                makeChunk('NDIR', asciiBytes('page1.djvu\npage2.pm44\n')),
-                makeChunk('BG44', hexToBytes(GRAY_IW44_64X48_HEX)),
-            ], false);
-            const page2Form = makeForm('PM44', [makeChunk('PM44', photoArtBg44)], false);
-            const dir0Bytes = buildDir0BundledDjvu([
-                {
-                    name: 'page1.djvu',
-                    formBytes: page1Form,
-                },
-                {
-                    name: 'page2.pm44',
-                    formBytes: page2Form,
-                },
-            ]);
-
-            const layout = await readDjvuSourceLayout({
-                fileSize: dir0Bytes.byteLength,
-                readRange: async (offset, length) => dir0Bytes.slice(offset, offset + length),
-            });
-            expect(layout.hasComponents).toBe(true);
-            expect(layout.isIndirect).toBe(false);
-
-            const doc = await engine.openDocument({ initBytes: layout.documentBytes });
-            try {
-                const docInfo = await doc.getDocInfo();
-                expect(docInfo.docType).toBe('old-bundled');
-                expect(docInfo.pageCount).toBe(2);
-                expect(docInfo.files.map(file => file.id)).toEqual([
-                    'page1.djvu',
-                    'page2.pm44',
-                ]);
-
-                const directory = await doc.getComponentDirectory();
-                expect(directory).toEqual({
-                    names: [
-                        'page1.djvu',
-                        'page2.pm44',
+        it(
+            'opens, inspects, and decodes standalone FORM:BM44 grayscale IW44 files (including with leading ANTa)',
+            async () => {
+                const bm44Bytes = makeForm(
+                    'BM44',
+                    [
+                        makeChunk('ANTa', asciiBytes('(metadata (Title "BM44 with leading ANTa"))')),
+                        makeChunk('BM44', hexToBytes(GRAY_IW44_64X48_HEX)),
                     ],
-                    flags: [
-                        1,
-                        1,
-                    ],
+                    true,
+                );
+                const layout = await readDjvuSourceLayout({
+                    fileSize: bm44Bytes.byteLength,
+                    readRange: async (offset, length) => bm44Bytes.slice(offset, offset + length),
                 });
-
-                const heads = await layout.readComponentHeads([
+                const [head] = await layout.readComponentHeads([
                     {
                         index: 0,
-                        name: 'page1.djvu',
-                    },
-                    {
-                        index: 1,
-                        name: 'page2.pm44',
+                        name: '',
                     },
                 ]);
-                expect(parseDjvuPageHead(heads[0]!, 1)).toEqual({
+                expect(parseDjvuPageHead(head!, 1)).toEqual({
                     width: 64,
                     height: 48,
-                    dpi: 200,
+                    dpi: 100,
                 });
-                expect(parseDjvuPageHead(heads[1]!, 2)).toEqual({
+
+                const doc = await engine.openDocument({initBytes: layout.documentBytes});
+                try {
+                    const docInfo = await doc.getDocInfo();
+                    expect(docInfo.pageCount).toBe(1);
+                    const pageInfo = await doc.getPageInfo(1);
+                    expect(pageInfo).toMatchObject({
+                        width: 64,
+                        height: 48,
+                        dpi: 100,
+                        rotation: 0,
+                        pageType: 'photo',
+                    });
+                    const structure = await doc.getPageStructure(1);
+                    expect(structure.info).toEqual({
+                        width: 64,
+                        height: 48,
+                        dpi: 100,
+                    });
+                    expect(structure.background).toMatchObject({
+                        present: true,
+                        kind: 'BM44',
+                        width: 64,
+                        height: 48,
+                    });
+                    const rendered = await doc.renderPage(1, {
+                        mode: 'color',
+                        pixelFormat: 'rgb',
+                    });
+                    expect(rendered.present).toBe(true);
+                    expect(rendered.width).toBe(64);
+                    expect(rendered.height).toBe(48);
+                    expect(rendered.bytes.byteLength).toBe(64 * 48 * 3);
+                } finally {
+                    doc.close();
+                }
+            },
+            DJVU_TEST_TIMEOUT_MS,
+        );
+
+        it(
+            'opens, inspects, and decodes standalone FORM:PM44 color IW44 files',
+            async () => {
+                const pm44Bytes = makeForm('PM44', [makeChunk('PM44', photoArtBg44)], true);
+                const layout = await readDjvuSourceLayout({
+                    fileSize: pm44Bytes.byteLength,
+                    readRange: async (offset, length) => pm44Bytes.slice(offset, offset + length),
+                });
+                const [head] = await layout.readComponentHeads([
+                    {
+                        index: 0,
+                        name: '',
+                    },
+                ]);
+                expect(parseDjvuPageHead(head!, 1)).toEqual({
                     width: 640,
                     height: 480,
                     dpi: 100,
                 });
 
-                const rendered1 = await doc.renderPage(1, {
-                    mode: 'color',
-                    pixelFormat: 'rgb',
+                const doc = await engine.openDocument({initBytes: layout.documentBytes});
+                try {
+                    const docInfo = await doc.getDocInfo();
+                    expect(docInfo.pageCount).toBe(1);
+                    const pageInfo = await doc.getPageInfo(1);
+                    expect(pageInfo).toMatchObject({
+                        width: 640,
+                        height: 480,
+                        dpi: 100,
+                        rotation: 0,
+                        pageType: 'photo',
+                    });
+                    const structure = await doc.getPageStructure(1);
+                    expect(structure.info).toEqual({
+                        width: 640,
+                        height: 480,
+                        dpi: 100,
+                    });
+                    expect(structure.background).toMatchObject({
+                        present: true,
+                        kind: 'PM44',
+                        width: 640,
+                        height: 480,
+                    });
+                    const rendered = await doc.renderPage(1, {
+                        mode: 'color',
+                        pixelFormat: 'rgb',
+                    });
+                    expect(rendered.present).toBe(true);
+                    expect(rendered.width).toBe(640);
+                    expect(rendered.height).toBe(480);
+                    expect(rendered.bytes.byteLength).toBe(640 * 480 * 3);
+                } finally {
+                    doc.close();
+                }
+            },
+            DJVU_TEST_TIMEOUT_MS,
+        );
+
+        it(
+            'opens, inspects, and decodes legacy multi-page FORM:DJVM with DIR0',
+            async () => {
+                const page1Form = makeForm(
+                    'DJVU',
+                    [
+                        makeInfoChunk(64, 48, 200),
+                        makeChunk('NDIR', asciiBytes('page1.djvu\npage2.pm44\n')),
+                        makeChunk('BG44', hexToBytes(GRAY_IW44_64X48_HEX)),
+                    ],
+                    false,
+                );
+                const page2Form = makeForm('PM44', [makeChunk('PM44', photoArtBg44)], false);
+                const dir0Bytes = buildDir0BundledDjvu([
+                    {
+                        name: 'page1.djvu',
+                        formBytes: page1Form,
+                    },
+                    {
+                        name: 'page2.pm44',
+                        formBytes: page2Form,
+                    },
+                ]);
+
+                const layout = await readDjvuSourceLayout({
+                    fileSize: dir0Bytes.byteLength,
+                    readRange: async (offset, length) => dir0Bytes.slice(offset, offset + length),
                 });
-                const rendered2 = await doc.renderPage(2, {
-                    mode: 'color',
-                    pixelFormat: 'rgb',
-                });
-                expect(rendered1).toMatchObject({
-                    present: true,
-                    width: 64,
-                    height: 48,
-                });
-                expect(rendered2).toMatchObject({
-                    present: true,
-                    width: 640,
-                    height: 480,
-                });
-            } finally {
-                doc.close();
-            }
-        }, DJVU_TEST_TIMEOUT_MS);
+                expect(layout.hasComponents).toBe(true);
+                expect(layout.isIndirect).toBe(false);
+
+                const doc = await engine.openDocument({initBytes: layout.documentBytes});
+                try {
+                    const docInfo = await doc.getDocInfo();
+                    expect(docInfo.docType).toBe('old-bundled');
+                    expect(docInfo.pageCount).toBe(2);
+                    expect(docInfo.files.map((file) => file.id)).toEqual(['page1.djvu', 'page2.pm44']);
+
+                    const directory = await doc.getComponentDirectory();
+                    expect(directory).toEqual({
+                        names: ['page1.djvu', 'page2.pm44'],
+                        flags: [1, 1],
+                    });
+
+                    const heads = await layout.readComponentHeads([
+                        {
+                            index: 0,
+                            name: 'page1.djvu',
+                        },
+                        {
+                            index: 1,
+                            name: 'page2.pm44',
+                        },
+                    ]);
+                    expect(parseDjvuPageHead(heads[0]!, 1)).toEqual({
+                        width: 64,
+                        height: 48,
+                        dpi: 200,
+                    });
+                    expect(parseDjvuPageHead(heads[1]!, 2)).toEqual({
+                        width: 640,
+                        height: 480,
+                        dpi: 100,
+                    });
+
+                    const rendered1 = await doc.renderPage(1, {
+                        mode: 'color',
+                        pixelFormat: 'rgb',
+                    });
+                    const rendered2 = await doc.renderPage(2, {
+                        mode: 'color',
+                        pixelFormat: 'rgb',
+                    });
+                    expect(rendered1).toMatchObject({
+                        present: true,
+                        width: 64,
+                        height: 48,
+                    });
+                    expect(rendered2).toMatchObject({
+                        present: true,
+                        width: 640,
+                        height: 480,
+                    });
+                } finally {
+                    doc.close();
+                }
+            },
+            DJVU_TEST_TIMEOUT_MS,
+        );
 
         it('rejects oversized legacy DIR0 files before full allocation', async () => {
             const fakeSize = DJVU_MAX_LEGACY_BUNDLED_BYTES + 4096;
@@ -916,10 +923,12 @@ describe('DjVuLibre WASM hardening (memory limits, text zones, legacy formats)',
                 return out;
             });
 
-            await expect(readDjvuSourceLayout({
-                fileSize: fakeSize,
-                readRange,
-            })).rejects.toThrow(RangeError);
+            await expect(
+                readDjvuSourceLayout({
+                    fileSize: fakeSize,
+                    readRange,
+                }),
+            ).rejects.toThrow(RangeError);
         });
 
         it('handles oversized sparse indirect sibling files on disk without crashing', async () => {
@@ -927,7 +936,7 @@ describe('DjVuLibre WASM hardening (memory limits, text zones, legacy formats)',
             const indexPath = join(dir, 'index.djvu');
             const hugeSiblingPath = join(dir, 'page1.djvu');
             const totalSiblingBytes = DJVU_MAX_COMPONENT_BYTES + 4096;
-            await mkdir(dir, { recursive: true });
+            await mkdir(dir, {recursive: true});
             await writeFile(indexPath, hexToBytes(INDIRECT_DIRM_WITH_TWO_DICTS_HEX));
             const hugeHeader = new Uint8Array(16);
             hugeHeader.set(asciiBytes('AT&TFORM'), 0);
@@ -936,13 +945,7 @@ describe('DjVuLibre WASM hardening (memory limits, text zones, legacy formats)',
             await writeFile(hugeSiblingPath, hugeHeader);
             await truncate(hugeSiblingPath, totalSiblingBytes);
 
-            const {
-                closeSync,
-                fstatSync,
-                openSync,
-                readSync,
-                statSync,
-            } = await import('node:fs');
+            const {closeSync, fstatSync, openSync, readSync, statSync} = await import('node:fs');
             const fd = openSync(indexPath, 'r');
             try {
                 const indexSize = fstatSync(fd).size;
@@ -972,10 +975,12 @@ describe('DjVuLibre WASM hardening (memory limits, text zones, legacy formats)',
                         },
                     },
                 });
-                await expect(layout.readComponent({
-                    index: 2,
-                    name: 'page1.djvu',
-                })).rejects.toThrow(RangeError);
+                await expect(
+                    layout.readComponent({
+                        index: 2,
+                        name: 'page1.djvu',
+                    }),
+                ).rejects.toThrow(RangeError);
             } finally {
                 closeSync(fd);
             }
@@ -997,43 +1002,53 @@ describe('DjVuLibre WASM hardening (memory limits, text zones, legacy formats)',
         }, DJVU_TEST_TIMEOUT_MS);
 
         type TDjvuWorkerRequestPayload = TDjvuEngineWorkerRequest extends infer T
-            ? T extends TDjvuEngineWorkerRequest ? Omit<T, 'id'> : never
+            ? T extends TDjvuEngineWorkerRequest
+                ? Omit<T, 'id'>
+                : never
             : never;
 
-        async function withDesktopWorker<T>(run: (send: <TRes = unknown>(req: TDjvuWorkerRequestPayload) => Promise<TRes>) => Promise<T>): Promise<T> {
+        async function withDesktopWorker<T>(
+            run: (send: <TRes = unknown>(req: TDjvuWorkerRequestPayload) => Promise<TRes>) => Promise<T>,
+        ): Promise<T> {
             const worker = new Worker(workerPath, {
-                workerData: { engineDir: resolve('public/wasm') },
+                workerData: {engineDir: resolve('public/wasm')},
             });
             let nextId = 1;
-            const pending = new Map<number, {
-                resolve: (value: unknown) => void;
-                reject: (error: Error) => void;
-            }>();
+            const pending = new Map<
+                number,
+                {
+                    resolve: (value: unknown) => void;
+                    reject: (error: Error) => void;
+                }
+            >();
             worker.on('message', (reply: TDjvuEngineWorkerReply) => {
                 const entry = pending.get(reply.id);
-                if (!entry) return;
+                if (!entry) {
+                    return;
+                }
                 pending.delete(reply.id);
                 if (reply.ok) {
                     entry.resolve(reply.result);
                 } else {
-                    const err = reply.errorName === 'RangeError'
-                        ? new RangeError(reply.error)
-                        : new Error(reply.error);
-                    if (reply.errorName) err.name = reply.errorName;
+                    const err = reply.errorName === 'RangeError' ? new RangeError(reply.error) : new Error(reply.error);
+                    if (reply.errorName) {
+                        err.name = reply.errorName;
+                    }
                     entry.reject(err);
                 }
             });
-            const send = <TRes = unknown>(req: TDjvuWorkerRequestPayload) => new Promise<TRes>((resolvePromise, rejectPromise) => {
-                const id = nextId++;
-                pending.set(id, {
-                    resolve: value => resolvePromise(value as TRes),
-                    reject: rejectPromise,
+            const send = <TRes = unknown>(req: TDjvuWorkerRequestPayload) =>
+                new Promise<TRes>((resolvePromise, rejectPromise) => {
+                    const id = nextId++;
+                    pending.set(id, {
+                        resolve: (value) => resolvePromise(value as TRes),
+                        reject: rejectPromise,
+                    });
+                    worker.postMessage({
+                        ...req,
+                        id,
+                    });
                 });
-                worker.postMessage({
-                    ...req,
-                    id,
-                });
-            });
             try {
                 return await run(send);
             } finally {
@@ -1041,193 +1056,230 @@ describe('DjVuLibre WASM hardening (memory limits, text zones, legacy formats)',
             }
         }
 
-        it('opens, queries page sizes, and renders FORM:BM44, FORM:PM44, and FORM:DJVM+DIR0 files via the desktop worker', async () => {
-            // BM44 with an ANTa chunk preceding BM44 exercises the worker's getPageInfo fallback path.
-            const bm44Path = join(tempDir, 'legacy-gray.djvu');
-            const bm44Bytes = makeForm('BM44', [
-                makeChunk('ANTa', asciiBytes('(metadata (Title "Legacy BM44"))')),
-                makeChunk('BM44', hexToBytes(GRAY_IW44_64X48_HEX)),
-            ], true);
-            await writeFile(bm44Path, bm44Bytes);
+        it(
+            'opens, queries page sizes, and renders FORM:BM44, FORM:PM44, and FORM:DJVM+DIR0 files via the desktop worker',
+            async () => {
+                // BM44 with an ANTa chunk preceding BM44 exercises the worker's getPageInfo fallback path.
+                const bm44Path = join(tempDir, 'legacy-gray.djvu');
+                const bm44Bytes = makeForm(
+                    'BM44',
+                    [makeChunk('ANTa', asciiBytes('(metadata (Title "Legacy BM44"))')), makeChunk('BM44', hexToBytes(GRAY_IW44_64X48_HEX))],
+                    true,
+                );
+                await writeFile(bm44Path, bm44Bytes);
 
-            const pm44Path = join(tempDir, 'legacy-color.djvu');
-            const pm44Bytes = makeForm('PM44', [makeChunk('PM44', photoArtBg44)], true);
-            await writeFile(pm44Path, pm44Bytes);
+                const pm44Path = join(tempDir, 'legacy-color.djvu');
+                const pm44Bytes = makeForm('PM44', [makeChunk('PM44', photoArtBg44)], true);
+                await writeFile(pm44Path, pm44Bytes);
 
-            const dir0Path = join(tempDir, 'legacy-dir0.djvu');
-            const dir0Bytes = buildDir0BundledDjvu([
-                {
-                    name: 'p1.djvu',
-                    formBytes: makeForm('DJVU', [
-                        makeInfoChunk(64, 48, 200),
-                        makeChunk('NDIR', asciiBytes('p1.djvu\np2.pm44\n')),
-                        makeChunk('BG44', hexToBytes(GRAY_IW44_64X48_HEX)),
-                    ], false),
-                },
-                {
-                    name: 'p2.pm44',
-                    formBytes: makeForm('PM44', [makeChunk('PM44', photoArtBg44)], false),
-                },
-            ]);
-            await writeFile(dir0Path, dir0Bytes);
-
-            await withDesktopWorker(async (send) => {
-                const bm44Doc = await send<{
-                    pageCount: number;
-                    sourceDpi: number;
-                }>({
-                    type: 'getDocInfo',
-                    djvuPath: bm44Path,
-                });
-                expect(bm44Doc.pageCount).toBe(1);
-                expect(bm44Doc.sourceDpi).toBe(100);
-                expect(await send({
-                    type: 'getPageSizes',
-                    djvuPath: bm44Path,
-                })).toEqual([{
-                    width: 64,
-                    height: 48,
-                    dpi: 100,
-                }]);
-                const bm44Out = join(tempDir, 'bm44.ppm');
-                expect(await send({
-                    type: 'renderPageToFile',
-                    djvuPath: bm44Path,
-                    pageNumber: 1,
-                    outputPath: bm44Out,
-                    options: { format: 'ppm' },
-                })).toEqual({
-                    width: 64,
-                    height: 48,
-                    present: true,
-                });
-
-                const pm44Doc = await send<{
-                    pageCount: number;
-                    sourceDpi: number;
-                }>({
-                    type: 'getDocInfo',
-                    djvuPath: pm44Path,
-                });
-                expect(pm44Doc.pageCount).toBe(1);
-                expect(pm44Doc.sourceDpi).toBe(100);
-                expect(await send({
-                    type: 'getPageSizes',
-                    djvuPath: pm44Path,
-                })).toEqual([{
-                    width: 640,
-                    height: 480,
-                    dpi: 100,
-                }]);
-                const pm44Out = join(tempDir, 'pm44.ppm');
-                expect(await send({
-                    type: 'renderPageToFile',
-                    djvuPath: pm44Path,
-                    pageNumber: 1,
-                    outputPath: pm44Out,
-                    options: { format: 'ppm' },
-                })).toEqual({
-                    width: 640,
-                    height: 480,
-                    present: true,
-                });
-
-                const dir0Doc = await send<{
-                    pageCount: number;
-                    docType: string;
-                    sourceDpi: number;
-                }>({
-                    type: 'getDocInfo',
-                    djvuPath: dir0Path,
-                });
-                expect(dir0Doc.docType).toBe('old-bundled');
-                expect(dir0Doc.pageCount).toBe(2);
-                expect(dir0Doc.sourceDpi).toBe(200);
-                expect(await send({
-                    type: 'getPageSizes',
-                    djvuPath: dir0Path,
-                })).toEqual([
+                const dir0Path = join(tempDir, 'legacy-dir0.djvu');
+                const dir0Bytes = buildDir0BundledDjvu([
                     {
-                        width: 64,
-                        height: 48,
-                        dpi: 200,
+                        name: 'p1.djvu',
+                        formBytes: makeForm(
+                            'DJVU',
+                            [
+                                makeInfoChunk(64, 48, 200),
+                                makeChunk('NDIR', asciiBytes('p1.djvu\np2.pm44\n')),
+                                makeChunk('BG44', hexToBytes(GRAY_IW44_64X48_HEX)),
+                            ],
+                            false,
+                        ),
                     },
                     {
-                        width: 640,
-                        height: 480,
-                        dpi: 100,
+                        name: 'p2.pm44',
+                        formBytes: makeForm('PM44', [makeChunk('PM44', photoArtBg44)], false),
                     },
                 ]);
-                const dir0Out2 = join(tempDir, 'dir0-p2.ppm');
-                expect(await send({
-                    type: 'renderPageToFile',
-                    djvuPath: dir0Path,
-                    pageNumber: 2,
-                    outputPath: dir0Out2,
-                    options: { format: 'ppm' },
-                })).toEqual({
-                    width: 640,
-                    height: 480,
-                    present: true,
+                await writeFile(dir0Path, dir0Bytes);
+
+                await withDesktopWorker(async (send) => {
+                    const bm44Doc = await send<{
+                        pageCount: number;
+                        sourceDpi: number;
+                    }>({
+                        type: 'getDocInfo',
+                        djvuPath: bm44Path,
+                    });
+                    expect(bm44Doc.pageCount).toBe(1);
+                    expect(bm44Doc.sourceDpi).toBe(100);
+                    expect(
+                        await send({
+                            type: 'getPageSizes',
+                            djvuPath: bm44Path,
+                        }),
+                    ).toEqual([
+                        {
+                            width: 64,
+                            height: 48,
+                            dpi: 100,
+                        },
+                    ]);
+                    const bm44Out = join(tempDir, 'bm44.ppm');
+                    expect(
+                        await send({
+                            type: 'renderPageToFile',
+                            djvuPath: bm44Path,
+                            pageNumber: 1,
+                            outputPath: bm44Out,
+                            options: {format: 'ppm'},
+                        }),
+                    ).toEqual({
+                        width: 64,
+                        height: 48,
+                        present: true,
+                    });
+
+                    const pm44Doc = await send<{
+                        pageCount: number;
+                        sourceDpi: number;
+                    }>({
+                        type: 'getDocInfo',
+                        djvuPath: pm44Path,
+                    });
+                    expect(pm44Doc.pageCount).toBe(1);
+                    expect(pm44Doc.sourceDpi).toBe(100);
+                    expect(
+                        await send({
+                            type: 'getPageSizes',
+                            djvuPath: pm44Path,
+                        }),
+                    ).toEqual([
+                        {
+                            width: 640,
+                            height: 480,
+                            dpi: 100,
+                        },
+                    ]);
+                    const pm44Out = join(tempDir, 'pm44.ppm');
+                    expect(
+                        await send({
+                            type: 'renderPageToFile',
+                            djvuPath: pm44Path,
+                            pageNumber: 1,
+                            outputPath: pm44Out,
+                            options: {format: 'ppm'},
+                        }),
+                    ).toEqual({
+                        width: 640,
+                        height: 480,
+                        present: true,
+                    });
+
+                    const dir0Doc = await send<{
+                        pageCount: number;
+                        docType: string;
+                        sourceDpi: number;
+                    }>({
+                        type: 'getDocInfo',
+                        djvuPath: dir0Path,
+                    });
+                    expect(dir0Doc.docType).toBe('old-bundled');
+                    expect(dir0Doc.pageCount).toBe(2);
+                    expect(dir0Doc.sourceDpi).toBe(200);
+                    expect(
+                        await send({
+                            type: 'getPageSizes',
+                            djvuPath: dir0Path,
+                        }),
+                    ).toEqual([
+                        {
+                            width: 64,
+                            height: 48,
+                            dpi: 200,
+                        },
+                        {
+                            width: 640,
+                            height: 480,
+                            dpi: 100,
+                        },
+                    ]);
+                    const dir0Out2 = join(tempDir, 'dir0-p2.ppm');
+                    expect(
+                        await send({
+                            type: 'renderPageToFile',
+                            djvuPath: dir0Path,
+                            pageNumber: 2,
+                            outputPath: dir0Out2,
+                            options: {format: 'ppm'},
+                        }),
+                    ).toEqual({
+                        width: 640,
+                        height: 480,
+                        present: true,
+                    });
                 });
-            });
-        }, DJVU_TEST_TIMEOUT_MS);
+            },
+            DJVU_TEST_TIMEOUT_MS,
+        );
 
-        it('rejects oversized indirect sibling components in the desktop worker before reading them', async () => {
-            const dir = join(tempDir, 'worker-oversized-indirect');
-            await mkdir(dir, { recursive: true });
-            const indexPath = join(dir, 'index.djvu');
-            const hugePagePath = join(dir, 'page1.djvu');
-            await writeFile(indexPath, hexToBytes(INDIRECT_DIRM_WITH_TWO_DICTS_HEX));
-            await writeFile(hugePagePath, makeForm('DJVU', [makeInfoChunk(64, 48, 300)], true));
-            await truncate(hugePagePath, DJVU_MAX_COMPONENT_BYTES + 4096);
+        it(
+            'rejects oversized indirect sibling components in the desktop worker before reading them',
+            async () => {
+                const dir = join(tempDir, 'worker-oversized-indirect');
+                await mkdir(dir, {recursive: true});
+                const indexPath = join(dir, 'index.djvu');
+                const hugePagePath = join(dir, 'page1.djvu');
+                await writeFile(indexPath, hexToBytes(INDIRECT_DIRM_WITH_TWO_DICTS_HEX));
+                await writeFile(hugePagePath, makeForm('DJVU', [makeInfoChunk(64, 48, 300)], true));
+                await truncate(hugePagePath, DJVU_MAX_COMPONENT_BYTES + 4096);
 
-            await withDesktopWorker(async (send) => {
-                await expect(send({
-                    type: 'getPageInfo',
-                    djvuPath: indexPath,
-                    pageNumber: 1,
-                })).rejects.toThrow(RangeError);
+                await withDesktopWorker(async (send) => {
+                    await expect(
+                        send({
+                            type: 'getPageInfo',
+                            djvuPath: indexPath,
+                            pageNumber: 1,
+                        }),
+                    ).rejects.toThrow(RangeError);
 
-                // Worker remains alive and responsive after rejecting the oversized component.
-                const healthyPath = join(dir, 'healthy.djvu');
-                await writeFile(healthyPath, photoArtBytes);
-                const info = await send<{ pageCount: number }>({
-                    type: 'getDocInfo',
-                    djvuPath: healthyPath,
+                    // Worker remains alive and responsive after rejecting the oversized component.
+                    const healthyPath = join(dir, 'healthy.djvu');
+                    await writeFile(healthyPath, photoArtBytes);
+                    const info = await send<{pageCount: number}>({
+                        type: 'getDocInfo',
+                        djvuPath: healthyPath,
+                    });
+                    expect(info.pageCount).toBe(1);
                 });
-                expect(info.pageCount).toBe(1);
-            });
-        }, DJVU_TEST_TIMEOUT_MS);
+            },
+            DJVU_TEST_TIMEOUT_MS,
+        );
 
-        it('rejects oversized bundled components in the desktop worker before reading them', async () => {
-            const dir = join(tempDir, 'worker-oversized-bundled');
-            await mkdir(dir, { recursive: true });
-            const bundledPath = join(dir, 'oversized-bundled.djvu');
+        it(
+            'rejects oversized bundled components in the desktop worker before reading them',
+            async () => {
+                const dir = join(tempDir, 'worker-oversized-bundled');
+                await mkdir(dir, {recursive: true});
+                const bundledPath = join(dir, 'oversized-bundled.djvu');
 
-            // Construct a real bundled FORM:DJVM from searchable-mixed-dpi.djvu, but enlarge
-            // the first component's FORM size header past DJVU_MAX_COMPONENT_BYTES on a sparse file.
-            const baseBundled = new Uint8Array(await readFile(resolve('tests/fixtures/djvu/sources/searchable-mixed-dpi.djvu')));
-            const dirmLen = new DataView(baseBundled.buffer, baseBundled.byteOffset, baseBundled.byteLength).getUint32(20);
-            const firstCompOffset = new DataView(baseBundled.buffer, baseBundled.byteOffset, baseBundled.byteLength).getUint32(27);
-            const oversizedFormLen = DJVU_MAX_COMPONENT_BYTES + 1024;
-            const totalSize = firstCompOffset + 8 + oversizedFormLen + 64;
-            expect(dirmLen).toBeGreaterThan(0);
+                // Construct a real bundled FORM:DJVM from searchable-mixed-dpi.djvu, but enlarge
+                // the first component's FORM size header past DJVU_MAX_COMPONENT_BYTES on a sparse file.
+                const baseBundled = new Uint8Array(await readFile(resolve('tests/fixtures/djvu/sources/searchable-mixed-dpi.djvu')));
+                const dirmLen = new DataView(baseBundled.buffer, baseBundled.byteOffset, baseBundled.byteLength).getUint32(20);
+                const firstCompOffset = new DataView(baseBundled.buffer, baseBundled.byteOffset, baseBundled.byteLength).getUint32(27);
+                const oversizedFormLen = DJVU_MAX_COMPONENT_BYTES + 1024;
+                const totalSize = firstCompOffset + 8 + oversizedFormLen + 64;
+                expect(dirmLen).toBeGreaterThan(0);
 
-            const patchedPrefix = new Uint8Array(baseBundled);
-            const view = new DataView(patchedPrefix.buffer);
-            view.setUint32(8, totalSize - 12);
-            view.setUint32(firstCompOffset + 4, oversizedFormLen);
-            await writeFile(bundledPath, patchedPrefix);
-            await truncate(bundledPath, totalSize);
+                const patchedPrefix = new Uint8Array(baseBundled);
+                const view = new DataView(patchedPrefix.buffer);
+                view.setUint32(8, totalSize - 12);
+                view.setUint32(firstCompOffset + 4, oversizedFormLen);
+                await writeFile(bundledPath, patchedPrefix);
+                await truncate(bundledPath, totalSize);
 
-            await withDesktopWorker(async (send) => {
-                await expect(send({
-                    type: 'getPageInfo',
-                    djvuPath: bundledPath,
-                    pageNumber: 1,
-                })).rejects.toThrow(RangeError);
-            });
-        }, DJVU_TEST_TIMEOUT_MS);
+                await withDesktopWorker(async (send) => {
+                    await expect(
+                        send({
+                            type: 'getPageInfo',
+                            djvuPath: bundledPath,
+                            pageNumber: 1,
+                        }),
+                    ).rejects.toThrow(RangeError);
+                });
+            },
+            DJVU_TEST_TIMEOUT_MS,
+        );
     });
 });

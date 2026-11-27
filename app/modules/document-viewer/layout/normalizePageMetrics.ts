@@ -1,15 +1,14 @@
 import {isFinitePositive} from '@contracts/runtimeGuards';
-import type { TPdfViewRotation } from '@contracts/shared';
-import type { IPdfPageMetric } from '@app/types/pdfUi';
+import type {TPdfViewRotation} from '@contracts/shared';
+import type {IPdfPageMetric} from '@app/types/pdfUi';
 import {
     createLazyIndexedCollection,
     isLazyIndexedCollection,
     type ILazyIndexedCollection,
 } from '@app/modules/document-viewer/virtualization/pageVirtualization';
 
-
 type IPdfLazyIndexedCollection<T> = ILazyIndexedCollection<T>;
-export type { IPdfLazyIndexedCollection };
+export type {IPdfLazyIndexedCollection};
 
 /**
  * A page metric collection is deliberately small at the interface. Callers
@@ -20,11 +19,7 @@ export interface IPdfPageMetricCollection extends ILazyIndexedCollection<IPdfPag
     readonly isSparsePageMetricCollection: true;
     readonly exactPageCount: number;
     readonly estimate: (index: number) => IPdfPageMetric;
-    readonly estimateRange: (
-        start: number,
-        end: number,
-        dimension: 'width' | 'height',
-    ) => number;
+    readonly estimateRange: (start: number, end: number, dimension: 'width' | 'height') => number;
     readonly maximumWidth: number;
     readonly maximumHeight: number;
     readonly knownIndices: readonly number[];
@@ -60,10 +55,7 @@ function clonePageMetric(metric: IPdfPageMetric): IPdfPageMetric {
  * source metric, which keeps PDF persistence, print, and source-space tools
  * independent from a display rotation.
  */
-export function projectPdfPageMetricForView(
-    metric: IPdfPageMetric,
-    viewRotation: TPdfViewRotation = 0,
-): IPdfPageMetric {
+export function projectPdfPageMetricForView(metric: IPdfPageMetric, viewRotation: TPdfViewRotation = 0): IPdfPageMetric {
     const cloned = clonePageMetric(metric);
     if (viewRotation === 90 || viewRotation === 270) {
         return {
@@ -90,13 +82,13 @@ function collectKnownMetricEntries(
         const collection = pageMetrics as Partial<IPdfPageMetricCollection>;
         if (collection.knownIndices) {
             return collection.knownIndices
-                .map(index => {
+                .map((index) => {
                     const metric = getIndexedValue(pageMetrics, index);
                     return isValidPageMetric(metric)
                         ? {
-                            index,
-                            metric,
-                        }
+                              index,
+                              metric,
+                          }
                         : null;
                 })
                 .filter((entry): entry is IKnownMetricEntry => entry !== null);
@@ -127,10 +119,7 @@ function collectKnownMetricEntries(
     return entries;
 }
 
-function resolveNearestMetricEntryIndex(
-    entries: readonly IKnownMetricEntry[],
-    targetIndex: number,
-) {
+function resolveNearestMetricEntryIndex(entries: readonly IKnownMetricEntry[], targetIndex: number) {
     if (entries.length === 0) {
         return -1;
     }
@@ -168,8 +157,8 @@ function createSparsePageMetrics(options: {
     entries: readonly IKnownMetricEntry[];
     viewRotation: TPdfViewRotation;
 }): IPdfPageMetricCollection {
-    const exactIndices = new Set(options.entries.map(entry => entry.index));
-    const projectedEntries = options.entries.map(entry => ({
+    const exactIndices = new Set(options.entries.map((entry) => entry.index));
+    const projectedEntries = options.entries.map((entry) => ({
         index: entry.index,
         metric: projectPdfPageMetricForView(entry.metric, options.viewRotation),
     }));
@@ -178,24 +167,19 @@ function createSparsePageMetrics(options: {
     const estimatedWidthPrefixes = [0];
     const estimatedHeightPrefixes = [0];
     let segmentStart = 0;
-    for (const [
-        index,
-        entry,
-    ] of projectedEntries.entries()) {
+    for (const [index, entry] of projectedEntries.entries()) {
         maximumWidth = Math.max(maximumWidth, entry.metric.width);
         maximumHeight = Math.max(maximumHeight, entry.metric.height);
         const nextEntry = projectedEntries[index + 1];
-        const segmentEnd = nextEntry
-            ? Math.floor((entry.index + nextEntry.index) / 2) + 1
-            : options.totalPages;
+        const segmentEnd = nextEntry ? Math.floor((entry.index + nextEntry.index) / 2) + 1 : options.totalPages;
         const length = segmentEnd - segmentStart;
         estimatedWidthPrefixes.push(estimatedWidthPrefixes[index]! + length * entry.metric.width);
         estimatedHeightPrefixes.push(estimatedHeightPrefixes[index]! + length * entry.metric.height);
         segmentStart = segmentEnd;
     }
 
-    const estimate = (index: number) => projectedEntries[resolveNearestMetricEntryIndex(projectedEntries, index)]?.metric
-        ?? options.fallbackMetric;
+    const estimate = (index: number) =>
+        projectedEntries[resolveNearestMetricEntryIndex(projectedEntries, index)]?.metric ?? options.fallbackMetric;
     const estimatePrefix = (end: number, dimension: 'width' | 'height') => {
         const index = resolveNearestMetricEntryIndex(projectedEntries, end - 1);
         const entry = projectedEntries[index];
@@ -207,18 +191,14 @@ function createSparsePageMetrics(options: {
         const prefixes = dimension === 'width' ? estimatedWidthPrefixes : estimatedHeightPrefixes;
         return prefixes[index]! + (end - start) * entry.metric[dimension];
     };
-    const estimateRange = (
-        start: number,
-        end: number,
-        dimension: 'width' | 'height',
-    ) => {
+    const estimateRange = (start: number, end: number, dimension: 'width' | 'height') => {
         const boundedStart = Math.max(0, Math.min(options.totalPages, Math.trunc(start)));
         const boundedEnd = Math.max(boundedStart, Math.min(options.totalPages, Math.trunc(end)));
         return estimatePrefix(boundedEnd, dimension) - estimatePrefix(boundedStart, dimension);
     };
     const collection = createLazyIndexedCollection<IPdfPageMetric>({
         length: options.totalPages,
-        getValue: index => {
+        getValue: (index) => {
             const exactMetric = getIndexedValue(options.pageMetrics, index);
             if (isValidPageMetric(exactMetric)) {
                 return projectPdfPageMetricForView(exactMetric, options.viewRotation);
@@ -261,7 +241,7 @@ function createSparsePageMetrics(options: {
         knownIndices: {
             configurable: false,
             enumerable: false,
-            value: Object.freeze(projectedEntries.map(entry => entry.index)),
+            value: Object.freeze(projectedEntries.map((entry) => entry.index)),
         },
         hasExact: {
             configurable: false,
@@ -273,8 +253,9 @@ function createSparsePageMetrics(options: {
 }
 
 export function isSparsePageMetricCollection(value: unknown): value is IPdfPageMetricCollection {
-    return isLazyIndexedCollection<IPdfPageMetric>(value)
-        && (value as Partial<IPdfPageMetricCollection>).isSparsePageMetricCollection === true;
+    return (
+        isLazyIndexedCollection<IPdfPageMetric>(value) && (value as Partial<IPdfPageMetricCollection>).isSparsePageMetricCollection === true
+    );
 }
 
 export function getPageMetricMaximum(
@@ -311,9 +292,7 @@ export function getPageMetricMaximum(
     return maximum;
 }
 
-export function cloneSparsePageMetrics(
-    pageMetrics: readonly IPdfPageMetric[] | IPdfLazyIndexedCollection<IPdfPageMetric>,
-) {
+export function cloneSparsePageMetrics(pageMetrics: readonly IPdfPageMetric[] | IPdfLazyIndexedCollection<IPdfPageMetric>) {
     const clone: IPdfPageMetric[] = [];
     // Preserve the indexed snapshot contract without materializing holes. A
     // million-page source therefore keeps a million-length sparse array, not
@@ -375,13 +354,7 @@ export function normalizePageMetrics(options: {
     fallbackHeight: number | null;
     viewRotation?: TPdfViewRotation;
 }): IPdfPageMetric[] {
-    const {
-        pageMetrics,
-        totalPages,
-        fallbackWidth,
-        fallbackHeight,
-        viewRotation = 0,
-    } = options;
+    const {pageMetrics, totalPages, fallbackWidth, fallbackHeight, viewRotation = 0} = options;
 
     if (totalPages <= 0) {
         return [];
@@ -438,9 +411,12 @@ export function normalizePageMetrics(options: {
 
         const before = nearestBefore[index];
         const after = nextKnownMetric;
-        const estimate = before && after
-            ? (index - before.index <= after.index - index ? before.metric : after.metric)
-            : before?.metric ?? after?.metric ?? projectedFallbackMetric;
+        const estimate =
+            before && after
+                ? index - before.index <= after.index - index
+                    ? before.metric
+                    : after.metric
+                : (before?.metric ?? after?.metric ?? projectedFallbackMetric);
         normalizedMetrics[index] = clonePageMetric(estimate);
     }
 

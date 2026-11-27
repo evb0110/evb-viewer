@@ -1,13 +1,10 @@
-import type { Ref } from 'vue';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import { usePdfSearch } from '@app/modules/pdf-viewer/public';
-import {
-    usePageSearch,
-    type IPageSearchSidebarTabs,
-} from '@app/modules/workspace-shell/composables/usePageSearch';
-import { useSidebarResize } from '@app/modules/workspace-shell/composables/useSidebarResize';
-import type { TPdfSidebarTab } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import type {Ref} from 'vue';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import {usePdfSearch} from '@app/modules/pdf-viewer/public';
+import {usePageSearch, type IPageSearchSidebarTabs} from '@app/modules/workspace-shell/composables/usePageSearch';
+import {useSidebarResize} from '@app/modules/workspace-shell/composables/useSidebarResize';
+import type {TPdfSidebarTab} from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 
 interface IWorkspaceSearchSidebarOptions {
     sidebarTabs: IPageSearchSidebarTabs;
@@ -21,14 +18,7 @@ interface IWorkspaceSearchSidebarOptions {
 }
 
 export const useWorkspaceSearchSidebar = (options: IWorkspaceSearchSidebarOptions) => {
-    const {
-        workingCopyPath,
-        documentRevisionToken,
-        showSidebar,
-        sidebarTab,
-        dragMode,
-        totalPages,
-    } = options;
+    const {workingCopyPath, documentRevisionToken, showSidebar, sidebarTab, dragMode, totalPages} = options;
 
     const {
         searchQuery,

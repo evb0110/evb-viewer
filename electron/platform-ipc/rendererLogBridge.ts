@@ -1,28 +1,13 @@
-import { clamp } from 'es-toolkit/math';
-import type {
-    IRendererLogEntry,
-    TRendererLogLevel,
-} from '@contracts/electronApiCommon';
-import {
-    decodeFailureReceipt,
-    type FailureReceipt,
-} from '@contracts/diagnostics/failureReceipt';
-import { isRecord } from '@contracts/runtimeGuards';
+import {clamp} from 'es-toolkit/math';
+import type {IRendererLogEntry, TRendererLogLevel} from '@contracts/electronApiCommon';
+import {decodeFailureReceipt, type FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {isRecord} from '@contracts/runtimeGuards';
 import {stringifyJson} from '@contracts/stringifyJson';
-import { CORE_IPC_SEND_CHANNELS } from '@electron/platform-ipc/coreContract';
-import {
-    createLogger,
-    redactLogData,
-    writeLogRecord,
-} from '@electron/utils/createLogger';
-import {
-    DEFAULT_LOG_DATA_LIMITS,
-    toLogData,
-    type ILogDataLimits,
-    type TLogData,
-} from '@contracts/logRecord';
-import { redactLogText } from '@contracts/redactLogText';
-import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
+import {CORE_IPC_SEND_CHANNELS} from '@electron/platform-ipc/coreContract';
+import {createLogger, redactLogData, writeLogRecord} from '@electron/utils/createLogger';
+import {DEFAULT_LOG_DATA_LIMITS, toLogData, type ILogDataLimits, type TLogData} from '@contracts/logRecord';
+import {redactLogText} from '@contracts/redactLogText';
+import {onSenderLifetimeEnd} from '@electron/utils/onSenderLifetimeEnd';
 
 interface IRendererLogRateState {
     tokens: number;
@@ -146,12 +131,7 @@ interface INormalizedRendererLogEntry {
 }
 
 const RENDERER_LOG_TIMESTAMP_MAX_CHARS = 128;
-const RENDERER_LOG_LEVELS = [
-    'debug',
-    'info',
-    'warn',
-    'error',
-] as const satisfies readonly TRendererLogLevel[];
+const RENDERER_LOG_LEVELS = ['debug', 'info', 'warn', 'error'] as const satisfies readonly TRendererLogLevel[];
 
 function readRendererLogField(payload: unknown, key: string) {
     if (!isRecord(payload)) {
@@ -161,8 +141,7 @@ function readRendererLogField(payload: unknown, key: string) {
 }
 
 function isRendererLogLevel(value: unknown): value is TRendererLogLevel {
-    return typeof value === 'string'
-        && (RENDERER_LOG_LEVELS as readonly string[]).includes(value);
+    return typeof value === 'string' && (RENDERER_LOG_LEVELS as readonly string[]).includes(value);
 }
 
 function normalizeRendererLogLevel(value: unknown): TRendererLogLevel {
@@ -211,38 +190,33 @@ function dispatchRendererLogRecord(webContentsId: number, entry: INormalizedRend
             },
         );
     }
-    writeLogRecord({
-        ts: entry.timestamp,
-        level: entry.level,
-        proc: 'renderer',
-        scope: entry.section,
-        msg: entry.message,
-        data: entry.data,
-        window: webContentsId,
-        ...(failureRef ? {
-            errorId: failureRef.eventId,
-            code: failureRef.code,
-        } : {}),
-    }, {stdout: false});
+    writeLogRecord(
+        {
+            ts: entry.timestamp,
+            level: entry.level,
+            proc: 'renderer',
+            scope: entry.section,
+            msg: entry.message,
+            data: entry.data,
+            window: webContentsId,
+            ...(failureRef
+                ? {
+                      errorId: failureRef.eventId,
+                      code: failureRef.code,
+                  }
+                : {}),
+        },
+        {stdout: false},
+    );
 }
 
 export interface IRendererLogBridgeOptions {
-    isTrustedSender: (
-        sender: Electron.WebContents,
-        senderFrame: Electron.WebFrameMain | null | undefined,
-        channel: string,
-    ) => boolean;
-    registerListener: (
-        channel: string,
-        handler: (event: Electron.IpcMainEvent, payload: IRendererLogEntry) => void,
-    ) => void;
+    isTrustedSender: (sender: Electron.WebContents, senderFrame: Electron.WebFrameMain | null | undefined, channel: string) => boolean;
+    registerListener: (channel: string, handler: (event: Electron.IpcMainEvent, payload: IRendererLogEntry) => void) => void;
 }
 
 export function registerRendererLogBridge(options: IRendererLogBridgeOptions) {
-    const {
-        isTrustedSender,
-        registerListener,
-    } = options;
+    const {isTrustedSender, registerListener} = options;
 
     function handleRendererLog(event: Electron.IpcMainEvent, payload: IRendererLogEntry) {
         const webContentsId = event.sender.id;

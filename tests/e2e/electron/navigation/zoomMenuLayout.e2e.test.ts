@@ -1,18 +1,10 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {resolve} from 'node:path';
 import type {Page} from 'puppeteer-core';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
-import {
-    openPdfInApp,
-    waitForPdfLoaded,
-    waitForViewerInteractive,
-} from '@tests/e2e/electron/helpers/viewerCore';
+import {openPdfInApp, waitForPdfLoaded, waitForViewerInteractive} from '@tests/e2e/electron/helpers/viewerCore';
 
 const ZOOM_MENU_TIMEOUT_MS = 45_000;
 const ZOOM_MENU_VIEWPORT = {
@@ -68,22 +60,18 @@ async function setFrenchLargeInterface(page: Page) {
 
 async function clickVisibleZoomDisplay(page: Page) {
     const point = await page.evaluate(() => {
-        const target = Array.from(document.querySelectorAll<HTMLElement>('.zoom-controls-display'))
-            .find((candidate) => {
-                const rect = candidate.getBoundingClientRect();
-                const style = getComputedStyle(candidate);
-                return rect.width > 0
-                    && rect.height > 0
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden';
-            });
+        const target = Array.from(document.querySelectorAll<HTMLElement>('.zoom-controls-display')).find((candidate) => {
+            const rect = candidate.getBoundingClientRect();
+            const style = getComputedStyle(candidate);
+            return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+        });
         if (!target) {
             throw new Error('Visible zoom display was not found');
         }
         const rect = target.getBoundingClientRect();
         return {
-            x: rect.left + (rect.width / 2),
-            y: rect.top + (rect.height / 2),
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
         };
     });
     await page.mouse.click(point.x, point.y);
@@ -96,37 +84,38 @@ async function clickVisibleZoomDisplay(page: Page) {
 async function readZoomMenuLayout(page: Page): Promise<IZoomMenuLayout> {
     return page.evaluate(() => {
         const menu = document.querySelector<HTMLElement>('.zoom-dropdown');
-        const viewGroup = Array.from(menu?.querySelectorAll<HTMLElement>('.zoom-toggle-group') ?? [])
-            .find(group => group.querySelectorAll('button.zoom-toggle-btn').length === 3);
+        const viewGroup = Array.from(menu?.querySelectorAll<HTMLElement>('.zoom-toggle-group') ?? []).find(
+            (group) => group.querySelectorAll('button.zoom-toggle-btn').length === 3,
+        );
         if (!menu || !viewGroup) {
             throw new Error('Three-button zoom view-mode group was not found');
         }
         const menuRect = menu.getBoundingClientRect();
         const viewGroupRect = viewGroup.getBoundingClientRect();
-        const fitGroup = Array.from(menu.querySelectorAll<HTMLElement>('.zoom-toggle-group'))
-            .find(group => group.querySelectorAll('button.zoom-toggle-btn').length === 2);
+        const fitGroup = Array.from(menu.querySelectorAll<HTMLElement>('.zoom-toggle-group')).find(
+            (group) => group.querySelectorAll('button.zoom-toggle-btn').length === 2,
+        );
         if (!fitGroup) {
             throw new Error('Zoom fit-mode group was not found');
         }
         return {
-            fitLabels: Array.from(fitGroup.querySelectorAll<HTMLElement>('.zoom-toggle-label'))
-                .map(label => ({
-                    height: label.getBoundingClientRect().height,
-                    lineHeight: Number.parseFloat(getComputedStyle(label).lineHeight),
-                })),
-            fitButtonTops: Array.from(fitGroup.querySelectorAll<HTMLElement>('button.zoom-toggle-btn'))
-                .map(button => button.getBoundingClientRect().top),
-            buttonRects: Array.from(viewGroup.querySelectorAll<HTMLButtonElement>('button.zoom-toggle-btn'))
-                .map(button => {
-                    const rect = button.getBoundingClientRect();
-                    return {
-                        bottom: rect.bottom,
-                        left: rect.left,
-                        right: rect.right,
-                        top: rect.top,
-                        width: rect.width,
-                    };
-                }),
+            fitLabels: Array.from(fitGroup.querySelectorAll<HTMLElement>('.zoom-toggle-label')).map((label) => ({
+                height: label.getBoundingClientRect().height,
+                lineHeight: Number.parseFloat(getComputedStyle(label).lineHeight),
+            })),
+            fitButtonTops: Array.from(fitGroup.querySelectorAll<HTMLElement>('button.zoom-toggle-btn')).map(
+                (button) => button.getBoundingClientRect().top,
+            ),
+            buttonRects: Array.from(viewGroup.querySelectorAll<HTMLButtonElement>('button.zoom-toggle-btn')).map((button) => {
+                const rect = button.getBoundingClientRect();
+                return {
+                    bottom: rect.bottom,
+                    left: rect.left,
+                    right: rect.right,
+                    top: rect.top,
+                    width: rect.width,
+                };
+            }),
             menu: {
                 clientHeight: menu.clientHeight,
                 clientWidth: menu.clientWidth,
@@ -152,39 +141,46 @@ describe('Electron E2E - localized zoom menu layout', () => {
         timeoutMs: ZOOM_MENU_TIMEOUT_MS,
     });
 
-    it('keeps all localized view modes on one reachable row', async () => {
-        const session: IElectronE2ESession = sessionFixture.getSession();
-        await session.page.setViewport(ZOOM_MENU_VIEWPORT);
-        await setFrenchLargeInterface(session.page);
+    it(
+        'keeps all localized view modes on one reachable row',
+        async () => {
+            const session: IElectronE2ESession = sessionFixture.getSession();
+            await session.page.setViewport(ZOOM_MENU_VIEWPORT);
+            await setFrenchLargeInterface(session.page);
 
-        const fixturePath = resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'test-scanned.pdf');
-        await openPdfInApp(session.page, fixturePath, ZOOM_MENU_TIMEOUT_MS);
-        await waitForPdfLoaded(session.page, ZOOM_MENU_TIMEOUT_MS);
-        await waitForViewerInteractive(session.page, ZOOM_MENU_TIMEOUT_MS);
-        await clickVisibleZoomDisplay(session.page);
+            const fixturePath = resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'test-scanned.pdf');
+            await openPdfInApp(session.page, fixturePath, ZOOM_MENU_TIMEOUT_MS);
+            await waitForPdfLoaded(session.page, ZOOM_MENU_TIMEOUT_MS);
+            await waitForViewerInteractive(session.page, ZOOM_MENU_TIMEOUT_MS);
+            await clickVisibleZoomDisplay(session.page);
 
-        const layout = await readZoomMenuLayout(session.page);
-        expect(layout.buttonRects).toHaveLength(3);
-        expect(Math.max(...layout.buttonRects.map(rect => rect.top))
-            - Math.min(...layout.buttonRects.map(rect => rect.top))).toBeLessThanOrEqual(1);
-        expect(layout.buttonRects.every(rect => rect.width > 0)).toBe(true);
-        expect(layout.buttonRects.every(rect => rect.left >= 0)).toBe(true);
-        expect(layout.buttonRects.every(rect => rect.left >= layout.menuRect.left - 1)).toBe(true);
-        expect(layout.buttonRects.every(rect => rect.right <= layout.menuRect.right + 1)).toBe(true);
-        expect(layout.viewGroup.bottom - layout.viewGroup.top).toBeGreaterThan(0);
-        expect(layout.fitLabels).toHaveLength(2);
-        expect(layout.fitLabels.every(label => label.height < label.lineHeight * 1.5)).toBe(true);
-        expect(Math.max(...layout.fitButtonTops) - Math.min(...layout.fitButtonTops)).toBeLessThanOrEqual(1);
-        expect(layout.menuRect.left).toBeGreaterThanOrEqual(0);
-        expect(layout.menu.clientWidth).toBeLessThan(ZOOM_MENU_VIEWPORT.width * 0.6);
-        expect(layout.menu.scrollWidth).toBeLessThanOrEqual(layout.menu.clientWidth + 1);
-        // Screen readers hear which choices are current, as sighted users see.
-        const pressed = await session.page.$$eval('.zoom-dropdown button.zoom-toggle-btn, .zoom-dropdown button.zoom-chip', buttons => buttons.map(button => ({
-            active: button.classList.contains('is-active'),
-            pressed: button.getAttribute('aria-pressed'),
-        })));
-        expect(pressed.length).toBeGreaterThan(5);
-        expect(pressed.every(button => button.pressed === String(button.active))).toBe(true);
-        expect(pressed.some(button => button.active)).toBe(true);
-    }, ZOOM_MENU_TIMEOUT_MS);
+            const layout = await readZoomMenuLayout(session.page);
+            expect(layout.buttonRects).toHaveLength(3);
+            expect(
+                Math.max(...layout.buttonRects.map((rect) => rect.top)) - Math.min(...layout.buttonRects.map((rect) => rect.top)),
+            ).toBeLessThanOrEqual(1);
+            expect(layout.buttonRects.every((rect) => rect.width > 0)).toBe(true);
+            expect(layout.buttonRects.every((rect) => rect.left >= 0)).toBe(true);
+            expect(layout.buttonRects.every((rect) => rect.left >= layout.menuRect.left - 1)).toBe(true);
+            expect(layout.buttonRects.every((rect) => rect.right <= layout.menuRect.right + 1)).toBe(true);
+            expect(layout.viewGroup.bottom - layout.viewGroup.top).toBeGreaterThan(0);
+            expect(layout.fitLabels).toHaveLength(2);
+            expect(layout.fitLabels.every((label) => label.height < label.lineHeight * 1.5)).toBe(true);
+            expect(Math.max(...layout.fitButtonTops) - Math.min(...layout.fitButtonTops)).toBeLessThanOrEqual(1);
+            expect(layout.menuRect.left).toBeGreaterThanOrEqual(0);
+            expect(layout.menu.clientWidth).toBeLessThan(ZOOM_MENU_VIEWPORT.width * 0.6);
+            expect(layout.menu.scrollWidth).toBeLessThanOrEqual(layout.menu.clientWidth + 1);
+            // Screen readers hear which choices are current, as sighted users see.
+            const pressed = await session.page.$$eval('.zoom-dropdown button.zoom-toggle-btn, .zoom-dropdown button.zoom-chip', (buttons) =>
+                buttons.map((button) => ({
+                    active: button.classList.contains('is-active'),
+                    pressed: button.getAttribute('aria-pressed'),
+                })),
+            );
+            expect(pressed.length).toBeGreaterThan(5);
+            expect(pressed.every((button) => button.pressed === String(button.active))).toBe(true);
+            expect(pressed.some((button) => button.active)).toBe(true);
+        },
+        ZOOM_MENU_TIMEOUT_MS,
+    );
 });

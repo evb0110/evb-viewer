@@ -1,8 +1,5 @@
 import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
-import {
-    findSerializableErrorEnvelope,
-    SerializableError,
-} from '@contracts/serializableError';
+import {findSerializableErrorEnvelope, SerializableError} from '@contracts/serializableError';
 
 /**
  * The maximum number of bytes returned across the native IPC boundary.
@@ -41,9 +38,7 @@ export function createFileBackedPdfCombineEnv({
 }
 
 export function normalizePdfCombineOutputLimit(value: number | undefined) {
-    return typeof value === 'number'
-        && Number.isSafeInteger(value)
-        && value >= 1
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1
         ? Math.min(value, PDF_COMBINE_MAX_OUTPUT_BYTES)
         : PDF_COMBINE_MAX_OUTPUT_BYTES;
 }

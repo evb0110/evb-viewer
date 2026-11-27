@@ -1,6 +1,6 @@
-import { clamp } from 'es-toolkit/math';
-import type { IAnnotationMarkerRect } from '@app/types/annotations';
-import type { TPageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
+import {clamp} from 'es-toolkit/math';
+import type {IAnnotationMarkerRect} from '@app/types/annotations';
+import type {TPageRotation} from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
 
 /** The native writer's note icon edge, `TEXT_NOTE_ICON_SIZE_PT` in native/pdf-page-ops/src/annotations.rs. */
 const TEXT_NOTE_ICON_SIZE_PT = 20;
@@ -14,7 +14,9 @@ interface ITextNotePageGeometry {
 // native save refuses a marker whose start plus span exceeds 1.
 function fitInsidePage(start: number, span: number) {
     let fitted = clamp(start, 0, 1 - span);
-    while (fitted > 0 && fitted + span > 1) fitted = Math.max(0, fitted - Number.EPSILON);
+    while (fitted > 0 && fitted + span > 1) {
+        fitted = Math.max(0, fitted - Number.EPSILON);
+    }
     return fitted;
 }
 

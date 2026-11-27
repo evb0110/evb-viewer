@@ -1,17 +1,14 @@
 import {isFinitePositive} from '@contracts/runtimeGuards';
-import { clamp } from 'es-toolkit/math';
-import type { IPageBoundedHorizontalScrollInput } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/pdfHorizontalScrollClampTypes';
+import {clamp} from 'es-toolkit/math';
+import type {IPageBoundedHorizontalScrollInput} from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/pdfHorizontalScrollClampTypes';
 
 export const HORIZONTAL_SCROLL_CLAMP_EPSILON_PX = 1.5;
-
 
 function normalizeNonNegative(value: number) {
     return Number.isFinite(value) ? Math.max(0, value) : 0;
 }
 
-export function resolvePageBoundedHorizontalScroll(
-    input: IPageBoundedHorizontalScrollInput,
-) {
+export function resolvePageBoundedHorizontalScroll(input: IPageBoundedHorizontalScrollInput) {
     const viewportWidth = input.viewportWidth;
     const pageWidth = input.pageWidth;
     if (!isFinitePositive(viewportWidth) || !isFinitePositive(pageWidth)) {
@@ -36,10 +33,7 @@ export function resolvePageBoundedHorizontalScroll(
 
     const pageRight = pageLeft + pageWidth;
     const minScrollLeft = Math.max(0, pageLeft - margin);
-    const maxScrollLeft = Math.max(
-        minScrollLeft,
-        pageRight + margin - viewportWidth,
-    );
+    const maxScrollLeft = Math.max(minScrollLeft, pageRight + margin - viewportWidth);
 
     return {
         minScrollLeft,

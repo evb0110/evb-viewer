@@ -1,6 +1,6 @@
-import type { IOcrWord } from '@contracts/shared';
-import type { TOcrIndexRotation } from '@contracts/ocrIndex';
-import { BrowserLogger } from '@app/utils/browserLogger';
+import type {IOcrWord} from '@contracts/shared';
+import type {TOcrIndexRotation} from '@contracts/ocrIndex';
+import {BrowserLogger} from '@app/utils/browserLogger';
 
 export function transformWordBox(
     word: IOcrWord,

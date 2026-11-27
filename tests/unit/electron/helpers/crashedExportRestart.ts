@@ -1,21 +1,12 @@
-import {
-    existsSync,
-    readdirSync,
-} from 'node:fs';
-import {
-    chmod,
-    lstat,
-    readFile,
-    readdir,
-    writeFile,
-} from 'node:fs/promises';
+import {existsSync, readdirSync} from 'node:fs';
+import {chmod, lstat, readFile, readdir, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {vi} from 'vitest';
 import {sweepStaleManagedScratchTempDirs} from '@electron/utils/managedScratchTemp';
 
 // The names makeSiblingTempPath gives a publication stage.
 export function listStagedNames(folder: string) {
-    return readdirSync(folder).filter(name => /^\.[0-9a-f]{16}\.tmp$/u.test(name));
+    return readdirSync(folder).filter((name) => /^\.[0-9a-f]{16}\.tmp$/u.test(name));
 }
 
 // The next start after a crash: every managed scratch under appTempRoot belongs
@@ -56,9 +47,7 @@ export async function refuseCompletionAppend(path: string, data: string) {
 // A step a killed process stops at: `stop` never settles, and `reached`
 // resolves once the step runs, so a test waits for the step, not for a clock.
 export function createStopPoint() {
-    const {
-        promise: reached, resolve,
-    } = Promise.withResolvers<undefined>();
+    const {promise: reached, resolve} = Promise.withResolvers<undefined>();
     return {
         reached,
         stop: <T = undefined>() => {

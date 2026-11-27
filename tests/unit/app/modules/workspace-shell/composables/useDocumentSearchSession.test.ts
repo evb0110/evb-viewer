@@ -1,15 +1,7 @@
-import {
-    effectScope,
-    ref,
-} from 'vue';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH } from '@contracts/search';
-import { useDocumentSearchSession } from '@app/modules/workspace-shell/composables/useDocumentSearchSession';
+import {effectScope, ref} from 'vue';
+import {describe, expect, it, vi} from 'vitest';
+import {DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH} from '@contracts/search';
+import {useDocumentSearchSession} from '@app/modules/workspace-shell/composables/useDocumentSearchSession';
 import type {
     IDocumentSearchBackend,
     IDocumentSearchRequest,
@@ -40,7 +32,9 @@ function createMatch(pageIndex: number, matchIndex: number) {
 function withSession<T>(factory: () => T) {
     const scope = effectScope();
     const session = scope.run(factory);
-    if (!session) throw new Error('Document search test session failed to initialize');
+    if (!session) {
+        throw new Error('Document search test session failed to initialize');
+    }
     return {
         session,
         stop: () => scope.stop(),
@@ -49,32 +43,40 @@ function withSession<T>(factory: () => T) {
 
 describe('useDocumentSearchSession', () => {
     it('preserves quoted inner spaces through the document search backend', async () => {
-        const harness = withSession(() => useDocumentSearchSession({backend: {
-            minQueryLength: 2,
-            search: async request => ({
-                results: [{
-                    ...createMatch(0, 0),
-                    startOffset: 6,
-                    endOffset: 13,
-                    excerpt: {
-                        prefix: false,
-                        suffix: false,
-                        before: 'before',
-                        match: request.query,
-                        after: 'after',
-                    },
-                }],
-                truncated: false,
+        const harness = withSession(() =>
+            useDocumentSearchSession({
+                backend: {
+                    minQueryLength: 2,
+                    search: async (request) => ({
+                        results: [
+                            {
+                                ...createMatch(0, 0),
+                                startOffset: 6,
+                                endOffset: 13,
+                                excerpt: {
+                                    prefix: false,
+                                    suffix: false,
+                                    before: 'before',
+                                    match: request.query,
+                                    after: 'after',
+                                },
+                            },
+                        ],
+                        truncated: false,
+                    }),
+                },
             }),
-        }}));
+        );
         harness.session.setQuery('  " hello "  ');
         expect(await harness.session.run()).toBe(true);
         expect(harness.session.submittedQuery.value).toBe(' hello ');
-        expect(harness.session.results.value).toMatchObject([{
-            startOffset: 6,
-            endOffset: 13,
-            excerpt: {match: ' hello '},
-        }]);
+        expect(harness.session.results.value).toMatchObject([
+            {
+                startOffset: 6,
+                endOffset: 13,
+                excerpt: {match: ' hello '},
+            },
+        ]);
         harness.stop();
     });
 
@@ -90,16 +92,21 @@ describe('useDocumentSearchSession', () => {
         const deferred = createDeferred<IDocumentSearchResponse>();
         const backend = {
             minQueryLength: 2,
-            search: vi.fn().mockResolvedValueOnce({
-                results: [],
-                truncated: false,
-                coverage,
-            }).mockReturnValueOnce(deferred.promise),
+            search: vi
+                .fn()
+                .mockResolvedValueOnce({
+                    results: [],
+                    truncated: false,
+                    coverage,
+                })
+                .mockReturnValueOnce(deferred.promise),
         };
-        const harness = withSession(() => useDocumentSearchSession({
-            backend,
-            documentRevision: revision,
-        }));
+        const harness = withSession(() =>
+            useDocumentSearchSession({
+                backend,
+                documentRevision: revision,
+            }),
+        );
         harness.session.setQuery('first');
         await harness.session.run();
         expect(harness.session.progress.value?.coverage).toEqual(coverage);
@@ -119,21 +126,27 @@ describe('useDocumentSearchSession', () => {
 
     it('continues within a page and reverse-wraps without retaining preceding windows', async () => {
         let pending: ReturnType<typeof createDeferred<IDocumentSearchResponse>> | null = null;
-        const harness = withSession(() => useDocumentSearchSession({backend: {
-            minQueryLength: 2,
-            search: async request => {
-                if (pending) return pending.promise;
-                const allResults = Array.from({length: 561}, (_, index) => ({
-                    ...createMatch(index === 560 ? 1 : 0, index),
-                    pageMatchIndex: index === 560 ? 0 : index,
-                }));
-                const offset = request.resultOffset === 'last' ? 61 : request.resultOffset ?? 0;
-                return {
-                    results: allResults.slice(offset, offset + 500),
-                    truncated: request.resultOffset !== 'last' && offset + 500 < allResults.length,
-                };
-            },
-        }}));
+        const harness = withSession(() =>
+            useDocumentSearchSession({
+                backend: {
+                    minQueryLength: 2,
+                    search: async (request) => {
+                        if (pending) {
+                            return pending.promise;
+                        }
+                        const allResults = Array.from({length: 561}, (_, index) => ({
+                            ...createMatch(index === 560 ? 1 : 0, index),
+                            pageMatchIndex: index === 560 ? 0 : index,
+                        }));
+                        const offset = request.resultOffset === 'last' ? 61 : (request.resultOffset ?? 0);
+                        return {
+                            results: allResults.slice(offset, offset + 500),
+                            truncated: request.resultOffset !== 'last' && offset + 500 < allResults.length,
+                        };
+                    },
+                },
+            }),
+        );
         const session = harness.session;
         session.setQuery('valve');
         await session.run();
@@ -175,7 +188,7 @@ describe('useDocumentSearchSession', () => {
         harness.stop();
     });
 
-    it('owns query, progress, result selection, and cyclic navigation' , async () => {
+    it('owns query, progress, result selection, and cyclic navigation', async () => {
         const onNavigate = vi.fn();
         const search = vi.fn(async (request: IDocumentSearchRequest) => {
             request.onProgress?.({
@@ -183,10 +196,7 @@ describe('useDocumentSearchSession', () => {
                 total: 4,
             });
             return {
-                results: [
-                    createMatch(1, 0),
-                    createMatch(3, 1),
-                ],
+                results: [createMatch(1, 0), createMatch(3, 1)],
                 truncated: false,
             };
         });
@@ -194,10 +204,12 @@ describe('useDocumentSearchSession', () => {
             minQueryLength: 2,
             search,
         };
-        const harness = withSession(() => useDocumentSearchSession({
-            backend,
-            onNavigate,
-        }));
+        const harness = withSession(() =>
+            useDocumentSearchSession({
+                backend,
+                onNavigate,
+            }),
+        );
 
         harness.session.setQuery('  word  ');
         await expect(harness.session.run()).resolves.toBe(true);
@@ -302,16 +314,18 @@ describe('useDocumentSearchSession', () => {
         const staleRequest = {current: null as IDocumentSearchRequest | null};
         const backend: IDocumentSearchBackend = {
             minQueryLength: 1,
-            search: request => {
+            search: (request) => {
                 staleRequest.current = request;
                 return staleResponse.promise;
             },
         };
         const documentRevision = ref<string | null>('revision-1');
-        const harness = withSession(() => useDocumentSearchSession({
-            backend,
-            documentRevision,
-        }));
+        const harness = withSession(() =>
+            useDocumentSearchSession({
+                backend,
+                documentRevision,
+            }),
+        );
 
         harness.session.setQuery('document');
         const run = harness.session.run();

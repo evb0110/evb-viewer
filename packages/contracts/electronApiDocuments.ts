@@ -1,32 +1,14 @@
 import type {IPdfNativeTextBoxSourceDescriptor} from '@contracts/nativePdfTextBoxAppearance';
 import type {TPageIndex} from '@contracts/pageNumbers';
 
-import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import type {
-    IPlatformUnsupportedResult,
-    TPlatformUnsupportedReason,
-} from '@contracts/platformUnsupported';
-import type {
-    IDocumentRevisionChangedEvent,
-    IDocumentRevisionInfo,
-    TDocumentRevisionToken,
-} from '@contracts/documentRevision';
-import { parseDocumentRevisionToken } from '@contracts/documentRevision';
-import type {
-    IPdfBox,
-    IMarkerRect,
-    IPoint2D,
-} from '@contracts/geometry';
-import type { IPdfAnnotationStampImageReference } from '@contracts/pdfAnnotationParseTypes';
-import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
-import type {
-    IPdfPageLabelsMutation,
-    IPdfPageLabelRange,
-    TPdfPageLabelStyle,
-} from '@contracts/pdfPageLabels';
+import {parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
+import type {IPlatformUnsupportedResult, TPlatformUnsupportedReason} from '@contracts/platformUnsupported';
+import type {IDocumentRevisionChangedEvent, IDocumentRevisionInfo, TDocumentRevisionToken} from '@contracts/documentRevision';
+import {parseDocumentRevisionToken} from '@contracts/documentRevision';
+import type {IPdfBox, IMarkerRect, IPoint2D} from '@contracts/geometry';
+import type {IPdfAnnotationStampImageReference} from '@contracts/pdfAnnotationParseTypes';
+import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
+import type {IPdfPageLabelsMutation, IPdfPageLabelRange, TPdfPageLabelStyle} from '@contracts/pdfPageLabels';
 import type {
     TPdfAnnotationLineEndStyle,
     TPdfAnnotationMarkupSubtype,
@@ -34,29 +16,13 @@ import type {
     TPdfAnnotationShapeType,
 } from '@contracts/annotations';
 import type {IRecentReadingView} from '@contracts/recentReadingView';
-import type {
-    IRecentFile,
-    TLeaseId,
-    TRequestId,
-} from '@contracts/shared';
-import {
-    parseLeaseId,
-    parseRequestId,
-} from '@contracts/shared';
-import {
-    parseEpochMs,
-    type TEpochMs,
-} from '@contracts/timestamps';
+import type {IRecentFile, TLeaseId, TRequestId} from '@contracts/shared';
+import {parseLeaseId, parseRequestId} from '@contracts/shared';
+import {parseEpochMs, type TEpochMs} from '@contracts/timestamps';
 import type {TPdfDateString} from '@contracts/pdfDateString';
-import type {
-    IPdfConformanceAnalysisOptions,
-    IPdfConformanceProfile,IPdfValidationResult,
-} from '@contracts/pdfConformance';
-import type {
-    TMenuEventCallback,
-    TMenuEventUnsubscribe,
-} from '@contracts/electronApiCommon';
-import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
+import type {IPdfConformanceAnalysisOptions, IPdfConformanceProfile, IPdfValidationResult} from '@contracts/pdfConformance';
+import type {TMenuEventCallback, TMenuEventUnsubscribe} from '@contracts/electronApiCommon';
+import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import type * as PdfAnnotationParse from '@contracts/pdfAnnotationParseTypes';
 import type {TOpenFileResult} from '@contracts/pdfOpenFileSchemas';
 import * as v from 'valibot';
@@ -72,17 +38,9 @@ import type {
     IPdfNativePageSizesExactOptions as TPlatformPdfNativePageSizesExactOptions,
     IPdfOpeningGeometry as TPlatformPdfOpeningGeometry,
 } from '@contracts/documentsPlatformFeatureNativePageSchemas';
-import type {
-    IPdfDataPrintOptions,
-    IPdfNativePrintDialogOpenedEvent,
-    IPdfPathPrintOptions,
-} from '@contracts/pdfPathPrintOptions';
+import type {IPdfDataPrintOptions, IPdfNativePrintDialogOpenedEvent, IPdfPathPrintOptions} from '@contracts/pdfPathPrintOptions';
 import type {IPdfPathValidationOptions as TPlatformPdfPathValidationOptions} from '@contracts/pdfValidationPathArgs';
-import type {
-    IPdfNativeStagedCommitOptions,
-    IPdfSaveAsOptions,
-    IPdfSerializedSaveOptions,
-} from '@contracts/documentsPersistenceSchemas';
+import type {IPdfNativeStagedCommitOptions, IPdfSaveAsOptions, IPdfSerializedSaveOptions} from '@contracts/documentsPersistenceSchemas';
 export type {IPdfNativeTextBoxSourceDescriptor};
 export type {
     IOpenDjvuResult,
@@ -107,17 +65,9 @@ export type {
     IPdfNativePageSizesExactOptions,
     IPdfOpeningGeometry,
 } from '@contracts/documentsPlatformFeatureNativePageSchemas';
-export type {
-    IPdfDataPrintOptions,
-    IPdfNativePrintDialogOpenedEvent,
-    IPdfPathPrintOptions,
-} from '@contracts/pdfPathPrintOptions';
+export type {IPdfDataPrintOptions, IPdfNativePrintDialogOpenedEvent, IPdfPathPrintOptions} from '@contracts/pdfPathPrintOptions';
 export type {IPdfPathValidationOptions} from '@contracts/pdfValidationPathArgs';
-export type {
-    IPdfNativeStagedCommitOptions,
-    IPdfSaveAsOptions,
-    IPdfSerializedSaveOptions,
-} from '@contracts/documentsPersistenceSchemas';
+export type {IPdfNativeStagedCommitOptions, IPdfSaveAsOptions, IPdfSerializedSaveOptions} from '@contracts/documentsPersistenceSchemas';
 
 export type TOpenBatchProgressOperation = 'document-open' | 'page-insert';
 export {PDF_ANNOTATION_PARSE_MAX_LINE_BYTES} from '@contracts/pdfAnnotationParseTypes';
@@ -127,24 +77,24 @@ export const IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES = 16 * 1024 * 1024;
 
 const documentRefSchema = v.pipe(
     v.string(),
-    v.check(value => parseDocumentRef(value) !== null),
-    v.transform(value => parseDocumentRef(value) as TDocumentRef),
+    v.check((value) => parseDocumentRef(value) !== null),
+    v.transform((value) => parseDocumentRef(value) as TDocumentRef),
 );
 const leaseIdSchema = v.pipe(
     v.string(),
-    v.check(value => parseLeaseId(value) !== null),
-    v.transform(value => parseLeaseId(value) as TLeaseId),
+    v.check((value) => parseLeaseId(value) !== null),
+    v.transform((value) => parseLeaseId(value) as TLeaseId),
 );
 const documentRevisionTokenSchema = v.pipe(
     v.string(),
-    v.check(value => parseDocumentRevisionToken(value) !== null),
-    v.transform(value => parseDocumentRevisionToken(value) as TDocumentRevisionToken),
+    v.check((value) => parseDocumentRevisionToken(value) !== null),
+    v.transform((value) => parseDocumentRevisionToken(value) as TDocumentRevisionToken),
 );
 const epochMsSchema = v.pipe(
     v.number(),
     v.safeInteger(),
     v.minValue(0, 'invalid file modification time'),
-    v.transform(value => parseEpochMs(value) as TEpochMs),
+    v.transform((value) => parseEpochMs(value) as TEpochMs),
 );
 const nonNegativeSafeInteger = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
 export const FILE_STAT_RESULT_SCHEMA = v.object({
@@ -153,21 +103,21 @@ export const FILE_STAT_RESULT_SCHEMA = v.object({
 });
 export type IFileStatResult = v.InferOutput<typeof FILE_STAT_RESULT_SCHEMA>;
 
-export const MANAGED_TEMP_FILE_HANDLE_SCHEMA = v.pipe(v.object({
-    path: documentRefSchema,
-    size: nonNegativeSafeInteger,
-    sha256: v.pipe(v.string(), v.regex(/^[a-f0-9]{64}$/u)),
-    leaseId: leaseIdSchema,
-    revision: v.nullable(documentRevisionTokenSchema),
-}), v.readonly());
+export const MANAGED_TEMP_FILE_HANDLE_SCHEMA = v.pipe(
+    v.object({
+        path: documentRefSchema,
+        size: nonNegativeSafeInteger,
+        sha256: v.pipe(v.string(), v.regex(/^[a-f0-9]{64}$/u)),
+        leaseId: leaseIdSchema,
+        revision: v.nullable(documentRevisionTokenSchema),
+    }),
+    v.readonly(),
+);
 export type IManagedTempFileHandle = v.InferOutput<typeof MANAGED_TEMP_FILE_HANDLE_SCHEMA>;
 
 export const MAX_DOCUMENT_ALLOCATION_BYTES = 512 * 1024 * 1024;
 
-export function assertDocumentAllocationSize(
-    value: unknown,
-    maxBytes = MAX_DOCUMENT_ALLOCATION_BYTES,
-) {
+export function assertDocumentAllocationSize(value: unknown, maxBytes = MAX_DOCUMENT_ALLOCATION_BYTES) {
     const parsed = v.safeParse(FILE_STAT_RESULT_SCHEMA, {size: value}, {abortEarly: true});
     if (!parsed.success || parsed.output.size > maxBytes) {
         throw new RangeError(`Document allocation size must be a non-negative safe integer no greater than ${maxBytes} bytes`);
@@ -186,20 +136,12 @@ const PDF_OPTIMIZE_PROGRESS_PHASES = [
     'validating',
     'complete',
 ] as const;
-export const PDF_OPTIMIZE_PRESETS = [
-    'lossless',
-    'balancedScanned',
-    'smallScanned',
-    'blackAndWhite',
-] as const;
-const OPEN_BATCH_PROGRESS_OPERATIONS = [
-    'document-open',
-    'page-insert',
-] as const;
+export const PDF_OPTIMIZE_PRESETS = ['lossless', 'balancedScanned', 'smallScanned', 'blackAndWhite'] as const;
+const OPEN_BATCH_PROGRESS_OPERATIONS = ['document-open', 'page-insert'] as const;
 const requestIdSchema = v.pipe(
     v.string(),
-    v.check(value => parseRequestId(value) !== null),
-    v.transform(value => parseRequestId(value) as TRequestId),
+    v.check((value) => parseRequestId(value) !== null),
+    v.transform((value) => parseRequestId(value) as TRequestId),
 );
 const finiteNumber = v.pipe(v.number(), v.finite());
 const progressCountersSchema = v.object({
@@ -207,19 +149,25 @@ const progressCountersSchema = v.object({
     total: v.pipe(finiteNumber, v.minValue(0)),
     percent: finiteNumber,
 });
-const optimizeProgressSchema = v.pipe(v.object({
-    requestId: requestIdSchema,
-    preset: v.picklist(PDF_OPTIMIZE_PRESETS),
-    phase: v.picklist(PDF_OPTIMIZE_PROGRESS_PHASES),
-    ...progressCountersSchema.entries,
-}), v.readonly());
-const openBatchProgressSchema = v.pipe(v.object({
-    operation: v.picklist(OPEN_BATCH_PROGRESS_OPERATIONS),
-    requestId: requestIdSchema,
-    ...progressCountersSchema.entries,
-    elapsedMs: v.pipe(finiteNumber, v.minValue(0)),
-    estimatedRemainingMs: v.nullable(finiteNumber),
-}), v.readonly());
+const optimizeProgressSchema = v.pipe(
+    v.object({
+        requestId: requestIdSchema,
+        preset: v.picklist(PDF_OPTIMIZE_PRESETS),
+        phase: v.picklist(PDF_OPTIMIZE_PROGRESS_PHASES),
+        ...progressCountersSchema.entries,
+    }),
+    v.readonly(),
+);
+const openBatchProgressSchema = v.pipe(
+    v.object({
+        operation: v.picklist(OPEN_BATCH_PROGRESS_OPERATIONS),
+        requestId: requestIdSchema,
+        ...progressCountersSchema.entries,
+        elapsedMs: v.pipe(finiteNumber, v.minValue(0)),
+        estimatedRemainingMs: v.nullable(finiteNumber),
+    }),
+    v.readonly(),
+);
 
 export type IPdfOptimizeProgress = v.InferOutput<typeof optimizeProgressSchema>;
 export type IOpenPdfDirectBatchProgress = v.InferOutput<typeof openBatchProgressSchema>;
@@ -238,9 +186,7 @@ export interface ICreateCombinedPdfFromFilesOptions {
     signal?: AbortSignal;
 }
 
-export type TShowItemInFolderResult =
-    | {readonly ok: true}
-    | IPlatformUnsupportedResult;
+export type TShowItemInFolderResult = {readonly ok: true} | IPlatformUnsupportedResult;
 
 export const PDF_OPTIMIZE_PRESET_SCHEMA = v.picklist(PDF_OPTIMIZE_PRESETS);
 export type TPdfOptimizePreset = v.InferOutput<typeof PDF_OPTIMIZE_PRESET_SCHEMA>;
@@ -254,15 +200,11 @@ export type TPdfOptimizeProgressPhase = v.InferOutput<typeof optimizeProgressSch
 export type IDocumentMutationRevisionOptions = Pick<IPdfSerializedSaveOptions, 'expectedDocumentRevisionToken'>;
 
 export const PDF_SERIALIZED_COMMIT_CALLBACKS_SCHEMA = v.object({
-    verifyBytesBeforeCommit: v.exactOptional(v.custom<(bytes: Uint8Array) => Promise<void>>(
-        value => typeof value === 'function',
-    )),
-    verifyPathBeforeCommit: v.exactOptional(v.custom<(path: TDocumentRef, knownSize: number) => Promise<void>>(
-        value => typeof value === 'function',
-    )),
-    assertBeforeCommit: v.exactOptional(v.custom<() => Promise<void> | void>(
-        value => typeof value === 'function',
-    )),
+    verifyBytesBeforeCommit: v.exactOptional(v.custom<(bytes: Uint8Array) => Promise<void>>((value) => typeof value === 'function')),
+    verifyPathBeforeCommit: v.exactOptional(
+        v.custom<(path: TDocumentRef, knownSize: number) => Promise<void>>((value) => typeof value === 'function'),
+    ),
+    assertBeforeCommit: v.exactOptional(v.custom<() => Promise<void> | void>((value) => typeof value === 'function')),
 });
 export type IPdfSerializedCommitCallbacks = v.InferOutput<typeof PDF_SERIALIZED_COMMIT_CALLBACKS_SCHEMA>;
 
@@ -273,9 +215,7 @@ export interface IPdfNativeAnnotationIdentityBinding {
     readonly pdfRef: string;
 }
 
-export {
-    optimizeProgressSchema as PDF_OPTIMIZE_PROGRESS_SCHEMA, openBatchProgressSchema as OPEN_BATCH_PROGRESS_SCHEMA,
-};
+export {optimizeProgressSchema as PDF_OPTIMIZE_PROGRESS_SCHEMA, openBatchProgressSchema as OPEN_BATCH_PROGRESS_SCHEMA};
 
 export type IPdfNativePageSizesCapability = (
     path: TDocumentRef,
@@ -316,13 +256,15 @@ export interface IPdfNativeFreeTextNote {
 export interface IPdfNativeTextBoxMutation {
     source?: IPdfNativeTextBoxSourceDescriptor;
     /** Explicit original-paint restoration, authorized by loaded-source provenance. */
-    originalAppearance?: {
-        recoveryData: string;
-        sourceAnnotationId?: never
-    } | {
-        sourceAnnotationId: string;
-        recoveryData?: never
-    };
+    originalAppearance?:
+        | {
+              recoveryData: string;
+              sourceAnnotationId?: never;
+          }
+        | {
+              sourceAnnotationId: string;
+              recoveryData?: never;
+          };
     pageIndex: TPageIndex;
     stableKey: string;
     /** Existing PDF object ref when this mutation updates imported FreeText. */
@@ -348,19 +290,23 @@ export interface IPdfNativeTextBoxAppearanceRequest {
         source?: IPdfNativeTextBoxSourceDescriptor;
     }>;
 }
-export interface IPdfNativeTextBoxAppearanceMetadata {textBoxes: Array<{
-    stableKey: string;
-    /** Reference in the returned one-page appearance PDF. */
-    annotationId: string;
-    /** Settled appearance bounds. Canonical request geometry is unchanged. */
-    rect: [number, number, number, number];
-    fittedFontSize: number;
-    /** Null when preserving an original producer appearance. */
-    lineCount: number | null;
-    /** Page-space text clip after frame insets, unknown for original paint. */
-    textBounds: [number, number, number, number] | null;
-}>;}
-export interface IPdfNativeTextBoxAppearanceResult extends IPdfNativeTextBoxAppearanceMetadata {data: Uint8Array;}
+export interface IPdfNativeTextBoxAppearanceMetadata {
+    textBoxes: Array<{
+        stableKey: string;
+        /** Reference in the returned one-page appearance PDF. */
+        annotationId: string;
+        /** Settled appearance bounds. Canonical request geometry is unchanged. */
+        rect: [number, number, number, number];
+        fittedFontSize: number;
+        /** Null when preserving an original producer appearance. */
+        lineCount: number | null;
+        /** Page-space text clip after frame insets, unknown for original paint. */
+        textBounds: [number, number, number, number] | null;
+    }>;
+}
+export interface IPdfNativeTextBoxAppearanceResult extends IPdfNativeTextBoxAppearanceMetadata {
+    data: Uint8Array;
+}
 export type IPdfNativeFreeTextEditor = IPdfNativeTextBoxMutation;
 export interface IPdfNativeAnnotationDelete {
     pageIndex: TPageIndex;
@@ -450,7 +396,9 @@ export interface IPdfNativeMarkupSubtypeHint {
     source?: string | null;
 }
 
-export interface IPdfNativeMarkupMutation {hints: IPdfNativeMarkupSubtypeHint[];}
+export interface IPdfNativeMarkupMutation {
+    hints: IPdfNativeMarkupSubtypeHint[];
+}
 
 export interface IPdfNativePlacedImage extends IPdfBox {
     author?: string | null;
@@ -513,7 +461,9 @@ export interface IPdfSaveAsResult {
     readonly validation: IPdfValidationResult | null;
 }
 
-export interface IPdfCommittedSaveAsResult extends IPdfSaveAsResult {readonly validation: IPdfValidationResult;}
+export interface IPdfCommittedSaveAsResult extends IPdfSaveAsResult {
+    readonly validation: IPdfValidationResult;
+}
 
 export interface IDocumentsMenuCapability {
     setMenuDocumentState: (state: boolean | TPlatformApplicationMenuDocumentState) => Promise<void>;
@@ -590,7 +540,7 @@ export interface IDocumentsFileCapability {
     readPdfPageLabelRanges: (path: TDocumentRef) => Promise<IPdfPageLabelRange[]>;
     statFile: (path: TDocumentRef) => Promise<{
         size: number;
-        modifiedAt?: TEpochMs
+        modifiedAt?: TEpochMs;
     }>;
     readFileRange: (path: TDocumentRef, offset: number, length: number) => Promise<Uint8Array>;
     createManagedTempFileHandle?: (path: TDocumentRef) => Promise<IManagedTempFileHandle>;
@@ -599,33 +549,41 @@ export interface IDocumentsFileCapability {
     getPdfOpeningGeometry?: (path: TDocumentRef) => Promise<TPlatformPdfOpeningGeometry | null>;
     getPdfNativePageSizes?: IPdfNativePageSizesCapability;
     getDocumentRevision: (path: TDocumentRef) => Promise<IDocumentRevisionInfo>;
-    analyzePdfConformance: (
-        path: TDocumentRef,
-        options?: IPdfConformanceAnalysisOptions,
-    ) => Promise<IPdfConformanceProfile>;
-    printPdfData: (data: Uint8Array, fileName?: string, options?: IPdfDataPrintOptions) => Promise<{
+    analyzePdfConformance: (path: TDocumentRef, options?: IPdfConformanceAnalysisOptions) => Promise<IPdfConformanceProfile>;
+    printPdfData: (
+        data: Uint8Array,
+        fileName?: string,
+        options?: IPdfDataPrintOptions,
+    ) => Promise<{
         success: boolean;
         canceled?: boolean;
         error?: string;
         unsupportedReason?: TPlatformUnsupportedReason;
     }>;
     cancelPdfPrint?: (requestId: TRequestId) => Promise<{canceled: boolean}>;
-    printPdfPath: (path: TDocumentRef, fileName?: string, options?: IPdfPathPrintOptions) => Promise<{
+    printPdfPath: (
+        path: TDocumentRef,
+        fileName?: string,
+        options?: IPdfPathPrintOptions,
+    ) => Promise<{
         success: boolean;
         canceled?: boolean;
         error?: string;
         unsupportedReason?: TPlatformUnsupportedReason;
     }>;
-    onNativePrintDialogOpened?: (
-        callback: (event: IPdfNativePrintDialogOpenedEvent) => void,
-    ) => TMenuEventUnsubscribe;
+    onNativePrintDialogOpened?: (callback: (event: IPdfNativePrintDialogOpenedEvent) => void) => TMenuEventUnsubscribe;
     writeFile: (path: TDocumentRef, data: Uint8Array, options?: IDocumentMutationRevisionOptions) => Promise<boolean>;
     replaceWorkingCopyFromPath: (
         workingCopyPath: TDocumentRef,
         sourcePath: TDocumentRef,
         options?: IDocumentMutationRevisionOptions,
     ) => Promise<boolean>;
-    createWorkingCopyFromData: (fileName: string, data: Uint8Array, originalPath?: TDocumentRef, password?: string) => Promise<TDocumentRef>;
+    createWorkingCopyFromData: (
+        fileName: string,
+        data: Uint8Array,
+        originalPath?: TDocumentRef,
+        password?: string,
+    ) => Promise<TDocumentRef>;
     createWorkingCopyFromPath: (sourcePath: TDocumentRef, originalPath?: TDocumentRef, password?: string) => Promise<TDocumentRef>;
     saveFileStructured: (path: TDocumentRef, options?: IDocumentMutationRevisionOptions) => Promise<TPlatformDocumentSaveResult>;
     savePdfData: (
@@ -661,25 +619,23 @@ export interface IDocumentsFileCapability {
         options?: IPdfNativeStagedCommitOptions,
     ) => Promise<IPdfNativeSaveResult>;
     /** Consume a native staged receipt as an uncommitted split snapshot. */
-    cloneStagedPdfNativeMutationToWorkingCopy?: (
-        stagedOutput: ITypedStagedArtifact,
-        originalPath?: TDocumentRef,
-    ) => Promise<TDocumentRef>;
+    cloneStagedPdfNativeMutationToWorkingCopy?: (stagedOutput: ITypedStagedArtifact, originalPath?: TDocumentRef) => Promise<TDocumentRef>;
     /** Consume a native staged receipt by replacing only the working copy. */
     replaceWorkingCopyFromStagedPdfNativeMutation?: (
         path: TDocumentRef,
         stagedOutput: ITypedStagedArtifact,
         options: IDocumentMutationRevisionOptions,
     ) => Promise<boolean>;
-    validatePdfPath: (
-        path: TDocumentRef,
-        options?: TPlatformPdfPathValidationOptions,
-    ) => Promise<IPdfValidationResult>;
+    validatePdfPath: (path: TDocumentRef, options?: TPlatformPdfPathValidationOptions) => Promise<IPdfValidationResult>;
     /**
      * Undo or redo: makes `revision`, one the document keeps for its undo history, current again. Nothing is
      * copied; the document stays the same document.
      */
-    restoreDocumentRevision: (path: TDocumentRef, revision: TDocumentRevisionToken, options?: IDocumentMutationRevisionOptions) => Promise<IDocumentRevisionInfo>;
+    restoreDocumentRevision: (
+        path: TDocumentRef,
+        revision: TDocumentRevisionToken,
+        options?: IDocumentMutationRevisionOptions,
+    ) => Promise<IDocumentRevisionInfo>;
     /** The revisions the undo history names; the document keeps those and lets the others go. */
     retainDocumentRevisions: (path: TDocumentRef, revisions: TDocumentRevisionToken[]) => Promise<void>;
     cleanupFile: (path: TDocumentRef) => Promise<void>;
@@ -693,9 +649,7 @@ export interface IDocumentsFileCapability {
     releasePinnedDocumentRevision?: (pinnedRef: TDocumentRef) => Promise<void>;
     setWindowTitle: (title: string) => Promise<void>;
     showItemInFolder: (path: TDocumentRef) => Promise<boolean>;
-    onDocumentRevisionChanged: (
-        callback: (event: IDocumentRevisionChangedEvent) => void,
-    ) => TMenuEventUnsubscribe;
+    onDocumentRevisionChanged: (callback: (event: IDocumentRevisionChangedEvent) => void) => TMenuEventUnsubscribe;
 
     recentFiles: {
         get: () => Promise<IRecentFile[]>;
@@ -722,10 +676,7 @@ export interface IDocumentsFileCapability {
      */
     getPathsForFiles: (files: File[]) => TDocumentRef[];
     registerFilesForOpen: (files: File[]) => Promise<TDocumentRef[]>;
-    createCombinedPdfFromFiles?: (
-        files: File[],
-        options?: ICreateCombinedPdfFromFilesOptions,
-    ) => Promise<Uint8Array>;
+    createCombinedPdfFromFiles?: (files: File[], options?: ICreateCombinedPdfFromFilesOptions) => Promise<Uint8Array>;
 }
 
 export interface IDocumentsPickerCapability extends Pick<
@@ -741,13 +692,10 @@ export interface IDocumentsPickerCapability extends Pick<
 
 export interface IDocumentsOpenCapability extends Pick<
     IDocumentsFileCapability,
-    | 'openDocumentDirect'
-    | 'openDocumentDirectBatch'
-    | 'cancelOpenDocumentDirectBatch'
-    | 'forgetKeptOriginal'
-> {onOpenDocumentDirectBatchProgress: (
-    callback: (progress: TOpenDocumentDirectBatchProgress) => void,
-) => TMenuEventUnsubscribe;}
+    'openDocumentDirect' | 'openDocumentDirectBatch' | 'cancelOpenDocumentDirectBatch' | 'forgetKeptOriginal'
+> {
+    onOpenDocumentDirectBatchProgress: (callback: (progress: TOpenDocumentDirectBatchProgress) => void) => TMenuEventUnsubscribe;
+}
 
 export interface IDocumentsWorkingCopyCapability extends Pick<
     IDocumentsFileCapability,
@@ -775,11 +723,7 @@ export interface IDocumentsReadCapability extends Pick<
     | 'onDocumentRevisionChanged'
 > {}
 
-export interface IDocumentsPdfValidationCapability extends Pick<
-    IDocumentsFileCapability,
-    | 'analyzePdfConformance'
-    | 'validatePdfPath'
-> {}
+export interface IDocumentsPdfValidationCapability extends Pick<IDocumentsFileCapability, 'analyzePdfConformance' | 'validatePdfPath'> {}
 /**
  * A renderer-local Optimize bound to the target its preparation picked: the
  * four `optimizePdfAsCopy` arguments and the request's cancel signal. Never
@@ -791,10 +735,7 @@ export type TPreparedPdfOptimizeCopy = (
 
 export interface IDocumentsPdfExternalCapability extends Pick<
     IDocumentsFileCapability,
-    | 'printPdfData'
-    | 'cancelPdfPrint'
-    | 'printPdfPath'
-    | 'onNativePrintDialogOpened'
+    'printPdfData' | 'cancelPdfPrint' | 'printPdfPath' | 'onNativePrintDialogOpened'
 > {}
 export interface IDocumentsPdfPersistenceCapability extends Pick<
     IDocumentsFileCapability,
@@ -815,21 +756,10 @@ export interface IDocumentsPdfPersistenceCapability extends Pick<
     | 'replaceWorkingCopyFromStagedPdfNativeMutation'
 > {}
 
-export interface IDocumentsFileIoCapability extends
-    IDocumentsReadCapability,
-    IDocumentsPdfPersistenceCapability {}
+export interface IDocumentsFileIoCapability extends IDocumentsReadCapability, IDocumentsPdfPersistenceCapability {}
 
-export interface IDocumentsPdfCapability extends
-    IDocumentsPdfValidationCapability,
-    IDocumentsPdfExternalCapability {}
+export interface IDocumentsPdfCapability extends IDocumentsPdfValidationCapability, IDocumentsPdfExternalCapability {}
 
-export interface IDocumentsRecentFilesCapability extends Pick<
-    IDocumentsFileCapability,
-    'recentFiles'
-> {}
+export interface IDocumentsRecentFilesCapability extends Pick<IDocumentsFileCapability, 'recentFiles'> {}
 
-export interface IDocumentsWindowCapability extends Pick<
-    IDocumentsFileCapability,
-    | 'setWindowTitle'
-    | 'showItemInFolder'
-> {}
+export interface IDocumentsWindowCapability extends Pick<IDocumentsFileCapability, 'setWindowTitle' | 'showItemInFolder'> {}

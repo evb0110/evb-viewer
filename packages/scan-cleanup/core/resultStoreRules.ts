@@ -27,35 +27,23 @@ export function assertPageNumber(pageNumber: number, pageCount: number) {
     }
 }
 
-export function assertReadWindow(
-    firstPageNumber: number,
-    lastPageNumberExclusive: number,
-    pageCount: number,
-    maxReadPages: number,
-) {
+export function assertReadWindow(firstPageNumber: number, lastPageNumberExclusive: number, pageCount: number, maxReadPages: number) {
     if (
-        !Number.isSafeInteger(firstPageNumber)
-        || !Number.isSafeInteger(lastPageNumberExclusive)
-        || firstPageNumber < 1
-        || lastPageNumberExclusive < firstPageNumber
-        || lastPageNumberExclusive > pageCount + 1
-        || lastPageNumberExclusive - firstPageNumber > maxReadPages
+        !Number.isSafeInteger(firstPageNumber) ||
+        !Number.isSafeInteger(lastPageNumberExclusive) ||
+        firstPageNumber < 1 ||
+        lastPageNumberExclusive < firstPageNumber ||
+        lastPageNumberExclusive > pageCount + 1 ||
+        lastPageNumberExclusive - firstPageNumber > maxReadPages
     ) {
         throw new RangeError('Scan cleanup result store read range is invalid or exceeds its bounded window');
     }
 }
 
 /** A store keeps one record per page: an append adds a page, a replace revises one. */
-export function assertRecordWrite(
-    pageNumber: number,
-    recordPageNumber: number,
-    exists: boolean,
-    requireExisting: boolean,
-) {
+export function assertRecordWrite(pageNumber: number, recordPageNumber: number, exists: boolean, requireExisting: boolean) {
     if (recordPageNumber !== pageNumber) {
-        throw new Error(
-            `Scan cleanup result store received page ${String(recordPageNumber)} for page ${String(pageNumber)}`,
-        );
+        throw new Error(`Scan cleanup result store received page ${String(recordPageNumber)} for page ${String(pageNumber)}`);
     }
     if (requireExisting && !exists) {
         throw new Error(`Scan cleanup result store cannot replace missing page ${String(pageNumber)}`);

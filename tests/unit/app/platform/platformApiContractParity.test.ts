@@ -1,12 +1,6 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { PLATFORM_API_DESCRIPTOR } from '@contracts/platformApi';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {PLATFORM_API_DESCRIPTOR} from '@contracts/platformApi';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
 
 function formatPath(path: readonly string[]) {
     return path.join('.');
@@ -23,22 +17,12 @@ function readPath(root: unknown, path: readonly string[]) {
     return value;
 }
 
-function collectCallablePaths(
-    value: unknown,
-    prefix: readonly string[] = [],
-    paths: string[] = [],
-) {
+function collectCallablePaths(value: unknown, prefix: readonly string[] = [], paths: string[] = []) {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
         return paths;
     }
-    for (const [
-        key,
-        child,
-    ] of Object.entries(value)) {
-        const childPath = [
-            ...prefix,
-            key,
-        ];
+    for (const [key, child] of Object.entries(value)) {
+        const childPath = [...prefix, key];
         if (typeof child === 'function') {
             paths.push(formatPath(childPath));
             continue;
@@ -48,10 +32,7 @@ function collectCallablePaths(
     return paths;
 }
 
-function expectCallablePathParity(
-    api: unknown,
-    expectedPaths: ReadonlyArray<readonly string[]>,
-) {
+function expectCallablePathParity(api: unknown, expectedPaths: ReadonlyArray<readonly string[]>) {
     const formattedExpectedPaths = expectedPaths.map(formatPath).sort();
     expect(collectCallablePaths(api).sort()).toEqual(formattedExpectedPaths);
     for (const path of expectedPaths) {
@@ -62,12 +43,15 @@ function expectCallablePathParity(
 async function createMockedElectronApi() {
     vi.doMock('@electron/preload/debugLogBuffer', () => ({getDebugLogMessages: () => []}));
 
-    const { createElectronApi } = await import('@electron/preload/createElectronApi');
-    return createElectronApi({
-        invoke: vi.fn(async () => undefined),
-        on: vi.fn(),
-        send: vi.fn(),
-    } as never, {getPathForFile: vi.fn(() => '/tmp/mock.pdf')});
+    const {createElectronApi} = await import('@electron/preload/createElectronApi');
+    return createElectronApi(
+        {
+            invoke: vi.fn(async () => undefined),
+            on: vi.fn(),
+            send: vi.fn(),
+        } as never,
+        {getPathForFile: vi.fn(() => '/tmp/mock.pdf')},
+    );
 }
 
 describe('platform API contract parity', () => {
@@ -78,11 +62,8 @@ describe('platform API contract parity', () => {
     });
 
     it('keeps the Electron fixture descriptor-complete', () => {
-        const {
-            diagnostics,
-            ...api
-        } = createElectronPlatformApiFixture();
-        const descriptorPaths = PLATFORM_API_DESCRIPTOR.methods.map(descriptor => descriptor.path);
+        const {diagnostics, ...api} = createElectronPlatformApiFixture();
+        const descriptorPaths = PLATFORM_API_DESCRIPTOR.methods.map((descriptor) => descriptor.path);
 
         expectCallablePathParity(api, descriptorPaths);
         expectCallablePathParity(diagnostics, []);
@@ -90,21 +71,15 @@ describe('platform API contract parity', () => {
 
     it('keeps mocked Electron preload descriptor-complete', async () => {
         const api = await createMockedElectronApi();
-        const descriptorPaths = PLATFORM_API_DESCRIPTOR.methods.map(descriptor => descriptor.path);
+        const descriptorPaths = PLATFORM_API_DESCRIPTOR.methods.map((descriptor) => descriptor.path);
 
-        const {
-            diagnostics,
-            ...platformApi
-        } = api;
+        const {diagnostics, ...platformApi} = api;
         // Electron has no in-process PDF combiner and picks its Optimize target
         // in the main process.
-        const browserOnlyPaths = new Set([
-            'documentPicker.createCombinedPdfFromFiles',
-            'documentFiles.prepareOptimizePdfAsCopy',
-        ]);
+        const browserOnlyPaths = new Set(['documentPicker.createCombinedPdfFromFiles', 'documentFiles.prepareOptimizePdfAsCopy']);
         expectCallablePathParity(
             platformApi,
-            descriptorPaths.filter(path => !browserOnlyPaths.has(path.join('.'))),
+            descriptorPaths.filter((path) => !browserOnlyPaths.has(path.join('.'))),
         );
         expectCallablePathParity(diagnostics, []);
     });

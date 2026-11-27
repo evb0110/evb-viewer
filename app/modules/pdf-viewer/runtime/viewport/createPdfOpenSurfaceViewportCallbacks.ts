@@ -1,8 +1,5 @@
-import {
-    reportDocumentViewportPlacement,
-    type IDocumentViewerRuntime,
-} from '@app/modules/document-viewer/public';
-import type { IPdfViewportPositionCommit } from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
+import {reportDocumentViewportPlacement, type IDocumentViewerRuntime} from '@app/modules/document-viewer/public';
+import type {IPdfViewportPositionCommit} from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
 
 type IPdfNavigationRuntime = Pick<IDocumentViewerRuntime, 'openSurface' | 'observePage'>;
 
@@ -23,17 +20,11 @@ export function createPdfOpenSurfaceViewportCallbacks(
             // A ticketless navigation-kind commit, or one before a document,
             // places nothing the surface asked for.
             const accepted = Boolean(
-                authority
-                && commit.intentKind !== 'user-scroll'
-                && (commit.navigationTicket || (
-                    commit.documentRevision > 0
-                    && ![
-                        'navigate',
-                        'search',
-                        'wheel-page',
-                    ].includes(commit.intentKind)
-                ))
-                && reportDocumentViewportPlacement(authority.openSurface, commit),
+                authority &&
+                commit.intentKind !== 'user-scroll' &&
+                (commit.navigationTicket ||
+                    (commit.documentRevision > 0 && !['navigate', 'search', 'wheel-page'].includes(commit.intentKind))) &&
+                reportDocumentViewportPlacement(authority.openSurface, commit),
             );
             if (accepted) {
                 onNavigationViewportCommitted(commit.page);

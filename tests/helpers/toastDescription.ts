@@ -1,14 +1,9 @@
-import { decodeHTML } from 'entities';
-import {
-    createSSRApp,
-    ssrContextKey,
-    type ComponentInternalInstance,
-    type VNode,
-} from 'vue';
-import { ssrRenderVNode } from 'vue/server-renderer';
+import {decodeHTML} from 'entities';
+import {createSSRApp, ssrContextKey, type ComponentInternalInstance, type VNode} from 'vue';
+import {ssrRenderVNode} from 'vue/server-renderer';
 
-const ssrApp = createSSRApp({ render: () => null });
-ssrApp.provide(ssrContextKey, { modules: new Set() });
+const ssrApp = createSSRApp({render: () => null});
+ssrApp.provide(ssrContextKey, {modules: new Set()});
 const ssrParent = {
     appContext: ssrApp._context,
     provides: ssrApp._context.provides,
@@ -28,9 +23,13 @@ function flattenSsrBuffer(chunks: unknown[]): string {
 
 function renderVNodeToLines(root: VNode): string {
     const buffer: unknown[] = [];
-    ssrRenderVNode((item) => {
-        buffer.push(item);
-    }, root, ssrParent);
+    ssrRenderVNode(
+        (item) => {
+            buffer.push(item);
+        },
+        root,
+        ssrParent,
+    );
     const html = flattenSsrBuffer(buffer)
         .replace(/<!--[\s\S]*?-->/gu, '')
         .replace(/<\/[a-z0-9-]+>\s*<[a-z0-9-]+(?:\s[^>]*)?>/giu, '\n')
@@ -62,10 +61,10 @@ function toastDescriptionMatcher(name: string, matches: (text: string) => boolea
 
 /** Matches a toast description whose shown text contains `expected`. */
 export function toastDescriptionContaining(expected: string) {
-    return toastDescriptionMatcher('ToastDescriptionContaining', text => text.includes(expected), expected);
+    return toastDescriptionMatcher('ToastDescriptionContaining', (text) => text.includes(expected), expected);
 }
 
 /** Matches a toast description whose shown text is exactly `expected`. */
 export function toastDescription(expected: string) {
-    return toastDescriptionMatcher('ToastDescription', text => text === expected, expected);
+    return toastDescriptionMatcher('ToastDescription', (text) => text === expected, expected);
 }

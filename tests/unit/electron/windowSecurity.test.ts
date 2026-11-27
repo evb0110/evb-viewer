@@ -1,17 +1,10 @@
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { EventEmitter } from 'node:events';
-import { createWindowSecurity } from '@electron/window/createWindowSecurity';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {EventEmitter} from 'node:events';
+import {createWindowSecurity} from '@electron/window/createWindowSecurity';
 import type * as WindowRegistry from '@electron/window/registry';
 import type * as StartupPhases from '@electron/window/rendererReady';
-import type { TRendererStartupPhase } from '@contracts/windowTabsPlatformFeature';
-import { createTestEventSender } from '@tests/helpers/electronEventEmitterHarness';
+import type {TRendererStartupPhase} from '@contracts/windowTabsPlatformFeature';
+import {createTestEventSender} from '@tests/helpers/electronEventEmitterHarness';
 
 const mocks = vi.hoisted(() => ({
     automation: {hideWindow: true, noFocus: true},
@@ -23,17 +16,21 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('electron', () => ({
     app: {isPackaged: true, focus: vi.fn()},
-    get BrowserWindow() { return StartupBrowserWindow; },
+    get BrowserWindow() {
+        return StartupBrowserWindow;
+    },
     dialog: {showMessageBox: mocks.showMessageBox},
     ipcMain: new EventEmitter(),
     shell: {openExternal: mocks.openExternal},
 }));
-vi.mock('@electron/config', () => ({config: {
-    automation: mocks.automation,
-    isDev: false,
-    renderer: {url: 'evb-viewer://app/electron', trustedUrl: 'evb-viewer://app/electron'},
-    window: {title: 'EVB Viewer'},
-}}));
+vi.mock('@electron/config', () => ({
+    config: {
+        automation: mocks.automation,
+        isDev: false,
+        renderer: {url: 'evb-viewer://app/electron', trustedUrl: 'evb-viewer://app/electron'},
+        window: {title: 'EVB Viewer'},
+    },
+}));
 vi.mock('@electron/features/diagnostics/public', () => ({captureMainFailure: vi.fn()}));
 vi.mock('@electron/security/csp', () => ({setupContentSecurityPolicy: mocks.setupContentSecurityPolicy}));
 vi.mock('@electron/te', () => ({te: (key: string) => key}));
@@ -74,9 +71,13 @@ class StartupBrowserWindow extends EventEmitter {
         await mocks.loadURL(url);
     }
 
-    isMaximized() { return true; }
+    isMaximized() {
+        return true;
+    }
 
-    isVisible() { return true; }
+    isVisible() {
+        return true;
+    }
 
     focus() {}
 
@@ -102,7 +103,10 @@ describe('main window startup phases', () => {
     async function startWindow() {
         const {createAppWindow} = await import('@electron/window');
         const startup = createAppWindow({waitForInitialRendererReady: true});
-        const outcome = startup.then(() => 'interactive' as const, (error: unknown) => error);
+        const outcome = startup.then(
+            () => 'interactive' as const,
+            (error: unknown) => error,
+        );
         const window = getRegisteredMainWindow()!;
         await vi.advanceTimersByTimeAsync(0);
         return {window, outcome};
@@ -127,12 +131,8 @@ describe('main window startup phases', () => {
     beforeEach(async () => {
         vi.resetModules();
         ({getRegisteredMainWindow} = await import('@electron/window/registry'));
-        ({
-            getWindowStartupPhase,
-            publishWindowStartupPhase,
-            resetWindowStartupPhase,
-            subscribeWindowStartupPhase,
-        } = await import('@electron/window/rendererReady'));
+        ({getWindowStartupPhase, publishWindowStartupPhase, resetWindowStartupPhase, subscribeWindowStartupPhase} =
+            await import('@electron/window/rendererReady'));
         vi.useFakeTimers();
         mocks.automation.hideWindow = true;
         mocks.automation.noFocus = true;
@@ -169,7 +169,7 @@ describe('main window startup phases', () => {
     it('keeps the original startup deadline after an early renderer exit', async () => {
         const {window, outcome} = await startWindow();
         const phases: TRendererStartupPhase[] = [];
-        subscribeWindowStartupPhase(window.id, {onPhase: phase => phases.push(phase), requestReveal: () => false});
+        subscribeWindowStartupPhase(window.id, {onPhase: (phase) => phases.push(phase), requestReveal: () => false});
 
         await vi.advanceTimersByTimeAsync(10_000);
         endRenderer(window);
@@ -199,7 +199,7 @@ describe('main window startup phases', () => {
     it('reports renderer-gone when the window has used all three startup recoveries', async () => {
         const {window, outcome} = await startWindow();
         const phases: TRendererStartupPhase[] = [];
-        subscribeWindowStartupPhase(window.id, {onPhase: phase => phases.push(phase), requestReveal: () => false});
+        subscribeWindowStartupPhase(window.id, {onPhase: (phase) => phases.push(phase), requestReveal: () => false});
 
         for (let recovery = 0; recovery < 3; recovery += 1) {
             endRenderer(window);
@@ -217,9 +217,7 @@ describe('main window startup phases', () => {
         const stalledRecovery = Promise.withResolvers<void>();
         const firstPrompt = Promise.withResolvers<{response: number}>();
         const secondPrompt = Promise.withResolvers<{response: number}>();
-        mocks.showMessageBox
-            .mockReturnValueOnce(firstPrompt.promise)
-            .mockReturnValueOnce(secondPrompt.promise);
+        mocks.showMessageBox.mockReturnValueOnce(firstPrompt.promise).mockReturnValueOnce(secondPrompt.promise);
         const window = await startWindowWithNativePrompts();
         mocks.loadURL.mockReturnValueOnce(stalledRecovery.promise);
         endRenderer(window);
@@ -279,8 +277,7 @@ describe('main window startup phases', () => {
         await vi.advanceTimersByTimeAsync(0);
         expect(mocks.setupContentSecurityPolicy).toHaveBeenCalledTimes(2);
         expect(mocks.loadURL).toHaveBeenCalledExactlyOnceWith('evb-viewer://app/electron');
-        expect(mocks.setupContentSecurityPolicy.mock.invocationCallOrder[1])
-            .toBeLessThan(mocks.loadURL.mock.invocationCallOrder[0]!);
+        expect(mocks.setupContentSecurityPolicy.mock.invocationCallOrder[1]).toBeLessThan(mocks.loadURL.mock.invocationCallOrder[0]!);
     });
 });
 
@@ -332,15 +329,12 @@ describe('createWindowSecurity', () => {
         security.hardenWindowWebContents(window as never);
 
         const openHandler = window.webContents.setWindowOpenHandler.mock.calls[0]?.[0] as
-            | ((details: {url: string;}) => {action: 'deny';})
-            | undefined;
+            ((details: {url: string}) => {action: 'deny'}) | undefined;
 
         expect(openHandler).toBeTypeOf('function');
-        expect(openHandler?.({ url: 'javascript:alert(1)' })).toEqual({ action: 'deny' });
+        expect(openHandler?.({url: 'javascript:alert(1)'})).toEqual({action: 'deny'});
         expect(mocks.openExternal).not.toHaveBeenCalled();
-        expect(logger.warn).toHaveBeenCalledWith(
-            'Blocked window-open URL with unsupported protocol: javascript:alert(1)',
-        );
+        expect(logger.warn).toHaveBeenCalledWith('Blocked window-open URL with unsupported protocol: javascript:alert(1)');
     });
 
     it('throttles repeated window-open attempts by source and window instead of full URL', () => {
@@ -355,8 +349,7 @@ describe('createWindowSecurity', () => {
         security.hardenWindowWebContents(window as never);
 
         const openHandler = window.webContents.setWindowOpenHandler.mock.calls[0]?.[0] as
-            | ((details: {url: string;}) => {action: 'deny';})
-            | undefined;
+            ((details: {url: string}) => {action: 'deny'}) | undefined;
         expect(openHandler).toBeTypeOf('function');
 
         openHandler?.({url: 'https://example.com/docs?nonce=1'});
@@ -365,12 +358,8 @@ describe('createWindowSecurity', () => {
 
         expect(mocks.openExternal).toHaveBeenCalledOnce();
         expect(mocks.openExternal).toHaveBeenCalledWith('https://example.com/docs?nonce=1');
-        expect(logger.warn).toHaveBeenCalledWith(
-            'Blocked repeated window-open URL open: https://example.com/other?nonce=2',
-        );
-        expect(logger.warn).toHaveBeenCalledWith(
-            'Blocked repeated window-open URL open: https://other.example.test/path?nonce=3',
-        );
+        expect(logger.warn).toHaveBeenCalledWith('Blocked repeated window-open URL open: https://example.com/other?nonce=2');
+        expect(logger.warn).toHaveBeenCalledWith('Blocked repeated window-open URL open: https://other.example.test/path?nonce=3');
 
         vi.advanceTimersByTime(1_000);
         openHandler?.({url: 'https://example.com/after'});
@@ -392,15 +381,11 @@ describe('createWindowSecurity', () => {
         security.hardenWindowWebContents(secondWindow as never);
 
         const firstOpenHandler = firstWindow.webContents.setWindowOpenHandler.mock.calls[0]?.[0] as
-            | ((details: {url: string;}) => {action: 'deny';})
-            | undefined;
+            ((details: {url: string}) => {action: 'deny'}) | undefined;
         const secondOpenHandler = secondWindow.webContents.setWindowOpenHandler.mock.calls[0]?.[0] as
-            | ((details: {url: string;}) => {action: 'deny';})
-            | undefined;
-        const firstWillNavigate = firstWindow.webContents.on.mock.calls
-            .find(([event]) => event === 'will-navigate')?.[1] as
-            | ((event: {preventDefault: () => void;}, url: string) => void)
-            | undefined;
+            ((details: {url: string}) => {action: 'deny'}) | undefined;
+        const firstWillNavigate = firstWindow.webContents.on.mock.calls.find(([event]) => event === 'will-navigate')?.[1] as
+            ((event: {preventDefault: () => void}, url: string) => void) | undefined;
 
         firstOpenHandler?.({url: 'https://example.com/from-first-window'});
         secondOpenHandler?.({url: 'https://example.com/from-second-window'});
@@ -424,8 +409,7 @@ describe('createWindowSecurity', () => {
         security.hardenWindowWebContents(window as never);
 
         const willNavigate = window.webContents.on.mock.calls.find(([event]) => event === 'will-navigate')?.[1] as
-            | ((event: {preventDefault: () => void;}, url: string) => void)
-            | undefined;
+            ((event: {preventDefault: () => void}, url: string) => void) | undefined;
         expect(willNavigate).toBeTypeOf('function');
 
         const trustedEvent = {preventDefault: vi.fn()};
@@ -442,16 +426,12 @@ describe('createWindowSecurity', () => {
         willNavigate?.(javascriptEvent, 'javascript:alert(1)');
         expect(javascriptEvent.preventDefault).toHaveBeenCalledOnce();
         expect(mocks.openExternal).toHaveBeenCalledTimes(1);
-        expect(logger.warn).toHaveBeenCalledWith(
-            'Blocked navigation URL with unsupported protocol: javascript:alert(1)',
-        );
+        expect(logger.warn).toHaveBeenCalledWith('Blocked navigation URL with unsupported protocol: javascript:alert(1)');
 
         mocks.openExternal.mockRejectedValueOnce(new Error('launch failed'));
         vi.setSystemTime(new Date('2026-06-21T00:00:02Z'));
         willNavigate?.({preventDefault: vi.fn()}, 'https://example.com/fail');
         await vi.runAllTimersAsync();
-        expect(logger.warn).toHaveBeenCalledWith(
-            'Failed to open external URL (navigation): launch failed',
-        );
+        expect(logger.warn).toHaveBeenCalledWith('Failed to open external URL (navigation): launch failed');
     });
 });

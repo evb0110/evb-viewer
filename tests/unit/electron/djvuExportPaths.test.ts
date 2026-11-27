@@ -1,14 +1,7 @@
-import { EventEmitter } from 'node:events';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { resolve } from 'path';
-import {
-    allowDjvuWritePath,
-    consumeAllowedDjvuWritePath,
-} from '@electron/features/djvu/main/exportPaths';
+import {EventEmitter} from 'node:events';
+import {describe, expect, it} from 'vitest';
+import {resolve} from 'path';
+import {allowDjvuWritePath, consumeAllowedDjvuWritePath} from '@electron/features/djvu/main/exportPaths';
 
 describe('djvu/exportPaths', () => {
     it('allows consuming a sender-owned PDF path', () => {
@@ -43,7 +36,7 @@ describe('djvu/exportPaths', () => {
     it('removes sender-owned grants when the sender is destroyed', () => {
         const filePath = './tmp-djvu-destroyed-sender-export.pdf';
         const absolutePath = resolve(filePath);
-        const sender = new EventEmitter() as EventEmitter & { id: number };
+        const sender = new EventEmitter() as EventEmitter & {id: number};
         sender.id = 12;
 
         allowDjvuWritePath(filePath, sender as never);
@@ -55,7 +48,7 @@ describe('djvu/exportPaths', () => {
     it('removes sender-owned grants on main-frame navigation', () => {
         const filePath = './tmp-djvu-navigated-sender-export.pdf';
         const absolutePath = resolve(filePath);
-        const sender = new EventEmitter() as EventEmitter & { id: number };
+        const sender = new EventEmitter() as EventEmitter & {id: number};
         sender.id = 13;
 
         allowDjvuWritePath(filePath, sender as never);

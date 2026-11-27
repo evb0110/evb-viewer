@@ -2,23 +2,10 @@
 
 import {execFileSync} from 'node:child_process';
 
-import {
-    mkdir,
-    open,
-    stat,
-    writeFile,
-} from 'node:fs/promises';
-import {
-    dirname,
-    resolve,
-} from 'node:path';
-import { fileURLToPath } from 'node:url';
-import {
-    PDFDocument,
-    PDFName,
-    PDFString,
-    StandardFonts,
-} from 'pdf-lib';
+import {mkdir, open, stat, writeFile} from 'node:fs/promises';
+import {dirname, resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {PDFDocument, PDFName, PDFString, StandardFonts} from 'pdf-lib';
 
 export const DEFAULT_LARGE_PDF_FIXTURE_BYTES = 513 * 1024 * 1024;
 export const DEFAULT_LARGE_PDF_FIXTURE_PAGES = 431;
@@ -33,7 +20,10 @@ function parsePositiveInteger(value, label) {
 
 function readArgument(name) {
     const prefix = `--${name}=`;
-    return process.argv.slice(2).find(argument => argument.startsWith(prefix))?.slice(prefix.length);
+    return process.argv
+        .slice(2)
+        .find((argument) => argument.startsWith(prefix))
+        ?.slice(prefix.length);
 }
 
 export async function generateLargePdfE2eFixture({
@@ -41,14 +31,11 @@ export async function generateLargePdfE2eFixture({
     pageCount = DEFAULT_LARGE_PDF_FIXTURE_PAGES,
     targetBytes = DEFAULT_LARGE_PDF_FIXTURE_BYTES,
 }) {
-    const pdf = await PDFDocument.create({ updateMetadata: false });
+    const pdf = await PDFDocument.create({updateMetadata: false});
     const font = await pdf.embedFont(StandardFonts.Helvetica);
 
     for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
-        const page = pdf.addPage([
-            612,
-            792,
-        ]);
+        const page = pdf.addPage([612, 792]);
         page.drawText(`EVB deterministic large-PDF fixture — page ${pageNumber} of ${pageCount}`, {
             font,
             size: 14,
@@ -66,20 +53,11 @@ export async function generateLargePdfE2eFixture({
     const existingNote = pdf.context.obj({
         Type: PDFName.of('Annot'),
         Subtype: PDFName.of('FreeText'),
-        Rect: [
-            54,
-            620,
-            300,
-            662,
-        ],
+        Rect: [54, 620, 300, 662],
         Contents: PDFString.of('EVB deterministic existing FreeText note'),
         DA: PDFString.of('/Helvetica 12 Tf 0 g'),
         F: 4,
-        Border: [
-            0,
-            0,
-            1,
-        ],
+        Border: [0, 0, 1],
     });
     pdf.getPage(0).node.addAnnot(pdf.context.register(existingNote));
 
@@ -100,16 +78,12 @@ export async function generateLargePdfE2eFixture({
     }
 
     const absoluteOutputPath = resolve(outputPath);
-    await mkdir(dirname(absoluteOutputPath), { recursive: true });
+    await mkdir(dirname(absoluteOutputPath), {recursive: true});
     await writeFile(absoluteOutputPath, basePdf);
     if (process.platform === 'win32') {
         // NTFS needs the sparse attribute before extending and writing the
         // distant trailer; otherwise Windows fills the entire hole on disk.
-        execFileSync('fsutil.exe', [
-            'sparse',
-            'setflag',
-            absoluteOutputPath,
-        ], {stdio: 'pipe'});
+        execFileSync('fsutil.exe', ['sparse', 'setflag', absoluteOutputPath], {stdio: 'pipe'});
     }
     const handle = await open(absoluteOutputPath, 'r+');
     try {
@@ -140,7 +114,7 @@ if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import
             targetBytes,
         });
         process.stdout.write(`${generatedPath}\n`);
-    })().catch(error => {
+    })().catch((error) => {
         process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
         process.exitCode = 1;
     });

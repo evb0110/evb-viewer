@@ -1,13 +1,9 @@
-import { resolveWorkspaceMemoryBudget } from '@app/modules/document-viewer/runtime/workspaceMemoryBudget';
-import type { TMemoryPressureLevel } from '@app/utils/viewerResidencyPolicy';
+import {resolveWorkspaceMemoryBudget} from '@app/modules/document-viewer/runtime/workspaceMemoryBudget';
+import type {TMemoryPressureLevel} from '@app/utils/viewerResidencyPolicy';
 
 export const RGBA_BYTES_PER_PIXEL = 4;
 
-export type TWorkspaceSurfaceCategory =
-    | 'pdf-page-canvas'
-    | 'pdf-annotation-canvas'
-    | 'pdf-thumbnail-canvas'
-    | 'djvu-preview';
+export type TWorkspaceSurfaceCategory = 'pdf-page-canvas' | 'pdf-annotation-canvas' | 'pdf-thumbnail-canvas' | 'djvu-preview';
 
 export interface IWorkspaceSurfaceLease {
     readonly bytes: number;
@@ -63,9 +59,7 @@ function normalizeSurfaceBytes(bytes: number) {
     return Number.isFinite(bytes) && bytes > 0 ? Math.ceil(bytes) : 0;
 }
 
-export function createWorkspaceSurfaceBudgetController(
-    configuredMaxBytes?: number,
-): IWorkspaceSurfaceBudgetController {
+export function createWorkspaceSurfaceBudgetController(configuredMaxBytes?: number): IWorkspaceSurfaceBudgetController {
     // The module singleton is created at import time, before host memory is known;
     // the workspace memory monitor replaces this default through setBudget.
     let maxBytes = configuredMaxBytes;
@@ -98,14 +92,13 @@ export function createWorkspaceSurfaceBudgetController(
 
     function getEvictionCandidates() {
         return [...leasesByScope.entries()]
-            .flatMap(([
-                scopeId,
-                leases,
-            ]) => [...leases].map(entry => ({
-                scopeId,
-                entry,
-            })))
-            .filter(({ entry }) => entry.evict && (entry.canEvict?.() ?? true))
+            .flatMap(([scopeId, leases]) =>
+                [...leases].map((entry) => ({
+                    scopeId,
+                    entry,
+                })),
+            )
+            .filter(({entry}) => entry.evict && (entry.canEvict?.() ?? true))
             .sort((left, right) => left.entry.priority - right.entry.priority || left.entry.sequence - right.entry.sequence);
     }
 
@@ -115,10 +108,7 @@ export function createWorkspaceSurfaceBudgetController(
             return;
         }
         const candidates = getEvictionCandidates();
-        for (const {
-            scopeId,
-            entry,
-        } of candidates) {
+        for (const {scopeId, entry} of candidates) {
             if (reservedBytes <= effectiveMaxBytes) {
                 break;
             }
@@ -147,7 +137,7 @@ export function createWorkspaceSurfaceBudgetController(
             category: options.category,
             evict: options.evict,
             canEvict: options.canEvict,
-            priority: Number.isFinite(options.priority) ? options.priority ?? 0 : 0,
+            priority: Number.isFinite(options.priority) ? (options.priority ?? 0) : 0,
             sequence: nextSequence++,
         };
         const scopeLeases = leasesByScope.get(options.scopeId) ?? new Set();
@@ -159,7 +149,9 @@ export function createWorkspaceSurfaceBudgetController(
         evictToBudget();
 
         return {
-            get bytes() {return entry.bytes;},
+            get bytes() {
+                return entry.bytes;
+            },
             category: entry.category,
             scopeId: options.scopeId,
             promotePriority(priority) {
@@ -175,15 +167,21 @@ export function createWorkspaceSurfaceBudgetController(
                 entry.priority = priority;
             },
             resize(bytes) {
-                if (released || !scopeLeases.has(entry)) return false;
+                if (released || !scopeLeases.has(entry)) {
+                    return false;
+                }
                 const nextBytes = normalizeSurfaceBytes(bytes);
                 const increase = nextBytes - entry.bytes;
                 const admittedBytes = required
                     ? nextBytes
-                    : reservedBytes + increase - getEvictionCandidates()
-                        .filter(candidate => candidate.entry !== entry)
-                        .reduce((sum, candidate) => sum + candidate.entry.bytes, 0);
-                if (increase > 0 && admittedBytes > getEffectiveMaxBytes()) return false;
+                    : reservedBytes +
+                      increase -
+                      getEvictionCandidates()
+                          .filter((candidate) => candidate.entry !== entry)
+                          .reduce((sum, candidate) => sum + candidate.entry.bytes, 0);
+                if (increase > 0 && admittedBytes > getEffectiveMaxBytes()) {
+                    return false;
+                }
                 reservedBytes += increase;
                 entry.bytes = nextBytes;
                 evictToBudget();
@@ -217,12 +215,10 @@ export function createWorkspaceSurfaceBudgetController(
     }
 
     function getSnapshot(): IWorkspaceSurfaceBudgetSnapshot {
-        const reservedBytesByCategory = Object.fromEntries(
-            SURFACE_CATEGORIES.map(category => [
-                category,
-                0,
-            ]),
-        ) as Record<TWorkspaceSurfaceCategory, number>;
+        const reservedBytesByCategory = Object.fromEntries(SURFACE_CATEGORIES.map((category) => [category, 0])) as Record<
+            TWorkspaceSurfaceCategory,
+            number
+        >;
         let leaseCount = 0;
         for (const leases of leasesByScope.values()) {
             for (const lease of leases) {
@@ -254,16 +250,13 @@ export function createWorkspaceSurfaceBudgetController(
     }
 
     return {
-        reserve: options => admit(options, true),
+        reserve: (options) => admit(options, true),
         tryReserve(options) {
             const requestedBytes = normalizeSurfaceBytes(options.bytes);
-            const bytesToReclaim = Math.max(
-                0,
-                reservedBytes + requestedBytes - getEffectiveMaxBytes(),
-            );
+            const bytesToReclaim = Math.max(0, reservedBytes + requestedBytes - getEffectiveMaxBytes());
             if (bytesToReclaim > 0) {
                 let reclaimableBytes = 0;
-                for (const { entry } of getEvictionCandidates()) {
+                for (const {entry} of getEvictionCandidates()) {
                     reclaimableBytes += entry.bytes;
                     if (reclaimableBytes >= bytesToReclaim) {
                         break;

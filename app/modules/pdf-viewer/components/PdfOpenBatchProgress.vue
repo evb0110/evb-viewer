@@ -5,18 +5,29 @@
         aria-live="polite"
     >
         <div class="batch-progress-status">
-            <AppSpinner size="sm" tone="inherit" />
+            <AppSpinner
+                size="sm"
+                tone="inherit"
+            />
             <span>{{ t('emptyState.preparingBatch') }}</span>
         </div>
         <p class="batch-progress-detail">
-            {{ t('emptyState.preparingBatchProgress', {
-                processed: displayProcessedCount(progress.processed, progress.total),
-                total: progress.total,
-            }) }}
+            {{
+                t('emptyState.preparingBatchProgress', {
+                    processed: displayProcessedCount(progress.processed, progress.total),
+                    total: progress.total,
+                })
+            }}
         </p>
-        <AppProgressBar :value="progress.percent" class="mt-2" />
-        <p v-if="batchEtaText" class="batch-progress-eta">
-            {{ t('emptyState.preparingBatchEta', { eta: batchEtaText }) }}
+        <AppProgressBar
+            :value="progress.percent"
+            class="mt-2"
+        />
+        <p
+            v-if="batchEtaText"
+            class="batch-progress-eta"
+        >
+            {{ t('emptyState.preparingBatchEta', {eta: batchEtaText}) }}
         </p>
     </div>
 </template>
@@ -24,15 +35,12 @@
 <script setup lang="ts">
 import AppProgressBar from '@app/components/AppProgressBar.vue';
 import AppSpinner from '@app/components/AppSpinner.vue';
-import {
-    displayProcessedCount,
-    formatEtaDuration,
-} from '@app/utils/progressFormatting';
-import type { IPdfOpenBatchProgress } from '@app/modules/pdf-viewer/runtime/contracts/pdfOpenBatchProgress.types';
+import {displayProcessedCount, formatEtaDuration} from '@app/utils/progressFormatting';
+import type {IPdfOpenBatchProgress} from '@app/modules/pdf-viewer/runtime/contracts/pdfOpenBatchProgress.types';
 
-const { progress } = defineProps<{ progress: IPdfOpenBatchProgress; }>();
+const {progress} = defineProps<{progress: IPdfOpenBatchProgress}>();
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 const batchEtaText = computed(() => formatEtaDuration(progress.estimatedRemainingMs));
 </script>
 

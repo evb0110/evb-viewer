@@ -1,27 +1,16 @@
-import type { TDocumentRef } from '@contracts/documentRef';
-import {
-    createRequestId,
-    type TRequestId,
-} from '@contracts/shared';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import type {
-    IDocumentTextCatalogPage,
-    IDocumentTextCatalogWindow,
-} from '@contracts/documentTextCatalog';
-import { getOcrCapability } from '@app/utils/getOcrCapability';
-import {
-    parseDocumentRevisionToken,
-    type TDocumentRevisionToken,
-} from '@contracts/documentRevision';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {createRequestId, type TRequestId} from '@contracts/shared';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import type {IDocumentTextCatalogPage, IDocumentTextCatalogWindow} from '@contracts/documentTextCatalog';
+import {getOcrCapability} from '@app/utils/getOcrCapability';
+import {parseDocumentRevisionToken, type TDocumentRevisionToken} from '@contracts/documentRevision';
 
 function throwIfAborted(signal?: AbortSignal) {
     signal?.throwIfAborted();
 }
 
 function abortErrorFromSignal(signal: AbortSignal) {
-    return signal.reason instanceof Error
-        ? signal.reason
-        : new DOMException('DOCX export was canceled.', 'AbortError');
+    return signal.reason instanceof Error ? signal.reason : new DOMException('DOCX export was canceled.', 'AbortError');
 }
 
 function createCatalogRequestId() {
@@ -72,13 +61,13 @@ async function withAbort<T>(
             return;
         }
         promise.then(
-            value => {
+            (value) => {
                 cleanup();
                 if (!settled) {
                     resolve(value);
                 }
             },
-            error => {
+            (error) => {
                 cleanup();
                 if (!settled) {
                     reject(error);
@@ -98,31 +87,16 @@ function loadDocumentTextCatalogWindow(
     signal?: AbortSignal,
 ): Promise<IDocumentTextCatalogWindow> {
     return withAbort(
-        requestId => {
+        (requestId) => {
             if (signal === undefined) {
-                return capability.resolveDocumentTextCatalogWindow(
-                    workingCopyPath,
-                    revision,
-                    firstPage,
-                    lastPage,
-                    pageCount,
-                );
+                return capability.resolveDocumentTextCatalogWindow(workingCopyPath, revision, firstPage, lastPage, pageCount);
             }
             if (requestId === undefined) {
                 throw new Error('OCR catalog request ID was not allocated');
             }
-            return capability.resolveDocumentTextCatalogWindow(
-                workingCopyPath,
-                revision,
-                firstPage,
-                lastPage,
-                pageCount,
-                requestId,
-            );
+            return capability.resolveDocumentTextCatalogWindow(workingCopyPath, revision, firstPage, lastPage, pageCount, requestId);
         },
-        typeof capability.cancel === 'function'
-            ? requestId => capability.cancel(requestId)
-            : undefined,
+        typeof capability.cancel === 'function' ? (requestId) => capability.cancel(requestId) : undefined,
         signal,
     );
 }
@@ -132,21 +106,15 @@ function loadDocumentTextCatalogWindow(
  * Export deliberately has no search-index or legacy fallback: a stale or
  * malformed catalog is absence, never text for the current document.
  */
-export async function loadOcrText(
-    workingCopyPath: TDocumentRef,
-    documentRevisionToken: string,
-    signal?: AbortSignal,
-) {
-    const pages = await loadDocumentTextCatalogPages(
-        workingCopyPath,
-        documentRevisionToken,
-        undefined,
-        signal,
-    );
+export async function loadOcrText(workingCopyPath: TDocumentRef, documentRevisionToken: string, signal?: AbortSignal) {
+    const pages = await loadDocumentTextCatalogPages(workingCopyPath, documentRevisionToken, undefined, signal);
     if (!pages) {
         return null;
     }
-    const merged = pages.map(page => page.text.trim()).filter(Boolean).join('\n\n');
+    const merged = pages
+        .map((page) => page.text.trim())
+        .filter(Boolean)
+        .join('\n\n');
     return merged.length > 0 ? merged : null;
 }
 
@@ -164,7 +132,7 @@ export async function loadDocumentTextCatalogPages(
         }
         const capability = getOcrCapability();
         const snapshot = await withAbort(
-            requestId => {
+            (requestId) => {
                 if (signal === undefined) {
                     return pageCount === undefined
                         ? capability.resolveDocumentTextCatalog(workingCopyPath, revision)
@@ -177,9 +145,7 @@ export async function loadDocumentTextCatalogPages(
                     ? capability.resolveDocumentTextCatalog(workingCopyPath, revision, undefined, requestId)
                     : capability.resolveDocumentTextCatalog(workingCopyPath, revision, pageCount, requestId);
             },
-            typeof capability.cancel === 'function'
-                ? requestId => capability.cancel(requestId)
-                : undefined,
+            typeof capability.cancel === 'function' ? (requestId) => capability.cancel(requestId) : undefined,
             signal,
         );
         throwIfAborted(signal);
@@ -200,7 +166,6 @@ const DOCUMENT_TEXT_CATALOG_PAGE_WINDOW = 64;
  * receives one page at a time while each IPC response stays bounded.
  */
 
-
 /**
  * Prepares a replayable text-page stream after checking for at least one
  * non-empty page. Only the current IPC window is retained while the stream
@@ -218,15 +183,8 @@ export async function prepareDocumentTextCatalogTextPages(
         return null;
     }
     const capability = getOcrCapability();
-    const loadWindow = (firstPage: number, lastPage: number) => loadDocumentTextCatalogWindow(
-        capability,
-        workingCopyPath,
-        revision,
-        firstPage,
-        lastPage,
-        pageCount,
-        signal,
-    );
+    const loadWindow = (firstPage: number, lastPage: number) =>
+        loadDocumentTextCatalogWindow(capability, workingCopyPath, revision, firstPage, lastPage, pageCount, signal);
     let bufferedWindow: IDocumentTextCatalogWindow | null = null;
     let bufferedFirstPage = 1;
     for (; bufferedFirstPage <= pageCount; bufferedFirstPage += DOCUMENT_TEXT_CATALOG_PAGE_WINDOW) {
@@ -234,7 +192,7 @@ export async function prepareDocumentTextCatalogTextPages(
         const lastPage = Math.min(pageCount, bufferedFirstPage + DOCUMENT_TEXT_CATALOG_PAGE_WINDOW - 1);
         const candidate = await loadWindow(bufferedFirstPage, lastPage);
         throwIfAborted(signal);
-        if (candidate.pages.some(page => page.text.trim().length > 0)) {
+        if (candidate.pages.some((page) => page.text.trim().length > 0)) {
             bufferedWindow = candidate;
             break;
         }

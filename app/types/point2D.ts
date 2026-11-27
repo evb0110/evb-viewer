@@ -1,1 +1,1 @@
-export type { IPoint2D } from '@contracts/geometry';
+export type {IPoint2D} from '@contracts/geometry';

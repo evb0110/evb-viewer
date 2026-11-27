@@ -1,18 +1,8 @@
-export {
-    DEFAULT_LOCALE,
-    isSupportedLocale,
-    LOCALE_CODES,
-    resolveLocale,
-    type TLocale,
-} from '@i18n-core/localeCodes';
+export {DEFAULT_LOCALE, isSupportedLocale, LOCALE_CODES, resolveLocale, type TLocale} from '@i18n-core/localeCodes';
 
-export { LOCALE_DEFINITIONS } from '@i18n-core/localeDefinitions';
+export {LOCALE_DEFINITIONS} from '@i18n-core/localeDefinitions';
 
-export {
-    PRIVACY_MESSAGES,
-    type IPrivacyMessages,
-    type IPrivacySectionMessages,
-} from '@i18n-core/privacyMessages';
+export {PRIVACY_MESSAGES, type IPrivacyMessages, type IPrivacySectionMessages} from '@i18n-core/privacyMessages';
 
 export {
     formatTranslationLeaf,
@@ -39,9 +29,6 @@ export type {
     TTranslationParamsFromSchema,
 } from '@i18n-core/schemaTypes';
 
-export type {
-    ILocaleComposerMethods,
-    TTypedI18nComposer,
-} from '@i18n-core/createTypedI18nComposer';
+export type {ILocaleComposerMethods, TTypedI18nComposer} from '@i18n-core/createTypedI18nComposer';
 
-export { createTypedI18nComposer } from '@i18n-core/createTypedI18nComposer';
+export {createTypedI18nComposer} from '@i18n-core/createTypedI18nComposer';

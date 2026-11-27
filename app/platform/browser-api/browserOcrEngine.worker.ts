@@ -10,22 +10,18 @@ import {assembleBrowserPdfRasterPpm} from '@app/platform/browser-api/assembleBro
 import {readCachedOcrModel} from '@app/platform/browser-api/browserOcrModels';
 import {getBrowserPageOpsWorkerRequestId} from '@contracts/browserPageOpsWorker';
 import {getErrorMessage} from '@app/utils/error';
-import {
-    createTesseractEngine,
-    type TTesseractModuleFactory,
-} from '@ocr-core/tesseractEngine';
+import {createTesseractEngine, type TTesseractModuleFactory} from '@ocr-core/tesseractEngine';
 
 declare const self: DedicatedWorkerGlobalScope;
 
 const recognizeWithEngine = createTesseractEngine({
     loadEngine: async () => {
         const moduleUrl = new URL('/wasm/evb-tesseract.mjs', self.location.href).href;
-        const [
-            imported,
-            module,
-        ] = await Promise.all([
+        const [imported, module] = await Promise.all([
             import(/* @vite-ignore */ moduleUrl) as Promise<{default: TTesseractModuleFactory}>,
-            WebAssembly.compileStreaming(fetch(new URL(`/wasm/evb-tesseract.wasm?revision=${BROWSER_OCR_ENGINE_REVISION}`, self.location.href))),
+            WebAssembly.compileStreaming(
+                fetch(new URL(`/wasm/evb-tesseract.wasm?revision=${BROWSER_OCR_ENGINE_REVISION}`, self.location.href)),
+            ),
         ]);
         return {
             factory: imported.default,
@@ -61,12 +57,15 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
     }
     try {
         const data = await recognize(request.payload);
-        self.postMessage({
-            id: request.id,
-            ok: true,
-            type: request.type,
-            data,
-        }, data.passes.flatMap(pass => pass.outputs.map(output => output.buffer)));
+        self.postMessage(
+            {
+                id: request.id,
+                ok: true,
+                type: request.type,
+                data,
+            },
+            data.passes.flatMap((pass) => pass.outputs.map((output) => output.buffer)),
+        );
     } catch (error) {
         self.postMessage({
             id: request.id,
@@ -74,6 +73,8 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
             error: getErrorMessage(error),
         });
     } finally {
-        if (!(request.payload.image instanceof Uint8Array)) request.payload.image.tiles.forEach(tile => tile.close());
+        if (!(request.payload.image instanceof Uint8Array)) {
+            request.payload.image.tiles.forEach((tile) => tile.close());
+        }
     }
 });

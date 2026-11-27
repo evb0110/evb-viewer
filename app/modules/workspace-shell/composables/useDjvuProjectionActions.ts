@@ -1,6 +1,6 @@
-import type { Ref } from 'vue';
-import { until } from '@vueuse/core';
-import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
+import type {Ref} from 'vue';
+import {until} from '@vueuse/core';
+import type {IDocumentOpenSurfaceSession} from '@app/modules/document-viewer/public';
 
 const PROJECTION_PLACEMENT_TIMEOUT_MS = 30000;
 
@@ -15,10 +15,7 @@ interface IDjvuProjectionActionOptions {
     exportDocx: (selectedLanguages?: string[]) => Promise<void>;
     isExportingDocx: Ref<boolean>;
     cancelExportDocx: () => void;
-    handleDropdownOpen: (
-        dropdown: 'zoom' | 'page' | 'ocr',
-        isOpen: boolean,
-    ) => void;
+    handleDropdownOpen: (dropdown: 'zoom' | 'page' | 'ocr', isOpen: boolean) => void;
     insertImageFromFile: () => unknown;
     pasteImageFromClipboard: () => unknown;
     createQuickNote: () => unknown;
@@ -31,7 +28,7 @@ export const useDjvuProjectionActions = (options: IDjvuProjectionActionOptions) 
         }
         const document = options.documentRef.value;
         const generation = options.openSurface.snapshot.value.generation;
-        if (!await options.ensureProjection(reason)) {
+        if (!(await options.ensureProjection(reason))) {
             return false;
         }
         // The projection opens as a restore of the reader's place; the edit
@@ -39,13 +36,13 @@ export const useDjvuProjectionActions = (options: IDjvuProjectionActionOptions) 
         // have replaced this one meanwhile.
         const settled = await until(() => {
             const snapshot = options.openSurface.snapshot.value;
-            return options.documentRef.value !== document
-                || snapshot.phase === 'failed'
-                || snapshot.generation !== generation && snapshot.phase === 'ready';
+            return (
+                options.documentRef.value !== document ||
+                snapshot.phase === 'failed' ||
+                (snapshot.generation !== generation && snapshot.phase === 'ready')
+            );
         }).toBe(true, {timeout: PROJECTION_PLACEMENT_TIMEOUT_MS});
-        return settled
-            && options.documentRef.value === document
-            && options.openSurface.snapshot.value.phase === 'ready';
+        return settled && options.documentRef.value === document && options.openSurface.snapshot.value.phase === 'ready';
     }
 
     async function runEdit<T>(action: () => T | Promise<T>) {
@@ -55,11 +52,8 @@ export const useDjvuProjectionActions = (options: IDjvuProjectionActionOptions) 
         return undefined;
     }
 
-    async function ensureDropdownProjection(
-        dropdown: 'zoom' | 'page' | 'ocr',
-        isOpen: boolean,
-    ) {
-        if (dropdown !== 'ocr' || !isOpen || await ensureProjection('ocr')) {
+    async function ensureDropdownProjection(dropdown: 'zoom' | 'page' | 'ocr', isOpen: boolean) {
+        if (dropdown !== 'ocr' || !isOpen || (await ensureProjection('ocr'))) {
             options.handleDropdownOpen(dropdown, isOpen);
         }
     }
@@ -72,12 +66,11 @@ export const useDjvuProjectionActions = (options: IDjvuProjectionActionOptions) 
                 options.cancelExportDocx();
                 return;
             }
-            if (await ensureProjection('ocr')) await options.exportDocx(selectedLanguages);
+            if (await ensureProjection('ocr')) {
+                await options.exportDocx(selectedLanguages);
+            }
         },
-        handleDropdownOpen(
-            dropdown: 'zoom' | 'page' | 'ocr',
-            isOpen: boolean,
-        ) {
+        handleDropdownOpen(dropdown: 'zoom' | 'page' | 'ocr', isOpen: boolean) {
             void ensureDropdownProjection(dropdown, isOpen);
         },
         runEdit,
@@ -86,9 +79,7 @@ export const useDjvuProjectionActions = (options: IDjvuProjectionActionOptions) 
         },
         // The workspace expose contract is currently void-typed, but the
         // Electron command runner must receive the placement result.
-        handlePasteImageFromClipboard: () => (
-            runEdit(options.pasteImageFromClipboard) as Promise<void>
-        ),
+        handlePasteImageFromClipboard: () => runEdit(options.pasteImageFromClipboard) as Promise<void>,
         handleQuickNoteAction: () => runEdit(options.createQuickNote),
     };
 };

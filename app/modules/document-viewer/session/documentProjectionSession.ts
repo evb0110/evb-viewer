@@ -1,26 +1,23 @@
-import type { TDocumentRef } from '@contracts/documentRef';
-import type {
-    IDocumentPageSource,
-    IDocumentSourceCapabilities,
-} from '@app/modules/document-viewer/source/documentPageSource';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {IDocumentPageSource, IDocumentSourceCapabilities} from '@app/modules/document-viewer/source/documentPageSource';
 
 export type TPdfProjectionReason = 'edit' | 'ocr' | 'save-as-pdf' | 'print';
 export type TPdfProjectionState =
-    | { status: 'idle' }
+    | {status: 'idle'}
     | {
-        status: 'building';
-        reason: TPdfProjectionReason
-    }
+          status: 'building';
+          reason: TPdfProjectionReason;
+      }
     | {
-        status: 'ready';
-        reason: TPdfProjectionReason;
-        documentRef: TDocumentRef
-    }
+          status: 'ready';
+          reason: TPdfProjectionReason;
+          documentRef: TDocumentRef;
+      }
     | {
-        status: 'failed';
-        reason: TPdfProjectionReason;
-        error: unknown
-    };
+          status: 'failed';
+          reason: TPdfProjectionReason;
+          error: unknown;
+      };
 
 export interface IDocumentProjectionSession {
     readonly id: string;
@@ -30,15 +27,13 @@ export interface IDocumentProjectionSession {
     projection: TPdfProjectionState;
 }
 
-export interface IPdfProjectionBuilder {build(options: {
-    session: IDocumentProjectionSession;
-    reason: TPdfProjectionReason;
-    signal?: AbortSignal;
-}): Promise<{
-    documentRef: TDocumentRef;
-    source: IDocumentPageSource;
-    capabilities: IDocumentSourceCapabilities;
-}>;}
+export interface IPdfProjectionBuilder {
+    build(options: {session: IDocumentProjectionSession; reason: TPdfProjectionReason; signal?: AbortSignal}): Promise<{
+        documentRef: TDocumentRef;
+        source: IDocumentPageSource;
+        capabilities: IDocumentSourceCapabilities;
+    }>;
+}
 
 export function createDocumentProjectionSession(options: {
     id: string;
@@ -48,7 +43,7 @@ export function createDocumentProjectionSession(options: {
 }): IDocumentProjectionSession {
     return {
         ...options,
-        projection: { status: 'idle' },
+        projection: {status: 'idle'},
     };
 }
 

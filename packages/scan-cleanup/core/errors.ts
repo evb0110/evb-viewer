@@ -11,16 +11,11 @@ export class ScanCleanupMissingOutputError extends Error {
     readonly outputPath: string | undefined;
     readonly role: string;
 
-    constructor(
-        sourcePageNumber: number,
-        outputPath: string | undefined,
-        role: string,
-        detail?: string,
-    ) {
+    constructor(sourcePageNumber: number, outputPath: string | undefined, role: string, detail?: string) {
         super(
-            `Scan cleanup produced output for source page ${String(sourcePageNumber)} is missing: ${role}`
-            + (outputPath === undefined ? '' : ` at ${outputPath}`)
-            + (detail === undefined ? '' : ` (${detail})`),
+            `Scan cleanup produced output for source page ${String(sourcePageNumber)} is missing: ${role}` +
+                (outputPath === undefined ? '' : ` at ${outputPath}`) +
+                (detail === undefined ? '' : ` (${detail})`),
         );
         this.name = 'ScanCleanupMissingOutputError';
         this.sourcePageNumber = sourcePageNumber;
@@ -34,10 +29,7 @@ export class ScanCleanupPdfValidationError extends Error {
     readonly stagedPdfPath: string;
 
     constructor(stagedPdfPath: string, detail?: string) {
-        super(
-            `Scan cleanup staged PDF failed structural validation: ${stagedPdfPath}`
-            + (detail === undefined ? '' : ` (${detail})`),
-        );
+        super(`Scan cleanup staged PDF failed structural validation: ${stagedPdfPath}` + (detail === undefined ? '' : ` (${detail})`));
         this.name = 'ScanCleanupPdfValidationError';
         this.stagedPdfPath = stagedPdfPath;
     }
@@ -56,7 +48,9 @@ export class ScanCleanupTooLargeError extends Error {
     readonly code = 'too-large' as const;
 
     constructor() {
-        super(`Scan cleanup ink placement exceeds the supported ${SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES.toLocaleString('en-US')}-page document capacity`);
+        super(
+            `Scan cleanup ink placement exceeds the supported ${SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES.toLocaleString('en-US')}-page document capacity`,
+        );
         this.name = 'ScanCleanupTooLargeError';
     }
 }
@@ -108,10 +102,10 @@ export class ScanCleanupInsufficientScratchError extends Error {
         const figures = [
             availableBytes === null ? null : `${String(availableBytes)} bytes free`,
             requiredBytes === null ? null : `${String(requiredBytes)} bytes required`,
-        ].filter(figure => figure !== null);
+        ].filter((figure) => figure !== null);
         super(
-            'Scan cleanup cannot stage the required raster working set within the available scratch space'
-            + (figures.length === 0 ? '' : ` (${figures.join(', ')})`),
+            'Scan cleanup cannot stage the required raster working set within the available scratch space' +
+                (figures.length === 0 ? '' : ` (${figures.join(', ')})`),
         );
         this.name = 'ScanCleanupInsufficientScratchError';
         this.scratchShortfall = {

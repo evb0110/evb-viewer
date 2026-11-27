@@ -15,13 +15,7 @@ import {
 import {createServer} from 'node:net';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 
 const mocks = vi.hoisted(() => {
     const paths: Record<string, string> = {userData: '/profiles/default'};
@@ -40,11 +34,8 @@ const {
     initializeAppTempNamespace,
 } = await import('@electron/utils/appTempDir');
 const {getAppStateDir} = await import('@node-runtime/appTempNamespace');
-const {
-    createManagedScratchTempDir,
-    recordManagedScratchBackup,
-    recordManagedScratchPublish,
-} = await import('@electron/utils/managedScratchTemp');
+const {createManagedScratchTempDir, recordManagedScratchBackup, recordManagedScratchPublish} =
+    await import('@electron/utils/managedScratchTemp');
 const {readFileIdentity} = await import('@electron/utils/fileIdentity');
 const {getOwnStartTime} = await import('@electron/utils/processIdentity');
 const {registerManagedProcess} = await import('@electron/native-tools/managedProcessRegistry');
@@ -87,21 +78,32 @@ describe('app temp directory namespace', () => {
         expect(getAppStateDir(env, 'darwin', '/Users/a')).toBe(join('/Users/a', 'Library', 'Application Support', 'evb-viewer-state'));
         expect(getAppStateDir(env, 'linux', '/home/a')).toBe(join('/home/a', '.local', 'state', 'evb-viewer-state'));
         expect(getAppStateDir({XDG_STATE_HOME: '/data/state'}, 'linux', '/home/a')).toBe(join('/data/state', 'evb-viewer-state'));
-        expect(getAppStateDir({XDG_STATE_HOME: 'relative'}, 'linux', '/home/a')).toBe(join('/home/a', '.local', 'state', 'evb-viewer-state'));
+        expect(getAppStateDir({XDG_STATE_HOME: 'relative'}, 'linux', '/home/a')).toBe(
+            join('/home/a', '.local', 'state', 'evb-viewer-state'),
+        );
         // An automation profile never reaches the person's folder.
-        expect(getAppStateDir({EVB_AUTOMATION_USER_DATA_DIR: '/task/user-data'}, 'linux', '/home/a')).toBe(join('/task/user-data', 'evb-viewer-state'));
-        expect(getAppStateDir({EVB_AUTOMATION_USER_DATA_DIR: 'C:\\task\\user-data'}, 'win32', 'C:\\Users\\a')).toBe('C:\\task\\user-data\\evb-viewer-state');
-        expect(getAppStateDir({
-            EVB_APP_STATE_DIR: '/state',
-            EVB_AUTOMATION_USER_DATA_DIR: '/task/user-data',
-        }, 'linux', '/home/a')).toBe('/state');
+        expect(getAppStateDir({EVB_AUTOMATION_USER_DATA_DIR: '/task/user-data'}, 'linux', '/home/a')).toBe(
+            join('/task/user-data', 'evb-viewer-state'),
+        );
+        expect(getAppStateDir({EVB_AUTOMATION_USER_DATA_DIR: 'C:\\task\\user-data'}, 'win32', 'C:\\Users\\a')).toBe(
+            'C:\\task\\user-data\\evb-viewer-state',
+        );
+        expect(
+            getAppStateDir(
+                {
+                    EVB_APP_STATE_DIR: '/state',
+                    EVB_AUTOMATION_USER_DATA_DIR: '/task/user-data',
+                },
+                'linux',
+                '/home/a',
+            ),
+        ).toBe('/state');
     });
 
     it('derives the temp namespace path outside Electron from a profile path', () => {
         const namespace = createAppTempNamespace('/profiles/automation-a');
 
-        expect(getAppTempDirPathForUserData('/profiles/automation-a', '/var/tmp'))
-            .toBe(join('/var/tmp', `evb-viewer-${namespace}`));
+        expect(getAppTempDirPathForUserData('/profiles/automation-a', '/var/tmp')).toBe(join('/var/tmp', `evb-viewer-${namespace}`));
     });
 
     it.runIf(process.platform !== 'win32')('replaces an owner-marker symlink without writing through to its target', async () => {
@@ -145,7 +147,7 @@ describe('app temp directory namespace', () => {
         const previousUserDataPath = mocks.paths.userData ?? '/profiles/default';
         const previousNamespace = process.env.EVB_APP_TEMP_NAMESPACE;
         const tempRoot = mkdtempSync(join(tmpdir(), 'evb-app-temp-cleanup-'));
-        const staleDate = new Date(Date.now() - (48 * 60 * 60 * 1000));
+        const staleDate = new Date(Date.now() - 48 * 60 * 60 * 1000);
         const deadPath = getAppTempDirPathForUserData('/profiles/dead', tempRoot);
         const activePath = getAppTempDirPathForUserData('/profiles/active', tempRoot);
         const malformedPath = getAppTempDirPathForUserData('/profiles/malformed', tempRoot);
@@ -154,16 +156,10 @@ describe('app temp directory namespace', () => {
         const recoveryPath = getAppTempDirPathForUserData(recoveryUserDataPath, tempRoot);
         const legacyUserDataPath = join(tempRoot, 'legacy-profile');
         const legacyPath = getAppTempDirPathForUserData(legacyUserDataPath, tempRoot);
-        const legacyOwner = spawn(process.execPath, [
-            '-e',
-            'setInterval(() => {}, 1000);',
-            '--',
-            `--user-data-dir=${legacyUserDataPath}`,
-        ], {stdio: 'ignore'});
-        const deadOwner = spawn(process.execPath, [
-            '-e',
-            'process.exit(0);',
-        ], {stdio: 'ignore'});
+        const legacyOwner = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000);', '--', `--user-data-dir=${legacyUserDataPath}`], {
+            stdio: 'ignore',
+        });
+        const deadOwner = spawn(process.execPath, ['-e', 'process.exit(0);'], {stdio: 'ignore'});
         const deadOwnerPid = deadOwner.pid;
 
         try {
@@ -184,10 +180,7 @@ describe('app temp directory namespace', () => {
             getAppTempDir();
             // The owner is written once this process's start time is read.
             const ownStartTime = await getOwnStartTime();
-            expect(JSON.parse(readFileSync(join(
-                getAppTempDirPath(),
-                '.evb-app-temp-owner.json',
-            ), 'utf8'))).toMatchObject({
+            expect(JSON.parse(readFileSync(join(getAppTempDirPath(), '.evb-app-temp-owner.json'), 'utf8'))).toMatchObject({
                 namespace: createAppTempNamespace('/profiles/current'),
                 userDataPath: '/profiles/current',
                 pid: process.pid,
@@ -201,31 +194,37 @@ describe('app temp directory namespace', () => {
             mkdirSync(freshPath, {recursive: true});
             mkdirSync(recoveryPath, {recursive: true});
             mkdirSync(recoveryUserDataPath, {recursive: true});
-            writeFileSync(join(deadPath, '.evb-app-temp-owner.json'), `${JSON.stringify({
-                namespace: createAppTempNamespace('/profiles/dead'),
-                userDataPath: '/profiles/dead',
-                pid: deadOwnerPid,
-                startedAt: 0,
-            })}\n`);
-            writeFileSync(join(activePath, '.evb-app-temp-owner.json'), `${JSON.stringify({
-                namespace: createAppTempNamespace('/profiles/active'),
-                userDataPath: '/profiles/active',
-                pid: process.pid,
-                // A live owner: this process, with its creation time.
-                startTime: ownStartTime,
-                startedAt: Date.now(),
-            })}\n`);
-            writeFileSync(join(recoveryPath, '.evb-app-temp-owner.json'), `${JSON.stringify({
-                namespace: createAppTempNamespace(recoveryUserDataPath),
-                userDataPath: recoveryUserDataPath,
-                pid: 4_194_306,
-                startedAt: 0,
-            })}\n`);
+            writeFileSync(
+                join(deadPath, '.evb-app-temp-owner.json'),
+                `${JSON.stringify({
+                    namespace: createAppTempNamespace('/profiles/dead'),
+                    userDataPath: '/profiles/dead',
+                    pid: deadOwnerPid,
+                    startedAt: 0,
+                })}\n`,
+            );
+            writeFileSync(
+                join(activePath, '.evb-app-temp-owner.json'),
+                `${JSON.stringify({
+                    namespace: createAppTempNamespace('/profiles/active'),
+                    userDataPath: '/profiles/active',
+                    pid: process.pid,
+                    // A live owner: this process, with its creation time.
+                    startTime: ownStartTime,
+                    startedAt: Date.now(),
+                })}\n`,
+            );
+            writeFileSync(
+                join(recoveryPath, '.evb-app-temp-owner.json'),
+                `${JSON.stringify({
+                    namespace: createAppTempNamespace(recoveryUserDataPath),
+                    userDataPath: recoveryUserDataPath,
+                    pid: 4_194_306,
+                    startedAt: 0,
+                })}\n`,
+            );
             writeFileSync(join(recoveryUserDataPath, 'workspace-checkpoint.json'), '{"checkpoint":true}\n');
-            const recoveryCopies = [
-                'readable',
-                'unreadable',
-            ].map(name => {
+            const recoveryCopies = ['readable', 'unreadable'].map((name) => {
                 const profile = join(tempRoot, name);
                 const namespacePath = getAppTempDirPathForUserData(profile, tempRoot);
                 const workingCopy = join(namespacePath, 'pdf-work-dirty', 'document.pdf');
@@ -236,20 +235,26 @@ describe('app temp directory namespace', () => {
                 const records = join(profile, 'workspace-recovery');
                 if (name === 'readable') {
                     mkdirSync(records);
-                    writeFileSync(join(records, 'dirty.json'), JSON.stringify({
-                        workingCopyRef: workingCopy,
-                        isDirty: true,
-                    }));
+                    writeFileSync(
+                        join(records, 'dirty.json'),
+                        JSON.stringify({
+                            workingCopyRef: workingCopy,
+                            isDirty: true,
+                        }),
+                    );
                 } else {
                     // ENOTDIR is a real read failure on every host, unlike a missing directory.
                     writeFileSync(records, 'unavailable recovery directory');
                 }
-                writeFileSync(join(namespacePath, '.evb-app-temp-owner.json'), JSON.stringify({
-                    namespace: createAppTempNamespace(profile),
-                    userDataPath: profile,
-                    pid: deadOwnerPid,
-                    startedAt: 0,
-                }));
+                writeFileSync(
+                    join(namespacePath, '.evb-app-temp-owner.json'),
+                    JSON.stringify({
+                        namespace: createAppTempNamespace(profile),
+                        userDataPath: profile,
+                        pid: deadOwnerPid,
+                        startedAt: 0,
+                    }),
+                );
                 utimesSync(namespacePath, staleDate, staleDate);
                 return {
                     profile,
@@ -269,9 +274,7 @@ describe('app temp directory namespace', () => {
 
             const removed = await cleanupStaleAppTempNamespaces({maxAgeMs: 60_000});
 
-            for (const {
-                profile, workingCopy,
-            } of recoveryCopies) {
+            for (const {profile, workingCopy} of recoveryCopies) {
                 expect(existsSync(workingCopy), 'recovery-directory inspection cannot discard unsaved bytes').toBe(true);
                 expect(readFileSync(workingCopy, 'utf8')).toBe('accepted unsaved bytes');
                 expect(readFileSync(join(profile, 'original.pdf'), 'utf8')).toBe('last saved bytes');
@@ -310,22 +313,16 @@ describe('app temp directory namespace', () => {
             });
         }
     });
-    it('reaps the native tools this profile\'s previous release recorded in its temp namespace', async () => {
+    it("reaps the native tools this profile's previous release recorded in its temp namespace", async () => {
         const tempRoot = mkdtempSync(join(tmpdir(), 'evb-app-temp-reap-'));
-        const deadOwner = spawn(process.execPath, [
-            '-e',
-            'process.exit(0);',
-        ], {stdio: 'ignore'});
-        const tool = spawn(process.execPath, [
-            '-e',
-            'setInterval(() => {}, 1000);',
-        ], {
+        const deadOwner = spawn(process.execPath, ['-e', 'process.exit(0);'], {stdio: 'ignore'});
+        const tool = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000);'], {
             detached: process.platform !== 'win32',
             stdio: 'ignore',
         });
         const toolSpawned = once(tool, 'spawn');
         try {
-            await new Promise<void>(resolve => deadOwner.once('exit', () => resolve()));
+            await new Promise<void>((resolve) => deadOwner.once('exit', () => resolve()));
             vi.stubEnv('EVB_APP_STATE_DIR', join(tempRoot, 'state'));
             vi.stubEnv('TMPDIR', tempRoot);
             vi.stubEnv('TEMP', tempRoot);
@@ -335,12 +332,15 @@ describe('app temp directory namespace', () => {
             // Releases before 2026-10 kept the namespace, and its native tools' records, in OS temp.
             const retiredPath = getRetiredAppTempDirPath();
             const scratchPath = await createManagedScratchTempDir('native-command-', retiredPath);
-            writeFileSync(join(retiredPath, '.evb-app-temp-owner.json'), `${JSON.stringify({
-                namespace: createAppTempNamespace('/profiles/current'),
-                userDataPath: '/profiles/current',
-                pid: deadOwner.pid,
-                startedAt: 0,
-            })}\n`);
+            writeFileSync(
+                join(retiredPath, '.evb-app-temp-owner.json'),
+                `${JSON.stringify({
+                    namespace: createAppTempNamespace('/profiles/current'),
+                    userDataPath: '/profiles/current',
+                    pid: deadOwner.pid,
+                    startedAt: 0,
+                })}\n`,
+            );
             await toolSpawned;
             const registration = await registerManagedProcess(retiredPath, {
                 pid: tool.pid!,
@@ -350,10 +350,13 @@ describe('app temp directory namespace', () => {
             });
             // That release crashed: its run is gone and its tool still runs.
             const entry = JSON.parse(readFileSync(registration!.entryPath, 'utf8')) as Record<string, unknown>;
-            writeFileSync(registration!.entryPath, JSON.stringify({
-                ...entry,
-                ownerPid: deadOwner.pid,
-            }));
+            writeFileSync(
+                registration!.entryPath,
+                JSON.stringify({
+                    ...entry,
+                    ownerPid: deadOwner.pid,
+                }),
+            );
             const exited = once(tool, 'exit');
 
             await cleanupStaleAppTempNamespaces({maxAgeMs: 60_000});
@@ -362,7 +365,9 @@ describe('app temp directory namespace', () => {
             expect(existsSync(registration!.entryPath)).toBe(false);
             expect(existsSync(scratchPath)).toBe(false);
         } finally {
-            if (tool.exitCode === null && tool.signalCode === null) tool.kill('SIGKILL');
+            if (tool.exitCode === null && tool.signalCode === null) {
+                tool.kill('SIGKILL');
+            }
             mocks.paths.userData = '/profiles/default';
             rmSync(tempRoot, {
                 force: true,
@@ -373,13 +378,10 @@ describe('app temp directory namespace', () => {
 
     it('keeps a dead namespace whose document store holds documents', async () => {
         const tempRoot = mkdtempSync(join(tmpdir(), 'evb-app-temp-journal-'));
-        const staleDate = new Date(Date.now() - (48 * 60 * 60 * 1000));
-        const deadOwner = spawn(process.execPath, [
-            '-e',
-            'process.exit(0);',
-        ], {stdio: 'ignore'});
+        const staleDate = new Date(Date.now() - 48 * 60 * 60 * 1000);
+        const deadOwner = spawn(process.execPath, ['-e', 'process.exit(0);'], {stdio: 'ignore'});
         try {
-            await new Promise<void>(resolve => deadOwner.once('exit', () => resolve()));
+            await new Promise<void>((resolve) => deadOwner.once('exit', () => resolve()));
             vi.stubEnv('EVB_APP_STATE_DIR', join(tempRoot, 'state'));
             vi.stubEnv('TMPDIR', tempRoot);
             vi.stubEnv('TEMP', tempRoot);
@@ -394,12 +396,15 @@ describe('app temp directory namespace', () => {
                     mkdirSync(join(namespacePath, 'document-store', 'documents', 'held'), {recursive: true});
                     writeFileSync(join(namespacePath, 'document-store', 'documents', 'held', 'manifest.json'), '{"version":1}\n');
                 }
-                writeFileSync(join(namespacePath, '.evb-app-temp-owner.json'), `${JSON.stringify({
-                    namespace: createAppTempNamespace(profile),
-                    userDataPath: profile,
-                    pid: deadOwner.pid,
-                    startedAt: 0,
-                })}\n`);
+                writeFileSync(
+                    join(namespacePath, '.evb-app-temp-owner.json'),
+                    `${JSON.stringify({
+                        namespace: createAppTempNamespace(profile),
+                        userDataPath: profile,
+                        pid: deadOwner.pid,
+                        startedAt: 0,
+                    })}\n`,
+                );
                 utimesSync(namespacePath, staleDate, staleDate);
                 return namespacePath;
             };
@@ -408,7 +413,9 @@ describe('app temp directory namespace', () => {
 
             await expect(cleanupStaleAppTempNamespaces({maxAgeMs: 60_000})).resolves.toBe(1);
 
-            expect(existsSync(join(journaled, 'document-store', 'documents', 'held', 'manifest.json')), 'its own profile collects it').toBe(true);
+            expect(existsSync(join(journaled, 'document-store', 'documents', 'held', 'manifest.json')), 'its own profile collects it').toBe(
+                true,
+            );
             expect(existsSync(finished)).toBe(false);
         } finally {
             mocks.paths.userData = '/profiles/default';
@@ -419,23 +426,17 @@ describe('app temp directory namespace', () => {
         }
     });
 
-    it('puts back the original a dead namespace\'s export replaced before removing it, and keeps one it cannot or whose owner runs', async () => {
+    it("puts back the original a dead namespace's export replaced before removing it, and keeps one it cannot or whose owner runs", async () => {
         const tempRoot = mkdtempSync(join(tmpdir(), 'evb-app-temp-export-'));
-        const staleDate = new Date(Date.now() - (48 * 60 * 60 * 1000));
+        const staleDate = new Date(Date.now() - 48 * 60 * 60 * 1000);
         const outDir = join(tempRoot, 'out');
-        const deadOwner = spawn(process.execPath, [
-            '-e',
-            'process.exit(0);',
-        ], {stdio: 'ignore'});
-        const unrelated = spawn(process.execPath, [
-            '-e',
-            'setInterval(() => {}, 1000);',
-        ], {stdio: 'ignore'});
+        const deadOwner = spawn(process.execPath, ['-e', 'process.exit(0);'], {stdio: 'ignore'});
+        const unrelated = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000);'], {stdio: 'ignore'});
         const lock = createServer();
         // A socket path must fit sun_path (104 bytes on macOS), which a deep task temp root does not.
         const socketRoot = mkdtempSync(join(process.platform === 'win32' ? tmpdir() : '/tmp', 'evb-sock-'));
         try {
-            await new Promise<void>(resolve => deadOwner.once('exit', () => resolve()));
+            await new Promise<void>((resolve) => deadOwner.once('exit', () => resolve()));
             vi.stubEnv('EVB_APP_STATE_DIR', join(tempRoot, 'state'));
             vi.stubEnv('TMPDIR', tempRoot);
             vi.stubEnv('TEMP', tempRoot);
@@ -449,22 +450,28 @@ describe('app temp directory namespace', () => {
                 const backup = join(outDir, `.${name.length.toString(16).padStart(16, '0')}.tmp`);
                 writeFileSync(target, 'original');
                 const scratch = await createManagedScratchTempDir('pdfExport-', namespacePath);
-                writeFileSync(join(scratch, '.evb-managed-scratch.json'), JSON.stringify({
-                    createdAt: 0,
-                    pid: deadOwner.pid,
-                    prefix: 'pdfExport-',
-                }));
+                writeFileSync(
+                    join(scratch, '.evb-managed-scratch.json'),
+                    JSON.stringify({
+                        createdAt: 0,
+                        pid: deadOwner.pid,
+                        prefix: 'pdfExport-',
+                    }),
+                );
                 await recordManagedScratchBackup(scratch, backup, target, (await readFileIdentity(target))!);
                 writeFileSync(backup, 'original');
                 writeFileSync(join(outDir, 'staged'), 'exported');
                 await recordManagedScratchPublish(scratch, target, (await readFileIdentity(join(outDir, 'staged')))!);
                 renameSync(join(outDir, 'staged'), target);
-                writeFileSync(join(namespacePath, '.evb-app-temp-owner.json'), `${JSON.stringify({
-                    namespace: createAppTempNamespace(profile),
-                    userDataPath: profile,
-                    ...owner,
-                    startedAt: 0,
-                })}\n`);
+                writeFileSync(
+                    join(namespacePath, '.evb-app-temp-owner.json'),
+                    `${JSON.stringify({
+                        namespace: createAppTempNamespace(profile),
+                        userDataPath: profile,
+                        ...owner,
+                        startedAt: 0,
+                    })}\n`,
+                );
                 utimesSync(namespacePath, staleDate, staleDate);
                 return {
                     namespacePath,

@@ -1,24 +1,14 @@
-import {
-    computed,
-    effectScope,
-    isReadonly,
-} from 'vue';
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { resolveTabLifecycleStates } from '@app/modules/workspace-shell/tabs/resolveTabLifecycleStates';
-import type { IHostRasterBudgetSnapshot } from '@contracts/hostPlatformFeature';
-import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
-import type { ISystemMemoryInfo } from '@contracts/systemPlatformFeature';
-import type { IEditorPaneState } from '@contracts/editorPanes';
-import { requirePaneId } from '@contracts/editorPanes';
-import { requireTabId } from '@contracts/windowTabs';
-import type { ITab } from '@app/types/tabs';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import {computed, effectScope, isReadonly} from 'vue';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {resolveTabLifecycleStates} from '@app/modules/workspace-shell/tabs/resolveTabLifecycleStates';
+import type {IHostRasterBudgetSnapshot} from '@contracts/hostPlatformFeature';
+import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
+import type {ISystemMemoryInfo} from '@contracts/systemPlatformFeature';
+import type {IEditorPaneState} from '@contracts/editorPanes';
+import {requirePaneId} from '@contracts/editorPanes';
+import {requireTabId} from '@contracts/windowTabs';
+import type {ITab} from '@app/types/tabs';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
 
 const GIB = 1024 ** 3;
 const MIB = 1024 ** 2;
@@ -71,10 +61,7 @@ function useHost(totalBytes: number, availableBytes: number, logicalCpus: number
 
 // Each test gets a fresh controller singleton, as each app start does.
 async function loadMonitor() {
-    const [
-        {useWorkspaceMemoryPressureMonitor},
-        {workspaceSurfaceBudgetController},
-    ] = await Promise.all([
+    const [{useWorkspaceMemoryPressureMonitor}, {workspaceSurfaceBudgetController}] = await Promise.all([
         import('@app/modules/workspace-shell/composables/useWorkspaceMemoryPressureMonitor'),
         import('@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController'),
     ]);
@@ -97,10 +84,7 @@ describe('workspace memory pressure monitor', () => {
 
     it('replaces the import-time raster cap with the cap derived from host RAM', async () => {
         useHost(4 * GIB, 2 * GIB, 4, 'low');
-        const {
-            controller,
-            useWorkspaceMemoryPressureMonitor,
-        } = await loadMonitor();
+        const {controller, useWorkspaceMemoryPressureMonitor} = await loadMonitor();
         expect(controller.getSnapshot().maxBytes).toBe(768 * MIB);
 
         useWorkspaceMemoryPressureMonitor();
@@ -110,10 +94,7 @@ describe('workspace memory pressure monitor', () => {
     });
 
     it('keeps the 1.5 GiB raster cap on a 32 GiB workstation', async () => {
-        const {
-            controller,
-            useWorkspaceMemoryPressureMonitor,
-        } = await loadMonitor();
+        const {controller, useWorkspaceMemoryPressureMonitor} = await loadMonitor();
 
         useWorkspaceMemoryPressureMonitor();
 
@@ -125,11 +106,7 @@ describe('workspace memory pressure monitor', () => {
     });
 
     it('keeps a nearly full raster ledger resident while host memory is healthy', async () => {
-        const {
-            controller,
-            useWorkspaceMemoryPressureMonitor,
-            runInterval,
-        } = await loadMonitor();
+        const {controller, useWorkspaceMemoryPressureMonitor, runInterval} = await loadMonitor();
         useWorkspaceMemoryPressureMonitor();
         const evict = vi.fn();
         const reservedBytes = Math.floor(controller.getSnapshot().maxBytes * 0.95);
@@ -158,11 +135,7 @@ describe('workspace memory pressure monitor', () => {
             totalRamBytes: 32 * GIB,
         });
         mocks.getMemoryInfo.mockReturnValue(null);
-        const {
-            controller,
-            useWorkspaceMemoryPressureMonitor,
-            runInterval,
-        } = await loadMonitor();
+        const {controller, useWorkspaceMemoryPressureMonitor, runInterval} = await loadMonitor();
         useWorkspaceMemoryPressureMonitor();
         expect(controller.getSnapshot()).toMatchObject({
             maxBytes: 768 * MIB,
@@ -193,62 +166,31 @@ describe('workspace memory pressure monitor', () => {
     });
 
     it('tightens and relaxes the raster budget as host memory falls and recovers', async () => {
-        const {
-            controller,
-            useWorkspaceMemoryPressureMonitor,
-            runInterval,
-        } = await loadMonitor();
+        const {controller, useWorkspaceMemoryPressureMonitor, runInterval} = await loadMonitor();
         useWorkspaceMemoryPressureMonitor();
-        const levels = [
-            3 * GIB,
-            1 * GIB,
-            8 * GIB,
-        ].map((availableBytes) => {
+        const levels = [3 * GIB, 1 * GIB, 8 * GIB].map((availableBytes) => {
             useHost(32 * GIB, availableBytes, 8, 'high');
             runInterval();
             const snapshot = controller.getSnapshot();
-            return [
-                snapshot.pressureLevel,
-                snapshot.effectiveMaxBytes / snapshot.maxBytes,
-            ];
+            return [snapshot.pressureLevel, snapshot.effectiveMaxBytes / snapshot.maxBytes];
         });
 
         expect(levels).toEqual([
-            [
-                'moderate',
-                0.75,
-            ],
-            [
-                'critical',
-                0.5,
-            ],
-            [
-                'none',
-                1,
-            ],
+            ['moderate', 0.75],
+            ['critical', 0.5],
+            ['none', 1],
         ]);
     });
 
     it('exposes a readonly budget and recomputes it through one sampling interval', async () => {
-        const {
-            controller,
-            useWorkspaceMemoryPressureMonitor,
-            runInterval,
-        } = await loadMonitor();
+        const {controller, useWorkspaceMemoryPressureMonitor, runInterval} = await loadMonitor();
         const budget = useWorkspaceMemoryPressureMonitor();
-        const tabs = [
-            {id: 'active'},
-            {id: 'inactive'},
-            {id: 'visible-split'},
-        ] satisfies ITab[];
+        const tabs = [{id: 'active'}, {id: 'inactive'}, {id: 'visible-split'}] satisfies ITab[];
         const panes = [
             {
                 paneId: requirePaneId('pane'),
                 activeTabId: requireTabId('active'),
-                tabIds: [
-                    requireTabId('active'),
-                    requireTabId('inactive'),
-                ],
+                tabIds: [requireTabId('active'), requireTabId('inactive')],
             },
             {
                 paneId: requirePaneId('split-pane'),
@@ -256,27 +198,20 @@ describe('workspace memory pressure monitor', () => {
                 tabIds: [requireTabId('visible-split')],
             },
         ] satisfies IEditorPaneState[];
-        const lifecycleById = computed(() => Object.fromEntries(resolveTabLifecycleStates({
-            documentTabIds: new Set([
-                'active',
-                'warm',
-                'cold',
-            ]),
-            activationOrder: [
-                requireTabId('active'),
-                requireTabId('inactive'),
-                requireTabId('visible-split'),
-            ],
-            panes,
-            policy: 'conservative',
-            tabs,
-            dirtyTabIds: new Set(),
-            tier: budget.value.deviceTier,
-            targetWarmViewers: budget.value.targetWarmViewers,
-        }).map(state => [
-            state.tabId,
-            state,
-        ])));
+        const lifecycleById = computed(() =>
+            Object.fromEntries(
+                resolveTabLifecycleStates({
+                    documentTabIds: new Set(['active', 'warm', 'cold']),
+                    activationOrder: [requireTabId('active'), requireTabId('inactive'), requireTabId('visible-split')],
+                    panes,
+                    policy: 'conservative',
+                    tabs,
+                    dirtyTabIds: new Set(),
+                    tier: budget.value.deviceTier,
+                    targetWarmViewers: budget.value.targetWarmViewers,
+                }).map((state) => [state.tabId, state]),
+            ),
+        );
 
         expect(isReadonly(budget)).toBe(true);
         expect(budget.value.targetWarmViewers).toBe(5);
@@ -308,10 +243,7 @@ describe('workspace memory pressure monitor', () => {
             hostPoolBytes: 1536 * MIB,
             windowCount: 1,
         });
-        const {
-            controller,
-            useWorkspaceMemoryPressureMonitor,
-        } = await loadMonitor();
+        const {controller, useWorkspaceMemoryPressureMonitor} = await loadMonitor();
         const budget = useWorkspaceMemoryPressureMonitor();
         await Promise.resolve();
 
@@ -370,13 +302,12 @@ describe('workspace memory pressure monitor', () => {
 
     it('does not let a stale initial raster budget pull overwrite a newer live broadcast', async () => {
         let resolveInitial!: (snapshot: IHostRasterBudgetSnapshot | null) => void;
-        mocks.getRasterBudget.mockReturnValue(new Promise((resolve) => {
-            resolveInitial = resolve;
-        }));
-        const {
-            controller,
-            useWorkspaceMemoryPressureMonitor,
-        } = await loadMonitor();
+        mocks.getRasterBudget.mockReturnValue(
+            new Promise((resolve) => {
+                resolveInitial = resolve;
+            }),
+        );
+        const {controller, useWorkspaceMemoryPressureMonitor} = await loadMonitor();
         const budget = useWorkspaceMemoryPressureMonitor();
 
         for (const listener of mocks.rasterBudgetListeners) {
@@ -400,13 +331,12 @@ describe('workspace memory pressure monitor', () => {
 
     it('unsubscribes from host raster budget events when the effect scope disposes', async () => {
         let resolveInitial!: (snapshot: IHostRasterBudgetSnapshot | null) => void;
-        mocks.getRasterBudget.mockReturnValue(new Promise((resolve) => {
-            resolveInitial = resolve;
-        }));
-        const {
-            controller,
-            useWorkspaceMemoryPressureMonitor,
-        } = await loadMonitor();
+        mocks.getRasterBudget.mockReturnValue(
+            new Promise((resolve) => {
+                resolveInitial = resolve;
+            }),
+        );
+        const {controller, useWorkspaceMemoryPressureMonitor} = await loadMonitor();
         const scope = effectScope();
         scope.run(() => useWorkspaceMemoryPressureMonitor());
 

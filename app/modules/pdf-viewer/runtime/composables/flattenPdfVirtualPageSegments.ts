@@ -1,16 +1,18 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
-import type { TPageNumber } from '@contracts/pageNumbers';
-import type { IPdfVirtualPageSegment } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
+import type {IPdfVirtualPageSegment} from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
 
-export type TPdfVirtualPageItem = {
-    key: `page:${number}`;
-    kind: 'page';
-    page: TPageNumber;
-} | {
-    key: `spacer:${number}`;
-    kind: 'spacer';
-    style: Record<string, string>;
-};
+export type TPdfVirtualPageItem =
+    | {
+          key: `page:${number}`;
+          kind: 'page';
+          page: TPageNumber;
+      }
+    | {
+          key: `spacer:${number}`;
+          kind: 'spacer';
+          style: Record<string, string>;
+      };
 
 export interface IPdfVirtualPageRowItem {
     key: `row:${number}`;
@@ -34,7 +36,7 @@ export function flattenPdfVirtualPageSegments(
     // projections with the same segment order. It is not a global counter.
     let spacerIndex = 0;
     for (const segment of segments) {
-        const pages: TPdfVirtualPageItem[] = segment.pages.map(page => {
+        const pages: TPdfVirtualPageItem[] = segment.pages.map((page) => {
             const pageNumber = requirePageNumber(page);
             return {
                 key: `page:${pageNumber}`,
@@ -63,11 +65,13 @@ export function flattenPdfVirtualPageSegments(
         return items;
     }
     const page = requirePageNumber(Math.max(1, Math.trunc(options.initialPageShellPage ?? 1)));
-    return [{
-        key: `page:${page}`,
-        kind: 'page',
-        page,
-    }];
+    return [
+        {
+            key: `page:${page}`,
+            kind: 'page',
+            page,
+        },
+    ];
 }
 
 export function groupPdfVirtualPageItems(
@@ -103,12 +107,8 @@ export function groupPdfVirtualPageItems(
             continue;
         }
         if (
-            rowPages.length === 0
-            || (
-                rowPages.length < 2
-                && !options.isSpreadSingle(rowPages[0]!.page)
-                && !options.isSpreadSingle(item.page)
-            )
+            rowPages.length === 0 ||
+            (rowPages.length < 2 && !options.isSpreadSingle(rowPages[0]!.page) && !options.isSpreadSingle(item.page))
         ) {
             rowPages.push(item);
             continue;

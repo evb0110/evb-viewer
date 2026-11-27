@@ -1,21 +1,12 @@
 // @vitest-environment happy-dom
 
-import { requirePageNumber } from '@contracts/pageNumbers';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    ref,
-    watch,
-    type Ref,
-} from 'vue';
-import { createPdfInitialVisualCommit } from '@app/modules/pdf-viewer/runtime/lifecycle/createPdfInitialVisualCommit';
-import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
-import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
-import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {describe, expect, it, vi} from 'vitest';
+import {ref, watch, type Ref} from 'vue';
+import {createPdfInitialVisualCommit} from '@app/modules/pdf-viewer/runtime/lifecycle/createPdfInitialVisualCommit';
+import type {TPdfViewportSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
+import {createDocumentOpenSurfaceSession} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import type {IDocumentViewerRuntime} from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 
 function createDomRect(shape: object): DOMRect {
     // The visual handshake reads only measured rectangle fields from these
@@ -32,54 +23,59 @@ function createViewportFixture(currentPage: Ref<number>): TPdfViewportSession {
     });
 }
 
-function createChassisAuthority(
-    openSurface: ReturnType<typeof createDocumentOpenSurfaceSession>,
-): IDocumentViewerRuntime {
+function createChassisAuthority(openSurface: ReturnType<typeof createDocumentOpenSurfaceSession>): IDocumentViewerRuntime {
     // The lifecycle reads the open-surface session from the full authority.
     return {openSurface} as IDocumentViewerRuntime;
 }
 
-function createResidentCanvasFixture(
-    connectCanvas = true,
-    canvasRect: Partial<DOMRect> = {},
-) {
+function createResidentCanvasFixture(connectCanvas = true, canvasRect: Partial<DOMRect> = {}) {
     const surface = createDocumentOpenSurfaceSession();
-    surface.begin({
-        documentId: 'saved-result.pdf',
-        documentRevision: 'open-intent:1',
-    }, null, 2);
+    surface.begin(
+        {
+            documentId: 'saved-result.pdf',
+            documentRevision: 'open-intent:1',
+        },
+        null,
+        2,
+    );
     surface.metadataReady(315);
 
     const viewerContainer = document.createElement('div');
-    viewerContainer.getBoundingClientRect = vi.fn(() => createDomRect({
-        top: 0,
-        right: 1200,
-        bottom: 900,
-        left: 0,
-        width: 1200,
-        height: 900,
-    }));
+    viewerContainer.getBoundingClientRect = vi.fn(() =>
+        createDomRect({
+            top: 0,
+            right: 1200,
+            bottom: 900,
+            left: 0,
+            width: 1200,
+            height: 900,
+        }),
+    );
     const pageContainer = document.createElement('div');
     pageContainer.className = 'page_container';
     pageContainer.dataset.page = '2';
-    pageContainer.getBoundingClientRect = vi.fn(() => createDomRect({
-        width: 511.459,
-        height: 755,
-    }));
+    pageContainer.getBoundingClientRect = vi.fn(() =>
+        createDomRect({
+            width: 511.459,
+            height: 755,
+        }),
+    );
     const canvasHost = document.createElement('div');
     canvasHost.className = 'page_canvas';
     const canvas = document.createElement('canvas');
     canvas.width = 1023;
     canvas.height = 1510;
-    canvas.getBoundingClientRect = vi.fn(() => createDomRect({
-        top: 0,
-        right: connectCanvas ? 511.459 : 0,
-        bottom: connectCanvas ? 755 : 0,
-        left: 0,
-        width: connectCanvas ? 511.459 : 0,
-        height: connectCanvas ? 755 : 0,
-        ...canvasRect,
-    }));
+    canvas.getBoundingClientRect = vi.fn(() =>
+        createDomRect({
+            top: 0,
+            right: connectCanvas ? 511.459 : 0,
+            bottom: connectCanvas ? 755 : 0,
+            left: 0,
+            width: connectCanvas ? 511.459 : 0,
+            height: connectCanvas ? 755 : 0,
+            ...canvasRect,
+        }),
+    );
     if (connectCanvas) {
         canvasHost.append(canvas);
     }
@@ -113,39 +109,47 @@ function createResidentCanvasFixture(
         viewerContainer: ref(viewerContainer),
         renderedPageStateVersion: ref(0),
         // Page 2 shows the raster that attempt 7 painted.
-        getCommittedVisualRequestId: pageNumber => (pageNumber === 2 ? 7 : null),
+        getCommittedVisualRequestId: (pageNumber) => (pageNumber === 2 ? 7 : null),
         queueFrame: vi.fn(),
         emitInitialVisualReady,
     });
     // The viewport session places the page whose canvas committed and
     // reports it; the rendering session then reconciles the first visual.
-    watch(() => surface.snapshot.value.committedRender, (render) => {
-        if (render && !surface.snapshot.value.committedViewport && commitOpeningViewport(render.pageNumber)) {
-            initialVisual.reconcileInitialVisual();
-        }
-    }, {flush: 'sync'});
+    watch(
+        () => surface.snapshot.value.committedRender,
+        (render) => {
+            if (render && !surface.snapshot.value.committedViewport && commitOpeningViewport(render.pageNumber)) {
+                initialVisual.reconcileInitialVisual();
+            }
+        },
+        {flush: 'sync'},
+    );
 
     function mountPageCanvas(pageNumber: number) {
         const nextPageContainer = document.createElement('div');
         nextPageContainer.className = 'page_container';
         nextPageContainer.dataset.page = String(pageNumber);
-        nextPageContainer.getBoundingClientRect = vi.fn(() => createDomRect({
-            width: 511.459,
-            height: 755,
-        }));
+        nextPageContainer.getBoundingClientRect = vi.fn(() =>
+            createDomRect({
+                width: 511.459,
+                height: 755,
+            }),
+        );
         const nextCanvasHost = document.createElement('div');
         nextCanvasHost.className = 'page_canvas';
         const nextCanvas = document.createElement('canvas');
         nextCanvas.width = 1023;
         nextCanvas.height = 1510;
-        nextCanvas.getBoundingClientRect = vi.fn(() => createDomRect({
-            top: 0,
-            right: 511.459,
-            bottom: 755,
-            left: 0,
-            width: 511.459,
-            height: 755,
-        }));
+        nextCanvas.getBoundingClientRect = vi.fn(() =>
+            createDomRect({
+                top: 0,
+                right: 511.459,
+                bottom: 755,
+                left: 0,
+                width: 511.459,
+                height: 755,
+            }),
+        );
         nextCanvasHost.append(nextCanvas);
         nextPageContainer.append(nextCanvasHost);
         viewerContainer.append(nextPageContainer);
@@ -310,7 +314,7 @@ describe('createPdfInitialVisualCommit', () => {
         fixture.viewerContainer.remove();
     });
 
-    it('shows the requested page\'s failed raster as its error and recovers when a retry paints it', () => {
+    it("shows the requested page's failed raster as its error and recovers when a retry paints it", () => {
         const fixture = createResidentCanvasFixture(false);
         const snapshot = fixture.surface.snapshot.value;
         const commit = (pageNumber: number, requestId: number) => ({
@@ -342,14 +346,16 @@ describe('createPdfInitialVisualCommit', () => {
         const retried = document.createElement('canvas');
         retried.width = 1023;
         retried.height = 1510;
-        retried.getBoundingClientRect = vi.fn(() => createDomRect({
-            top: 0,
-            right: 511.459,
-            bottom: 755,
-            left: 0,
-            width: 511.459,
-            height: 755,
-        }));
+        retried.getBoundingClientRect = vi.fn(() =>
+            createDomRect({
+                top: 0,
+                right: 511.459,
+                bottom: 755,
+                left: 0,
+                width: 511.459,
+                height: 755,
+            }),
+        );
         fixture.viewerContainer.querySelector('.page_container[data-page="2"] .page_canvas')!.append(retried);
         fixture.initialVisual.handlePageCanvasMounted(commit(2, 3));
         expect(fixture.surface.viewportSession.value).toMatchObject({

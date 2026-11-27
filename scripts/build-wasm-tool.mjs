@@ -1,22 +1,10 @@
-import { getCliErrorMessage } from './lib/cli-error.mjs';
-import {
-    getCargoBuildEnvironment,
-    getCargoRustflags,
-} from './lib/build-environment.mjs';
-import { spawnSync } from 'node:child_process';
-import {
-    mkdir,
-    readFile,
-    rename,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
+import {getCliErrorMessage} from './lib/cli-error.mjs';
+import {getCargoBuildEnvironment, getCargoRustflags} from './lib/build-environment.mjs';
+import {spawnSync} from 'node:child_process';
+import {mkdir, readFile, rename, rm, writeFile} from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import {
-    countWasmBulkMemory,
-    lowerWasmBulkMemory,
-} from './lib/lower-wasm-bulk-memory.mjs';
+import {fileURLToPath} from 'node:url';
+import {countWasmBulkMemory, lowerWasmBulkMemory} from './lib/lower-wasm-bulk-memory.mjs';
 import {
     copyCargoArtifactVerified,
     discardCargoBuildFromOtherWrapperFlags,
@@ -24,7 +12,7 @@ import {
     parseCargoToolBuildRequest,
     resolveCargoTargetDirectory,
 } from './cargo-artifacts.mjs';
-import { getWasmArtifactsByCrateName } from './wasm-artifacts.mjs';
+import {getWasmArtifactsByCrateName} from './wasm-artifacts.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const usage = `Usage: node scripts/build-wasm-tool.mjs <tool> [--dry-run]
@@ -33,24 +21,10 @@ Builds the WASM files of a crate registered in scripts/wasm-artifacts.mjs,
 one per registered Rust target.
 Use --dry-run to resolve and print the build plans without invoking Cargo.`;
 
-export function createWasmToolBuildPlan({
-    artifact,
-    env = process.env,
-    outputDir = undefined,
-    projectRoot: root,
-}) {
+export function createWasmToolBuildPlan({artifact, env = process.env, outputDir = undefined, projectRoot: root}) {
     return {
         builtFileName: artifact.builtFileName,
-        cargoArgs: [
-            'build',
-            '--manifest-path',
-            artifact.manifestPath,
-            '--release',
-            '--locked',
-            '--target',
-            artifact.rustTarget,
-            '--lib',
-        ],
+        cargoArgs: ['build', '--manifest-path', artifact.manifestPath, '--release', '--locked', '--target', artifact.rustTarget, '--lib'],
         destinationPath: outputDir
             ? path.join(outputDir, path.basename(artifact.publicRelativePath))
             : path.join(root, artifact.publicRelativePath),
@@ -72,8 +46,8 @@ export function createWasmToolBuildPlan({
  */
 function assertWasmExports(wasmBytes, plan) {
     const wasmModule = new WebAssembly.Module(wasmBytes);
-    const exportNames = new Set(WebAssembly.Module.exports(wasmModule).map(entry => entry.name));
-    const missingExports = plan.requiredExports.filter(name => !exportNames.has(name));
+    const exportNames = new Set(WebAssembly.Module.exports(wasmModule).map((entry) => entry.name));
+    const missingExports = plan.requiredExports.filter((name) => !exportNames.has(name));
     if (missingExports.length > 0) {
         throw new Error(`${plan.label} is missing exports: ${missingExports.join(', ')}`);
     }
@@ -87,9 +61,7 @@ function assertWasmExports(wasmBytes, plan) {
  * @param {{destinationPath: string, label: string, requiredExports: string[]}} plan
  */
 async function stageLoweredArtifact(sourcePath, plan) {
-    const {
-        bytes, lowered,
-    } = lowerWasmBulkMemory(await readFile(sourcePath));
+    const {bytes, lowered} = lowerWasmBulkMemory(await readFile(sourcePath));
     const left = countWasmBulkMemory(bytes);
     if (left.copy + left.fill > 0) {
         throw new Error(`${plan.label} still has ${left.copy} memory.copy and ${left.fill} memory.fill after lowering`);
@@ -164,10 +136,7 @@ export async function buildWasmArtifact(artifact, {outputDir} = {}) {
     const wasmBytes = await readFile(plan.destinationPath);
     assertWasmExports(wasmBytes, plan);
 
-    console.log(
-        `Staged ${plan.label}: ${path.relative(projectRoot, plan.destinationPath)} `
-        + `(${wasmBytes.byteLength} bytes)`,
-    );
+    console.log(`Staged ${plan.label}: ${path.relative(projectRoot, plan.destinationPath)} ` + `(${wasmBytes.byteLength} bytes)`);
 }
 
 export async function runWasmToolBuilder(argv = process.argv.slice(2)) {
@@ -177,20 +146,25 @@ export async function runWasmToolBuilder(argv = process.argv.slice(2)) {
         return;
     }
 
-    const {
-        artifacts,
-        tool,
-    } = await resolveTool(request.toolId);
+    const {artifacts, tool} = await resolveTool(request.toolId);
     const outputDir = request.outputDir ? path.resolve(projectRoot, request.outputDir) : undefined;
     if (request.dryRun) {
-        console.log(JSON.stringify({
-            tool,
-            plans: artifacts.map(artifact => createWasmToolBuildPlan({
-                artifact,
-                outputDir,
-                projectRoot,
-            })),
-        }, null, 2));
+        console.log(
+            JSON.stringify(
+                {
+                    tool,
+                    plans: artifacts.map((artifact) =>
+                        createWasmToolBuildPlan({
+                            artifact,
+                            outputDir,
+                            projectRoot,
+                        }),
+                    ),
+                },
+                null,
+                2,
+            ),
+        );
         return;
     }
     for (const artifact of artifacts) {
@@ -198,8 +172,7 @@ export async function runWasmToolBuilder(argv = process.argv.slice(2)) {
     }
 }
 
-const isDirectRun = process.argv[1]
-    && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isDirectRun) {
     await runWasmToolBuilder().catch((error) => {
         console.error(getCliErrorMessage(error));

@@ -12,10 +12,7 @@
         <div
             class="combine-page"
             data-combine-page
-            :class="[
-                files.length > 0 ? 'has-files' : 'is-empty',
-                { 'is-dragging': isDraggingOver && !queueMutationLocked },
-            ]"
+            :class="[files.length > 0 ? 'has-files' : 'is-empty', {'is-dragging': isDraggingOver && !queueMutationLocked}]"
             @dragenter.prevent="handleDragEnter"
             @dragover.prevent="handleDragOver"
             @dragleave="handleDragLeave"
@@ -32,9 +29,15 @@
                     multiple
                     :accept="COMBINE_FILE_ACCEPT"
                     @change="handleFileInputChange"
+                />
+                <span
+                    class="combine-dropzone-art"
+                    aria-hidden="true"
                 >
-                <span class="combine-dropzone-art" aria-hidden="true">
-                    <UIcon name="i-ph-files" class="combine-dropzone-icon" />
+                    <UIcon
+                        name="i-ph-files"
+                        class="combine-dropzone-icon"
+                    />
                 </span>
                 <div class="combine-dropzone-copy">
                     <h2>{{ t('combinePdf.dropTitle') }}</h2>
@@ -56,7 +59,10 @@
             >
                 <header class="combine-list-header">
                     <div>
-                        <h2 :id="listTitleId" class="combine-list-title">
+                        <h2
+                            :id="listTitleId"
+                            class="combine-list-title"
+                        >
                             {{ t('combinePdf.listTitle') }}
                         </h2>
                         <p class="combine-list-meta">
@@ -90,7 +96,12 @@
                     />
                 </header>
 
-                <p class="sr-only" role="status" aria-live="polite">{{ reorderAnnouncement }}</p>
+                <p
+                    class="sr-only"
+                    role="status"
+                    aria-live="polite"
+                    >{{ reorderAnnouncement }}</p
+                >
 
                 <CombinePdfFileList
                     :files="files"
@@ -110,10 +121,12 @@
                     <div class="combine-progress-copy">
                         <span>{{ phase === 'opening' ? t('combinePdf.openingTitle') : t('combinePdf.progressTitle') }}</span>
                         <span v-if="phase !== 'opening'">
-                            {{ t('combinePdf.progressDetail', {
-                                processed: progress.processed,
-                                total: progress.total,
-                            }) }}
+                            {{
+                                t('combinePdf.progressDetail', {
+                                    processed: progress.processed,
+                                    total: progress.total,
+                                })
+                            }}
                         </span>
                     </div>
                     <AppProgressBar :value="phase === 'opening' ? null : progress.percent" />
@@ -143,21 +156,21 @@
 </template>
 
 <script setup lang="ts">
-import { useEventListener } from '@vueuse/core';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import {useEventListener} from '@vueuse/core';
+import type {TOpenFileResult} from '@contracts/electronApiDocuments';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
 import AppToolPageShell from '@app/components/AppToolPageShell.vue';
-import { useFailureToast } from '@app/composables/useFailureToast';
+import {useFailureToast} from '@app/composables/useFailureToast';
 import CombinePdfFileList from '@app/modules/combine/components/CombinePdfFileList.vue';
-import type { ICombineFile } from '@app/modules/combine/combineFile';
+import type {ICombineFile} from '@app/modules/combine/combineFile';
 import {useCombinePdfQueue} from '@app/modules/combine/useCombinePdfQueue';
 import {useCombinePdfOperation} from '@app/modules/combine/useCombinePdfOperation';
 import {getCombinePdfCapabilities} from '@app/services/pdf/combinePdfFiles';
 import {getDocumentKindFromPath} from '@app/utils/supportedDocumentPaths';
-import { createBrowserSafeId } from '@app/utils/browserSafe';
+import {createBrowserSafeId} from '@app/utils/browserSafe';
 
 const emit = defineEmits<{
-    'close': [];
+    close: [];
     'open-result': [result: TOpenFileResult];
 }>();
 
@@ -178,7 +191,7 @@ const {
     openResult?: ((result: TOpenFileResult) => Promise<boolean>) | undefined;
 }>();
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 const listTitleId = useId();
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const files = ref<ICombineFile[]>([]);
@@ -188,12 +201,11 @@ const dragDepth = ref(0);
 const combineCapabilities = getCombinePdfCapabilities();
 const COMBINE_FILE_ACCEPT = combineCapabilities.supportedExtensions.join(',');
 
-const filesLabel = computed(() => t('combinePdf.fileCount', { count: files.value.length }));
+const filesLabel = computed(() => t('combinePdf.fileCount', {count: files.value.length}));
 
 function isSupportedCombineFile(file: File) {
     const extension = file.name.toLocaleLowerCase().match(/\.[a-z0-9]+$/u)?.[0] ?? '';
-    return combineCapabilities.supportedExtensions.includes(extension)
-        && file.size > 0;
+    return combineCapabilities.supportedExtensions.includes(extension) && file.size > 0;
 }
 
 function toCombineFile(file: File): ICombineFile {
@@ -222,7 +234,7 @@ const {
 } = useCombinePdfOperation({
     files,
     ...(openResult ? {openResult} : {}),
-    emitOpenResult: result => emit('open-result', result),
+    emitOpenResult: (result) => emit('open-result', result),
     translate: t,
 });
 
@@ -233,9 +245,7 @@ const primaryActionLabel = computed(() => {
     if (phase.value === 'opening') {
         return t('combinePdf.opening');
     }
-    return pendingCombinedResult.value
-        ? t('common.retry')
-        : t('combinePdf.combineCountAction', { count: files.value.length });
+    return pendingCombinedResult.value ? t('common.retry') : t('combinePdf.combineCountAction', {count: files.value.length});
 });
 
 const queue = useCombinePdfQueue({
@@ -245,10 +255,7 @@ const queue = useCombinePdfQueue({
     toQueueItem: toCombineFile,
 });
 const {lastRejectedCount} = queue;
-const {
-    presentFailureToast,
-    presentNoticeToast,
-} = useFailureToast();
+const {presentFailureToast, presentNoticeToast} = useFailureToast();
 function addFiles(fileList: FileList | File[]) {
     combineError.value = null;
     queue.addFiles(fileList);
@@ -256,20 +263,14 @@ function addFiles(fileList: FileList | File[]) {
         presentNoticeToast({
             tone: 'warning',
             title: t('combinePdf.title'),
-            description: t('combinePdf.unsupportedFiles', { count: lastRejectedCount.value }),
+            description: t('combinePdf.unsupportedFiles', {count: lastRejectedCount.value}),
         });
     }
 }
 
 // A combine, open or save that fails is told once, when it fails; the queue
 // stays as it was so the user can retry.
-watch([
-    combineError,
-    combineFailure,
-], ([
-    message,
-    failure,
-]) => {
+watch([combineError, combineFailure], ([message, failure]) => {
     if (!message) {
         return;
     }
@@ -346,13 +347,8 @@ function handleDrop(event: DragEvent) {
 
 function handleWindowDragLeave(event: DragEvent) {
     if (
-        typeof window !== 'undefined'
-        && (
-            event.clientX <= 0
-            || event.clientY <= 0
-            || event.clientX >= window.innerWidth
-            || event.clientY >= window.innerHeight
-        )
+        typeof window !== 'undefined' &&
+        (event.clientX <= 0 || event.clientY <= 0 || event.clientX >= window.innerWidth || event.clientY >= window.innerHeight)
     ) {
         resetDragOverlay();
     }

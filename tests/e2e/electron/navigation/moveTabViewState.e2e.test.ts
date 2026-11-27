@@ -1,56 +1,38 @@
-import {
-    copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync,
-} from 'node:fs';
+import {copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync} from 'node:fs';
 import {readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {
-    basename, delimiter,
-    join, resolve,
-} from 'node:path';
+import {basename, delimiter, join, resolve} from 'node:path';
 import {deflateSync} from 'node:zlib';
-import {
-    PDFDocument, StandardFonts, rgb,
-} from 'pdf-lib';
-import {
-    afterEach, describe, expect, it, onTestFinished, vi,
-} from 'vitest';
+import {PDFDocument, StandardFonts, rgb} from 'pdf-lib';
+import {afterEach, describe, expect, it, onTestFinished, vi} from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {createFreeTextAnnotationWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {readPdfTextAnnotationRecords} from '@tests/e2e/electron/helpers/fixtures';
 import {moveTabToNewWindow} from '@tests/e2e/electron/helpers/moveTabToNewWindow';
 import {splitActiveTabFromTabMenu} from '@tests/e2e/electron/helpers/workspaceTabs';
+import {activateMenuItemAsUser, clickAsUser, clickFoundAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {
-    activateMenuItemAsUser,
-    clickAsUser,
-    clickFoundAsUser,
-} from '@tests/e2e/electron/helpers/userInput';
-import {
-    ensureSidebarOpen, goToPageViaToolbar, openDjvuInApp, openPdfInApp, waitForDjvuLoaded, waitForPdfLoaded, waitForToolbarCurrentPage, waitForViewerInteractive,
+    ensureSidebarOpen,
+    goToPageViaToolbar,
+    openDjvuInApp,
+    openPdfInApp,
+    waitForDjvuLoaded,
+    waitForPdfLoaded,
+    waitForToolbarCurrentPage,
+    waitForViewerInteractive,
     setRememberPlaceAsUser,
     setTabMemoryPolicyForE2E,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {
-    installPageEvaluationShims, waitForFunctionInPage,
-} from '@tests/e2e/electron/helpers/pageRuntime';
+import {installPageEvaluationShims, waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import type * as Pdfjs from 'pdfjs-dist';
-import type {
-    ConsoleMessage, Page,
-} from 'puppeteer-core';
+import type {ConsoleMessage, Page} from 'puppeteer-core';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
-import {
-    requireDocumentRef, type TDocumentRef,
-} from '@contracts/documentRef';
+import {requireDocumentRef, type TDocumentRef} from '@contracts/documentRef';
 import {DEFAULT_SETTINGS} from '@contracts/settings';
-import {
-    callWorkspaceCommand, waitForWorkspaceToolbarIdle,
-} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {callWorkspaceCommand, waitForWorkspaceToolbarIdle} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {LOCALE_MESSAGES} from '@i18n-app';
 import {activateElectronMenuItem} from '@scripts/electron-run/activateElectronMenuItem';
-import {
-    electronAppTempDirPath,
-    electronUserDataPath,
-    sessionDir,
-} from '@scripts/electron-run/electronRunSessionPaths';
+import {electronAppTempDirPath, electronUserDataPath, sessionDir} from '@scripts/electron-run/electronRunSessionPaths';
 
 const sessionName = `e2e-move-tab-view-state-${Date.now()}`;
 const replacementDialogPath = join(electronAppTempDirPath(sessionName), 'cancelled-transfer-replacement.pdf');
@@ -61,10 +43,12 @@ const sessions = createElectronE2ESessionFixture({
 let outputDirectory: string | null = null;
 
 afterEach(() => {
-    if (outputDirectory) rmSync(outputDirectory, {
-        recursive: true,
-        force: true,
-    });
+    if (outputDirectory) {
+        rmSync(outputDirectory, {
+            recursive: true,
+            force: true,
+        });
+    }
     outputDirectory = null;
 });
 
@@ -72,10 +56,7 @@ async function createTwelvePageFixture(filePath: string) {
     const document = await PDFDocument.create();
     const font = await document.embedFont(StandardFonts.Helvetica);
     for (let pageNumber = 1; pageNumber <= 12; pageNumber += 1) {
-        const page = document.addPage([
-            612,
-            792,
-        ]);
+        const page = document.addPage([612, 792]);
         page.drawText(`Transfer view page ${pageNumber}`, {
             x: 72,
             y: 700,
@@ -104,46 +85,73 @@ function createSlowTransferFixture(filePath: string, fontMapBytes = 64 * 1024 * 
     let fonts = '/F 3 0 R';
     {
         const decoded = Buffer.alloc(fontMapBytes, 0x20);
-        decoded.write('/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n1 beginbfrange\n<0000> <FFFF> <0000>\nendbfrange\nendcmap\nend\nend\n', 'latin1');
+        decoded.write(
+            '/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n1 beginbfrange\n<0000> <FFFF> <0000>\nendbfrange\nendcmap\nend\nend\n',
+            'latin1',
+        );
         const stream = deflateSync(decoded);
         const descendant = next++;
-        objects.set(descendant, text('<< /Type /Font /Subtype /CIDFontType2 /BaseFont /GlyphLessFont /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /DW 500 /CIDToGIDMap /Identity >>'));
+        objects.set(
+            descendant,
+            text(
+                '<< /Type /Font /Subtype /CIDFontType2 /BaseFont /GlyphLessFont /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /DW 500 /CIDToGIDMap /Identity >>',
+            ),
+        );
         for (let i = 0; i < 16; i++) {
-            const cmap = next++, font = next++;
-            objects.set(cmap, Buffer.concat([
-                text(`<< /Length ${stream.length} /Filter /FlateDecode >>\nstream\n`),
-                stream,
-                text('\nendstream'),
-            ]));
-            objects.set(font, text(`<< /Type /Font /Subtype /Type0 /BaseFont /GlyphLessFont /Encoding /Identity-H /DescendantFonts [${descendant} 0 R] /ToUnicode ${cmap} 0 R >>`));
+            const cmap = next++,
+                font = next++;
+            objects.set(
+                cmap,
+                Buffer.concat([text(`<< /Length ${stream.length} /Filter /FlateDecode >>\nstream\n`), stream, text('\nendstream')]),
+            );
+            objects.set(
+                font,
+                text(
+                    `<< /Type /Font /Subtype /Type0 /BaseFont /GlyphLessFont /Encoding /Identity-H /DescendantFonts [${descendant} 0 R] /ToUnicode ${cmap} 0 R >>`,
+                ),
+            );
             fonts += ` /S${i} ${font} 0 R`;
         }
     }
     const kids: string[] = [];
     for (let page = 1; page <= count; page++) {
-        const id = next++, contentId = next++;
+        const id = next++,
+            contentId = next++;
         kids.push(`${id} 0 R`);
         let content = `BT /F 22 Tf 50 790 Td (${name} / PAGE ${page}) Tj ET\n`;
-        for (let row = 0; row < 20; row++) content += `BT /F 12 Tf 55 ${740-row*30} Td (Reading marker ${page}.${row} - stable text and geometry) Tj ET\n`;
-        for (let font = 0; font < 16; font++) content += `BT /S${font} 10 Tf 460 ${750-font*22} Td <0053004C004F0057> Tj ET\n`;
+        for (let row = 0; row < 20; row++) {
+            content += `BT /F 12 Tf 55 ${740 - row * 30} Td (Reading marker ${page}.${row} - stable text and geometry) Tj ET\n`;
+        }
+        for (let font = 0; font < 16; font++) {
+            content += `BT /S${font} 10 Tf 460 ${750 - font * 22} Td <0053004C004F0057> Tj ET\n`;
+        }
         objects.set(contentId, text(`<< /Length ${content.length} >>\nstream\n${content}endstream`));
-        objects.set(id, text(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << ${fonts} >> >> /Contents ${contentId} 0 R >>`));
+        objects.set(
+            id,
+            text(
+                `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << ${fonts} >> >> /Contents ${contentId} 0 R >>`,
+            ),
+        );
     }
     objects.set(2, text(`<< /Type /Pages /Kids [${kids.join(' ')}] /Count ${count} >>`));
     const header = text('%PDF-1.7\n');
-    const parts = [header], offsets = [0];
+    const parts = [header],
+        offsets = [0];
     let length = header.length;
-    for (const id of [...objects.keys()].sort((a,b)=>a-b)) {
+    for (const id of [...objects.keys()].sort((a, b) => a - b)) {
         offsets[id] = length;
-        const body = Buffer.concat([
-            text(`${id} 0 obj\n`),
-            objects.get(id)!,
-            text('\nendobj\n'),
-        ]);
-        parts.push(body); length += body.length;
+        const body = Buffer.concat([text(`${id} 0 obj\n`), objects.get(id)!, text('\nendobj\n')]);
+        parts.push(body);
+        length += body.length;
     }
     const size = next;
-    parts.push(text(`xref\n0 ${size}\n0000000000 65535 f \n` + Array.from({length:size-1},(_,i)=>`${String(offsets[i+1]).padStart(10,'0')} 00000 n \n`).join('') + `trailer\n<< /Size ${size} /Root 1 0 R >>\nstartxref\n${length}\n%%EOF\n`));
+    parts.push(
+        text(
+            `xref\n0 ${size}\n0000000000 65535 f \n` +
+                Array.from({length: size - 1}, (_, i) => `${String(offsets[i + 1]).padStart(10, '0')} 00000 n \n`).join('') +
+                `trailer\n<< /Size ${size} /Root 1 0 R >>\nstartxref\n${length}\n%%EOF\n`,
+        ),
+    );
     writeFileSync(filePath, Buffer.concat(parts));
 }
 
@@ -151,18 +159,25 @@ function createSlowTransferFixture(filePath: string, fontMapBytes = 64 * 1024 * 
 // the viewer's own page bookkeeping, which can disagree with what is on screen.
 async function readView(page: Page) {
     return page.evaluate(() => {
-        const snapshot = (window as Window & {__evbTestApi?: {getActiveToolbarSnapshot?: () => {
-            effectiveZoom?: number;
-            zoomMode?: string;
-        }}}).__evbTestApi?.getActiveToolbarSnapshot?.();
-        const viewport = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] [data-document-viewer-chassis-viewport]');
+        const snapshot = (
+            window as Window & {
+                __evbTestApi?: {
+                    getActiveToolbarSnapshot?: () => {
+                        effectiveZoom?: number;
+                        zoomMode?: string;
+                    };
+                };
+            }
+        ).__evbTestApi?.getActiveToolbarSnapshot?.();
+        const viewport = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] [data-document-viewer-chassis-viewport]',
+        );
         const viewportRect = viewport?.getBoundingClientRect();
         const centerY = viewportRect ? viewportRect.top + viewportRect.height / 2 : 0;
-        const centerPage = Array.from(viewport?.querySelectorAll<HTMLElement>('[data-document-page-number]') ?? [])
-            .find((element) => {
-                const rect = element.getBoundingClientRect();
-                return rect.top <= centerY && centerY <= rect.bottom;
-            });
+        const centerPage = Array.from(viewport?.querySelectorAll<HTMLElement>('[data-document-page-number]') ?? []).find((element) => {
+            const rect = element.getBoundingClientRect();
+            return rect.top <= centerY && centerY <= rect.bottom;
+        });
         return {
             page: Number(centerPage?.dataset.documentPageNumber ?? 0),
             text: centerPage?.querySelector('.text-layer[data-pdf-text-layer-ready="true"]')?.textContent ?? '',
@@ -177,19 +192,29 @@ async function readView(page: Page) {
 // The restored sidebar slides in after the page is placed; the view is final
 // once that slide has ended and the viewer has laid out for its last width.
 async function waitForTransferredViewSettled(page: Page) {
-    await waitForFunctionInPage(page, () => {
-        const pane = document.querySelector('.editor-pane.is-active');
-        const sidebar = pane?.querySelector('.sidebar-wrapper:not(.is-closed)');
-        return sidebar !== null && sidebar !== undefined && sidebar.getAnimations().length === 0
-            && pane?.querySelector('.document-viewer-chassis')?.getAttribute('data-viewport-lifecycle') === 'ready';
-    }, {timeout: 30_000});
-    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await waitForFunctionInPage(
+        page,
+        () => {
+            const pane = document.querySelector('.editor-pane.is-active');
+            const sidebar = pane?.querySelector('.sidebar-wrapper:not(.is-closed)');
+            return (
+                sidebar !== null &&
+                sidebar !== undefined &&
+                sidebar.getAnimations().length === 0 &&
+                pane?.querySelector('.document-viewer-chassis')?.getAttribute('data-viewport-lifecycle') === 'ready'
+            );
+        },
+        {timeout: 30_000},
+    );
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 }
 
-type TMovingLoadWindow = Window & {__movingMenuLoad?: {
-    held: boolean;
-    restore: () => void;
-}};
+type TMovingLoadWindow = Window & {
+    __movingMenuLoad?: {
+        held: boolean;
+        restore: () => void;
+    };
+};
 
 // Holds the ordinary first geometry answer in the destination, so a move into
 // it stays pending until the test releases it.
@@ -198,23 +223,38 @@ async function holdIncomingOpen(target: Page) {
         const descriptor = Object.getOwnPropertyDescriptor(Promise.prototype, 'catch')!;
         const then = Promise.prototype.then;
         let release: () => void = () => {};
-        const gate = new Promise<void>(resolve => {release = resolve;});
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
         const state = {
             held: false,
-            restore: () => {Object.defineProperty(Promise.prototype, 'catch', descriptor); release();},
+            restore: () => {
+                Object.defineProperty(Promise.prototype, 'catch', descriptor);
+                release();
+            },
         };
         Object.defineProperty(Promise.prototype, 'catch', {
             ...descriptor,
             value(this: Promise<unknown>, onRejected: (reason: unknown) => unknown) {
-                return then.call(this, (value: unknown) => {
-                    if (value && typeof value === 'object' && 'pageNumber' in value
-                        && 'width' in value && 'height' in value && 'pageCount' in value) {
-                        state.held = true;
-                        Object.defineProperty(Promise.prototype, 'catch', descriptor);
-                        return gate.then(() => value);
-                    }
-                    return value;
-                }, onRejected);
+                return then.call(
+                    this,
+                    (value: unknown) => {
+                        if (
+                            value &&
+                            typeof value === 'object' &&
+                            'pageNumber' in value &&
+                            'width' in value &&
+                            'height' in value &&
+                            'pageCount' in value
+                        ) {
+                            state.held = true;
+                            Object.defineProperty(Promise.prototype, 'catch', descriptor);
+                            return gate.then(() => value);
+                        }
+                        return value;
+                    },
+                    onRejected,
+                );
             },
         });
         (window as TMovingLoadWindow).__movingMenuLoad = state;
@@ -226,7 +266,9 @@ async function waitForHeldIncomingOpen(target: Page) {
 }
 
 async function releaseIncomingOpen(target: Page) {
-    if (!target.isClosed()) await target.evaluate(() => (window as TMovingLoadWindow).__movingMenuLoad?.restore());
+    if (!target.isClosed()) {
+        await target.evaluate(() => (window as TMovingLoadWindow).__movingMenuLoad?.restore());
+    }
 }
 
 describe('Move Tab to New Window view state', () => {
@@ -260,39 +302,74 @@ describe('Move Tab to New Window view state', () => {
             }
         });
         await clickAsUser(source, '.tab-new');
-        await clickFoundAsUser(source, () => Array.from(document.querySelectorAll<HTMLElement>('.tab-list [role="tab"]'))
-            .find(tab => tab.textContent?.includes('transfer-source.djvu')), null, {description: 'DjVu source tab'});
+        await clickFoundAsUser(
+            source,
+            () =>
+                Array.from(document.querySelectorAll<HTMLElement>('.tab-list [role="tab"]')).find((tab) =>
+                    tab.textContent?.includes('transfer-source.djvu'),
+                ),
+            null,
+            {description: 'DjVu source tab'},
+        );
         await clickAsUser(source, '.tab.is-active[data-tab-id]', {button: 'right'});
-        const destinationTarget = session.browser.waitForTarget(target => target.type() === 'page'
-            && !previousTargets.has(target) && target.url().includes('/electron'), {timeout: 30_000});
-        await clickFoundAsUser(source, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-            .find(item => item.textContent?.includes('Move Tab to New Window')), null, {description: 'Move Tab to New Window'});
+        const destinationTarget = session.browser.waitForTarget(
+            (target) => target.type() === 'page' && !previousTargets.has(target) && target.url().includes('/electron'),
+            {timeout: 30_000},
+        );
+        await clickFoundAsUser(
+            source,
+            () =>
+                Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((item) =>
+                    item.textContent?.includes('Move Tab to New Window'),
+                ),
+            null,
+            {description: 'Move Tab to New Window'},
+        );
         const destination = await (await destinationTarget).page();
-        if (!destination) throw new Error('The moved DjVu has no destination renderer');
+        if (!destination) {
+            throw new Error('The moved DjVu has no destination renderer');
+        }
         destinationPage = destination;
         await installPageEvaluationShims(destination);
 
-        await expect.poll(async () => ({
-            destination: await destination.evaluate(() => {
-                const image = document.querySelector<HTMLImageElement>('.document-source-viewer__page[data-page-number="2"] img[data-document-page-visual="committed"]');
-                const viewport = image?.closest('[data-document-viewer-chassis-viewport]')?.getBoundingClientRect();
-                const rect = image?.getBoundingClientRect();
-                return {
-                    pageTwoPainted: Boolean(image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0
-                        && image.checkVisibility() && rect && viewport && rect.width > 0 && rect.height > 0
-                        && rect.bottom > viewport.top && rect.top < viewport.bottom
-                        && rect.right > viewport.left && rect.left < viewport.right),
-                    failedToOpen: document.body.innerText.includes('Failed to open file'),
-                };
-            }),
-            sourceTabs: await source.$$eval('.tab-list [role="tab"]', tabs => tabs.map(tab => tab.textContent?.trim())),
-        }), {timeout: 30_000}).toEqual({
-            destination: {
-                pageTwoPainted: true,
-                failedToOpen: false,
-            },
-            sourceTabs: ['New Tab'],
-        });
+        await expect
+            .poll(
+                async () => ({
+                    destination: await destination.evaluate(() => {
+                        const image = document.querySelector<HTMLImageElement>(
+                            '.document-source-viewer__page[data-page-number="2"] img[data-document-page-visual="committed"]',
+                        );
+                        const viewport = image?.closest('[data-document-viewer-chassis-viewport]')?.getBoundingClientRect();
+                        const rect = image?.getBoundingClientRect();
+                        return {
+                            pageTwoPainted: Boolean(
+                                image?.complete &&
+                                image.naturalWidth > 0 &&
+                                image.naturalHeight > 0 &&
+                                image.checkVisibility() &&
+                                rect &&
+                                viewport &&
+                                rect.width > 0 &&
+                                rect.height > 0 &&
+                                rect.bottom > viewport.top &&
+                                rect.top < viewport.bottom &&
+                                rect.right > viewport.left &&
+                                rect.left < viewport.right,
+                            ),
+                            failedToOpen: document.body.innerText.includes('Failed to open file'),
+                        };
+                    }),
+                    sourceTabs: await source.$$eval('.tab-list [role="tab"]', (tabs) => tabs.map((tab) => tab.textContent?.trim())),
+                }),
+                {timeout: 30_000},
+            )
+            .toEqual({
+                destination: {
+                    pageTwoPainted: true,
+                    failedToOpen: false,
+                },
+                sourceTabs: ['New Tab'],
+            });
         expect(source.isClosed()).toBe(false);
         expect(await readFile(fixture)).toEqual(originalBytes);
     }, 120_000);
@@ -314,17 +391,15 @@ describe('Move Tab to New Window view state', () => {
         const seed = join(outputDirectory, 'target.pdf');
         const cold = join(outputDirectory, 'cold.pdf');
         const hot = join(outputDirectory, 'hot.pdf');
-        for (const path of [
-            seed,
-            cold,
-            hot,
-        ]) await createTwelvePageFixture(path);
+        for (const path of [seed, cold, hot]) {
+            await createTwelvePageFixture(path);
+        }
         await openPdfInApp(source, seed);
         const target = await moveTabToNewWindow(source, {tabTitle: 'target.pdf'});
         await installPageEvaluationShims(target);
         await setTabMemoryPolicyForE2E(source, 'aggressive');
         await openPdfInApp(source, cold);
-        const coldId = await source.$eval('.tab.is-active[data-tab-id]', element => (element as HTMLElement).dataset.tabId!);
+        const coldId = await source.$eval('.tab.is-active[data-tab-id]', (element) => (element as HTMLElement).dataset.tabId!);
         await goToPageViaToolbar(source, 6);
         await clickAsUser(source, '#editor-global-toolbar-host .zoom-controls-display');
         await clickAsUser(source, '.zoom-chip-custom-input', {count: 3});
@@ -345,11 +420,15 @@ describe('Move Tab to New Window view state', () => {
         await activateMenuItemAsUser(source, {id: `merge-window-into:${targetId}`});
 
         // The oracle is target document text and order, not the capture's timer.
-        await expect.poll(() => target.$$eval('.tab-list [role="tab"]', elements => elements.map(element => element.textContent?.replace(/\s+/gu, ' ').trim())), {timeout: 30_000}).toEqual([
-            expect.stringContaining('target.pdf'),
-            expect.stringContaining('cold.pdf'),
-            expect.stringContaining('hot.pdf'),
-        ]);
+        await expect
+            .poll(
+                () =>
+                    target.$$eval('.tab-list [role="tab"]', (elements) =>
+                        elements.map((element) => element.textContent?.replace(/\s+/gu, ' ').trim()),
+                    ),
+                {timeout: 30_000},
+            )
+            .toEqual([expect.stringContaining('target.pdf'), expect.stringContaining('cold.pdf'), expect.stringContaining('hot.pdf')]);
         // All incoming tabs exist before their restores commit. Let the merge
         // close its source before selecting a destination tab.
         await expect.poll(() => source.isClosed(), {timeout: 30_000}).toBe(true);
@@ -365,130 +444,169 @@ describe('Move Tab to New Window view state', () => {
                 zoom: '200%',
             },
         ]) {
-            await clickFoundAsUser(target, (name: string) => Array.from(document.querySelectorAll<HTMLElement>('.tab-list [role="tab"]'))
-                .find(element => element.textContent?.includes(name)), expected.name, {description: `merged ${expected.name}`});
+            await clickFoundAsUser(
+                target,
+                (name: string) =>
+                    Array.from(document.querySelectorAll<HTMLElement>('.tab-list [role="tab"]')).find((element) =>
+                        element.textContent?.includes(name),
+                    ),
+                expected.name,
+                {description: `merged ${expected.name}`},
+            );
             await waitForViewerInteractive(target);
-            await expect.poll(() => readView(target), {timeout: 30_000}).toMatchObject({
-                page: expected.page,
-                text: expect.stringContaining(`Transfer view page ${expected.page}`),
-                zoomText: expected.zoom,
-            });
+            await expect
+                .poll(() => readView(target), {timeout: 30_000})
+                .toMatchObject({
+                    page: expected.page,
+                    text: expect.stringContaining(`Transfer view page ${expected.page}`),
+                    zoomText: expected.zoom,
+                });
             expect((await readView(target)).text).toContain(`Source ${expected.name}`);
             await target.screenshot({path: join(sessionDir(session.name), `merged-${expected.name}.png`)});
         }
         expect(target.isClosed()).toBe(false);
     }, 180_000);
 
-
-    it.each([
-        'commits',
-        'is refused',
-    ] as const)('disables native Save and Save As while moving and restores them when the move %s', async (outcome) => {
-        const home = mkdtempSync(join(tmpdir(), 'moving-menu-'));
-        const fixture = join(home, 'moving.pdf');
-        const savedAs = join(home, 'saved-as.pdf');
-        const replacement = join(home, 'replacement.pdf');
-        let destination: Page | null = null;
-        onTestFinished(async () => {
-            if (destination) await releaseIncomingOpen(destination);
+    it.each(['commits', 'is refused'] as const)(
+        'disables native Save and Save As while moving and restores them when the move %s',
+        async (outcome) => {
+            const home = mkdtempSync(join(tmpdir(), 'moving-menu-'));
+            const fixture = join(home, 'moving.pdf');
+            const savedAs = join(home, 'saved-as.pdf');
+            const replacement = join(home, 'replacement.pdf');
+            let destination: Page | null = null;
+            onTestFinished(async () => {
+                if (destination) {
+                    await releaseIncomingOpen(destination);
+                }
+                await sessions.restart({
+                    clean: true,
+                    hard: true,
+                });
+                rmSync(home, {
+                    recursive: true,
+                    force: true,
+                });
+            });
             await sessions.restart({
                 clean: true,
                 hard: true,
+                extraEnv: {
+                    EVB_E2E_SAVE_DIALOG_PATH: savedAs,
+                    EVB_E2E_OPEN_DIALOG_PATH: replacement,
+                },
             });
-            rmSync(home, {
-                recursive: true,
-                force: true,
+            for (const path of [join(home, 'seed.pdf'), fixture, replacement]) {
+                copyFileSync(resolve('tests/fixtures/electron/test-scanned.pdf'), path);
+            }
+            const {page: source} = sessions.getSession();
+            await openPdfInApp(source, join(home, 'seed.pdf'));
+            destination = await moveTabToNewWindow(source);
+            await installPageEvaluationShims(destination);
+            await clickAsUser(source, '.tab-new');
+            const target = destination;
+            const targetId = (await source.evaluate(() => (window as IE2EWindow).electronAPI!.windowTabs!.listTargetWindows()))[0]!
+                .windowId;
+            await openPdfInApp(source, fixture);
+            await createFreeTextAnnotationWithPointer(
+                source,
+                'Save frontier',
+                {
+                    x: 0.3,
+                    y: 0.3,
+                },
+                1,
+            );
+            // The review holds the ordinary first geometry answer while the real
+            // tab menu moves the document. Replacement uses the real file picker.
+            await holdIncomingOpen(target);
+            await clickAsUser(source, '.tab.is-active', {button: 'right'});
+            await clickAsUser(source, `[role="menuitem"][data-tab-command="move-to-window-${targetId}"]`);
+            await waitForHeldIncomingOpen(target);
+            await source.waitForSelector('.workspace-transfer-state', {visible: true});
+            const movingSave = await activateElectronMenuItem(source, {accelerator: 'CmdOrCtrl+S'});
+            const movingSaveAs = await activateElectronMenuItem(source, {accelerator: 'CmdOrCtrl+Shift+S'});
+            console.log(
+                'MOVING_NATIVE_MENU',
+                JSON.stringify({
+                    outcome,
+                    movingSave,
+                    movingSaveAs,
+                    outputExists: existsSync(savedAs),
+                }),
+            );
+            expect(movingSave).toMatchObject({
+                activated: false,
+                reason: 'disabled',
             });
-        });
-        await sessions.restart({
-            clean: true,
-            hard: true,
-            extraEnv: {
-                EVB_E2E_SAVE_DIALOG_PATH: savedAs,
-                EVB_E2E_OPEN_DIALOG_PATH: replacement,
-            },
-        });
-        for (const path of [
-            join(home, 'seed.pdf'),
-            fixture,
-            replacement,
-        ]) {
-            copyFileSync(resolve('tests/fixtures/electron/test-scanned.pdf'), path);
-        }
-        const {page: source} = sessions.getSession();
-        await openPdfInApp(source, join(home, 'seed.pdf'));
-        destination = await moveTabToNewWindow(source);
-        await installPageEvaluationShims(destination);
-        await clickAsUser(source, '.tab-new');
-        const target = destination;
-        const targetId = (await source.evaluate(() => (window as IE2EWindow).electronAPI!.windowTabs!.listTargetWindows()))[0]!.windowId;
-        await openPdfInApp(source, fixture);
-        await createFreeTextAnnotationWithPointer(source, 'Save frontier', {
-            x: 0.3,
-            y: 0.3,
-        }, 1);
-        // The review holds the ordinary first geometry answer while the real
-        // tab menu moves the document. Replacement uses the real file picker.
-        await holdIncomingOpen(target);
-        await clickAsUser(source, '.tab.is-active', {button: 'right'});
-        await clickAsUser(source, `[role="menuitem"][data-tab-command="move-to-window-${targetId}"]`);
-        await waitForHeldIncomingOpen(target);
-        await source.waitForSelector('.workspace-transfer-state', {visible: true});
-        const movingSave = await activateElectronMenuItem(source, {accelerator: 'CmdOrCtrl+S'});
-        const movingSaveAs = await activateElectronMenuItem(source, {accelerator: 'CmdOrCtrl+Shift+S'});
-        console.log('MOVING_NATIVE_MENU', JSON.stringify({
-            outcome,
-            movingSave,
-            movingSaveAs,
-            outputExists: existsSync(savedAs),
-        }));
-        expect(movingSave).toMatchObject({
-            activated: false,
-            reason: 'disabled',
-        });
-        expect(movingSaveAs).toMatchObject({
-            activated: false,
-            reason: 'disabled',
-        });
-        expect(existsSync(savedAs)).toBe(false);
-        if (outcome === 'is refused') {
-            await clickAsUser(target, '.editor-global-toolbar-shell button[aria-label="More tools"]');
-            await clickFoundAsUser(target, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-                .find(item => item.textContent?.trim() === 'Open File'), undefined, {description: 'Replace the incoming document'});
-            await waitForFunctionInPage(source, () => document.querySelector('.workspace-transfer-state') === null);
-            await waitForPdfLoaded(source);
-        } else {
-            await releaseIncomingOpen(target);
-            await waitForPdfLoaded(target);
-            await waitForFunctionInPage(target, () => document.querySelector('.workspace-transfer-state') === null);
-            await vi.waitFor(async () => expect(await source.$$eval('.tab-label', nodes => nodes.map(node => node.textContent?.trim())))
-                .not.toContain('moving.pdf'), {timeout: 30_000});
-            // A hidden session's native menu targets its first remaining window.
-            // Close the now-empty source, leaving the moved document as that window.
-            await source.evaluate(() => (window as IE2EWindow).electronAPI!.windowTabs!.closeCurrentWindow());
-            await vi.waitFor(() => expect(source.isClosed()).toBe(true), {timeout: 30_000});
-        }
-        const survivor = outcome === 'commits' ? target : source;
-        await waitForViewerInteractive(survivor);
-        const save = await activateMenuItemAsUser(survivor, {accelerator: 'CmdOrCtrl+S'});
-        await vi.waitFor(async () => expect(await survivor.$('.tab.is-active.is-dirty')).toBeNull(), {timeout: 30_000});
-        expect(await readPdfTextAnnotationRecords(fixture)).toEqual(expect.arrayContaining([expect.objectContaining({contents: 'Save frontier'})]));
-        await waitForWorkspaceToolbarIdle(survivor);
-        const saveAs = await activateMenuItemAsUser(survivor, {accelerator: 'CmdOrCtrl+Shift+S'});
-        await vi.waitFor(async () => expect(existsSync(savedAs) && (await readPdfTextAnnotationRecords(savedAs))
-            .some(record => record.contents === 'Save frontier')).toBe(true), {timeout: 30_000});
-        console.log('SETTLED_NATIVE_MENU', JSON.stringify({
-            outcome,
-            save,
-            saveAs,
-        }));
-        await waitForPdfLoaded(survivor);
-        await waitForViewerInteractive(survivor);
-        if (process.env.EVB_R3_EVIDENCE_DIR) {
-            await survivor.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, `native-menu-${outcome}.png`)});
-            copyFileSync(savedAs, join(process.env.EVB_R3_EVIDENCE_DIR, `native-menu-${outcome}-saved.pdf`));
-        }
-    }, 120_000);
+            expect(movingSaveAs).toMatchObject({
+                activated: false,
+                reason: 'disabled',
+            });
+            expect(existsSync(savedAs)).toBe(false);
+            if (outcome === 'is refused') {
+                await clickAsUser(target, '.editor-global-toolbar-shell button[aria-label="More tools"]');
+                await clickFoundAsUser(
+                    target,
+                    () =>
+                        Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+                            (item) => item.textContent?.trim() === 'Open File',
+                        ),
+                    undefined,
+                    {description: 'Replace the incoming document'},
+                );
+                await waitForFunctionInPage(source, () => document.querySelector('.workspace-transfer-state') === null);
+                await waitForPdfLoaded(source);
+            } else {
+                await releaseIncomingOpen(target);
+                await waitForPdfLoaded(target);
+                await waitForFunctionInPage(target, () => document.querySelector('.workspace-transfer-state') === null);
+                await vi.waitFor(
+                    async () =>
+                        expect(await source.$$eval('.tab-label', (nodes) => nodes.map((node) => node.textContent?.trim()))).not.toContain(
+                            'moving.pdf',
+                        ),
+                    {timeout: 30_000},
+                );
+                // A hidden session's native menu targets its first remaining window.
+                // Close the now-empty source, leaving the moved document as that window.
+                await source.evaluate(() => (window as IE2EWindow).electronAPI!.windowTabs!.closeCurrentWindow());
+                await vi.waitFor(() => expect(source.isClosed()).toBe(true), {timeout: 30_000});
+            }
+            const survivor = outcome === 'commits' ? target : source;
+            await waitForViewerInteractive(survivor);
+            const save = await activateMenuItemAsUser(survivor, {accelerator: 'CmdOrCtrl+S'});
+            await vi.waitFor(async () => expect(await survivor.$('.tab.is-active.is-dirty')).toBeNull(), {timeout: 30_000});
+            expect(await readPdfTextAnnotationRecords(fixture)).toEqual(
+                expect.arrayContaining([expect.objectContaining({contents: 'Save frontier'})]),
+            );
+            await waitForWorkspaceToolbarIdle(survivor);
+            const saveAs = await activateMenuItemAsUser(survivor, {accelerator: 'CmdOrCtrl+Shift+S'});
+            await vi.waitFor(
+                async () =>
+                    expect(
+                        existsSync(savedAs) &&
+                            (await readPdfTextAnnotationRecords(savedAs)).some((record) => record.contents === 'Save frontier'),
+                    ).toBe(true),
+                {timeout: 30_000},
+            );
+            console.log(
+                'SETTLED_NATIVE_MENU',
+                JSON.stringify({
+                    outcome,
+                    save,
+                    saveAs,
+                }),
+            );
+            await waitForPdfLoaded(survivor);
+            await waitForViewerInteractive(survivor);
+            if (process.env.EVB_R3_EVIDENCE_DIR) {
+                await survivor.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, `native-menu-${outcome}.png`)});
+                copyFileSync(savedAs, join(process.env.EVB_R3_EVIDENCE_DIR, `native-menu-${outcome}-saved.pdf`));
+            }
+        },
+        120_000,
+    );
 
     // Behavior contract T1 and I1: a moving document shields only its own
     // surface and commands. The pane beside it still takes a person's input.
@@ -496,7 +614,9 @@ describe('Move Tab to New Window view state', () => {
         const home = mkdtempSync(join(tmpdir(), 'moving-neighbour-'));
         let destination: Page | null = null;
         onTestFinished(async () => {
-            if (destination) await releaseIncomingOpen(destination);
+            if (destination) {
+                await releaseIncomingOpen(destination);
+            }
             await sessions.restart({
                 clean: true,
                 hard: true,
@@ -524,21 +644,37 @@ describe('Move Tab to New Window view state', () => {
         await openPdfInApp(source, moving);
         // An edited document moves as its working-copy snapshot, whose page
         // shape the destination reads first; the hold below keeps that read.
-        await createFreeTextAnnotationWithPointer(source, 'Moving edit', {
-            x: 0.3,
-            y: 0.3,
-        }, 1);
+        await createFreeTextAnnotationWithPointer(
+            source,
+            'Moving edit',
+            {
+                x: 0.3,
+                y: 0.3,
+            },
+            1,
+        );
         await clickAsUser(source, '.tab-new');
         await openPdfInApp(source, neighbour);
-        const movingPane = await source.$eval('.editor-pane.is-active', element => (element as HTMLElement).dataset.editorPaneId!);
+        const movingPane = await source.$eval('.editor-pane.is-active', (element) => (element as HTMLElement).dataset.editorPaneId!);
         await splitActiveTabFromTabMenu(source, 'right');
-        const neighbourPane = (await source.$$eval('.editor-pane', panes => panes.map(pane => (pane as HTMLElement).dataset.editorPaneId!)))
-            .find(id => id !== movingPane)!;
-        await clickFoundAsUser(source, (paneId: string) => Array.from(document.querySelectorAll<HTMLElement>(`.editor-pane[data-editor-pane-id="${paneId}"] .tab[data-tab-id]`))
-            .find(tab => tab.textContent?.includes('moving.pdf')), movingPane, {description: 'moving.pdf tab'});
-        await waitForFunctionInPage(source, (paneId: string) => (
-            document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId === paneId
-        ), {timeout: 15_000}, movingPane);
+        const neighbourPane = (
+            await source.$$eval('.editor-pane', (panes) => panes.map((pane) => (pane as HTMLElement).dataset.editorPaneId!))
+        ).find((id) => id !== movingPane)!;
+        await clickFoundAsUser(
+            source,
+            (paneId: string) =>
+                Array.from(document.querySelectorAll<HTMLElement>(`.editor-pane[data-editor-pane-id="${paneId}"] .tab[data-tab-id]`)).find(
+                    (tab) => tab.textContent?.includes('moving.pdf'),
+                ),
+            movingPane,
+            {description: 'moving.pdf tab'},
+        );
+        await waitForFunctionInPage(
+            source,
+            (paneId: string) => document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId === paneId,
+            {timeout: 15_000},
+            movingPane,
+        );
         await waitForViewerInteractive(source);
         await holdIncomingOpen(target);
         await clickAsUser(source, '.editor-pane.is-active .tab.is-active', {button: 'right'});
@@ -546,58 +682,57 @@ describe('Move Tab to New Window view state', () => {
         await waitForHeldIncomingOpen(target);
         await source.waitForSelector('.workspace-transfer-state', {visible: true});
         await clickAsUser(source, `.editor-pane[data-editor-pane-id="${neighbourPane}"] #pdf-viewer`);
-        await waitForFunctionInPage(source, (paneId: string) => (
-            document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId === paneId
-        ), {timeout: 5_000}, neighbourPane);
+        await waitForFunctionInPage(
+            source,
+            (paneId: string) => document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId === paneId,
+            {timeout: 5_000},
+            neighbourPane,
+        );
         await source.keyboard.press('PageDown');
         await waitForToolbarCurrentPage(source, 2);
-        expect(await source.$eval('.workspace-transfer-state', node => node.textContent?.trim())).toBe(LOCALE_MESSAGES.en.tabs.moving);
+        expect(await source.$eval('.workspace-transfer-state', (node) => node.textContent?.trim())).toBe(LOCALE_MESSAGES.en.tabs.moving);
         await releaseIncomingOpen(target);
         await waitForPdfLoaded(target);
-        await vi.waitFor(async () => expect(await source.$$eval('.tab-label', nodes => nodes.map(node => node.textContent?.trim())))
-            .not.toContain('moving.pdf'), {timeout: 30_000});
+        await vi.waitFor(
+            async () =>
+                expect(await source.$$eval('.tab-label', (nodes) => nodes.map((node) => node.textContent?.trim()))).not.toContain(
+                    'moving.pdf',
+                ),
+            {timeout: 30_000},
+        );
         if (process.env.EVB_R3_EVIDENCE_DIR) {
             await source.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, 'moving-neighbour-source.png')});
         }
     }, 120_000);
 
-
     it.each([
-        [
-            'ack',
-            true,
-        ],
-        [
-            'cleanup',
-            true,
-        ],
-        [
-            'ack',
-            false,
-        ],
-        [
-            'cleanup',
-            false,
-        ],
-    ] as const)('preserves unsaved work across %s finalization with native close=%s', async (boundary, closeSource) => {
-        const home = mkdtempSync(join(tmpdir(), 'transfer-native-close-'));
-        const gate = join(home, 'handoff');
-        const preload = join(home, 'hold-finalization.cjs');
-        onTestFinished(async () => {
-            writeFileSync(`${gate}.release`, '');
-            // Required preloads must outlive the main process and its workers.
-            await sessions.restart({
-                clean: true,
-                hard: true,
+        ['ack', true],
+        ['cleanup', true],
+        ['ack', false],
+        ['cleanup', false],
+    ] as const)(
+        'preserves unsaved work across %s finalization with native close=%s',
+        async (boundary, closeSource) => {
+            const home = mkdtempSync(join(tmpdir(), 'transfer-native-close-'));
+            const gate = join(home, 'handoff');
+            const preload = join(home, 'hold-finalization.cjs');
+            onTestFinished(async () => {
+                writeFileSync(`${gate}.release`, '');
+                // Required preloads must outlive the main process and its workers.
+                await sessions.restart({
+                    clean: true,
+                    hard: true,
+                });
+                rmSync(home, {
+                    recursive: true,
+                    force: true,
+                });
             });
-            rmSync(home, {
-                recursive: true,
-                force: true,
-            });
-        });
-        // Timing setup at the same IPC boundaries as the reviewed loss. The
-        // native close and all document edits use their ordinary input paths.
-        writeFileSync(preload, `
+            // Timing setup at the same IPC boundaries as the reviewed loss. The
+            // native close and all document edits use their ordinary input paths.
+            writeFileSync(
+                preload,
+                `
             const fs = require('node:fs');
             if (process.versions.electron && process.type === 'browser') setImmediate(function install() {
                 const electron = require('electron');
@@ -627,174 +762,246 @@ describe('Move Tab to New Window view state', () => {
                 const register = electron.ipcMain.handle.bind(electron.ipcMain);
                 electron.ipcMain.handle = (name, handler) => register(name, name === channel ? wrap(handler) : handler);
             });
-        `);
-        await sessions.restart({
-            clean: true,
-            hard: true,
-            extraEnv: {NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require=${JSON.stringify(preload)}`},
-        });
-        const {page: source} = sessions.getSession();
-        const fixture = join(home, 'unsaved-handoff.pdf');
-        copyFileSync(resolve('tests/fixtures/electron/test-scanned.pdf'), fixture);
-        await openPdfInApp(source, fixture);
-        await createFreeTextAnnotationWithPointer(source, 'Unsaved handoff edit', {
-            x: 0.3,
-            y: 0.3,
-        }, 1);
-        await clickAsUser(source, '.tab-new');
-        await clickAsUser(source, '.tab-list .tab:first-child');
-        // Only the original source's cleanup is delayed, never the incoming copy.
-        const workingCopy = await source.evaluate(() => (window as IE2EWindow).__evbTestApi!
-            .collectWorkspaceDebugState().activeWorkspaceState?.workingCopyPath);
-        expect(workingCopy).toBeTruthy();
-        writeFileSync(`${gate}.arm`, boundary === 'cleanup' ? workingCopy! : '');
-        const oldPages = new Set(await source.browser().pages());
-        await clickAsUser(source, '.tab.is-active', {button: 'right'});
-        await clickAsUser(source, '[role="menuitem"][data-tab-command="move-to-new-window"]');
-        await vi.waitFor(() => expect(existsSync(`${gate}.held`)).toBe(true), {timeout: 30_000});
-        const destination = (await source.browser().pages()).find(page => !oldPages.has(page))!;
-        if (closeSource) {
-            // Hidden macOS cannot route OS Close input; this addresses the
-            // same BrowserWindow.close that native Close invokes.
-            if (process.platform === 'darwin') {
-                await source.evaluate(() => (window as IE2EWindow).electronAPI!.windowTabs!.closeCurrentWindow());
-            } else {
-                await activateMenuItemAsUser(source, {accelerator: 'Ctrl+Shift+W'});
+        `,
+            );
+            await sessions.restart({
+                clean: true,
+                hard: true,
+                extraEnv: {NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require=${JSON.stringify(preload)}`},
+            });
+            const {page: source} = sessions.getSession();
+            const fixture = join(home, 'unsaved-handoff.pdf');
+            copyFileSync(resolve('tests/fixtures/electron/test-scanned.pdf'), fixture);
+            await openPdfInApp(source, fixture);
+            await createFreeTextAnnotationWithPointer(
+                source,
+                'Unsaved handoff edit',
+                {
+                    x: 0.3,
+                    y: 0.3,
+                },
+                1,
+            );
+            await clickAsUser(source, '.tab-new');
+            await clickAsUser(source, '.tab-list .tab:first-child');
+            // Only the original source's cleanup is delayed, never the incoming copy.
+            const workingCopy = await source.evaluate(
+                () => (window as IE2EWindow).__evbTestApi!.collectWorkspaceDebugState().activeWorkspaceState?.workingCopyPath,
+            );
+            expect(workingCopy).toBeTruthy();
+            writeFileSync(`${gate}.arm`, boundary === 'cleanup' ? workingCopy! : '');
+            const oldPages = new Set(await source.browser().pages());
+            await clickAsUser(source, '.tab.is-active', {button: 'right'});
+            await clickAsUser(source, '[role="menuitem"][data-tab-command="move-to-new-window"]');
+            await vi.waitFor(() => expect(existsSync(`${gate}.held`)).toBe(true), {timeout: 30_000});
+            const destination = (await source.browser().pages()).find((page) => !oldPages.has(page))!;
+            if (closeSource) {
+                // Hidden macOS cannot route OS Close input; this addresses the
+                // same BrowserWindow.close that native Close invokes.
+                if (process.platform === 'darwin') {
+                    await source.evaluate(() => (window as IE2EWindow).electronAPI!.windowTabs!.closeCurrentWindow());
+                } else {
+                    await activateMenuItemAsUser(source, {accelerator: 'Ctrl+Shift+W'});
+                }
+                await vi.waitFor(() => expect(existsSync(`${gate}.close-requested`)).toBe(true), {timeout: 15_000});
+                // Observe the provisional edited copy before allowing finalization.
+                // Native Close must keep its source alive throughout this interval.
+                await destination.screenshot({path: join(home, 'pending-close.png')});
+                expect(source.isClosed()).toBe(false);
             }
-            await vi.waitFor(() => expect(existsSync(`${gate}.close-requested`)).toBe(true), {timeout: 15_000});
-            // Observe the provisional edited copy before allowing finalization.
-            // Native Close must keep its source alive throughout this interval.
-            await destination.screenshot({path: join(home, 'pending-close.png')});
-            expect(source.isClosed()).toBe(false);
-        }
-        writeFileSync(`${gate}.release`, '');
-        if (closeSource) await vi.waitFor(() => expect(source.isClosed()).toBe(true), {timeout: 30_000});
-        await vi.waitFor(async () => expect(await destination.$('.workspace-transfer-state')).toBeNull(), {timeout: 30_000});
-        const texts = await vi.waitFor(async () => {
-            const renderedTexts = await destination.$$eval('.pdf-annotation-editor-text-box[data-annotation-kind="text-box"]', nodes => nodes.map(node => (
-                node.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim()
-            )));
-            expect(renderedTexts).toContain('Unsaved handoff edit');
-            return renderedTexts;
-        }, {timeout: 30_000});
-        await clickFoundAsUser(destination, () => Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'))
-            .find(button => /^Save(?: \(|$)/u.test(button.getAttribute('aria-label') ?? '') && !button.disabled), undefined, {description: 'Save surviving document'});
-        await vi.waitFor(async () => expect(await destination.$('.tab.is-active.is-dirty')).toBeNull(), {timeout: 30_000});
-        const saved = await readPdfTextAnnotationRecords(fixture);
-        console.log('TRANSFER_NATIVE_CLOSE_RESULT', JSON.stringify({
-            boundary,
-            closeSource,
-            sourceClosed: source.isClosed(),
-            texts,
-            saved,
-        }));
-        expect(saved).toEqual(expect.arrayContaining([expect.objectContaining({contents: 'Unsaved handoff edit'})]));
-        if (process.env.EVB_R3_EVIDENCE_DIR) {
-            await destination.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, `${boundary}-close-${closeSource}.png`)});
-            copyFileSync(fixture, join(process.env.EVB_R3_EVIDENCE_DIR, `${boundary}-close-${closeSource}-saved.pdf`));
-        }
-    }, 120_000);
-
-    it.each([
-        'annotation',
-        'save',
-    ] as const)('keeps accepted work when a person attempts %s during a move', async (action) => {
-        const {page: source} = sessions.getSession();
-        const appTempDirectory = electronAppTempDirPath(sessions.getSession().name);
-        mkdirSync(appTempDirectory, {recursive: true});
-        outputDirectory = realpathSync(mkdtempSync(join(appTempDirectory, `transfer-${action}-`)));
-        const fixture = join(outputDirectory, `pending-${action}.pdf`);
-        createSlowTransferFixture(fixture, 32 * 1024 * 1024);
-        await openPdfInApp(source, fixture, 120_000);
-        await createFreeTextAnnotationWithPointer(source, 'Captured edit', {
-            x: 0.28,
-            y: 0.32,
-        }, 1);
-        await clickAsUser(source, '.tab-new');
-        await clickAsUser(source, '.tab-list .tab:first-child');
-        await waitForPdfLoaded(source, 120_000);
-        await waitForViewerInteractive(source);
-        const oldPages = new Set(await source.browser().pages());
-        await clickAsUser(source, '.tab.is-active', {button: 'right'});
-        await clickAsUser(source, '[role="menuitem"][data-tab-command="move-to-new-window"]');
-        let destination: Page | undefined;
-        await vi.waitFor(async () => {
-            destination = (await source.browser().pages()).find(page => !oldPages.has(page));
-            expect(destination).toBeDefined();
-        }, {timeout: 30_000});
-        const annotationTexts = (page: Page) => page.$$eval('.pdf-annotation-editor-text-box[data-annotation-kind="text-box"]', nodes => nodes.map(node => (
-            node.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim()
-        )));
-        const save = (page: Page) => clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'))
-            .find(button => /^Save(?: \(|$)/u.test(button.getAttribute('aria-label') ?? '') && !button.disabled), undefined, {description: 'Save'});
-        // On the old app these ordinary controls remain editable. Exercise that
-        // same opportunity; accepted work must survive in the moved PDF.
-        const moving = await source.$('.workspace-transfer-state');
-        if (moving) {
-            expect(await source.$eval('.workspace-transfer-state', node => node.textContent?.trim())).toBe(LOCALE_MESSAGES.en.tabs.moving);
-            expect(await source.$$eval('button[aria-label]', buttons => buttons.some(button => (
-                /^Save(?: \(|$)/u.test(button.getAttribute('aria-label') ?? '') && !(button as HTMLButtonElement).disabled
-            )))).toBe(false);
+            writeFileSync(`${gate}.release`, '');
+            if (closeSource) {
+                await vi.waitFor(() => expect(source.isClosed()).toBe(true), {timeout: 30_000});
+            }
+            await vi.waitFor(async () => expect(await destination.$('.workspace-transfer-state')).toBeNull(), {timeout: 30_000});
+            const texts = await vi.waitFor(
+                async () => {
+                    const renderedTexts = await destination.$$eval(
+                        '.pdf-annotation-editor-text-box[data-annotation-kind="text-box"]',
+                        (nodes) => nodes.map((node) => node.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim()),
+                    );
+                    expect(renderedTexts).toContain('Unsaved handoff edit');
+                    return renderedTexts;
+                },
+                {timeout: 30_000},
+            );
+            await clickFoundAsUser(
+                destination,
+                () =>
+                    Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]')).find(
+                        (button) => /^Save(?: \(|$)/u.test(button.getAttribute('aria-label') ?? '') && !button.disabled,
+                    ),
+                undefined,
+                {description: 'Save surviving document'},
+            );
+            await vi.waitFor(async () => expect(await destination.$('.tab.is-active.is-dirty')).toBeNull(), {timeout: 30_000});
+            const saved = await readPdfTextAnnotationRecords(fixture);
+            console.log(
+                'TRANSFER_NATIVE_CLOSE_RESULT',
+                JSON.stringify({
+                    boundary,
+                    closeSource,
+                    sourceClosed: source.isClosed(),
+                    texts,
+                    saved,
+                }),
+            );
+            expect(saved).toEqual(expect.arrayContaining([expect.objectContaining({contents: 'Unsaved handoff edit'})]));
             if (process.env.EVB_R3_EVIDENCE_DIR) {
-                await source.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, `${action}-moving.png`)});
+                await destination.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, `${boundary}-close-${closeSource}.png`)});
+                copyFileSync(fixture, join(process.env.EVB_R3_EVIDENCE_DIR, `${boundary}-close-${closeSource}-saved.pdf`));
             }
-            // Trusted input hits the moving surface, which shields the editor.
-            await clickAsUser(source, '.workspace-transfer-state');
-            if (action === 'annotation') await source.keyboard.type('Accepted during move');
-        } else if (action === 'annotation') {
-            await createFreeTextAnnotationWithPointer(source, 'Accepted during move', {
-                x: 0.65,
-                y: 0.55,
-            }, 1);
-        } else {
-            await save(source);
-        }
-        const acceptedInSource = await annotationTexts(source);
-        await waitForPdfLoaded(destination!, 120_000);
-        const destinationTexts = await annotationTexts(destination!);
-        await vi.waitFor(async () => {
-            expect(await source.$$eval('.tab-label', nodes => nodes.map(node => node.textContent?.trim())))
-                .not.toContain(`pending-${action}.pdf`);
-        }, {timeout: 10_000}).catch(() => undefined);
-        const sourceLabels = await source.$$eval('.tab-label', nodes => nodes.map(node => node.textContent?.trim()));
-        if (sourceLabels.includes(`pending-${action}.pdf`)) {
-            console.log('TRANSFER_MUTATION_RESULT', JSON.stringify({
-                action,
-                moving: moving !== null,
-                acceptedInSource,
-                destinationTexts,
-                sourceLabels,
-                saved: await readPdfTextAnnotationRecords(fixture),
-            }));
+        },
+        120_000,
+    );
+
+    it.each(['annotation', 'save'] as const)(
+        'keeps accepted work when a person attempts %s during a move',
+        async (action) => {
+            const {page: source} = sessions.getSession();
+            const appTempDirectory = electronAppTempDirPath(sessions.getSession().name);
+            mkdirSync(appTempDirectory, {recursive: true});
+            outputDirectory = realpathSync(mkdtempSync(join(appTempDirectory, `transfer-${action}-`)));
+            const fixture = join(outputDirectory, `pending-${action}.pdf`);
+            createSlowTransferFixture(fixture, 32 * 1024 * 1024);
+            await openPdfInApp(source, fixture, 120_000);
+            await createFreeTextAnnotationWithPointer(
+                source,
+                'Captured edit',
+                {
+                    x: 0.28,
+                    y: 0.32,
+                },
+                1,
+            );
+            await clickAsUser(source, '.tab-new');
+            await clickAsUser(source, '.tab-list .tab:first-child');
+            await waitForPdfLoaded(source, 120_000);
+            await waitForViewerInteractive(source);
+            const oldPages = new Set(await source.browser().pages());
+            await clickAsUser(source, '.tab.is-active', {button: 'right'});
+            await clickAsUser(source, '[role="menuitem"][data-tab-command="move-to-new-window"]');
+            let destination: Page | undefined;
+            await vi.waitFor(
+                async () => {
+                    destination = (await source.browser().pages()).find((page) => !oldPages.has(page));
+                    expect(destination).toBeDefined();
+                },
+                {timeout: 30_000},
+            );
+            const annotationTexts = (page: Page) =>
+                page.$$eval('.pdf-annotation-editor-text-box[data-annotation-kind="text-box"]', (nodes) =>
+                    nodes.map((node) => node.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim()),
+                );
+            const save = (page: Page) =>
+                clickFoundAsUser(
+                    page,
+                    () =>
+                        Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]')).find(
+                            (button) => /^Save(?: \(|$)/u.test(button.getAttribute('aria-label') ?? '') && !button.disabled,
+                        ),
+                    undefined,
+                    {description: 'Save'},
+                );
+            // On the old app these ordinary controls remain editable. Exercise that
+            // same opportunity; accepted work must survive in the moved PDF.
+            const moving = await source.$('.workspace-transfer-state');
+            if (moving) {
+                expect(await source.$eval('.workspace-transfer-state', (node) => node.textContent?.trim())).toBe(
+                    LOCALE_MESSAGES.en.tabs.moving,
+                );
+                expect(
+                    await source.$$eval('button[aria-label]', (buttons) =>
+                        buttons.some(
+                            (button) =>
+                                /^Save(?: \(|$)/u.test(button.getAttribute('aria-label') ?? '') && !(button as HTMLButtonElement).disabled,
+                        ),
+                    ),
+                ).toBe(false);
+                if (process.env.EVB_R3_EVIDENCE_DIR) {
+                    await source.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, `${action}-moving.png`)});
+                }
+                // Trusted input hits the moving surface, which shields the editor.
+                await clickAsUser(source, '.workspace-transfer-state');
+                if (action === 'annotation') {
+                    await source.keyboard.type('Accepted during move');
+                }
+            } else if (action === 'annotation') {
+                await createFreeTextAnnotationWithPointer(
+                    source,
+                    'Accepted during move',
+                    {
+                        x: 0.65,
+                        y: 0.55,
+                    },
+                    1,
+                );
+            } else {
+                await save(source);
+            }
+            const acceptedInSource = await annotationTexts(source);
+            await waitForPdfLoaded(destination!, 120_000);
+            const destinationTexts = await annotationTexts(destination!);
+            await vi
+                .waitFor(
+                    async () => {
+                        expect(await source.$$eval('.tab-label', (nodes) => nodes.map((node) => node.textContent?.trim()))).not.toContain(
+                            `pending-${action}.pdf`,
+                        );
+                    },
+                    {timeout: 10_000},
+                )
+                .catch(() => undefined);
+            const sourceLabels = await source.$$eval('.tab-label', (nodes) => nodes.map((node) => node.textContent?.trim()));
+            if (sourceLabels.includes(`pending-${action}.pdf`)) {
+                console.log(
+                    'TRANSFER_MUTATION_RESULT',
+                    JSON.stringify({
+                        action,
+                        moving: moving !== null,
+                        acceptedInSource,
+                        destinationTexts,
+                        sourceLabels,
+                        saved: await readPdfTextAnnotationRecords(fixture),
+                    }),
+                );
+                expect(sourceLabels).not.toContain(`pending-${action}.pdf`);
+            }
+            await save(destination!);
+            await vi.waitFor(
+                async () => {
+                    expect(await destination!.$('.tab.is-active.is-dirty')).toBeNull();
+                },
+                {timeout: 30_000},
+            );
+            const saved = await readPdfTextAnnotationRecords(fixture);
+            console.log(
+                'TRANSFER_MUTATION_RESULT',
+                JSON.stringify({
+                    action,
+                    moving: moving !== null,
+                    acceptedInSource,
+                    destinationTexts,
+                    sourceLabels,
+                    saved,
+                }),
+            );
+            if (process.env.EVB_R3_EVIDENCE_DIR) {
+                copyFileSync(fixture, join(process.env.EVB_R3_EVIDENCE_DIR, `${action}-saved.pdf`));
+                await source.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, `${action}-source.png`)});
+                await destination!.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, `${action}-destination.png`)});
+            }
             expect(sourceLabels).not.toContain(`pending-${action}.pdf`);
-        }
-        await save(destination!);
-        await vi.waitFor(async () => {
-            expect(await destination!.$('.tab.is-active.is-dirty')).toBeNull();
-        }, {timeout: 30_000});
-        const saved = await readPdfTextAnnotationRecords(fixture);
-        console.log('TRANSFER_MUTATION_RESULT', JSON.stringify({
-            action,
-            moving: moving !== null,
-            acceptedInSource,
-            destinationTexts,
-            sourceLabels,
-            saved,
-        }));
-        if (process.env.EVB_R3_EVIDENCE_DIR) {
-            copyFileSync(fixture, join(process.env.EVB_R3_EVIDENCE_DIR, `${action}-saved.pdf`));
-            await source.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, `${action}-source.png`)});
-            await destination!.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, `${action}-destination.png`)});
-        }
-        expect(sourceLabels).not.toContain(`pending-${action}.pdf`);
-        expect(destinationTexts).toContain('Captured edit');
-        expect(saved).toEqual(expect.arrayContaining([expect.objectContaining({contents: 'Captured edit'})]));
-        for (const text of acceptedInSource) {
-            expect(destinationTexts).toContain(text);
-            expect(saved).toEqual(expect.arrayContaining([expect.objectContaining({contents: text})]));
-        }
-        expect(moving).not.toBeNull();
-    }, 180_000);
+            expect(destinationTexts).toContain('Captured edit');
+            expect(saved).toEqual(expect.arrayContaining([expect.objectContaining({contents: 'Captured edit'})]));
+            for (const text of acceptedInSource) {
+                expect(destinationTexts).toContain(text);
+                expect(saved).toEqual(expect.arrayContaining([expect.objectContaining({contents: text})]));
+            }
+            expect(moving).not.toBeNull();
+        },
+        180_000,
+    );
 
     it('restores a fast incoming tab while another source is still opening in the target', async () => {
         const {page: target} = sessions.getSession();
@@ -815,36 +1022,28 @@ describe('Move Tab to New Window view state', () => {
         const fastSource = await moveTabToNewWindow(target);
         await goToPageViaToolbar(slowSource, 12);
         await goToPageViaToolbar(fastSource, 5);
-        for (const source of [
-            slowSource,
-            fastSource,
-        ]) {
+        for (const source of [slowSource, fastSource]) {
             await clickAsUser(source, '.tab-new');
             await clickAsUser(source, '.tab-list [role="tab"]:first-child');
         }
-        for (const [
-            source,
-            percent,
-        ] of [
-                [
-                    slowSource,
-                    110,
-                ],
-                [
-                    fastSource,
-                    80,
-                ],
-            ] as const) {
+        for (const [source, percent] of [
+            [slowSource, 110],
+            [fastSource, 80],
+        ] as const) {
             await clickAsUser(source, '#editor-global-toolbar-host .zoom-controls-display');
             await clickAsUser(source, '.zoom-chip-custom-input', {count: 3});
             await source.keyboard.type(String(percent));
             await source.keyboard.press('Enter');
         }
         const peers = await target.evaluate(() => window.electronAPI!.windowTabs!.listTargetWindows());
-        const targetWindow = await fastSource.evaluate(async (peerIds: number[]) => (
-            (await window.electronAPI!.windowTabs!.listTargetWindows()).find(candidate => !peerIds.includes(candidate.windowId))
-        ), peers.map(peer => peer.windowId));
-        if (!targetWindow) throw new Error('Transfer target window was not listed');
+        const targetWindow = await fastSource.evaluate(
+            async (peerIds: number[]) =>
+                (await window.electronAPI!.windowTabs!.listTargetWindows()).find((candidate) => !peerIds.includes(candidate.windowId)),
+            peers.map((peer) => peer.windowId),
+        );
+        if (!targetWindow) {
+            throw new Error('Transfer target window was not listed');
+        }
         const moveToTarget = async (source: Page) => {
             await clickAsUser(source, '.tab.is-active[data-tab-id]', {button: 'right'});
             // The first incoming document changes the window's title. Its
@@ -855,13 +1054,21 @@ describe('Move Tab to New Window view state', () => {
         await moveToTarget(fastSource);
         // Native transfers close their source only after target restoration and
         // the committed acknowledgement. The fast one must finish first.
-        await waitForFunctionInPage(fastSource, () => !Array.from(document.querySelectorAll('.tab-label'))
-            .some(tab => tab.textContent?.trim() === 'fast-transfer.pdf'), {timeout: 30_000});
-        expect(await slowSource.$$eval('.tab-label', tabs => tabs.map(tab => tab.textContent?.trim())))
-            .toContain('slow-transfer.pdf');
-        await clickFoundAsUser(target, () => Array.from(document.querySelectorAll<HTMLElement>('.tab[data-tab-id]'))
-            .find(tab => tab.querySelector('.tab-label')?.textContent?.trim() === 'fast-transfer.pdf'), undefined,
-        {description: 'fast transferred tab'});
+        await waitForFunctionInPage(
+            fastSource,
+            () => !Array.from(document.querySelectorAll('.tab-label')).some((tab) => tab.textContent?.trim() === 'fast-transfer.pdf'),
+            {timeout: 30_000},
+        );
+        expect(await slowSource.$$eval('.tab-label', (tabs) => tabs.map((tab) => tab.textContent?.trim()))).toContain('slow-transfer.pdf');
+        await clickFoundAsUser(
+            target,
+            () =>
+                Array.from(document.querySelectorAll<HTMLElement>('.tab[data-tab-id]')).find(
+                    (tab) => tab.querySelector('.tab-label')?.textContent?.trim() === 'fast-transfer.pdf',
+                ),
+            undefined,
+            {description: 'fast transferred tab'},
+        );
         await waitForToolbarCurrentPage(target, 5);
         await waitForPdfLoaded(target);
         // A painted incoming page is provisional until the source finalizes.
@@ -874,13 +1081,22 @@ describe('Move Tab to New Window view state', () => {
             page: 5,
             zoomText: '80%',
         });
-        await clickFoundAsUser(target, () => Array.from(document.querySelectorAll<HTMLElement>('.tab[data-tab-id]'))
-            .find(tab => tab.querySelector('.tab-label')?.textContent?.trim() === 'slow-transfer.pdf'), undefined,
-        {description: 'slow transferred tab'});
+        await clickFoundAsUser(
+            target,
+            () =>
+                Array.from(document.querySelectorAll<HTMLElement>('.tab[data-tab-id]')).find(
+                    (tab) => tab.querySelector('.tab-label')?.textContent?.trim() === 'slow-transfer.pdf',
+                ),
+            undefined,
+            {description: 'slow transferred tab'},
+        );
         await waitForToolbarCurrentPage(target, 12);
         await waitForPdfLoaded(target, 120_000);
-        await waitForFunctionInPage(slowSource, () => !Array.from(document.querySelectorAll('.tab-label'))
-            .some(tab => tab.textContent?.trim() === 'slow-transfer.pdf'), {timeout: 120_000});
+        await waitForFunctionInPage(
+            slowSource,
+            () => !Array.from(document.querySelectorAll('.tab-label')).some((tab) => tab.textContent?.trim() === 'slow-transfer.pdf'),
+            {timeout: 120_000},
+        );
         await target.waitForSelector('#editor-global-toolbar-host .zoom-controls-display:not(:disabled)', {
             visible: true,
             timeout: 120_000,
@@ -890,11 +1106,9 @@ describe('Move Tab to New Window view state', () => {
             zoomText: '110%',
         });
 
-        expect(await target.$$eval('.tab-label', tabs => tabs.map(tab => tab.textContent?.trim())))
-            .toEqual(expect.arrayContaining([
-                'slow-transfer.pdf',
-                'fast-transfer.pdf',
-            ]));
+        expect(await target.$$eval('.tab-label', (tabs) => tabs.map((tab) => tab.textContent?.trim()))).toEqual(
+            expect.arrayContaining(['slow-transfer.pdf', 'fast-transfer.pdf']),
+        );
     }, 180_000);
 
     it('keeps the replacement document view and source copy when an incoming open is superseded', async () => {
@@ -933,20 +1147,30 @@ describe('Move Tab to New Window view state', () => {
         // and ends A's open while its reload waiter awaits a ready viewport.
         const restoreRender = await target.evaluate(async () => {
             const pdfjs = (window as Window & {pdfjsLib?: typeof Pdfjs}).pdfjsLib;
-            if (!pdfjs) throw new Error('PDF.js is not loaded in the renderer');
+            if (!pdfjs) {
+                throw new Error('PDF.js is not loaded in the renderer');
+            }
             pdfjs.GlobalWorkerOptions.workerSrc ||= new URL('/pdf/pdf.worker.min.mjs', document.baseURI).href;
-            const probe = pdfjs.getDocument({data: new TextEncoder().encode('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 10 10]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF')});
+            const probe = pdfjs.getDocument({
+                data: new TextEncoder().encode(
+                    '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 10 10]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF',
+                ),
+            });
             const proxy = await (await probe.promise).getPage(1);
             const prototype = Object.getPrototypeOf(proxy) as typeof proxy;
             await probe.destroy();
             const render = prototype.render;
             prototype.render = function (...args: Parameters<typeof render>) {
                 const task = render.apply(this, args);
-                if (this.pageNumber === 1) Object.defineProperty(task, 'onContinue', {
-                    configurable: true,
-                    get: () => () => {throw new Error('Transfer fixture: first-page raster failed');},
-                    set: () => {},
-                });
+                if (this.pageNumber === 1) {
+                    Object.defineProperty(task, 'onContinue', {
+                        configurable: true,
+                        get: () => () => {
+                            throw new Error('Transfer fixture: first-page raster failed');
+                        },
+                        set: () => {},
+                    });
+                }
                 return task;
             };
             (window as Window & {__restoreTransferRender?: () => void}).__restoreTransferRender = () => {
@@ -957,23 +1181,37 @@ describe('Move Tab to New Window view state', () => {
         expect(restoreRender).toBe(true);
         const transferFailed = Promise.withResolvers<undefined>();
         const onTransferFailure = (message: ConsoleMessage) => {
-            if (message.text().includes('Cross-window transfer failed')) transferFailed.resolve(undefined);
+            if (message.text().includes('Cross-window transfer failed')) {
+                transferFailed.resolve(undefined);
+            }
         };
         source.on('console', onTransferFailure);
-        onTestFinished(() => {source.off('console', onTransferFailure);});
+        onTestFinished(() => {
+            source.off('console', onTransferFailure);
+        });
         try {
             const targetTitle = await target.title();
             await clickAsUser(source, '.tab.is-active[data-tab-id]', {button: 'right'});
-            await clickFoundAsUser(source, (title: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-                .find(item => item.textContent?.trim().startsWith(`Move Tab to Window: ${title}`)), targetTitle,
-            {description: `Move Tab to Window: ${targetTitle}`});
-            await waitForFunctionInPage(target, () => {
-                const toolbar = (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot();
-                return toolbar?.initialVisualReady === true
-                    && document.querySelector('.pdf-page-render-error') !== null;
-            }, {timeout: 120_000});
-            expect(await source.$$eval('.tab-label', tabs => tabs.map(tab => tab.textContent?.trim())))
-                .toContain('superseded-slow.pdf');
+            await clickFoundAsUser(
+                source,
+                (title: string) =>
+                    Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((item) =>
+                        item.textContent?.trim().startsWith(`Move Tab to Window: ${title}`),
+                    ),
+                targetTitle,
+                {description: `Move Tab to Window: ${targetTitle}`},
+            );
+            await waitForFunctionInPage(
+                target,
+                () => {
+                    const toolbar = (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot();
+                    return toolbar?.initialVisualReady === true && document.querySelector('.pdf-page-render-error') !== null;
+                },
+                {timeout: 120_000},
+            );
+            expect(await source.$$eval('.tab-label', (tabs) => tabs.map((tab) => tab.textContent?.trim()))).toContain(
+                'superseded-slow.pdf',
+            );
         } finally {
             await target.evaluate(() => (window as Window & {__restoreTransferRender?: () => void}).__restoreTransferRender?.());
         }
@@ -999,8 +1237,8 @@ describe('Move Tab to New Window view state', () => {
         });
         const outcome = {
             replacement: await readView(target),
-            sourceTabs: await source.$$eval('.tab-label', tabs => tabs.map(tab => tab.textContent?.trim())),
-            targetTabs: await target.$$eval('.tab-label', tabs => tabs.map(tab => tab.textContent?.trim())),
+            sourceTabs: await source.$$eval('.tab-label', (tabs) => tabs.map((tab) => tab.textContent?.trim())),
+            targetTabs: await target.$$eval('.tab-label', (tabs) => tabs.map((tab) => tab.textContent?.trim())),
         };
         console.log('SUPERSEDED_TRANSFER', JSON.stringify(outcome));
         expect(outcome.replacement.zoomText).toBe(replacementDefaultView.zoomText);
@@ -1026,9 +1264,15 @@ describe('Move Tab to New Window view state', () => {
         // The transfer and replacement still use the real tab menu and picker.
         await target.evaluate(async () => {
             const pdfjs = (window as Window & {pdfjsLib?: typeof Pdfjs}).pdfjsLib;
-            if (!pdfjs) throw new Error('PDF.js is not loaded in the renderer');
+            if (!pdfjs) {
+                throw new Error('PDF.js is not loaded in the renderer');
+            }
             pdfjs.GlobalWorkerOptions.workerSrc ||= new URL('/pdf/pdf.worker.min.mjs', document.baseURI).href;
-            const probe = pdfjs.getDocument({data: new TextEncoder().encode('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 10 10]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF')});
+            const probe = pdfjs.getDocument({
+                data: new TextEncoder().encode(
+                    '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 10 10]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF',
+                ),
+            });
             const proxy = await (await probe.promise).getPage(1);
             const prototype = Object.getPrototypeOf(proxy) as typeof proxy;
             await probe.destroy();
@@ -1043,49 +1287,72 @@ describe('Move Tab to New Window view state', () => {
             };
             prototype.render = function (...args: Parameters<typeof render>) {
                 const task = render.apply(this, args);
-                if (this.pageNumber === 1) Object.defineProperty(task, 'onContinue', {
-                    configurable: true,
-                    get: () => (continueRender: () => void) => {
-                        release = continueRender;
-                        state.held = true;
-                        prototype.render = render;
-                    },
-                    set: () => {},
-                });
+                if (this.pageNumber === 1) {
+                    Object.defineProperty(task, 'onContinue', {
+                        configurable: true,
+                        get: () => (continueRender: () => void) => {
+                            release = continueRender;
+                            state.held = true;
+                            prototype.render = render;
+                        },
+                        set: () => {},
+                    });
+                }
                 return task;
             };
             (window as Window & {__cancelledTransferLoad?: typeof state}).__cancelledTransferLoad = state;
         });
         const rejected = Promise.withResolvers<undefined>();
         const onRejection = (message: ConsoleMessage) => {
-            if (message.text().includes('Cross-window transfer failed')) rejected.resolve(undefined);
+            if (message.text().includes('Cross-window transfer failed')) {
+                rejected.resolve(undefined);
+            }
         };
         source.on('console', onRejection);
-        onTestFinished(() => {source.off('console', onRejection);});
+        onTestFinished(() => {
+            source.off('console', onRejection);
+        });
         try {
             const targetTitle = await target.title();
             await clickAsUser(source, '.tab.is-active[data-tab-id]', {button: 'right'});
-            await clickFoundAsUser(source, (title: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-                .find(item => item.textContent?.trim().startsWith(`Move Tab to Window: ${title}`)), targetTitle,
-            {description: `Move Tab to Window: ${targetTitle}`});
-            await waitForFunctionInPage(target, () => (window as Window & {__cancelledTransferLoad?: {held: boolean}}).__cancelledTransferLoad?.held === true);
+            await clickFoundAsUser(
+                source,
+                (title: string) =>
+                    Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((item) =>
+                        item.textContent?.trim().startsWith(`Move Tab to Window: ${title}`),
+                    ),
+                targetTitle,
+                {description: `Move Tab to Window: ${targetTitle}`},
+            );
+            await waitForFunctionInPage(
+                target,
+                () => (window as Window & {__cancelledTransferLoad?: {held: boolean}}).__cancelledTransferLoad?.held === true,
+            );
             await clickAsUser(target, '.editor-global-toolbar-shell button[aria-label="More tools"]');
-            await clickFoundAsUser(target, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-                .find(item => item.textContent?.trim() === 'Open File'), undefined,
-            {description: 'Open PDF in the incoming tab'});
+            await clickFoundAsUser(
+                target,
+                () =>
+                    Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+                        (item) => item.textContent?.trim() === 'Open File',
+                    ),
+                undefined,
+                {description: 'Open PDF in the incoming tab'},
+            );
             await rejected.promise;
             await waitForPdfLoaded(target);
             const result = {
                 replacement: await readView(target),
-                sourceTabs: await source.$$eval('.tab-label', tabs => tabs.map(tab => tab.textContent?.trim())),
-                targetTabs: await target.$$eval('.tab-label', tabs => tabs.map(tab => tab.textContent?.trim())),
+                sourceTabs: await source.$$eval('.tab-label', (tabs) => tabs.map((tab) => tab.textContent?.trim())),
+                targetTabs: await target.$$eval('.tab-label', (tabs) => tabs.map((tab) => tab.textContent?.trim())),
             };
             console.log('CANCELLED_TRANSFER_PAGE', JSON.stringify(result));
             expect(result.sourceTabs).toContain('cancelled-incoming.pdf');
             expect(result.targetTabs).toContain('cancelled-transfer-replacement.pdf');
             expect(result.replacement.page).toBe(1);
         } finally {
-            await target.evaluate(() => (window as Window & {__cancelledTransferLoad?: {restore: () => void}}).__cancelledTransferLoad?.restore());
+            await target.evaluate(() =>
+                (window as Window & {__cancelledTransferLoad?: {restore: () => void}}).__cancelledTransferLoad?.restore(),
+            );
         }
     }, 120_000);
 
@@ -1101,29 +1368,46 @@ describe('Move Tab to New Window view state', () => {
         await goToPageViaToolbar(session.page, 7);
         await ensureSidebarOpen(session.page);
         const zoomButton = await session.page.$('#editor-global-toolbar-host .zoom-controls-display:not(:disabled)');
-        if (!zoomButton) throw new Error('Custom zoom control was not available');
+        if (!zoomButton) {
+            throw new Error('Custom zoom control was not available');
+        }
         await clickAsUser(session.page, zoomButton);
         await session.page.waitForSelector('.zoom-dropdown input', {
             visible: true,
             timeout: 10_000,
         });
-        await waitForFunctionInPage(session.page, () => {
-            const input = document.querySelector<HTMLInputElement>('.zoom-dropdown input');
-            return input !== null
-                && document.activeElement === input
-                && input.selectionStart === 0
-                && input.selectionEnd === input.value.length;
-        }, {timeout: 10_000});
+        await waitForFunctionInPage(
+            session.page,
+            () => {
+                const input = document.querySelector<HTMLInputElement>('.zoom-dropdown input');
+                return (
+                    input !== null &&
+                    document.activeElement === input &&
+                    input.selectionStart === 0 &&
+                    input.selectionEnd === input.value.length
+                );
+            },
+            {timeout: 10_000},
+        );
         await session.page.keyboard.type('137');
         await session.page.keyboard.press('Enter');
-        await waitForFunctionInPage(session.page, () => {
-            const snapshot = (window as Window & {__evbTestApi?: {getActiveToolbarSnapshot?: () => {
-                zoomMode?: string;
-                effectiveZoom?: number
-            }}})
-                .__evbTestApi?.getActiveToolbarSnapshot?.();
-            return snapshot?.zoomMode === 'custom';
-        }, {timeout: 15_000});
+        await waitForFunctionInPage(
+            session.page,
+            () => {
+                const snapshot = (
+                    window as Window & {
+                        __evbTestApi?: {
+                            getActiveToolbarSnapshot?: () => {
+                                zoomMode?: string;
+                                effectiveZoom?: number;
+                            };
+                        };
+                    }
+                ).__evbTestApi?.getActiveToolbarSnapshot?.();
+                return snapshot?.zoomMode === 'custom';
+            },
+            {timeout: 15_000},
+        );
         const beforeTransfer = await readView(session.page);
         expect(beforeTransfer.page).toBe(7);
         expect(beforeTransfer.zoomMode).toBe('custom');
@@ -1155,29 +1439,36 @@ describe('Move Tab to New Window view state', () => {
         await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
         // Match the native path by dataset value: a Windows path is not a
         // safe CSS attribute literal.
-        const findRecentOpen = (source: string) => Array.from(
-            document.querySelectorAll<HTMLElement>('.editor-pane.is-active [data-recent-source]'),
-        ).find(row => row.dataset.recentSource === source)
-            ?.querySelector<HTMLButtonElement>('.recent-open');
-        await waitForFunctionInPage(session.page, (source: string) => {
-            const rect = Array.from(
-                document.querySelectorAll<HTMLElement>('.editor-pane.is-active [data-recent-source]'),
-            ).find(row => row.dataset.recentSource === source)
-                ?.querySelector<HTMLButtonElement>('.recent-open')
-                ?.getBoundingClientRect();
-            return Boolean(rect && rect.width > 0 && rect.height > 0);
-        }, {timeout: 20_000}, fixture);
+        const findRecentOpen = (source: string) =>
+            Array.from(document.querySelectorAll<HTMLElement>('.editor-pane.is-active [data-recent-source]'))
+                .find((row) => row.dataset.recentSource === source)
+                ?.querySelector<HTMLButtonElement>('.recent-open');
+        await waitForFunctionInPage(
+            session.page,
+            (source: string) => {
+                const rect = Array.from(document.querySelectorAll<HTMLElement>('.editor-pane.is-active [data-recent-source]'))
+                    .find((row) => row.dataset.recentSource === source)
+                    ?.querySelector<HTMLButtonElement>('.recent-open')
+                    ?.getBoundingClientRect();
+                return Boolean(rect && rect.width > 0 && rect.height > 0);
+            },
+            {timeout: 20_000},
+            fixture,
+        );
         await clickFoundAsUser(session.page, findRecentOpen, fixture, {description: `Recent open button for ${fixture}`});
         await waitForPdfLoaded(session.page);
         await waitForToolbarCurrentPage(session.page, 3);
         await goToPageViaToolbar(session.page, 7);
 
         const destination = await moveTabToNewWindow(session.page);
-        await waitForFunctionInPage(destination, () => (
-            document.querySelector('.editor-pane.is-active .document-viewer-chassis')?.getAttribute('data-viewport-lifecycle') === 'ready'
-        ), {timeout: 30_000});
+        await waitForFunctionInPage(
+            destination,
+            () =>
+                document.querySelector('.editor-pane.is-active .document-viewer-chassis')?.getAttribute('data-viewport-lifecycle') ===
+                'ready',
+            {timeout: 30_000},
+        );
         expect((await readView(destination)).page).toBe(7);
-
     }, 120_000);
 });
 
@@ -1188,8 +1479,12 @@ function diagnosticsSwitchSelector(locale: TSettingsLocale) {
 }
 
 async function openSettingsView(page: Page, locale: TSettingsLocale) {
-    await clickFoundAsUser(page, (label: string) => document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`),
-        LOCALE_MESSAGES[locale].toolbar.settings, {description: `${locale} Settings toolbar button`});
+    await clickFoundAsUser(
+        page,
+        (label: string) => document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`),
+        LOCALE_MESSAGES[locale].toolbar.settings,
+        {description: `${locale} Settings toolbar button`},
+    );
     await page.waitForSelector('.settings-grid', {
         visible: true,
         timeout: 15_000,
@@ -1198,47 +1493,71 @@ async function openSettingsView(page: Page, locale: TSettingsLocale) {
 
 async function setDiagnosticsSwitch(page: Page, locale: TSettingsLocale, checked: boolean) {
     const selector = diagnosticsSwitchSelector(locale);
-    const current = await page.$eval(selector, element => element.getAttribute('aria-checked'));
+    const current = await page.$eval(selector, (element) => element.getAttribute('aria-checked'));
     if (current !== String(checked)) {
         await clickAsUser(page, selector);
     }
-    await page.waitForFunction((target: string, expected: string) => (
-        document.querySelector(target)?.getAttribute('aria-checked') === expected
-    ), {timeout: 15_000}, selector, String(checked));
+    await page.waitForFunction(
+        (target: string, expected: string) => document.querySelector(target)?.getAttribute('aria-checked') === expected,
+        {timeout: 15_000},
+        selector,
+        String(checked),
+    );
 }
 
 async function waitForPersistedDiagnosticsPreference(userDataPath: string, expected: string) {
     const settingsPath = join(userDataPath, 'settings.json');
-    await vi.waitFor(async () => {
-        const persisted = JSON.parse(await readFile(settingsPath, 'utf8')) as {clientDiagnosticsPreference?: string};
-        expect(persisted.clientDiagnosticsPreference).toBe(expected);
-    }, {
-        timeout: 15_000,
-        interval: 50,
-    });
+    await vi.waitFor(
+        async () => {
+            const persisted = JSON.parse(await readFile(settingsPath, 'utf8')) as {clientDiagnosticsPreference?: string};
+            expect(persisted.clientDiagnosticsPreference).toBe(expected);
+        },
+        {
+            timeout: 15_000,
+            interval: 50,
+        },
+    );
 }
 
 async function chooseTheme(page: Page, theme: 'light' | 'dark') {
     // Click the visible label for the accessible radio choice.
     const label = theme === 'dark' ? LOCALE_MESSAGES.en.settings.themeDark : LOCALE_MESSAGES.en.settings.themeLight;
-    await clickFoundAsUser(page, (value: string) => document.querySelector(
-        `.settings-grid [role="radio"][value="${value}"]`,
-    )?.closest<HTMLElement>('label') ?? null, theme, {description: `${label} theme`});
+    await clickFoundAsUser(
+        page,
+        (value: string) => document.querySelector(`.settings-grid [role="radio"][value="${value}"]`)?.closest<HTMLElement>('label') ?? null,
+        theme,
+        {description: `${label} theme`},
+    );
 }
 
 async function chooseLanguage(page: Page, currentLabel: string, nextLabel: string) {
-    await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('.settings-grid button[aria-haspopup="listbox"]'))
-        .find(button => button.textContent?.trim() === label), currentLabel, {description: 'Interface language selector'});
-    await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'))
-        .find(option => option.textContent?.trim() === label), nextLabel, {description: `${nextLabel} interface language`});
+    await clickFoundAsUser(
+        page,
+        (label: string) =>
+            Array.from(document.querySelectorAll<HTMLButtonElement>('.settings-grid button[aria-haspopup="listbox"]')).find(
+                (button) => button.textContent?.trim() === label,
+            ),
+        currentLabel,
+        {description: 'Interface language selector'},
+    );
+    await clickFoundAsUser(
+        page,
+        (label: string) =>
+            Array.from(document.querySelectorAll<HTMLElement>('[role="option"]')).find((option) => option.textContent?.trim() === label),
+        nextLabel,
+        {description: `${nextLabel} interface language`},
+    );
 }
 
 async function readRenderedSettings(page: Page) {
-    return page.evaluate((russianSettingsLabel: string) => ({
-        lang: document.documentElement.lang,
-        dark: document.documentElement.classList.contains('dark'),
-        russianSettingsButton: document.querySelector(`button[aria-label="${russianSettingsLabel}"]`) !== null,
-    }), LOCALE_MESSAGES.ru.toolbar.settings);
+    return page.evaluate(
+        (russianSettingsLabel: string) => ({
+            lang: document.documentElement.lang,
+            dark: document.documentElement.classList.contains('dark'),
+            russianSettingsButton: document.querySelector(`button[aria-label="${russianSettingsLabel}"]`) !== null,
+        }),
+        LOCALE_MESSAGES.ru.toolbar.settings,
+    );
 }
 
 describe('Settings changes reach every open window', () => {
@@ -1260,7 +1579,9 @@ describe('Settings changes reach every open window', () => {
         const preload = join(home, 'fail-settings.cjs');
         // Test-owned Node preload: reject only the armed settings temp-file write,
         // leaving the product build and every later write unchanged.
-        writeFileSync(preload, `
+        writeFileSync(
+            preload,
+            `
             const fs = require('node:fs');
             const path = require('node:path');
             const writeFile = fs.promises.writeFile;
@@ -1276,7 +1597,8 @@ describe('Settings changes reach every open window', () => {
                 return writeFile(...args);
             };
             require('node:module').syncBuiltinESMExports();
-        `);
+        `,
+        );
         await sessions.restart({
             clean: true,
             extraEnv: {
@@ -1295,17 +1617,20 @@ describe('Settings changes reach every open window', () => {
         await openSettingsView(source, 'en');
         await openSettingsView(destination, 'en');
         const settingsPath = join(electronUserDataPath(session.name), 'settings.json');
-        const readAuthor = (page: Page) => page.$eval('#settings-author', element => (element as HTMLInputElement).value);
+        const readAuthor = (page: Page) => page.$eval('#settings-author', (element) => (element as HTMLInputElement).value);
         const typeAuthor = async (page: Page, value: string) => {
             await clickAsUser(page, '#settings-author', {count: 3});
             await page.keyboard.press('Backspace');
             await page.keyboard.type(value);
         };
         await typeAuthor(source, 'Saved author');
-        await vi.waitFor(async () => {
-            expect(JSON.parse(await readFile(settingsPath, 'utf8')).authorName).toBe('Saved author');
-            expect(await readAuthor(destination)).toBe('Saved author');
-        }, {timeout: 15_000});
+        await vi.waitFor(
+            async () => {
+                expect(JSON.parse(await readFile(settingsPath, 'utf8')).authorName).toBe('Saved author');
+                expect(await readAuthor(destination)).toBe('Saved author');
+            },
+            {timeout: 15_000},
+        );
         writeFileSync(`${marker}.arm`, 'arm');
         await typeAuthor(source, 'Chosen author');
         await vi.waitFor(async () => expect(await readFile(`${marker}.failed`, 'utf8')).toBe('ENOSPC'), {timeout: 15_000});
@@ -1316,7 +1641,7 @@ describe('Settings changes reach every open window', () => {
 
         await typeAuthor(destination, 'Other window');
         // Observe after the 400 ms save debounce and notification delivery have settled.
-        await new Promise(resolve => setTimeout(resolve, 2_000));
+        await new Promise((resolve) => setTimeout(resolve, 2_000));
         const result = {
             saved: JSON.parse(await readFile(settingsPath, 'utf8')),
             sourceAuthor: await readAuthor(source),
@@ -1333,13 +1658,21 @@ describe('Settings changes reach every open window', () => {
         expect(result.destinationAuthor).toBe('Other window');
         expect(result.failureVisible).toBe(true);
 
-        await clickFoundAsUser(source, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
-            .find(button => button.textContent?.trim() === label), LOCALE_MESSAGES.en.common.retry, {description: 'Retry the retained author choice'});
-        await vi.waitFor(async () => {
-            expect(JSON.parse(await readFile(settingsPath, 'utf8')).authorName).toBe('Chosen author');
-            expect(await readAuthor(source)).toBe('Chosen author');
-            expect(await readAuthor(destination)).toBe('Chosen author');
-        }, {timeout: 15_000});
+        await clickFoundAsUser(
+            source,
+            (label: string) =>
+                Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent?.trim() === label),
+            LOCALE_MESSAGES.en.common.retry,
+            {description: 'Retry the retained author choice'},
+        );
+        await vi.waitFor(
+            async () => {
+                expect(JSON.parse(await readFile(settingsPath, 'utf8')).authorName).toBe('Chosen author');
+                expect(await readAuthor(source)).toBe('Chosen author');
+                expect(await readAuthor(destination)).toBe('Chosen author');
+            },
+            {timeout: 15_000},
+        );
         if (process.env.EVB_R3_EVIDENCE_DIR) {
             writeFileSync(join(process.env.EVB_R3_EVIDENCE_DIR, 'failed-save-retry.json'), await readFile(settingsPath, 'utf8'));
             await source.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, 'retry-source.png')});
@@ -1369,9 +1702,11 @@ describe('Settings changes reach every open window', () => {
         await setDiagnosticsSwitch(source, 'en', false);
         await chooseTheme(source, 'dark');
         await chooseLanguage(source, 'English', 'Русский');
-        await waitForFunctionInPage(source, () => (
-            document.documentElement.lang === 'ru' && document.documentElement.classList.contains('dark')
-        ), {timeout: 15_000});
+        await waitForFunctionInPage(
+            source,
+            () => document.documentElement.lang === 'ru' && document.documentElement.classList.contains('dark'),
+            {timeout: 15_000},
+        );
         expect(await readRenderedSettings(source)).toEqual({
             lang: 'ru',
             dark: true,
@@ -1379,14 +1714,16 @@ describe('Settings changes reach every open window', () => {
         });
 
         // A missed broadcast leaves the window as it was; the assertion below names what it shows.
-        await waitForFunctionInPage(destination, () => (
-            document.documentElement.lang === 'ru' && document.documentElement.classList.contains('dark')
-        ), {timeout: 15_000}).catch(() => undefined);
+        await waitForFunctionInPage(
+            destination,
+            () => document.documentElement.lang === 'ru' && document.documentElement.classList.contains('dark'),
+            {timeout: 15_000},
+        ).catch(() => undefined);
         const rendered = await readRenderedSettings(destination);
         await openSettingsView(destination, rendered.russianSettingsButton ? 'ru' : 'en');
         const diagnosticsChecked = await destination.$eval(
             `${diagnosticsSwitchSelector('en')}, ${diagnosticsSwitchSelector('ru')}`,
-            element => element.getAttribute('aria-checked'),
+            (element) => element.getAttribute('aria-checked'),
         );
         expect({
             ...rendered,
@@ -1406,28 +1743,40 @@ describe('Settings changes reach every open window', () => {
         // capability call run without one.
         const session = sessions.getSession();
         const settingsPath = join(electronUserDataPath(session.name), 'settings.json');
-        const stored = await readFile(settingsPath, 'utf8').then(content => JSON.parse(content) as object, () => ({}));
-        writeFileSync(settingsPath, JSON.stringify({
-            ...DEFAULT_SETTINGS,
-            ...stored,
-            agentMcpEnabled: true,
-        }, null, 2));
+        const stored = await readFile(settingsPath, 'utf8').then(
+            (content) => JSON.parse(content) as object,
+            () => ({}),
+        );
+        writeFileSync(
+            settingsPath,
+            JSON.stringify(
+                {
+                    ...DEFAULT_SETTINGS,
+                    ...stored,
+                    agentMcpEnabled: true,
+                },
+                null,
+                2,
+            ),
+        );
         const isolatedHome = mkdtempSync(join(tmpdir(), 'mcp-home-'));
-        onTestFinished(() => rmSync(isolatedHome, {
-            recursive: true,
-            force: true,
-        }));
+        onTestFinished(() =>
+            rmSync(isolatedHome, {
+                recursive: true,
+                force: true,
+            }),
+        );
         await sessions.restart({
             clean: false,
             extraEnv: {
                 EVB_E2E_OPEN_DIALOG_PATH: replacementDialogPath,
                 HOME: isolatedHome,
-                PATH: process.platform === 'win32'
-                    ? [
-                        join(process.env.SystemRoot ?? 'C:\\Windows', 'System32'),
-                        process.env.SystemRoot ?? 'C:\\Windows',
-                    ].join(delimiter)
-                    : '/usr/bin:/bin',
+                PATH:
+                    process.platform === 'win32'
+                        ? [join(process.env.SystemRoot ?? 'C:\\Windows', 'System32'), process.env.SystemRoot ?? 'C:\\Windows'].join(
+                              delimiter,
+                          )
+                        : '/usr/bin:/bin',
                 SHELL: join(isolatedHome, 'no-shell'),
                 CODEX_CLI_PATH: join(isolatedHome, 'no-codex'),
             },
@@ -1444,11 +1793,14 @@ describe('Settings changes reach every open window', () => {
         const destination = await moveTabToNewWindow(source);
 
         const mcpPrimaryButton = '.settings-agent-card:not(.settings-agent-card--stack) .settings-agent-actions button';
-        const readMcpPrimaryLabel = (page: Page) => page.$eval(mcpPrimaryButton, element => element.textContent?.trim() ?? '');
+        const readMcpPrimaryLabel = (page: Page) => page.$eval(mcpPrimaryButton, (element) => element.textContent?.trim() ?? '');
         await openSettingsView(destination, 'en');
-        await destination.waitForFunction((selector: string, label: string) => (
-            document.querySelector(selector)?.textContent?.trim() === label
-        ), {timeout: 30_000}, mcpPrimaryButton, LOCALE_MESSAGES.en.settings.agentMcpRepair);
+        await destination.waitForFunction(
+            (selector: string, label: string) => document.querySelector(selector)?.textContent?.trim() === label,
+            {timeout: 30_000},
+            mcpPrimaryButton,
+            LOCALE_MESSAGES.en.settings.agentMcpRepair,
+        );
 
         // The Settings switch cannot send this request headless: with Codex missing, an enabled
         // integration shows Repair, and that button opens an install dialog. This calls the
@@ -1458,9 +1810,14 @@ describe('Settings changes reach every open window', () => {
         expect(JSON.parse(await readFile(settingsPath, 'utf8'))).toMatchObject({agentMcpEnabled: false});
 
         // A missed broadcast leaves the moved window on Repair; the assertion names what it shows.
-        await destination.waitForFunction((selector: string, label: string) => (
-            document.querySelector(selector)?.textContent?.trim() === label
-        ), {timeout: 15_000}, mcpPrimaryButton, LOCALE_MESSAGES.en.settings.agentMcpEnable).catch(() => undefined);
+        await destination
+            .waitForFunction(
+                (selector: string, label: string) => document.querySelector(selector)?.textContent?.trim() === label,
+                {timeout: 15_000},
+                mcpPrimaryButton,
+                LOCALE_MESSAGES.en.settings.agentMcpEnable,
+            )
+            .catch(() => undefined);
         expect(await readMcpPrimaryLabel(destination)).toBe(LOCALE_MESSAGES.en.settings.agentMcpEnable);
     }, 240_000);
 });

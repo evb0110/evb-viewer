@@ -1,42 +1,19 @@
 // @vitest-environment happy-dom
 
 import type * as TPdfRenderViewModel from '@app/modules/pdf-viewer/runtime/rendering/usePdfRenderViewModel';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import {
-    afterAll,
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    computed,
-    createApp,
-    defineComponent,
-    effectScope,
-    h,
-    nextTick,
-    ref,
-    shallowRef,
-} from 'vue';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {afterAll, afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {computed, createApp, defineComponent, effectScope, h, nextTick, ref, shallowRef} from 'vue';
 import {usePdfCropSelection} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfCropSelection';
-import { useWorkspaceViewerShellState } from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
-import { cast } from '@tests/helpers/cast';
-import { usePdfViewerFeatureController } from '@app/modules/pdf-viewer/runtime/usePdfViewerFeatureController';
-import {
-    createPdfDocumentSessionSlot,
-    pdfDocumentSessionSlotKey,
-} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
-import { createDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
-import { observeDocumentViewportWheelInteraction } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
-import type { TDocumentPageSourceKind } from '@app/modules/document-viewer/source/documentPageSource';
-import type { IDocumentWheelInteraction } from '@app/modules/document-viewer/input/documentWheelInteraction';
-import type {
-    IPdfViewerEmit,
-    IPdfViewerProps,
-} from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
+import {useWorkspaceViewerShellState} from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
+import {cast} from '@tests/helpers/cast';
+import {usePdfViewerFeatureController} from '@app/modules/pdf-viewer/runtime/usePdfViewerFeatureController';
+import {createPdfDocumentSessionSlot, pdfDocumentSessionSlotKey} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
+import {createDocumentViewerRuntime} from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+import {observeDocumentViewportWheelInteraction} from '@app/modules/document-viewer/runtime/documentViewportWritePort';
+import type {TDocumentPageSourceKind} from '@app/modules/document-viewer/source/documentPageSource';
+import type {IDocumentWheelInteraction} from '@app/modules/document-viewer/input/documentWheelInteraction';
+import type {IPdfViewerEmit, IPdfViewerProps} from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
 
 // Nuxt supplies these globals when the renderer owns its failure presenter.
 vi.stubGlobal('useToast', () => ({add: vi.fn()}));
@@ -49,7 +26,7 @@ beforeEach(() => {
     renderViewModelCapture.options = null;
 });
 
-vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfRenderViewModel', async importOriginal => {
+vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfRenderViewModel', async (importOriginal) => {
     const actual = await importOriginal<typeof TPdfRenderViewModel>();
     return {
         ...actual,
@@ -94,16 +71,13 @@ function createWheelInteraction(
 const mountedControllers: Array<() => void> = [];
 
 afterEach(() => {
-    mountedControllers.splice(0).forEach(dispose => dispose());
+    mountedControllers.splice(0).forEach((dispose) => dispose());
 });
 
 function mountFeatureController(props: Partial<IPdfViewerProps> = {}) {
     const emitted: Array<[string, ...unknown[]]> = [];
     const emit = ((event: string, ...args: unknown[]) => {
-        emitted.push([
-            event,
-            ...args,
-        ]);
+        emitted.push([event, ...args]);
     }) as IPdfViewerEmit;
     const chassisAuthority = createDocumentViewerRuntime(ref<TDocumentPageSourceKind>('pdf'));
     let controller: TFeatureController | null = null;
@@ -113,14 +87,21 @@ function mountFeatureController(props: Partial<IPdfViewerProps> = {}) {
         zoom: owner.zoomAccess,
         ...props,
     };
-    const app = createApp(defineComponent({setup() {
-        controller = usePdfViewerFeatureController(viewerProps, emit, chassisAuthority);
-        return () => h('div');
-    }}));
+    const app = createApp(
+        defineComponent({
+            setup() {
+                controller = usePdfViewerFeatureController(viewerProps, emit, chassisAuthority);
+                return () => h('div');
+            },
+        }),
+    );
     // The slot's scope belongs to the document in production; here the test
     // owns that document scope and stops it with the mount.
     const documentScope = effectScope();
-    app.provide(pdfDocumentSessionSlotKey, documentScope.run(() => createPdfDocumentSessionSlot({src: computed(() => viewerProps.src)}))!);
+    app.provide(
+        pdfDocumentSessionSlotKey,
+        documentScope.run(() => createPdfDocumentSessionSlot({src: computed(() => viewerProps.src)}))!,
+    );
     const host = document.createElement('div');
     document.body.append(host);
     app.mount(host);
@@ -156,8 +137,7 @@ describe('usePdfViewerFeatureController wiring', () => {
         const harness = mountFeatureController();
 
         // No document is loaded, so the annotation editor manager is absent.
-        await expect(harness.controller.pdfViewerPublicApi.commentAtPoint(requirePageNumber(1), 0.5, 0.5))
-            .resolves.toBe(false);
+        await expect(harness.controller.pdfViewerPublicApi.commentAtPoint(requirePageNumber(1), 0.5, 0.5)).resolves.toBe(false);
 
         const failures = harness.emitted.filter(([event]) => event === 'annotation-failure');
         expect(failures).toHaveLength(1);
@@ -173,8 +153,7 @@ describe('usePdfViewerFeatureController wiring', () => {
         // The public scrollToPage takes a plain number, so a caller can hand over
         // a finite page that is not a safe integer. requirePageNumber rejects one,
         // and branding it without a cap threw that RangeError at the caller.
-        expect(() => harness.controller.pdfViewerPublicApi.scrollToPage(Number.MAX_SAFE_INTEGER * 4))
-            .not.toThrow();
+        expect(() => harness.controller.pdfViewerPublicApi.scrollToPage(Number.MAX_SAFE_INTEGER * 4)).not.toThrow();
     });
 
     it('adapts every render-state read while the document page count is empty', () => {
@@ -189,11 +168,7 @@ describe('usePdfViewerFeatureController wiring', () => {
         expect(harness.controller.isPageRenderFailed).toBe(options.isPageRenderFailed);
         expect(harness.controller.pageRaster(requirePageNumber(5))).toBeNull();
 
-        for (const predicateName of [
-            'isPageBuffered',
-            'isPageRenderedForClass',
-            'isPageRenderFailed',
-        ] as const) {
+        for (const predicateName of ['isPageBuffered', 'isPageRenderedForClass', 'isPageRenderFailed'] as const) {
             expect(() => options[predicateName](5)).not.toThrow();
             expect(options[predicateName](5)).toBe(false);
         }
@@ -221,7 +196,11 @@ describe('usePdfViewerFeatureController wiring', () => {
 
     // The chassis reports each packet to the view's write port before it
     // reaches the renderer, as DocumentViewerChassis does.
-    function deliverWheel(harness: ReturnType<typeof mountFeatureController>, container: HTMLElement, interaction: IDocumentWheelInteraction) {
+    function deliverWheel(
+        harness: ReturnType<typeof mountFeatureController>,
+        container: HTMLElement,
+        interaction: IDocumentWheelInteraction,
+    ) {
         observeDocumentViewportWheelInteraction(harness.chassisAuthority.viewportWritePort, interaction, container);
         harness.controller.handleViewerWheel(interaction);
     }
@@ -248,11 +227,7 @@ describe('usePdfViewerFeatureController wiring', () => {
         const before = port.getInteractionEpoch();
         const scales: number[] = [];
 
-        for (const timeStamp of [
-            1_000,
-            1_016,
-            1_032,
-        ]) {
+        for (const timeStamp of [1_000, 1_016, 1_032]) {
             deliverWheel(harness, container, createWheelInteraction('zoom', -120, timeStamp));
             const state = harness.zoom.state;
             scales.push(state.kind === 'custom' ? state.scale : Number.NaN);
@@ -268,7 +243,7 @@ describe('usePdfViewerFeatureController wiring', () => {
 
 describe('public annotation requests and document replacement', () => {
     it('creates no shape when the document is replaced while its page renders', async () => {
-        const { usePdfViewerPublicApiController } = await import('@app/modules/pdf-viewer/runtime/usePdfViewerPublicApiController');
+        const {usePdfViewerPublicApiController} = await import('@app/modules/pdf-viewer/runtime/usePdfViewerPublicApiController');
         const releaseRender = Promise.withResolvers<undefined>();
         const renderStarted = Promise.withResolvers<undefined>();
         const viewer = document.createElement('div');
@@ -283,49 +258,53 @@ describe('public annotation requests and document replacement', () => {
         };
         const application = shallowRef(original);
         let revision = 1;
-        const api = usePdfViewerPublicApiController(cast({
-            viewerContainer: ref(viewer),
-            cancelPendingSearchScroll: vi.fn(),
-            documentSession: {
-                numPages: ref(2),
-                pdfDocument: shallowRef({}),
-                captureFence: () => revision,
-                isCurrent: (fence: number) => fence === revision,
-                ensurePageMetricsInRange: async () => undefined,
-                pageMetrics: ref([]),
-                pageMetricsVersion: ref(0),
-            },
-            viewportSession: {
-                currentPage: ref(1),
-                scale: {effectiveScale: ref(1)},
-                singlePageScroll: {scrollToPage: vi.fn()},
-            },
-            annotationSession: {
-                annotationSettings: ref(null),
-                commentCrud: {focusAnnotationComment: vi.fn()},
-                shapeTool: {createShape: (shape: object) => application.value.shapes.push(shape)},
-                annotationApplication: application,
-                appAnnotationHistory: {},
-                annotationEditorSurface: {},
-                highlightComposable: {},
-            },
-            waitForViewerLoadSettled: async () => undefined,
-            renderVisiblePages: async () => {
-                renderStarted.resolve(undefined);
-                await releaseRender.promise;
-            },
-        }));
+        const api = usePdfViewerPublicApiController(
+            cast({
+                viewerContainer: ref(viewer),
+                cancelPendingSearchScroll: vi.fn(),
+                documentSession: {
+                    numPages: ref(2),
+                    pdfDocument: shallowRef({}),
+                    captureFence: () => revision,
+                    isCurrent: (fence: number) => fence === revision,
+                    ensurePageMetricsInRange: async () => undefined,
+                    pageMetrics: ref([]),
+                    pageMetricsVersion: ref(0),
+                },
+                viewportSession: {
+                    currentPage: ref(1),
+                    scale: {effectiveScale: ref(1)},
+                    singlePageScroll: {scrollToPage: vi.fn()},
+                },
+                annotationSession: {
+                    annotationSettings: ref(null),
+                    commentCrud: {focusAnnotationComment: vi.fn()},
+                    shapeTool: {createShape: (shape: object) => application.value.shapes.push(shape)},
+                    annotationApplication: application,
+                    appAnnotationHistory: {},
+                    annotationEditorSurface: {},
+                    highlightComposable: {},
+                },
+                waitForViewerLoadSettled: async () => undefined,
+                renderVisiblePages: async () => {
+                    renderStarted.resolve(undefined);
+                    await releaseRender.promise;
+                },
+            }),
+        );
 
-        const creation = api.createShapeAnnotation(cast({
-            pageNumber: 1,
-            tool: 'rectangle',
-            rect: {
-                left: 0.1,
-                top: 0.1,
-                width: 0.2,
-                height: 0.2,
-            },
-        }));
+        const creation = api.createShapeAnnotation(
+            cast({
+                pageNumber: 1,
+                tool: 'rectangle',
+                rect: {
+                    left: 0.1,
+                    top: 0.1,
+                    width: 0.2,
+                    height: 0.2,
+                },
+            }),
+        );
         await renderStarted.promise;
         // A page deletion reloads the document, with its own annotation store.
         revision += 1;
@@ -339,23 +318,27 @@ describe('public annotation requests and document replacement', () => {
     });
 });
 
-
 it('cancels a crop gesture when the view rotates and accepts a fresh rotated gesture', async () => {
     const viewer = document.createElement('div');
     viewer.innerHTML = '<div class="page_container" data-page="1"></div>';
     const page = viewer.firstElementChild as HTMLElement;
     const viewRotation = ref<0 | 90>(0);
     vi.spyOn(viewer, 'getBoundingClientRect').mockImplementation(() => new DOMRect(0, 0, 600, 800));
-    vi.spyOn(page, 'getBoundingClientRect').mockImplementation(() => viewRotation.value === 0
-        ? new DOMRect(0, 0, 600, 800) : new DOMRect(0, 0, 800, 600));
+    vi.spyOn(page, 'getBoundingClientRect').mockImplementation(() =>
+        viewRotation.value === 0 ? new DOMRect(0, 0, 600, 800) : new DOMRect(0, 0, 800, 600),
+    );
     let crop!: ReturnType<typeof usePdfCropSelection>;
-    const app = createApp(defineComponent({setup() {
-        crop = usePdfCropSelection({
-            viewerContainer: ref(viewer),
-            viewRotation,
-        });
-        return () => h('div');
-    }}));
+    const app = createApp(
+        defineComponent({
+            setup() {
+                crop = usePdfCropSelection({
+                    viewerContainer: ref(viewer),
+                    viewRotation,
+                });
+                return () => h('div');
+            },
+        }),
+    );
     app.mount(document.createElement('div'));
     const pointer = (width: number, height: number) => ({
         clientX: 60,

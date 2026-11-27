@@ -42,14 +42,10 @@ export class AnnotationHistoryIndeterminateError extends Error {
 }
 
 export function isAnnotationHistoryPoisoningError(error: unknown) {
-    return error instanceof AnnotationHistoryCompensationError
-        || error instanceof AnnotationHistoryIndeterminateError;
+    return error instanceof AnnotationHistoryCompensationError || error instanceof AnnotationHistoryIndeterminateError;
 }
 
-export function buildAnnotationHistoryReplayFailure(
-    originalError: unknown,
-    rollbacks: ReadonlyArray<() => void>,
-) {
+export function buildAnnotationHistoryReplayFailure(originalError: unknown, rollbacks: ReadonlyArray<() => void>) {
     const rollbackErrors: unknown[] = [];
     rollbacks.forEach((rollback) => {
         try {
@@ -61,39 +57,28 @@ export function buildAnnotationHistoryReplayFailure(
     if (!rollbackErrors.length) {
         return originalError;
     }
-    const originalCause = isAnnotationHistoryPoisoningError(originalError)
-        ? originalError.cause
-        : originalError;
-    const priorRollbackErrors = originalError instanceof AnnotationHistoryCompensationError
-        ? originalError.rollbackErrors
-        : [];
-    return new AnnotationHistoryCompensationError(
-        originalCause,
-        [
-            ...priorRollbackErrors,
-            ...rollbackErrors,
-        ],
-    );
+    const originalCause = isAnnotationHistoryPoisoningError(originalError) ? originalError.cause : originalError;
+    const priorRollbackErrors = originalError instanceof AnnotationHistoryCompensationError ? originalError.rollbackErrors : [];
+    return new AnnotationHistoryCompensationError(originalCause, [...priorRollbackErrors, ...rollbackErrors]);
 }
 
 export class LocalAnnotationHistoryAuthority implements IAnnotationHistoryAuthority {
     readonly #undo: IPdfAppAnnotationHistoryCommand[] = [];
     readonly #redo: IPdfAppAnnotationHistoryCommand[] = [];
 
-    get canUndo() { return this.#undo.length > 0; }
-    get canRedo() { return this.#redo.length > 0; }
+    get canUndo() {
+        return this.#undo.length > 0;
+    }
+    get canRedo() {
+        return this.#redo.length > 0;
+    }
     registerCommand(command: IPdfAppAnnotationHistoryCommand) {
         this.#undo.push(command);
         this.#redo.splice(0).forEach(discardCommand);
     }
     forgetCommands(ids: ReadonlySet<AnnotationId>) {
-        const keep = (command: IPdfAppAnnotationHistoryCommand) => (
-            !command.annotationIds?.some(id => ids.has(id))
-        );
-        const discarded = [
-            ...this.#undo,
-            ...this.#redo,
-        ].filter(command => !keep(command));
+        const keep = (command: IPdfAppAnnotationHistoryCommand) => !command.annotationIds?.some((id) => ids.has(id));
+        const discarded = [...this.#undo, ...this.#redo].filter((command) => !keep(command));
         this.#undo.splice(0, this.#undo.length, ...this.#undo.filter(keep));
         this.#redo.splice(0, this.#redo.length, ...this.#redo.filter(keep));
         discarded.forEach(discardCommand);
@@ -121,14 +106,11 @@ export class LocalAnnotationHistoryAuthority implements IAnnotationHistoryAuthor
     #replay(apply: IPdfAppAnnotationHistoryCommand['cmd']) {
         const rollbacks: Array<() => void> = [];
         try {
-            apply(rollback => rollbacks.unshift(rollback));
+            apply((rollback) => rollbacks.unshift(rollback));
         } catch (error) {
             const failure = buildAnnotationHistoryReplayFailure(error, rollbacks);
             if (isAnnotationHistoryPoisoningError(failure)) {
-                [
-                    ...this.#undo.splice(0),
-                    ...this.#redo.splice(0),
-                ].forEach(discardCommand);
+                [...this.#undo.splice(0), ...this.#redo.splice(0)].forEach(discardCommand);
             }
             throw failure;
         }

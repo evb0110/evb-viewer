@@ -1,38 +1,13 @@
 import {createHash} from 'node:crypto';
-import {
-    access,
-    chmod,
-    mkdir,
-    mkdtemp,
-    readFile,
-    readdir,
-    rename,
-    rm,
-    stat,
-    symlink,
-    utimes,
-    writeFile,
-} from 'node:fs/promises';
+import {access, chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, utimes, writeFile} from 'node:fs/promises';
 import {existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {
-    join,
-    resolve,
-} from 'node:path';
+import {join, resolve} from 'node:path';
 import {Worker} from 'node:worker_threads';
 import {build as buildWithEsbuild} from 'esbuild';
 import {encode as encodePng} from 'fast-png';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type {
-    IScanCleanupOptions,
-    TScanCleanupProgress,
-} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import type {IScanCleanupOptions, TScanCleanupProgress} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {getUnprovenNativeTerminationDetail} from '@contracts/nativeErrors';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import {requirePageNumber} from '@contracts/pageNumbers';
@@ -52,34 +27,27 @@ import {
     type IRunScanCleanupPipelineDependencies,
     type IScanCleanupWorkerPaths,
 } from '@evb/scan-cleanup/core/runScanCleanupConversion';
-import {
-    estimateRawRasterBytes,
-    resolveStreamingRasterHandoffBudget,
-} from '@evb/scan-cleanup/core/resolveRasterHandoff';
+import {estimateRawRasterBytes, resolveStreamingRasterHandoffBudget} from '@evb/scan-cleanup/core/resolveRasterHandoff';
 import {runBoundedRasterProducerConsumer} from '@evb/scan-cleanup/core/streamingRasterHandoff';
-import type {
-    IPdfPageSize,
-    IScanCleanupStreamingHandoffLimits,
-} from '@evb/scan-cleanup/core/types';
+import type {IPdfPageSize, IScanCleanupStreamingHandoffLimits} from '@evb/scan-cleanup/core/types';
 import {loadScanCleanupPipelineWithBatchPages} from '@tests/helpers/loadScanCleanupPipelineWithBatchPages';
 
 const roots: string[] = [];
 
-const PNG = Buffer.from(encodePng({
-    width: 1,
-    height: 1,
-    data: new Uint8Array(3),
-    channels: 3,
-    depth: 8,
-}));
+const PNG = Buffer.from(
+    encodePng({
+        width: 1,
+        height: 1,
+        data: new Uint8Array(3),
+        channels: 3,
+        depth: 8,
+    }),
+);
 
 function makePpm(width: number, height: number) {
     const header = Buffer.from(`P6\n${String(width)} ${String(height)}\n255\n`, 'ascii');
     const pixels = Buffer.alloc(width * height * 3, 0x80);
-    return Buffer.concat([
-        header,
-        pixels,
-    ]);
+    return Buffer.concat([header, pixels]);
 }
 
 const SMALL_PPM = makePpm(1, 1);
@@ -166,11 +134,13 @@ function outputMetadata(half: 'full' | 'left' | 'right' = 'full') {
     };
 }
 
-function pageMetadata(overrides: {
-    excluded?: boolean;
-    layoutClassification?: 'single-uncut-page' | 'two-page-spread';
-    outputCount?: number;
-} = {}) {
+function pageMetadata(
+    overrides: {
+        excluded?: boolean;
+        layoutClassification?: 'single-uncut-page' | 'two-page-spread';
+        outputCount?: number;
+    } = {},
+) {
     return {
         layoutClassification: overrides.layoutClassification ?? 'single-uncut-page',
         cutterXPx: overrides.layoutClassification === 'two-page-spread' ? 0.5 : null,
@@ -184,7 +154,7 @@ function pageMetadata(overrides: {
 
 async function listStagedSourceRasters(directory: string) {
     const entries = await readdir(directory).catch(() => []);
-    return entries.filter(name => /^source-\d+(?:-analysis-\d+dpi)?\.(?:ppm|png)$/u.test(name));
+    return entries.filter((name) => /^source-\d+(?:-analysis-\d+dpi)?\.(?:ppm|png)$/u.test(name));
 }
 
 async function measureStagedSourceBytes(directory: string) {
@@ -195,7 +165,9 @@ async function measureStagedSourceBytes(directory: string) {
         try {
             const fileStat = await stat(join(directory, file));
             if (fileStat.ino !== 0) {
-                if (seenInodes.has(fileStat.ino)) continue;
+                if (seenInodes.has(fileStat.ino)) {
+                    continue;
+                }
                 seenInodes.add(fileStat.ino);
             }
             total += fileStat.size;
@@ -209,23 +181,20 @@ async function measureStagedSourceBytes(directory: string) {
     return total;
 }
 
-async function resolveStoredPageArtifactPath(
-    entryDir: string,
-    pageNumber: number,
-    logicalFileName: string,
-) {
+async function resolveStoredPageArtifactPath(entryDir: string, pageNumber: number, logicalFileName: string) {
     const manifestPath = join(entryDir, 'checkpoint.json');
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
-        completedPages: Record<string, {
-            artifacts: Array<{
-                fileName: string;
-                storedFileName?: string;
-            }>;
-        }>;
+        completedPages: Record<
+            string,
+            {
+                artifacts: Array<{
+                    fileName: string;
+                    storedFileName?: string;
+                }>;
+            }
+        >;
     };
-    const artifact = manifest.completedPages[String(pageNumber)]?.artifacts.find(
-        entry => entry.fileName === logicalFileName,
-    );
+    const artifact = manifest.completedPages[String(pageNumber)]?.artifacts.find((entry) => entry.fileName === logicalFileName);
     if (artifact === undefined) {
         throw new Error(`Missing checkpoint artifact ${logicalFileName} for page ${String(pageNumber)}`);
     }
@@ -289,18 +258,20 @@ async function createStreamingFixture(config: {
             spreadPages?: ReadonlySet<number>;
         } = {},
     ) => {
-        for (const [
-            index,
-            page,
-        ] of manifest.pages.entries()) {
+        for (const [index, page] of manifest.pages.entries()) {
             const sourcePage = page.sourcePageIndex + 1;
             const excluded = page.options.excluded;
             const isSpread = !excluded && (options.spreadPages?.has(sourcePage) ?? false);
-            await writeFile(page.pageMetadataPath, JSON.stringify(pageMetadata({
-                excluded,
-                layoutClassification: isSpread ? 'two-page-spread' : 'single-uncut-page',
-                outputCount: excluded ? 0 : isSpread ? 2 : 1,
-            })));
+            await writeFile(
+                page.pageMetadataPath,
+                JSON.stringify(
+                    pageMetadata({
+                        excluded,
+                        layoutClassification: isSpread ? 'two-page-spread' : 'single-uncut-page',
+                        outputCount: excluded ? 0 : isSpread ? 2 : 1,
+                    }),
+                ),
+            );
             if (!excluded) {
                 if (isSpread) {
                     await writeFile(page.outputs[0]!.outputPath, `cleaned-page-${String(sourcePage)}-left`);
@@ -349,12 +320,15 @@ async function createStreamingFixture(config: {
         }),
         runCommand: vi.fn(async (_binary, args) => {
             if (args[0] === 'annotation-index') {
-                await writeFile(args[args.indexOf('--output') + 1]!, `${JSON.stringify({
-                    format: 'evb-pdf-annotation-name-index',
-                    schemaVersion: 1,
-                    pageCount: config.pageCount,
-                    chunkBytes: 4 * 1024 * 1024,
-                })}\n`);
+                await writeFile(
+                    args[args.indexOf('--output') + 1]!,
+                    `${JSON.stringify({
+                        format: 'evb-pdf-annotation-name-index',
+                        schemaVersion: 1,
+                        pageCount: config.pageCount,
+                        chunkBytes: 4 * 1024 * 1024,
+                    })}\n`,
+                );
                 return {
                     exitCode: 0,
                     stdout: '',
@@ -363,14 +337,17 @@ async function createStreamingFixture(config: {
             }
             if (args[0] === 'ocr-text-visibility') {
                 const pages = (await readFile(args[args.indexOf('--pages-file') + 1]!, 'utf8'))
-                    .trim().split('\n').filter(Boolean).map(Number);
+                    .trim()
+                    .split('\n')
+                    .filter(Boolean)
+                    .map(Number);
                 return {
                     exitCode: 0,
                     stderr: '',
                     stdout: JSON.stringify({
                         format: 'evb-pdf-ocr-text-visibility',
                         schemaVersion: 3,
-                        pages: pages.map(pageNumber => ({
+                        pages: pages.map((pageNumber) => ({
                             pageNumber,
                             evbOcrLayer: false,
                             paintedText: false,
@@ -427,10 +404,14 @@ async function createStreamingFixture(config: {
 }
 
 afterEach(async () => {
-    await Promise.all(roots.splice(0).map(root => rm(root, {
-        force: true,
-        recursive: true,
-    })));
+    await Promise.all(
+        roots.splice(0).map((root) =>
+            rm(root, {
+                force: true,
+                recursive: true,
+            }),
+        ),
+    );
 });
 
 describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints', () => {
@@ -449,10 +430,10 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         const chunkStartedPages: number[][] = [];
         let releaseFirstChunk!: () => void;
         let firstChunkEntered!: () => void;
-        const firstChunkBlocked = new Promise<void>(resolve => {
+        const firstChunkBlocked = new Promise<void>((resolve) => {
             releaseFirstChunk = resolve;
         });
-        const waitForFirstChunk = new Promise<void>(resolve => {
+        const waitForFirstChunk = new Promise<void>((resolve) => {
             firstChunkEntered = resolve;
         });
         let chunkCalls = 0;
@@ -460,14 +441,13 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         fixture.dependencies.renderPagePpm = vi.fn(async (_paths, _log, pageNumber, _source, outputPath) => {
             startedRenderPages.add(pageNumber);
             await writeFile(outputPath, SMALL_PPM);
-            const residentInputs = (await listStagedSourceRasters(scratchDir))
-                .filter(name => !name.includes('-analysis-'));
+            const residentInputs = (await listStagedSourceRasters(scratchDir)).filter((name) => !name.includes('-analysis-'));
             activeOnDiskSnapshots.push(residentInputs.length);
         });
 
         fixture.dependencies.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: ITestManifestPage[]};
-            const pages = manifest.pages.map(page => page.sourcePageIndex + 1);
+            const pages = manifest.pages.map((page) => page.sourcePageIndex + 1);
             chunkStartedPages.push(pages);
             const callIndex = chunkCalls;
             chunkCalls += 1;
@@ -509,14 +489,9 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             });
             // Flush event-loop turns to verify the producer does NOT run past
             // the 4-page cap while chunk 0 is still active.
-            await new Promise<void>(resolve => setImmediate(resolve));
-            await new Promise<void>(resolve => setImmediate(resolve));
-            expect([...startedRenderPages].sort((left, right) => left - right)).toEqual([
-                1,
-                2,
-                3,
-                4,
-            ]);
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            expect([...startedRenderPages].sort((left, right) => left - right)).toEqual([1, 2, 3, 4]);
             expect(startedRenderPages.has(5)).toBe(false);
 
             releaseFirstChunk();
@@ -634,11 +609,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             singlePageCapFixture.dependencies,
         );
         expect(singleCapSummary.outputPages).toBe(3);
-        expect(singleCapChunks).toEqual([
-            1,
-            1,
-            1,
-        ]);
+        expect(singleCapChunks).toEqual([1, 1, 1]);
 
         // Disk-derived budget tightens automatically under low free scratch.
         const tightDiskBudget = resolveStreamingRasterHandoffBudget({
@@ -672,13 +643,16 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
 
         // Hold each odd page until its paired even page completes its primary
         // render so producer completion is deterministically out of order.
-        const evenPageRendered = new Map<number, {
-            promise: Promise<void>;
-            resolve: () => void;
-        }>();
+        const evenPageRendered = new Map<
+            number,
+            {
+                promise: Promise<void>;
+                resolve: () => void;
+            }
+        >();
         for (let page = 2; page <= pageCount; page += 2) {
             let resolve!: () => void;
-            const promise = new Promise<void>(done => {
+            const promise = new Promise<void>((done) => {
                 resolve = done;
             });
             evenPageRendered.set(page, {
@@ -697,7 +671,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         });
         fixture.dependencies.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: ITestManifestPage[]};
-            sidecarBatches.push(manifest.pages.map(page => page.sourcePageIndex + 1));
+            sidecarBatches.push(manifest.pages.map((page) => page.sourcePageIndex + 1));
             await fixture.writeDefaultSidecarOutputs(manifest, onProgress, {spreadPages});
         });
         const baseRunCommand = fixture.dependencies.runCommand;
@@ -727,7 +701,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             },
             fixture.workerPaths,
             new AbortController().signal,
-            progress => progressEvents.push(progress),
+            (progress) => progressEvents.push(progress),
             {
                 ...basePolicy,
                 rasterConcurrency: 3,
@@ -749,8 +723,11 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             [7, 8, 9],
             [10, 11, 12],
         ]);
-        const combinedOutputFiles = combineManifestTsv.trim().split('\n').map(line => line.split('\t').at(-1)!);
-        expect(combinedOutputFiles.map(path => path.slice(path.lastIndexOf('/') + 1))).toEqual([
+        const combinedOutputFiles = combineManifestTsv
+            .trim()
+            .split('\n')
+            .map((line) => line.split('\t').at(-1)!);
+        expect(combinedOutputFiles.map((path) => path.slice(path.lastIndexOf('/') + 1))).toEqual([
             'clean-1-0.png',
             'clean-2-0.png',
             'clean-3-0.png',
@@ -779,7 +756,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             'cleaned-page-11-full',
             'cleaned-page-12-full',
         ];
-        expect(await Promise.all(combinedOutputFiles.map(file => readFile(file, 'utf8')))).toEqual(expectedPayloads);
+        expect(await Promise.all(combinedOutputFiles.map((file) => readFile(file, 'utf8')))).toEqual(expectedPayloads);
 
         // Progress never rewinds from rendering back to rasterizing and percent is monotonic.
         let sawRendering = false;
@@ -822,31 +799,37 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             },
         });
         fixture.dependencies.renderPagePpm = vi.fn(async (_paths, _log, _pageNumber, _source, outputPath, _dpi, _env, signal) => {
-            await broker.run({
-                ownerId: 'scan-cleanup-owner',
-                kind: 'scan-cleanup-op',
-                priority: 'user',
-                perOwnerLimit: 1,
-                resources: singleSlotResources,
-                ...(signal === undefined ? {} : {signal}),
-            }, async () => {
-                await new Promise<void>(resolve => setImmediate(resolve));
-                await writeFile(outputPath, SMALL_PPM);
-            });
+            await broker.run(
+                {
+                    ownerId: 'scan-cleanup-owner',
+                    kind: 'scan-cleanup-op',
+                    priority: 'user',
+                    perOwnerLimit: 1,
+                    resources: singleSlotResources,
+                    ...(signal === undefined ? {} : {signal}),
+                },
+                async () => {
+                    await new Promise<void>((resolve) => setImmediate(resolve));
+                    await writeFile(outputPath, SMALL_PPM);
+                },
+            );
         });
         fixture.dependencies.runSidecar = vi.fn(async (_binary, manifestPath, signal, _log, onProgress) => {
-            await broker.run({
-                ownerId: 'scan-cleanup-owner',
-                kind: 'scan-cleanup-op',
-                priority: 'user',
-                perOwnerLimit: 1,
-                resources: singleSlotResources,
-                signal,
-            }, async () => {
-                await new Promise<void>(resolve => setImmediate(resolve));
-                const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: ITestManifestPage[]};
-                await fixture.writeDefaultSidecarOutputs(manifest, onProgress);
-            });
+            await broker.run(
+                {
+                    ownerId: 'scan-cleanup-owner',
+                    kind: 'scan-cleanup-op',
+                    priority: 'user',
+                    perOwnerLimit: 1,
+                    resources: singleSlotResources,
+                    signal,
+                },
+                async () => {
+                    await new Promise<void>((resolve) => setImmediate(resolve));
+                    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: ITestManifestPage[]};
+                    await fixture.writeDefaultSidecarOutputs(manifest, onProgress);
+                },
+            );
         });
 
         const summary = await runScanCleanupConversion(
@@ -883,50 +866,58 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         let sidecarChunkCount = 0;
 
         cancelFixture.dependencies.renderPagePpm = vi.fn(async (_paths, _log, _pageNumber, _source, outputPath, _dpi, _env, signal) => {
-            await broker.run({
-                ownerId: 'scan-cleanup-cancel-owner',
-                kind: 'scan-cleanup-op',
-                priority: 'user',
-                perOwnerLimit: 1,
-                resources: singleSlotResources,
-                ...(signal === undefined ? {} : {signal}),
-            }, async () => {
-                signal?.throwIfAborted();
-                await writeFile(outputPath, SMALL_PPM);
-            });
+            await broker.run(
+                {
+                    ownerId: 'scan-cleanup-cancel-owner',
+                    kind: 'scan-cleanup-op',
+                    priority: 'user',
+                    perOwnerLimit: 1,
+                    resources: singleSlotResources,
+                    ...(signal === undefined ? {} : {signal}),
+                },
+                async () => {
+                    signal?.throwIfAborted();
+                    await writeFile(outputPath, SMALL_PPM);
+                },
+            );
         });
         cancelFixture.dependencies.runSidecar = vi.fn(async (_binary, manifestPath, signal, _log, onProgress) => {
-            await broker.run({
-                ownerId: 'scan-cleanup-cancel-owner',
-                kind: 'scan-cleanup-op',
-                priority: 'user',
-                perOwnerLimit: 1,
-                resources: singleSlotResources,
-                signal,
-            }, async () => {
-                sidecarChunkCount += 1;
-                if (sidecarChunkCount === 2) {
-                    abortController.abort(new DOMException('User canceled conversion', 'AbortError'));
-                    signal.throwIfAborted();
-                }
-                const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: ITestManifestPage[]};
-                await cancelFixture.writeDefaultSidecarOutputs(manifest, onProgress);
-            });
+            await broker.run(
+                {
+                    ownerId: 'scan-cleanup-cancel-owner',
+                    kind: 'scan-cleanup-op',
+                    priority: 'user',
+                    perOwnerLimit: 1,
+                    resources: singleSlotResources,
+                    signal,
+                },
+                async () => {
+                    sidecarChunkCount += 1;
+                    if (sidecarChunkCount === 2) {
+                        abortController.abort(new DOMException('User canceled conversion', 'AbortError'));
+                        signal.throwIfAborted();
+                    }
+                    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: ITestManifestPage[]};
+                    await cancelFixture.writeDefaultSidecarOutputs(manifest, onProgress);
+                },
+            );
         });
 
-        await expect(runScanCleanupConversion(
-            {
-                sourcePdfPath: cancelFixture.sourcePdfPath,
-                outputPdfPath: cancelFixture.outputPdfPath,
-                options: baseOptions,
-            },
-            cancelFixture.workerPaths,
-            abortController.signal,
-            () => undefined,
-            basePolicy,
-            () => undefined,
-            cancelFixture.dependencies,
-        )).rejects.toThrow('User canceled conversion');
+        await expect(
+            runScanCleanupConversion(
+                {
+                    sourcePdfPath: cancelFixture.sourcePdfPath,
+                    outputPdfPath: cancelFixture.outputPdfPath,
+                    options: baseOptions,
+                },
+                cancelFixture.workerPaths,
+                abortController.signal,
+                () => undefined,
+                basePolicy,
+                () => undefined,
+                cancelFixture.dependencies,
+            ),
+        ).rejects.toThrow('User canceled conversion');
 
         expect(broker.getSnapshot()).toMatchObject({
             active: 0,
@@ -968,26 +959,23 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             await fixture.writeDefaultSidecarOutputs(manifest, onProgress);
         });
 
-        await expect(runScanCleanupConversion(
-            {
-                sourcePdfPath: fixture.sourcePdfPath,
-                outputPdfPath: fixture.outputPdfPath,
-                options: baseOptions,
-            },
-            fixture.workerPaths,
-            abortRun1.signal,
-            () => undefined,
-            basePolicy,
-            () => undefined,
-            fixture.dependencies,
-        )).rejects.toThrow('Interrupted after chunk 2');
+        await expect(
+            runScanCleanupConversion(
+                {
+                    sourcePdfPath: fixture.sourcePdfPath,
+                    outputPdfPath: fixture.outputPdfPath,
+                    options: baseOptions,
+                },
+                fixture.workerPaths,
+                abortRun1.signal,
+                () => undefined,
+                basePolicy,
+                () => undefined,
+                fixture.dependencies,
+            ),
+        ).rejects.toThrow('Interrupted after chunk 2');
 
-        expect(run1SidecarPages).toEqual([
-            1,
-            2,
-            3,
-            4,
-        ]);
+        expect(run1SidecarPages).toEqual([1, 2, 3, 4]);
         expect(existsSync(fixture.outputPdfPath)).toBe(false);
         // Checkpoint persisted in checkpointDir while scratch was cleaned up.
         const checkpointEntriesAfterInterrupt = await readdir(fixture.checkpointDir!);
@@ -1036,121 +1024,107 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             inputPages: 8,
             outputPages: 8,
         });
-        expect(run2SidecarPages).toEqual([
-            5,
-            6,
-            7,
-            8,
-        ]);
-        expect([...new Set(run2RenderedPages)].sort((left, right) => left - right)).toEqual([
-            5,
-            6,
-            7,
-            8,
-        ]);
+        expect(run2SidecarPages).toEqual([5, 6, 7, 8]);
+        expect([...new Set(run2RenderedPages)].sort((left, right) => left - right)).toEqual([5, 6, 7, 8]);
         expect(run2CombineManifest.trim().split('\n')).toHaveLength(8);
         expect(await readFile(fixture.outputPdfPath, 'utf8')).toContain('%PDF-1.7');
         // Completed checkpoint is removed cleanly after publication.
         expect(await readdir(fixture.checkpointDir!)).toEqual([]);
     });
 
-    it.each([
-        'source bytes changed',
-        'options changed',
-    ] as const)('invalidates stale checkpoint artifacts and cleans up temp files when %s', async scenario => {
-        const fixture = await createStreamingFixture({
-            pageCount: 6,
-            useScratchDir: false,
-            useCheckpointDir: true,
-            streamingHandoff: {
-                maxInFlightPages: 4,
-                maxChunkPages: 2,
-            },
-        });
-        const abortRun1 = new AbortController();
-        let run1Chunks = 0;
+    it.each(['source bytes changed', 'options changed'] as const)(
+        'invalidates stale checkpoint artifacts and cleans up temp files when %s',
+        async (scenario) => {
+            const fixture = await createStreamingFixture({
+                pageCount: 6,
+                useScratchDir: false,
+                useCheckpointDir: true,
+                streamingHandoff: {
+                    maxInFlightPages: 4,
+                    maxChunkPages: 2,
+                },
+            });
+            const abortRun1 = new AbortController();
+            let run1Chunks = 0;
 
-        fixture.dependencies.runSidecar = vi.fn(async (_binary, manifestPath, signal, _log, onProgress) => {
-            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: ITestManifestPage[]};
-            run1Chunks += 1;
-            if (run1Chunks === 2) {
-                abortRun1.abort(new DOMException('Interrupted mid-conversion', 'AbortError'));
-                signal.throwIfAborted();
+            fixture.dependencies.runSidecar = vi.fn(async (_binary, manifestPath, signal, _log, onProgress) => {
+                const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: ITestManifestPage[]};
+                run1Chunks += 1;
+                if (run1Chunks === 2) {
+                    abortRun1.abort(new DOMException('Interrupted mid-conversion', 'AbortError'));
+                    signal.throwIfAborted();
+                }
+                await fixture.writeDefaultSidecarOutputs(manifest, onProgress);
+            });
+
+            await expect(
+                runScanCleanupConversion(
+                    {
+                        sourcePdfPath: fixture.sourcePdfPath,
+                        outputPdfPath: fixture.outputPdfPath,
+                        options: baseOptions,
+                    },
+                    fixture.workerPaths,
+                    abortRun1.signal,
+                    () => undefined,
+                    basePolicy,
+                    () => undefined,
+                    fixture.dependencies,
+                ),
+            ).rejects.toThrow('Interrupted mid-conversion');
+
+            const staleEntries = await readdir(fixture.checkpointDir!);
+            expect(staleEntries).toHaveLength(1);
+            const staleEntryName = staleEntries[0]!;
+            // Plant an orphan temporary file in checkpointDir to verify temp cleanup too.
+            await writeFile(join(fixture.checkpointDir!, 'orphan.tmp'), 'stale');
+
+            if (scenario === 'source bytes changed') {
+                await writeFile(fixture.sourcePdfPath, '%PDF-1.7-modified-source-bytes');
             }
-            await fixture.writeDefaultSidecarOutputs(manifest, onProgress);
-        });
+            const run2Options: IScanCleanupOptions =
+                scenario === 'options changed'
+                    ? {
+                          ...baseOptions,
+                          crop: true,
+                      }
+                    : baseOptions;
 
-        await expect(runScanCleanupConversion(
-            {
-                sourcePdfPath: fixture.sourcePdfPath,
-                outputPdfPath: fixture.outputPdfPath,
-                options: baseOptions,
-            },
-            fixture.workerPaths,
-            abortRun1.signal,
-            () => undefined,
-            basePolicy,
-            () => undefined,
-            fixture.dependencies,
-        )).rejects.toThrow('Interrupted mid-conversion');
+            const run2SidecarPages: number[] = [];
+            let observedStaleEntryStillPresent = false;
+            fixture.dependencies.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
+                const currentEntries = await readdir(fixture.checkpointDir!);
+                if (currentEntries.includes(staleEntryName) || currentEntries.includes('orphan.tmp')) {
+                    observedStaleEntryStillPresent = true;
+                }
+                const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: ITestManifestPage[]};
+                for (const page of manifest.pages) {
+                    run2SidecarPages.push(page.sourcePageIndex + 1);
+                }
+                await fixture.writeDefaultSidecarOutputs(manifest, onProgress);
+            });
 
-        const staleEntries = await readdir(fixture.checkpointDir!);
-        expect(staleEntries).toHaveLength(1);
-        const staleEntryName = staleEntries[0]!;
-        // Plant an orphan temporary file in checkpointDir to verify temp cleanup too.
-        await writeFile(join(fixture.checkpointDir!, 'orphan.tmp'), 'stale');
+            const summary = await runScanCleanupConversion(
+                {
+                    sourcePdfPath: fixture.sourcePdfPath,
+                    outputPdfPath: fixture.outputPdfPath,
+                    options: run2Options,
+                },
+                fixture.workerPaths,
+                new AbortController().signal,
+                () => undefined,
+                basePolicy,
+                () => undefined,
+                fixture.dependencies,
+            );
 
-        if (scenario === 'source bytes changed') {
-            await writeFile(fixture.sourcePdfPath, '%PDF-1.7-modified-source-bytes');
-        }
-        const run2Options: IScanCleanupOptions = scenario === 'options changed'
-            ? {
-                ...baseOptions,
-                crop: true,
-            }
-            : baseOptions;
-
-        const run2SidecarPages: number[] = [];
-        let observedStaleEntryStillPresent = false;
-        fixture.dependencies.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
-            const currentEntries = await readdir(fixture.checkpointDir!);
-            if (currentEntries.includes(staleEntryName) || currentEntries.includes('orphan.tmp')) {
-                observedStaleEntryStillPresent = true;
-            }
-            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: ITestManifestPage[]};
-            for (const page of manifest.pages) {
-                run2SidecarPages.push(page.sourcePageIndex + 1);
-            }
-            await fixture.writeDefaultSidecarOutputs(manifest, onProgress);
-        });
-
-        const summary = await runScanCleanupConversion(
-            {
-                sourcePdfPath: fixture.sourcePdfPath,
-                outputPdfPath: fixture.outputPdfPath,
-                options: run2Options,
-            },
-            fixture.workerPaths,
-            new AbortController().signal,
-            () => undefined,
-            basePolicy,
-            () => undefined,
-            fixture.dependencies,
-        );
-
-        expect(observedStaleEntryStillPresent).toBe(false);
-        expect(summary.outputPages).toBe(6);
-        // Every page was re-processed because the stale witness was invalidated.
-        expect(run2SidecarPages).toEqual([
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-        ]);
-        expect(await readdir(fixture.checkpointDir!)).toEqual([]);
-    });
+            expect(observedStaleEntryStillPresent).toBe(false);
+            expect(summary.outputPages).toBe(6);
+            // Every page was re-processed because the stale witness was invalidated.
+            expect(run2SidecarPages).toEqual([1, 2, 3, 4, 5, 6]);
+            expect(await readdir(fixture.checkpointDir!)).toEqual([]);
+        },
+    );
 
     it('re-runs a page whose checkpoint artifact was corrupted while resuming valid pages', async () => {
         const fixture = await createStreamingFixture({
@@ -1175,27 +1149,25 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             await fixture.writeDefaultSidecarOutputs(manifest, onProgress);
         });
 
-        await expect(runScanCleanupConversion(
-            {
-                sourcePdfPath: fixture.sourcePdfPath,
-                outputPdfPath: fixture.outputPdfPath,
-                options: baseOptions,
-            },
-            fixture.workerPaths,
-            abortRun1.signal,
-            () => undefined,
-            basePolicy,
-            () => undefined,
-            fixture.dependencies,
-        )).rejects.toThrow('Interrupted before final chunk');
+        await expect(
+            runScanCleanupConversion(
+                {
+                    sourcePdfPath: fixture.sourcePdfPath,
+                    outputPdfPath: fixture.outputPdfPath,
+                    options: baseOptions,
+                },
+                fixture.workerPaths,
+                abortRun1.signal,
+                () => undefined,
+                basePolicy,
+                () => undefined,
+                fixture.dependencies,
+            ),
+        ).rejects.toThrow('Interrupted before final chunk');
 
         // Corrupt page 2's persisted output artifact inside the checkpoint.
         const [entryName] = await readdir(fixture.checkpointDir!);
-        const page2OutputPath = await resolveStoredPageArtifactPath(
-            join(fixture.checkpointDir!, entryName!),
-            2,
-            'clean-2-0.png',
-        );
+        const page2OutputPath = await resolveStoredPageArtifactPath(join(fixture.checkpointDir!, entryName!), 2, 'clean-2-0.png');
         await rm(page2OutputPath, {force: true});
 
         const run2SidecarPages: number[] = [];
@@ -1223,11 +1195,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
 
         expect(summary.outputPages).toBe(6);
         // Pages 1, 3, 4 resumed cleanly; missing page 2 plus uncompleted pages 5 and 6 ran.
-        expect(run2SidecarPages).toEqual([
-            2,
-            5,
-            6,
-        ]);
+        expect(run2SidecarPages).toEqual([2, 5, 6]);
         expect(await readdir(fixture.checkpointDir!)).toEqual([]);
     });
 
@@ -1243,7 +1211,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
 
         fixture.dependencies.runSidecar = vi.fn(async (_binary, manifestPath, signal, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: ITestManifestPage[]};
-            const pages = manifest.pages.map(page => page.sourcePageIndex + 1);
+            const pages = manifest.pages.map((page) => page.sourcePageIndex + 1);
             if (pages.includes(3)) {
                 abortRun1.abort(new DOMException('Interrupted during batch 1', 'AbortError'));
                 signal.throwIfAborted();
@@ -1252,30 +1220,29 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             await fixture.writeDefaultSidecarOutputs(manifest, onProgress);
         });
 
-        await expect(pipeline.runScanCleanupConversion(
-            {
-                sourcePdfPath: fixture.sourcePdfPath,
-                outputPdfPath: fixture.outputPdfPath,
-                options: baseOptions,
-            },
-            fixture.workerPaths,
-            abortRun1.signal,
-            () => undefined,
-            basePolicy,
-            () => undefined,
-            fixture.dependencies,
-        )).rejects.toThrow('Interrupted during batch 1');
+        await expect(
+            pipeline.runScanCleanupConversion(
+                {
+                    sourcePdfPath: fixture.sourcePdfPath,
+                    outputPdfPath: fixture.outputPdfPath,
+                    options: baseOptions,
+                },
+                fixture.workerPaths,
+                abortRun1.signal,
+                () => undefined,
+                basePolicy,
+                () => undefined,
+                fixture.dependencies,
+            ),
+        ).rejects.toThrow('Interrupted during batch 1');
 
-        expect(run1SidecarPages).toEqual([
-            1,
-            2,
-        ]);
+        expect(run1SidecarPages).toEqual([1, 2]);
 
         // Resume with matching source + options: batch 0 is skipped completely.
         const run2SidecarPages: number[] = [];
         fixture.dependencies.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: ITestManifestPage[]};
-            run2SidecarPages.push(...manifest.pages.map(page => page.sourcePageIndex + 1));
+            run2SidecarPages.push(...manifest.pages.map((page) => page.sourcePageIndex + 1));
             await fixture.writeDefaultSidecarOutputs(manifest, onProgress);
         });
 
@@ -1305,32 +1272,34 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         const abortRun3 = new AbortController();
         fixture.dependencies.runSidecar = vi.fn(async (_binary, manifestPath, signal, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: ITestManifestPage[]};
-            const pages = manifest.pages.map(page => page.sourcePageIndex + 1);
+            const pages = manifest.pages.map((page) => page.sourcePageIndex + 1);
             if (pages.includes(3)) {
                 abortRun3.abort(new DOMException('Interrupted before options change', 'AbortError'));
                 signal.throwIfAborted();
             }
             await fixture.writeDefaultSidecarOutputs(manifest, onProgress);
         });
-        await expect(pipeline.runScanCleanupConversion(
-            {
-                sourcePdfPath: fixture.sourcePdfPath,
-                outputPdfPath: fixture.outputPdfPath,
-                options: baseOptions,
-            },
-            fixture.workerPaths,
-            abortRun3.signal,
-            () => undefined,
-            basePolicy,
-            () => undefined,
-            fixture.dependencies,
-        )).rejects.toThrow('Interrupted before options change');
+        await expect(
+            pipeline.runScanCleanupConversion(
+                {
+                    sourcePdfPath: fixture.sourcePdfPath,
+                    outputPdfPath: fixture.outputPdfPath,
+                    options: baseOptions,
+                },
+                fixture.workerPaths,
+                abortRun3.signal,
+                () => undefined,
+                basePolicy,
+                () => undefined,
+                fixture.dependencies,
+            ),
+        ).rejects.toThrow('Interrupted before options change');
         expect(await readdir(fixture.checkpointDir!)).toHaveLength(1);
 
         const run4SidecarPages: number[] = [];
         fixture.dependencies.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: ITestManifestPage[]};
-            run4SidecarPages.push(...manifest.pages.map(page => page.sourcePageIndex + 1));
+            run4SidecarPages.push(...manifest.pages.map((page) => page.sourcePageIndex + 1));
             await fixture.writeDefaultSidecarOutputs(manifest, onProgress);
         });
         const invalidatedSummary = await pipeline.runScanCleanupConversion(
@@ -1353,11 +1322,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             inputPages: 3,
             outputPages: 3,
         });
-        expect(run4SidecarPages).toEqual([
-            1,
-            2,
-            3,
-        ]);
+        expect(run4SidecarPages).toEqual([1, 2, 3]);
         expect(await readdir(fixture.checkpointDir!)).toEqual([]);
     });
 
@@ -1399,13 +1364,13 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
                     'evb-scan-cleanup process tree (pid=98765) was not proven dead; its inputs may still be open',
                 );
             },
-            cleanupStaged: async staged => {
+            cleanupStaged: async (staged) => {
                 cleanedItems.push(...staged);
             },
         });
 
         await producerFailed.promise;
-        await new Promise<void>(resolve => setImmediate(resolve));
+        await new Promise<void>((resolve) => setImmediate(resolve));
         releaseConsumer.resolve();
 
         let caught: unknown;
@@ -1447,13 +1412,15 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
 
         // Write valid 100x100 PNGs (~400 B each) so after page 1 reconciles,
         // page 2 fits inside maxInFlightBytes.
-        const png100x100 = Buffer.from(encodePng({
-            width: 100,
-            height: 100,
-            data: new Uint8Array(100 * 100 * 3),
-            channels: 3,
-            depth: 8,
-        }));
+        const png100x100 = Buffer.from(
+            encodePng({
+                width: 100,
+                height: 100,
+                data: new Uint8Array(100 * 100 * 3),
+                channels: 3,
+                depth: 8,
+            }),
+        );
         fixture.dependencies.detectSourceDpi = vi.fn(async () => ({
             detected: true,
             documentDpi: 150,
@@ -1500,8 +1467,8 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         let summary;
         try {
             await page1Started.promise;
-            await new Promise<void>(resolve => setImmediate(resolve));
-            await new Promise<void>(resolve => setImmediate(resolve));
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            await new Promise<void>((resolve) => setImmediate(resolve));
             // Because page 1 conservatively reserved 60,000 bytes (primary +
             // analysis without a PNG discount), page 2 (another 60,000 bytes)
             // must NOT start in parallel under an 80,000-byte cap.
@@ -1563,13 +1530,13 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
                     'evb-scan-cleanup process tree (pid=54321) was not proven dead; inputs retained',
                 );
             },
-            cleanupStaged: async staged => {
+            cleanupStaged: async (staged) => {
                 cleanedItems.push(...staged);
             },
         });
 
         await producer3Entered.promise;
-        await new Promise<void>(resolve => setImmediate(resolve));
+        await new Promise<void>((resolve) => setImmediate(resolve));
         releaseConsumer.resolve();
 
         let caught: unknown;
@@ -1580,7 +1547,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         }
         expect(caught).toBeInstanceOf(AggregateError);
         const aggregate = caught as AggregateError;
-        const messages = aggregate.errors.map(error => (error instanceof Error ? error.message : String(error)));
+        const messages = aggregate.errors.map((error) => (error instanceof Error ? error.message : String(error)));
         expect(messages).toContain('producer failure on page 2');
         expect(messages).toContain('independent producer failure on page 3');
         expect(messages).toContain('evb-scan-cleanup consumer unproven termination');
@@ -1697,30 +1664,30 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             ];
         };
 
-        const [
-            artifacts1,
-            artifacts2,
-        ] = await Promise.all([
-            writePageScratch(scratchA, 1),
-            writePageScratch(scratchB, 2),
-        ]);
+        const [artifacts1, artifacts2] = await Promise.all([writePageScratch(scratchA, 1), writePageScratch(scratchB, 2)]);
 
         // Concurrent commits from two handles must merge cleanly without losing either page.
         await Promise.all([
-            handleA.commitCompletedPages([{
-                pageNumber: 1,
-                artifacts: artifacts1,
-            }], planSignature),
-            handleB.commitCompletedPages([{
-                pageNumber: 2,
-                artifacts: artifacts2,
-            }], planSignature),
+            handleA.commitCompletedPages(
+                [
+                    {
+                        pageNumber: 1,
+                        artifacts: artifacts1,
+                    },
+                ],
+                planSignature,
+            ),
+            handleB.commitCompletedPages(
+                [
+                    {
+                        pageNumber: 2,
+                        artifacts: artifacts2,
+                    },
+                ],
+                planSignature,
+            ),
         ]);
-        await Promise.all([
-            handleA.close(),
-            handleB.close(),
-            handleCompeting.close(),
-        ]);
+        await Promise.all([handleA.close(), handleB.close(), handleCompeting.close()]);
 
         const verifyHandle = await openScanCleanupConversionCheckpoint({
             checkpointDir,
@@ -1760,30 +1727,32 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: ITestManifestPage[]};
             await spoofFixture.writeDefaultSidecarOutputs(manifest, onProgress);
         });
-        await expect(runScanCleanupConversion(
-            {
-                sourcePdfPath: spoofFixture.sourcePdfPath,
-                outputPdfPath: spoofFixture.outputPdfPath,
-                options: baseOptions,
-                provenance: {
-                    sourceSha256: originalSourceDigest,
-                    nativeBinarySha256s: {},
+        await expect(
+            runScanCleanupConversion(
+                {
+                    sourcePdfPath: spoofFixture.sourcePdfPath,
+                    outputPdfPath: spoofFixture.outputPdfPath,
+                    options: baseOptions,
+                    provenance: {
+                        sourceSha256: originalSourceDigest,
+                        nativeBinarySha256s: {},
+                    },
                 },
-            },
-            spoofFixture.workerPaths,
-            abort1.signal,
-            () => undefined,
-            basePolicy,
-            () => undefined,
-            spoofFixture.dependencies,
-        )).rejects.toThrow('Stop after chunk 0');
+                spoofFixture.workerPaths,
+                abort1.signal,
+                () => undefined,
+                basePolicy,
+                () => undefined,
+                spoofFixture.dependencies,
+            ),
+        ).rejects.toThrow('Stop after chunk 0');
 
         // Mutate the on-disk PDF while still passing the stale provenance digest.
         await writeFile(spoofFixture.sourcePdfPath, '%PDF-1.7-mutated-on-disk');
         const spoofRun2Pages: number[] = [];
         spoofFixture.dependencies.runSidecar = vi.fn(async (_binary, manifestPath, _sig, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: ITestManifestPage[]};
-            spoofRun2Pages.push(...manifest.pages.map(page => page.sourcePageIndex + 1));
+            spoofRun2Pages.push(...manifest.pages.map((page) => page.sourcePageIndex + 1));
             await spoofFixture.writeDefaultSidecarOutputs(manifest, onProgress);
         });
         await runScanCleanupConversion(
@@ -1827,25 +1796,27 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: ITestManifestPage[]};
             await toolFixture.writeDefaultSidecarOutputs(manifest, onProgress);
         });
-        await expect(runScanCleanupConversion(
-            {
-                sourcePdfPath: toolFixture.sourcePdfPath,
-                outputPdfPath: toolFixture.outputPdfPath,
-                options: baseOptions,
-            },
-            toolFixture.workerPaths,
-            abortTool.signal,
-            () => undefined,
-            basePolicy,
-            () => undefined,
-            toolFixture.dependencies,
-        )).rejects.toThrow('Stop tool run');
+        await expect(
+            runScanCleanupConversion(
+                {
+                    sourcePdfPath: toolFixture.sourcePdfPath,
+                    outputPdfPath: toolFixture.outputPdfPath,
+                    options: baseOptions,
+                },
+                toolFixture.workerPaths,
+                abortTool.signal,
+                () => undefined,
+                basePolicy,
+                () => undefined,
+                toolFixture.dependencies,
+            ),
+        ).rejects.toThrow('Stop tool run');
 
         toolFixture.dependencies.hashNativeBinary = vi.fn(async () => '2'.repeat(64));
         const toolRun2Pages: number[] = [];
         toolFixture.dependencies.runSidecar = vi.fn(async (_binary, manifestPath, _sig, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: ITestManifestPage[]};
-            toolRun2Pages.push(...manifest.pages.map(page => page.sourcePageIndex + 1));
+            toolRun2Pages.push(...manifest.pages.map((page) => page.sourcePageIndex + 1));
             await toolFixture.writeDefaultSidecarOutputs(manifest, onProgress);
         });
         await runScanCleanupConversion(
@@ -1912,20 +1883,22 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         });
         const storeRun1 = await makeDetectionStore('bw');
         try {
-            await expect(runScanCleanupConversion(
-                {
-                    sourcePdfPath: detectFixture.sourcePdfPath,
-                    outputPdfPath: detectFixture.outputPdfPath,
-                    options: autoOptions,
-                    detectionResultStore: storeRun1,
-                },
-                detectFixture.workerPaths,
-                abortDetect.signal,
-                () => undefined,
-                basePolicy,
-                () => undefined,
-                detectFixture.dependencies,
-            )).rejects.toThrow('Stop detect run');
+            await expect(
+                runScanCleanupConversion(
+                    {
+                        sourcePdfPath: detectFixture.sourcePdfPath,
+                        outputPdfPath: detectFixture.outputPdfPath,
+                        options: autoOptions,
+                        detectionResultStore: storeRun1,
+                    },
+                    detectFixture.workerPaths,
+                    abortDetect.signal,
+                    () => undefined,
+                    basePolicy,
+                    () => undefined,
+                    detectFixture.dependencies,
+                ),
+            ).rejects.toThrow('Stop detect run');
         } finally {
             await storeRun1.close();
         }
@@ -1935,7 +1908,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             const detectRun2Pages: number[] = [];
             detectFixture.dependencies.runSidecar = vi.fn(async (_binary, manifestPath, _sig, _log, onProgress) => {
                 const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: ITestManifestPage[]};
-                detectRun2Pages.push(...manifest.pages.map(page => page.sourcePageIndex + 1));
+                detectRun2Pages.push(...manifest.pages.map((page) => page.sourcePageIndex + 1));
                 await detectFixture.writeDefaultSidecarOutputs(manifest, onProgress);
             });
             await runScanCleanupConversion(
@@ -1979,19 +1952,21 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: ITestManifestPage[]};
             await fixture.writeDefaultSidecarOutputs(manifest, onProgress);
         });
-        await expect(runScanCleanupConversion(
-            {
-                sourcePdfPath: fixture.sourcePdfPath,
-                outputPdfPath: fixture.outputPdfPath,
-                options: baseOptions,
-            },
-            fixture.workerPaths,
-            abortRun1.signal,
-            () => undefined,
-            basePolicy,
-            () => undefined,
-            fixture.dependencies,
-        )).rejects.toThrow('Stop before chunk 3');
+        await expect(
+            runScanCleanupConversion(
+                {
+                    sourcePdfPath: fixture.sourcePdfPath,
+                    outputPdfPath: fixture.outputPdfPath,
+                    options: baseOptions,
+                },
+                fixture.workerPaths,
+                abortRun1.signal,
+                () => undefined,
+                basePolicy,
+                () => undefined,
+                fixture.dependencies,
+            ),
+        ).rejects.toThrow('Stop before chunk 3');
 
         const [entryName] = await readdir(fixture.checkpointDir!);
         const entryDir = join(fixture.checkpointDir!, entryName!);
@@ -2013,14 +1988,14 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             completedPages: Record<string, {artifacts: Array<{fileName: string}>}>;
         };
         manifestObj.completedPages['3']!.artifacts = manifestObj.completedPages['3']!.artifacts.filter(
-            artifact => artifact.fileName !== 'clean-3-0.png',
+            (artifact) => artifact.fileName !== 'clean-3-0.png',
         );
         await writeFile(manifestPath, `${JSON.stringify(manifestObj, null, 2)}\n`);
 
         const run2Pages: number[] = [];
         fixture.dependencies.runSidecar = vi.fn(async (_binary, mPath, _sig, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(mPath, 'utf8')) as {pages: ITestManifestPage[]};
-            run2Pages.push(...manifest.pages.map(page => page.sourcePageIndex + 1));
+            run2Pages.push(...manifest.pages.map((page) => page.sourcePageIndex + 1));
             await fixture.writeDefaultSidecarOutputs(manifest, onProgress);
         });
         const summary = await runScanCleanupConversion(
@@ -2051,36 +2026,41 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         const abortBatch = new AbortController();
         batchFixture.dependencies.runSidecar = vi.fn(async (_binary, mPath, sig, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(mPath, 'utf8')) as {pages: ITestManifestPage[]};
-            const pages = manifest.pages.map(page => page.sourcePageIndex + 1);
+            const pages = manifest.pages.map((page) => page.sourcePageIndex + 1);
             if (pages.includes(3)) {
                 abortBatch.abort(new DOMException('Stop before batch 1', 'AbortError'));
                 sig.throwIfAborted();
             }
             await batchFixture.writeDefaultSidecarOutputs(manifest, onProgress);
         });
-        await expect(pipeline.runScanCleanupConversion(
-            {
-                sourcePdfPath: batchFixture.sourcePdfPath,
-                outputPdfPath: batchFixture.outputPdfPath,
-                options: baseOptions,
-            },
-            batchFixture.workerPaths,
-            abortBatch.signal,
-            () => undefined,
-            basePolicy,
-            () => undefined,
-            batchFixture.dependencies,
-        )).rejects.toThrow('Stop before batch 1');
+        await expect(
+            pipeline.runScanCleanupConversion(
+                {
+                    sourcePdfPath: batchFixture.sourcePdfPath,
+                    outputPdfPath: batchFixture.outputPdfPath,
+                    options: baseOptions,
+                },
+                batchFixture.workerPaths,
+                abortBatch.signal,
+                () => undefined,
+                basePolicy,
+                () => undefined,
+                batchFixture.dependencies,
+            ),
+        ).rejects.toThrow('Stop before batch 1');
 
         const [batchEntryName] = await readdir(batchFixture.checkpointDir!);
         const batchEntryDir = join(batchFixture.checkpointDir!, batchEntryName!);
         const batchManifestPath = join(batchEntryDir, 'checkpoint.json');
         const batchManifest = JSON.parse(await readFile(batchManifestPath, 'utf8')) as {
-            completedBatches: Record<string, {
-                stateFileName: string;
-                stateSizeBytes: number;
-                stateSha256: string;
-            }>;
+            completedBatches: Record<
+                string,
+                {
+                    stateFileName: string;
+                    stateSizeBytes: number;
+                    stateSha256: string;
+                }
+            >;
         };
         const batch0Record = batchManifest.completedBatches['0']!;
         const batch0StatePath = join(batchEntryDir, 'artifacts', 'batch-0', batch0Record.stateFileName);
@@ -2097,7 +2077,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         const batchRun2Pages: number[] = [];
         batchFixture.dependencies.runSidecar = vi.fn(async (_binary, mPath, _sig, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(mPath, 'utf8')) as {pages: ITestManifestPage[]};
-            batchRun2Pages.push(...manifest.pages.map(page => page.sourcePageIndex + 1));
+            batchRun2Pages.push(...manifest.pages.map((page) => page.sourcePageIndex + 1));
             await batchFixture.writeDefaultSidecarOutputs(manifest, onProgress);
         });
         const repairedSummary = await pipeline.runScanCleanupConversion(
@@ -2151,14 +2131,16 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         const ckpt1 = join(root, 'ckpt-1');
         await mkdir(ckpt1, {recursive: true});
         await symlink(outsideDir, join(ckpt1, `entry-${witness.witnessId}`));
-        await expect(openScanCleanupConversionCheckpoint({
-            checkpointDir: ckpt1,
-            sourcePdfPath,
-            witness,
-            documentPageCount: 1,
-            mode: 'batch',
-            log: () => undefined,
-        })).rejects.toThrow(/symbolic link/u);
+        await expect(
+            openScanCleanupConversionCheckpoint({
+                checkpointDir: ckpt1,
+                sourcePdfPath,
+                witness,
+                documentPageCount: 1,
+                mode: 'batch',
+                log: () => undefined,
+            }),
+        ).rejects.toThrow(/symbolic link/u);
         expect(await readFile(sentinelPath, 'utf8')).toBe('outside-secret-payload');
 
         // Case 2: Symlinked artifacts directory inside an existing valid entry.
@@ -2178,24 +2160,23 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             force: true,
         });
         await symlink(outsideDir, entry2Artifacts);
-        await expect(openScanCleanupConversionCheckpoint({
-            checkpointDir: ckpt2,
-            sourcePdfPath,
-            witness,
-            documentPageCount: 1,
-            mode: 'batch',
-            log: () => undefined,
-        })).rejects.toThrow(/symbolic link/u);
+        await expect(
+            openScanCleanupConversionCheckpoint({
+                checkpointDir: ckpt2,
+                sourcePdfPath,
+                witness,
+                documentPageCount: 1,
+                mode: 'batch',
+                log: () => undefined,
+            }),
+        ).rejects.toThrow(/symbolic link/u);
         expect(await readFile(sentinelPath, 'utf8')).toBe('outside-secret-payload');
 
         // Case 3 & 4: Symlinked page-1 directory and symlinked leaf file.
         const ckpt3 = join(root, 'ckpt-3');
         const scratch3 = join(root, 'scratch-3');
         const restoreScratch3 = join(root, 'restore-3');
-        await Promise.all([
-            mkdir(scratch3, {recursive: true}),
-            mkdir(restoreScratch3, {recursive: true}),
-        ]);
+        await Promise.all([mkdir(scratch3, {recursive: true}), mkdir(restoreScratch3, {recursive: true})]);
         const handle3 = await openScanCleanupConversionCheckpoint({
             checkpointDir: ckpt3,
             sourcePdfPath,
@@ -2210,23 +2191,28 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         await writeFile(pageMetaPath, JSON.stringify(pageMetadata()));
         await writeFile(outMetaPath, JSON.stringify(outputMetadata()));
         await writeFile(outPngPath, PNG);
-        await handle3.commitCompletedPages([{
-            pageNumber: 1,
-            artifacts: [
+        await handle3.commitCompletedPages(
+            [
                 {
-                    scratchPath: pageMetaPath,
-                    fileName: 'clean-1-page.json',
-                },
-                {
-                    scratchPath: outMetaPath,
-                    fileName: 'clean-1-0.json',
-                },
-                {
-                    scratchPath: outPngPath,
-                    fileName: 'clean-1-0.png',
+                    pageNumber: 1,
+                    artifacts: [
+                        {
+                            scratchPath: pageMetaPath,
+                            fileName: 'clean-1-page.json',
+                        },
+                        {
+                            scratchPath: outMetaPath,
+                            fileName: 'clean-1-0.json',
+                        },
+                        {
+                            scratchPath: outPngPath,
+                            fileName: 'clean-1-0.png',
+                        },
+                    ],
                 },
             ],
-        }], planSignature);
+            planSignature,
+        );
 
         // Case 4: Replace leaf clean-1-0.png with a symlink to an unreadable sentinelPath.
         // Making sentinelPath 0o000 verifies restore rejects via O_NOFOLLOW without
@@ -2245,23 +2231,28 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         expect(await readFile(sentinelPath, 'utf8')).toBe('outside-secret-payload');
 
         // Case 3: Re-commit page 1, then replace page-1 dir with a symlink to outsideDir.
-        await handle3.commitCompletedPages([{
-            pageNumber: 1,
-            artifacts: [
+        await handle3.commitCompletedPages(
+            [
                 {
-                    scratchPath: pageMetaPath,
-                    fileName: 'clean-1-page.json',
-                },
-                {
-                    scratchPath: outMetaPath,
-                    fileName: 'clean-1-0.json',
-                },
-                {
-                    scratchPath: outPngPath,
-                    fileName: 'clean-1-0.png',
+                    pageNumber: 1,
+                    artifacts: [
+                        {
+                            scratchPath: pageMetaPath,
+                            fileName: 'clean-1-page.json',
+                        },
+                        {
+                            scratchPath: outMetaPath,
+                            fileName: 'clean-1-0.json',
+                        },
+                        {
+                            scratchPath: outPngPath,
+                            fileName: 'clean-1-0.png',
+                        },
+                    ],
                 },
             ],
-        }], planSignature);
+            planSignature,
+        );
         const storedPageDir = join(handle3.entryDir, 'artifacts', 'page-1');
         await rm(storedPageDir, {
             recursive: true,
@@ -2287,10 +2278,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         const checkpointDir = join(root, 'checkpoints');
         const scratch = join(root, 'scratch');
         const restoreScratch = join(root, 'restore-scratch');
-        await Promise.all([
-            mkdir(scratch, {recursive: true}),
-            mkdir(restoreScratch, {recursive: true}),
-        ]);
+        await Promise.all([mkdir(scratch, {recursive: true}), mkdir(restoreScratch, {recursive: true})]);
         const sourcePdfPath = join(root, 'source.pdf');
         await writeFile(sourcePdfPath, '%PDF-1.7-atomic-batch');
         const sourceSha256 = createHash('sha256').update('%PDF-1.7-atomic-batch').digest('hex');
@@ -2338,51 +2326,59 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             await writeFile(pageMetaPath, JSON.stringify(pageMetadata()));
             await writeFile(outMetaPath, JSON.stringify(outputMetadata()));
             await writeFile(outPngPath, PNG);
-            await handle.commitCompletedPages([{
-                pageNumber,
-                artifacts: [
+            await handle.commitCompletedPages(
+                [
                     {
-                        scratchPath: pageMetaPath,
-                        fileName: `clean-${String(pageNumber)}-page.json`,
-                    },
-                    {
-                        scratchPath: outMetaPath,
-                        fileName: `clean-${String(pageNumber)}-0.json`,
-                    },
-                    {
-                        scratchPath: outPngPath,
-                        fileName: `clean-${String(pageNumber)}-0.png`,
+                        pageNumber,
+                        artifacts: [
+                            {
+                                scratchPath: pageMetaPath,
+                                fileName: `clean-${String(pageNumber)}-page.json`,
+                            },
+                            {
+                                scratchPath: outMetaPath,
+                                fileName: `clean-${String(pageNumber)}-0.json`,
+                            },
+                            {
+                                scratchPath: outPngPath,
+                                fileName: `clean-${String(pageNumber)}-0.png`,
+                            },
+                        ],
                     },
                 ],
-            }], planSignature, 'batch-0-pages');
+                planSignature,
+                'batch-0-pages',
+            );
         }
 
         const batchPdfPath = join(scratch, 'batch-0.pdf');
         await writeFile(batchPdfPath, '%PDF-1.7\n%%EOF\n');
 
         failManifestRename = true;
-        await expect(handle.commitCompletedBatch({
-            batchIndex: 0,
-            firstPageNumber: 1,
-            batchSignature: 'f'.repeat(64),
-            batchPdfPath,
-            summary: {
-                inputPages: 2,
-                outputPages: 2,
-                spreadsSplit: 0,
-                offcutsDiscarded: 0,
-                deskewSkipped: 0,
-                cropSkipped: 0,
-                excludedPages: 0,
-                blankPagesSkipped: 0,
-                accessibilityTagsRemoved: false,
-                warnings: [],
-            },
-            representationReport: null,
-            provenanceStamp: null,
-            sourceTextPages: [],
-            skippedNonAffine: [],
-        })).rejects.toThrow('Simulated EIO during manifest rename');
+        await expect(
+            handle.commitCompletedBatch({
+                batchIndex: 0,
+                firstPageNumber: 1,
+                batchSignature: 'f'.repeat(64),
+                batchPdfPath,
+                summary: {
+                    inputPages: 2,
+                    outputPages: 2,
+                    spreadsSplit: 0,
+                    offcutsDiscarded: 0,
+                    deskewSkipped: 0,
+                    cropSkipped: 0,
+                    excludedPages: 0,
+                    blankPagesSkipped: 0,
+                    accessibilityTagsRemoved: false,
+                    warnings: [],
+                },
+                representationReport: null,
+                provenanceStamp: null,
+                sourceTextPages: [],
+                skippedNonAffine: [],
+            }),
+        ).rejects.toThrow('Simulated EIO during manifest rename');
         await handle.close();
 
         // Reopen cleanly: because manifest rename failed, superseded page
@@ -2452,40 +2448,44 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         const staleTime = new Date(Date.now() - 61_000);
         await utimes(lockPath, staleTime, staleTime);
 
-        await expect(openScanCleanupConversionCheckpoint({
-            checkpointDir: lockDir,
-            sourcePdfPath,
-            witness: witnessA,
-            documentPageCount: 1,
-            mode: 'batch',
-            log: () => undefined,
-            lockTimeoutMs: 50,
-        })).rejects.toThrow(/Timed out waiting for scan cleanup checkpoint lock/u);
+        await expect(
+            openScanCleanupConversionCheckpoint({
+                checkpointDir: lockDir,
+                sourcePdfPath,
+                witness: witnessA,
+                documentPageCount: 1,
+                mode: 'batch',
+                log: () => undefined,
+                lockTimeoutMs: 50,
+            }),
+        ).rejects.toThrow(/Timed out waiting for scan cleanup checkpoint lock/u);
         expect(await readFile(lockPath, 'utf8')).toBe(lockPayload);
 
         // 2. Init failure after lease creation must remove both the on-disk
         // lease file and the in-process active-lease refcount.
         const rollbackDir = join(root, 'ckpt-init-rollback');
-        await expect(openScanCleanupConversionCheckpoint({
-            checkpointDir: rollbackDir,
-            sourcePdfPath,
-            witness: witnessA,
-            documentPageCount: 1,
-            mode: 'batch',
-            log: () => undefined,
-            fileSystem: {
-                rename: async (oldPath, newPath) => {
-                    if (String(newPath).endsWith('checkpoint.json')) {
-                        throw Object.assign(new Error('Simulated init manifest rename failure'), {code: 'EIO'});
-                    }
-                    await rename(oldPath, newPath);
+        await expect(
+            openScanCleanupConversionCheckpoint({
+                checkpointDir: rollbackDir,
+                sourcePdfPath,
+                witness: witnessA,
+                documentPageCount: 1,
+                mode: 'batch',
+                log: () => undefined,
+                fileSystem: {
+                    rename: async (oldPath, newPath) => {
+                        if (String(newPath).endsWith('checkpoint.json')) {
+                            throw Object.assign(new Error('Simulated init manifest rename failure'), {code: 'EIO'});
+                        }
+                        await rename(oldPath, newPath);
+                    },
                 },
-            },
-        })).rejects.toThrow('Simulated init manifest rename failure');
+            }),
+        ).rejects.toThrow('Simulated init manifest rename failure');
 
         const abandonedEntryDir = join(rollbackDir, `entry-${witnessA.witnessId}`);
         const abandonedFiles = await readdir(abandonedEntryDir);
-        expect(abandonedFiles.filter(name => name.startsWith('.lease-'))).toEqual([]);
+        expect(abandonedFiles.filter((name) => name.startsWith('.lease-'))).toEqual([]);
 
         // Competing open on the same sourcePdfPath must reclaim the abandoned
         // entry cleanly (proving the in-process lease refcount was rolled back).
@@ -2530,14 +2530,16 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             losslessRun: false,
         });
 
-        await expect(openScanCleanupConversionCheckpoint({
-            checkpointDir: ckptDir,
-            sourcePdfPath,
-            witness,
-            documentPageCount: 1,
-            mode: 'batch',
-            log: () => undefined,
-        })).rejects.toThrow(/symbolic link/u);
+        await expect(
+            openScanCleanupConversionCheckpoint({
+                checkpointDir: ckptDir,
+                sourcePdfPath,
+                witness,
+                documentPageCount: 1,
+                mode: 'batch',
+                log: () => undefined,
+            }),
+        ).rejects.toThrow(/symbolic link/u);
         expect(await readFile(sentinelPath, 'utf8')).toBe('outside-lock-sentinel');
     });
 
@@ -2567,33 +2569,35 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         const abortRun1 = new AbortController();
         rasterFixture.dependencies.runSidecar = vi.fn(async (_binary, mPath, sig, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(mPath, 'utf8')) as {pages: ITestManifestPage[]};
-            const pages = manifest.pages.map(page => page.sourcePageIndex + 1);
+            const pages = manifest.pages.map((page) => page.sourcePageIndex + 1);
             if (pages.includes(3)) {
                 abortRun1.abort(new DOMException('Stop before batch 1', 'AbortError'));
                 sig.throwIfAborted();
             }
             await rasterFixture.writeDefaultSidecarOutputs(manifest, onProgress);
         });
-        await expect(pipeline.runScanCleanupConversion(
-            {
-                sourcePdfPath: rasterFixture.sourcePdfPath,
-                outputPdfPath: rasterFixture.outputPdfPath,
-                options: baseOptions,
-            },
-            rasterFixture.workerPaths,
-            abortRun1.signal,
-            () => undefined,
-            basePolicy,
-            () => undefined,
-            rasterFixture.dependencies,
-        )).rejects.toThrow('Stop before batch 1');
+        await expect(
+            pipeline.runScanCleanupConversion(
+                {
+                    sourcePdfPath: rasterFixture.sourcePdfPath,
+                    outputPdfPath: rasterFixture.outputPdfPath,
+                    options: baseOptions,
+                },
+                rasterFixture.workerPaths,
+                abortRun1.signal,
+                () => undefined,
+                basePolicy,
+                () => undefined,
+                rasterFixture.dependencies,
+            ),
+        ).rejects.toThrow('Stop before batch 1');
 
         page1Dpi = 600;
         page1Width = 200;
         const run2Pages: number[] = [];
         rasterFixture.dependencies.runSidecar = vi.fn(async (_binary, mPath, _sig, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(mPath, 'utf8')) as {pages: ITestManifestPage[]};
-            run2Pages.push(...manifest.pages.map(page => page.sourcePageIndex + 1));
+            run2Pages.push(...manifest.pages.map((page) => page.sourcePageIndex + 1));
             await rasterFixture.writeDefaultSidecarOutputs(manifest, onProgress);
         });
         const driftedSummary = await pipeline.runScanCleanupConversion(
@@ -2634,19 +2638,21 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             const manifest = JSON.parse(await readFile(mPath, 'utf8')) as {pages: ITestManifestPage[]};
             await unhashableFixture.writeDefaultSidecarOutputs(manifest, onProgress);
         });
-        await expect(runScanCleanupConversion(
-            {
-                sourcePdfPath: unhashableFixture.sourcePdfPath,
-                outputPdfPath: unhashableFixture.outputPdfPath,
-                options: baseOptions,
-            },
-            unhashableFixture.workerPaths,
-            abortSeed.signal,
-            () => undefined,
-            basePolicy,
-            () => undefined,
-            unhashableFixture.dependencies,
-        )).rejects.toThrow('Stop after seeding chunk 0');
+        await expect(
+            runScanCleanupConversion(
+                {
+                    sourcePdfPath: unhashableFixture.sourcePdfPath,
+                    outputPdfPath: unhashableFixture.outputPdfPath,
+                    options: baseOptions,
+                },
+                unhashableFixture.workerPaths,
+                abortSeed.signal,
+                () => undefined,
+                basePolicy,
+                () => undefined,
+                unhashableFixture.dependencies,
+            ),
+        ).rejects.toThrow('Stop after seeding chunk 0');
         expect(await readdir(unhashableFixture.checkpointDir!)).toHaveLength(1);
 
         // Now make pdftoppm unhashable while keeping the provenance-stamp
@@ -2661,7 +2667,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         const unhashableRunPages: number[] = [];
         unhashableFixture.dependencies.runSidecar = vi.fn(async (_binary, mPath, _sig, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(mPath, 'utf8')) as {pages: ITestManifestPage[]};
-            unhashableRunPages.push(...manifest.pages.map(page => page.sourcePageIndex + 1));
+            unhashableRunPages.push(...manifest.pages.map((page) => page.sourcePageIndex + 1));
             await unhashableFixture.writeDefaultSidecarOutputs(manifest, onProgress);
         });
         const unhashableSummary = await runScanCleanupConversion(
@@ -2729,36 +2735,41 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             const abortRun1 = new AbortController();
             fixture.dependencies.runSidecar = vi.fn(async (_binary, mPath, sig, _log, onProgress) => {
                 const manifest = JSON.parse(await readFile(mPath, 'utf8')) as {pages: ITestManifestPage[]};
-                const pages = manifest.pages.map(page => page.sourcePageIndex + 1);
+                const pages = manifest.pages.map((page) => page.sourcePageIndex + 1);
                 if (pages.includes(3)) {
                     abortRun1.abort(new DOMException('Stop before batch 1', 'AbortError'));
                     sig.throwIfAborted();
                 }
                 await fixture.writeDefaultSidecarOutputs(manifest, onProgress);
             });
-            await expect(pipeline.runScanCleanupConversion(
-                {
-                    sourcePdfPath: fixture.sourcePdfPath,
-                    outputPdfPath: fixture.outputPdfPath,
-                    options: baseOptions,
-                },
-                fixture.workerPaths,
-                abortRun1.signal,
-                () => undefined,
-                basePolicy,
-                () => undefined,
-                fixture.dependencies,
-            )).rejects.toThrow('Stop before batch 1');
+            await expect(
+                pipeline.runScanCleanupConversion(
+                    {
+                        sourcePdfPath: fixture.sourcePdfPath,
+                        outputPdfPath: fixture.outputPdfPath,
+                        options: baseOptions,
+                    },
+                    fixture.workerPaths,
+                    abortRun1.signal,
+                    () => undefined,
+                    basePolicy,
+                    () => undefined,
+                    fixture.dependencies,
+                ),
+            ).rejects.toThrow('Stop before batch 1');
 
             const [entryName] = await readdir(fixture.checkpointDir!);
             const entryDir = join(fixture.checkpointDir!, entryName!);
             const manifestPath = join(entryDir, 'checkpoint.json');
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
-                completedBatches: Record<string, {
-                    stateFileName: string;
-                    stateSizeBytes: number;
-                    stateSha256: string;
-                }>;
+                completedBatches: Record<
+                    string,
+                    {
+                        stateFileName: string;
+                        stateSizeBytes: number;
+                        stateSha256: string;
+                    }
+                >;
             };
             const batch0Record = manifest.completedBatches['0']!;
             const batch0StatePath = join(entryDir, 'artifacts', 'batch-0', batch0Record.stateFileName);
@@ -2773,7 +2784,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             const run2Pages: number[] = [];
             fixture.dependencies.runSidecar = vi.fn(async (_binary, mPath, _sig, _log, onProgress) => {
                 const parsed = JSON.parse(await readFile(mPath, 'utf8')) as {pages: ITestManifestPage[]};
-                run2Pages.push(...parsed.pages.map(page => page.sourcePageIndex + 1));
+                run2Pages.push(...parsed.pages.map((page) => page.sourcePageIndex + 1));
                 await fixture.writeDefaultSidecarOutputs(parsed, onProgress);
             });
             const summary = await pipeline.runScanCleanupConversion(
@@ -2796,7 +2807,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         };
 
         // 1. Null element inside representationReport.outputMappings.
-        const nullMappingResult = await runAndTamperBatch0(state => {
+        const nullMappingResult = await runAndTamperBatch0((state) => {
             const report = state.representationReport as {outputMappings: unknown[]};
             report.outputMappings[0] = null;
         });
@@ -2804,12 +2815,14 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         expect(nullMappingResult.run2Pages).toEqual([1, 2, 3]);
 
         // 2. Out-of-range outputPageIndex inside sourceTextPages.
-        const outOfRangeTextResult = await runAndTamperBatch0(state => {
-            state.sourceTextPages = [{
-                sourcePageIndex: 0,
-                outputPageIndex: 5000,
-                matrix: [1, 0, 0, 1, 0, 0],
-            }];
+        const outOfRangeTextResult = await runAndTamperBatch0((state) => {
+            state.sourceTextPages = [
+                {
+                    sourcePageIndex: 0,
+                    outputPageIndex: 5000,
+                    matrix: [1, 0, 0, 1, 0, 0],
+                },
+            ];
         });
         expect(outOfRangeTextResult.summary.outputPages).toBe(3);
         expect(outOfRangeTextResult.run2Pages).toEqual([1, 2, 3]);
@@ -2817,7 +2830,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         // 3. Digest-valid batch checkpoint claiming hasBatchPdf: true with
         // summary.outputPages: 0, representationReport: null, provenanceStamp: null
         // must be rejected and recomputed rather than silently omitted from merge.
-        const contradictoryPdfZeroPagesResult = await runAndTamperBatch0(state => {
+        const contradictoryPdfZeroPagesResult = await runAndTamperBatch0((state) => {
             const summaryObj = state.summary as Record<string, unknown>;
             summaryObj.outputPages = 0;
             state.hasBatchPdf = true;
@@ -2830,10 +2843,10 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
 
         // 4. Malformed nested renderGeometry inside representationReport.pages
         // must be rejected by full schema validation and recomputed.
-        const malformedRenderGeometryResult = await runAndTamperBatch0(state => {
+        const malformedRenderGeometryResult = await runAndTamperBatch0((state) => {
             const report = state.representationReport as {pages: Array<Record<string, unknown>>};
             report.pages[0]!.renderGeometry = {
-                ...report.pages[0]!.renderGeometry as Record<string, unknown>,
+                ...(report.pages[0]!.renderGeometry as Record<string, unknown>),
                 canvasWidthPx: -1,
             };
         });
@@ -2841,7 +2854,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         expect(malformedRenderGeometryResult.run2Pages).toEqual([1, 2, 3]);
 
         // 5. Malformed streamBytes inside representationReport.pages must be rejected.
-        const malformedStreamBytesResult = await runAndTamperBatch0(state => {
+        const malformedStreamBytesResult = await runAndTamperBatch0((state) => {
             const report = state.representationReport as {pages: Array<Record<string, unknown>>};
             report.pages[0]!.streamBytes = {composite: 'not-a-number'};
         });
@@ -2869,32 +2882,34 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         const abortRun1 = new AbortController();
         fixture.dependencies.runSidecar = vi.fn(async (_binary, mPath, sig, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(mPath, 'utf8')) as {pages: ITestManifestPage[]};
-            const pages = manifest.pages.map(page => page.sourcePageIndex + 1);
+            const pages = manifest.pages.map((page) => page.sourcePageIndex + 1);
             if (pages.includes(3)) {
                 abortRun1.abort(new DOMException('Interrupt after zero-output batch 0', 'AbortError'));
                 sig.throwIfAborted();
             }
             await fixture.writeDefaultSidecarOutputs(manifest, onProgress);
         });
-        await expect(pipeline.runScanCleanupConversion(
-            {
-                sourcePdfPath: fixture.sourcePdfPath,
-                outputPdfPath: fixture.outputPdfPath,
-                options: excludedBatch0Options,
-            },
-            fixture.workerPaths,
-            abortRun1.signal,
-            () => undefined,
-            basePolicy,
-            () => undefined,
-            fixture.dependencies,
-        )).rejects.toThrow('Interrupt after zero-output batch 0');
+        await expect(
+            pipeline.runScanCleanupConversion(
+                {
+                    sourcePdfPath: fixture.sourcePdfPath,
+                    outputPdfPath: fixture.outputPdfPath,
+                    options: excludedBatch0Options,
+                },
+                fixture.workerPaths,
+                abortRun1.signal,
+                () => undefined,
+                basePolicy,
+                () => undefined,
+                fixture.dependencies,
+            ),
+        ).rejects.toThrow('Interrupt after zero-output batch 0');
 
         // Run 2: resume must reuse zero-output batch 0 from checkpoint and only run page 3.
         const run2Pages: number[] = [];
         fixture.dependencies.runSidecar = vi.fn(async (_binary, mPath, _sig, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(mPath, 'utf8')) as {pages: ITestManifestPage[]};
-            run2Pages.push(...manifest.pages.map(page => page.sourcePageIndex + 1));
+            run2Pages.push(...manifest.pages.map((page) => page.sourcePageIndex + 1));
             await fixture.writeDefaultSidecarOutputs(manifest, onProgress);
         });
         const summary = await pipeline.runScanCleanupConversion(
@@ -2938,32 +2953,34 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         const abortRun1 = new AbortController();
         fixture.dependencies.runSidecar = vi.fn(async (_binary, mPath, sig, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(mPath, 'utf8')) as {pages: ITestManifestPage[]};
-            const pages = manifest.pages.map(page => page.sourcePageIndex + 1);
+            const pages = manifest.pages.map((page) => page.sourcePageIndex + 1);
             if (pages.includes(3)) {
                 abortRun1.abort(new DOMException('Stop full-doc Auto before batch 1', 'AbortError'));
                 sig.throwIfAborted();
             }
             await fixture.writeDefaultSidecarOutputs(manifest, onProgress);
         });
-        await expect(pipeline.runScanCleanupConversion(
-            {
-                sourcePdfPath: fixture.sourcePdfPath,
-                outputPdfPath: fixture.outputPdfPath,
-                options: autoOptions,
-                outputModeRecommendations,
-            },
-            fixture.workerPaths,
-            abortRun1.signal,
-            () => undefined,
-            basePolicy,
-            () => undefined,
-            fixture.dependencies,
-        )).rejects.toThrow('Stop full-doc Auto before batch 1');
+        await expect(
+            pipeline.runScanCleanupConversion(
+                {
+                    sourcePdfPath: fixture.sourcePdfPath,
+                    outputPdfPath: fixture.outputPdfPath,
+                    options: autoOptions,
+                    outputModeRecommendations,
+                },
+                fixture.workerPaths,
+                abortRun1.signal,
+                () => undefined,
+                basePolicy,
+                () => undefined,
+                fixture.dependencies,
+            ),
+        ).rejects.toThrow('Stop full-doc Auto before batch 1');
 
         const resumedSidecarPages: number[] = [];
         fixture.dependencies.runSidecar = vi.fn(async (_binary, mPath, _sig, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(mPath, 'utf8')) as {pages: ITestManifestPage[]};
-            resumedSidecarPages.push(...manifest.pages.map(page => page.sourcePageIndex + 1));
+            resumedSidecarPages.push(...manifest.pages.map((page) => page.sourcePageIndex + 1));
             await fixture.writeDefaultSidecarOutputs(manifest, onProgress);
         });
         const resumedSummary = await pipeline.runScanCleanupConversion(
@@ -2993,11 +3010,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
     it('restores multi-chunk batch PDFs via single-pass streaming digest and rejects same-size mid-file corruption', async () => {
         const pipeline = await loadScanCleanupPipelineWithBatchPages(2);
         // 192 KiB payload (> 3x the 64 KiB streaming chunk size).
-        const largeBatchPdf = Buffer.concat([
-            Buffer.from('%PDF-1.7\n'),
-            Buffer.alloc(192 * 1024, 0x41),
-            Buffer.from('\n%%EOF\n'),
-        ]);
+        const largeBatchPdf = Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(192 * 1024, 0x41), Buffer.from('\n%%EOF\n')]);
 
         const createLargeBatchFixture = async () => {
             const fixture = await createStreamingFixture({
@@ -3020,7 +3033,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
                 // During final qpdf merge, read the batch-0 PDF input from disk
                 // so we can assert its streamed restored bytes match bit-for-bit.
                 if (binary === fixture.workerPaths.qpdfBinary && args.includes('--pages')) {
-                    const batch0Arg = args.find(arg => arg.endsWith('batch-0.pdf'));
+                    const batch0Arg = args.find((arg) => arg.endsWith('batch-0.pdf'));
                     if (batch0Arg !== undefined) {
                         capturedRestoredBatch0Bytes = await readFile(batch0Arg);
                     }
@@ -3038,30 +3051,32 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         const abort1 = new AbortController();
         cleanRun.fixture.dependencies.runSidecar = vi.fn(async (_binary, mPath, sig, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(mPath, 'utf8')) as {pages: ITestManifestPage[]};
-            if (manifest.pages.some(page => page.sourcePageIndex + 1 === 3)) {
+            if (manifest.pages.some((page) => page.sourcePageIndex + 1 === 3)) {
                 abort1.abort(new DOMException('Stop after large batch 0', 'AbortError'));
                 sig.throwIfAborted();
             }
             await cleanRun.fixture.writeDefaultSidecarOutputs(manifest, onProgress);
         });
-        await expect(pipeline.runScanCleanupConversion(
-            {
-                sourcePdfPath: cleanRun.fixture.sourcePdfPath,
-                outputPdfPath: cleanRun.fixture.outputPdfPath,
-                options: baseOptions,
-            },
-            cleanRun.fixture.workerPaths,
-            abort1.signal,
-            () => undefined,
-            basePolicy,
-            () => undefined,
-            cleanRun.fixture.dependencies,
-        )).rejects.toThrow('Stop after large batch 0');
+        await expect(
+            pipeline.runScanCleanupConversion(
+                {
+                    sourcePdfPath: cleanRun.fixture.sourcePdfPath,
+                    outputPdfPath: cleanRun.fixture.outputPdfPath,
+                    options: baseOptions,
+                },
+                cleanRun.fixture.workerPaths,
+                abort1.signal,
+                () => undefined,
+                basePolicy,
+                () => undefined,
+                cleanRun.fixture.dependencies,
+            ),
+        ).rejects.toThrow('Stop after large batch 0');
 
         const cleanResumedPages: number[] = [];
         cleanRun.fixture.dependencies.runSidecar = vi.fn(async (_binary, mPath, _sig, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(mPath, 'utf8')) as {pages: ITestManifestPage[]};
-            cleanResumedPages.push(...manifest.pages.map(page => page.sourcePageIndex + 1));
+            cleanResumedPages.push(...manifest.pages.map((page) => page.sourcePageIndex + 1));
             await cleanRun.fixture.writeDefaultSidecarOutputs(manifest, onProgress);
         });
         const cleanSummary = await pipeline.runScanCleanupConversion(
@@ -3087,31 +3102,30 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         const abort2 = new AbortController();
         corruptRun.fixture.dependencies.runSidecar = vi.fn(async (_binary, mPath, sig, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(mPath, 'utf8')) as {pages: ITestManifestPage[]};
-            if (manifest.pages.some(page => page.sourcePageIndex + 1 === 3)) {
+            if (manifest.pages.some((page) => page.sourcePageIndex + 1 === 3)) {
                 abort2.abort(new DOMException('Stop before corrupting batch 0', 'AbortError'));
                 sig.throwIfAborted();
             }
             await corruptRun.fixture.writeDefaultSidecarOutputs(manifest, onProgress);
         });
-        await expect(pipeline.runScanCleanupConversion(
-            {
-                sourcePdfPath: corruptRun.fixture.sourcePdfPath,
-                outputPdfPath: corruptRun.fixture.outputPdfPath,
-                options: baseOptions,
-            },
-            corruptRun.fixture.workerPaths,
-            abort2.signal,
-            () => undefined,
-            basePolicy,
-            () => undefined,
-            corruptRun.fixture.dependencies,
-        )).rejects.toThrow('Stop before corrupting batch 0');
+        await expect(
+            pipeline.runScanCleanupConversion(
+                {
+                    sourcePdfPath: corruptRun.fixture.sourcePdfPath,
+                    outputPdfPath: corruptRun.fixture.outputPdfPath,
+                    options: baseOptions,
+                },
+                corruptRun.fixture.workerPaths,
+                abort2.signal,
+                () => undefined,
+                basePolicy,
+                () => undefined,
+                corruptRun.fixture.dependencies,
+            ),
+        ).rejects.toThrow('Stop before corrupting batch 0');
 
         const [entryName] = await readdir(corruptRun.fixture.checkpointDir!);
-        const storedBatchPdfPath = await resolveStoredBatchPdfPath(
-            join(corruptRun.fixture.checkpointDir!, entryName!),
-            0,
-        );
+        const storedBatchPdfPath = await resolveStoredBatchPdfPath(join(corruptRun.fixture.checkpointDir!, entryName!), 0);
         const tamperedPdf = Buffer.from(await readFile(storedBatchPdfPath));
         const midOffset = 96 * 1024;
         tamperedPdf[midOffset] = (tamperedPdf[midOffset]! ^ 0xff) & 0xff;
@@ -3120,7 +3134,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         const corruptResumedPages: number[] = [];
         corruptRun.fixture.dependencies.runSidecar = vi.fn(async (_binary, mPath, _sig, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(mPath, 'utf8')) as {pages: ITestManifestPage[]};
-            corruptResumedPages.push(...manifest.pages.map(page => page.sourcePageIndex + 1));
+            corruptResumedPages.push(...manifest.pages.map((page) => page.sourcePageIndex + 1));
             await corruptRun.fixture.writeDefaultSidecarOutputs(manifest, onProgress);
         });
         const repairedSummary = await pipeline.runScanCleanupConversion(
@@ -3243,7 +3257,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
                     holding.resolve();
                 }
             });
-            worker.on('error', error => holding.reject(error));
+            worker.on('error', (error) => holding.reject(error));
             await holding.promise;
 
             // Worker shares process.pid and currently holds BOTH .checkpoint.lock
@@ -3258,17 +3272,19 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
 
             const entryDir = join(checkpointDir, `entry-${witnessA.witnessId}`);
             const entryFilesBefore = await readdir(entryDir);
-            expect(entryFilesBefore.filter(name => name.startsWith('.lease-'))).toHaveLength(1);
+            expect(entryFilesBefore.filter((name) => name.startsWith('.lease-'))).toHaveLength(1);
 
-            await expect(openScanCleanupConversionCheckpoint({
-                checkpointDir,
-                sourcePdfPath,
-                witness: witnessB,
-                documentPageCount: 1,
-                mode: 'batch',
-                log: () => undefined,
-                lockTimeoutMs: 50,
-            })).rejects.toThrow(/Timed out waiting for scan cleanup checkpoint lock/u);
+            await expect(
+                openScanCleanupConversionCheckpoint({
+                    checkpointDir,
+                    sourcePdfPath,
+                    witness: witnessB,
+                    documentPageCount: 1,
+                    mode: 'batch',
+                    log: () => undefined,
+                    lockTimeoutMs: 50,
+                }),
+            ).rejects.toThrow(/Timed out waiting for scan cleanup checkpoint lock/u);
 
             // Force-terminate the worker thread and wait for confirmed exit.
             await worker.terminate();
@@ -3282,7 +3298,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             expect(reclaimed.reclaimedLeases).toBe(1);
             expect(existsSync(lockPath)).toBe(false);
             const entryFilesAfter = await readdir(entryDir);
-            expect(entryFilesAfter.filter(name => name.startsWith('.lease-'))).toEqual([]);
+            expect(entryFilesAfter.filter((name) => name.startsWith('.lease-'))).toEqual([]);
 
             // Next open succeeds immediately and reclaims the unleased abandoned entry.
             const nextHandle = await openScanCleanupConversionCheckpoint({
@@ -3436,10 +3452,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
                 if (kind === 'done') {
                     doneFlag = true;
                     done.resolve();
-                    for (const [
-                        stage,
-                        waiter,
-                    ] of events) {
+                    for (const [stage, waiter] of events) {
                         waiter.reject(new Error(`Contender worker finished before reaching stage "${stage}"`));
                     }
                     events.clear();
@@ -3453,10 +3466,10 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
                 events.get(kind)?.resolve(message);
                 events.delete(kind);
             });
-            worker.on('error', error => {
+            worker.on('error', (error) => {
                 failAllPending(error instanceof Error ? error : new Error(String(error)));
             });
-            worker.on('exit', code => {
+            worker.on('exit', (code) => {
                 if (!doneFlag) {
                     failAllPending(new Error(`Contender worker exited early with code ${String(code)}`));
                 }
@@ -3537,12 +3550,15 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         const ckptDir1 = join(root, 'ckpt-interleaving-1');
         await mkdir(ckptDir1, {recursive: true});
         const staleToken1 = 'deadtoken11111111111111111111111';
-        await writeFile(join(ckptDir1, '.checkpoint.lock'), JSON.stringify({
-            pid: 999_999_999,
-            ownerId: 'dead-owner-1',
-            token: staleToken1,
-            acquiredAtMs: Date.now() - 10_000,
-        }));
+        await writeFile(
+            join(ckptDir1, '.checkpoint.lock'),
+            JSON.stringify({
+                pid: 999_999_999,
+                ownerId: 'dead-owner-1',
+                token: staleToken1,
+                acquiredAtMs: Date.now() - 10_000,
+            }),
+        );
 
         const contenderA1 = spawnContender({
             checkpointDir: ckptDir1,
@@ -3599,11 +3615,8 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             expect(contenderB1.isDone()).toBe(false);
 
             contenderA1.release('atRename');
-            await Promise.all([
-                contenderA1.done,
-                contenderB1.done,
-            ]);
-            const leftover1 = (await readdir(ckptDir1)).filter(name => name.startsWith('.checkpoint.'));
+            await Promise.all([contenderA1.done, contenderB1.done]);
+            const leftover1 = (await readdir(ckptDir1)).filter((name) => name.startsWith('.checkpoint.'));
             expect(leftover1).toEqual([]);
         } finally {
             await Promise.all([
@@ -3618,12 +3631,15 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         const ckptDir2 = join(root, 'ckpt-interleaving-2');
         await mkdir(ckptDir2, {recursive: true});
         const staleToken2 = 'deadtoken22222222222222222222222';
-        await writeFile(join(ckptDir2, '.checkpoint.lock'), JSON.stringify({
-            pid: 999_999_999,
-            ownerId: 'dead-owner-2',
-            token: staleToken2,
-            acquiredAtMs: Date.now() - 10_000,
-        }));
+        await writeFile(
+            join(ckptDir2, '.checkpoint.lock'),
+            JSON.stringify({
+                pid: 999_999_999,
+                ownerId: 'dead-owner-2',
+                token: staleToken2,
+                acquiredAtMs: Date.now() - 10_000,
+            }),
+        );
 
         const contenderB2 = spawnContender({
             checkpointDir: ckptDir2,
@@ -3676,11 +3692,8 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             expect(contenderB2.isDone()).toBe(false);
 
             contenderA2.release('atRename');
-            await Promise.all([
-                contenderA2.done,
-                contenderB2.done,
-            ]);
-            const leftover2 = (await readdir(ckptDir2)).filter(name => name.startsWith('.checkpoint.'));
+            await Promise.all([contenderA2.done, contenderB2.done]);
+            const leftover2 = (await readdir(ckptDir2)).filter((name) => name.startsWith('.checkpoint.'));
             expect(leftover2).toEqual([]);
         } finally {
             await Promise.all([
@@ -3724,30 +3737,42 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
 
         const nowMs = Date.now();
         await Promise.all([
-            writeFile(liveDirLockTmp, JSON.stringify({
-                pid: process.pid,
-                ownerId: 'live-contender-dir',
-                token: 'livetoken11111111111111111111111',
-                acquiredAtMs: nowMs,
-            })),
-            writeFile(liveReclaimLockTmp, JSON.stringify({
-                pid: process.pid,
-                ownerId: 'live-contender-reclaim',
-                token: 'livereclaim111111111111111111111',
-                acquiredAtMs: nowMs,
-            })),
-            writeFile(deadDirLockTmp, JSON.stringify({
-                pid: 999_999_999,
-                ownerId: 'dead-contender-dir',
-                token: 'deadtoken11111111111111111111111',
-                acquiredAtMs: nowMs - 10_000,
-            })),
-            writeFile(deadReclaimLockTmp, JSON.stringify({
-                pid: 999_999_999,
-                ownerId: 'dead-contender-reclaim',
-                token: 'deadreclaim111111111111111111111',
-                acquiredAtMs: nowMs - 10_000,
-            })),
+            writeFile(
+                liveDirLockTmp,
+                JSON.stringify({
+                    pid: process.pid,
+                    ownerId: 'live-contender-dir',
+                    token: 'livetoken11111111111111111111111',
+                    acquiredAtMs: nowMs,
+                }),
+            ),
+            writeFile(
+                liveReclaimLockTmp,
+                JSON.stringify({
+                    pid: process.pid,
+                    ownerId: 'live-contender-reclaim',
+                    token: 'livereclaim111111111111111111111',
+                    acquiredAtMs: nowMs,
+                }),
+            ),
+            writeFile(
+                deadDirLockTmp,
+                JSON.stringify({
+                    pid: 999_999_999,
+                    ownerId: 'dead-contender-dir',
+                    token: 'deadtoken11111111111111111111111',
+                    acquiredAtMs: nowMs - 10_000,
+                }),
+            ),
+            writeFile(
+                deadReclaimLockTmp,
+                JSON.stringify({
+                    pid: 999_999_999,
+                    ownerId: 'dead-contender-reclaim',
+                    token: 'deadreclaim111111111111111111111',
+                    acquiredAtMs: nowMs - 10_000,
+                }),
+            ),
             writeFile(youngCorruptLockTmp, ''),
             writeFile(oldCorruptLockTmp, '{corrupt'),
             writeFile(youngEmptyReclaimTmp, ''),
@@ -3756,10 +3781,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         ]);
 
         const expiredTime = new Date(nowMs - 15_000);
-        await Promise.all([
-            utimes(oldCorruptLockTmp, expiredTime, expiredTime),
-            utimes(oldCorruptReclaimTmp, expiredTime, expiredTime),
-        ]);
+        await Promise.all([utimes(oldCorruptLockTmp, expiredTime, expiredTime), utimes(oldCorruptReclaimTmp, expiredTime, expiredTime)]);
 
         const handle = await openScanCleanupConversionCheckpoint({
             checkpointDir: ckptDir,
@@ -3872,20 +3894,20 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
                     paused.resolve();
                 }
             });
-            worker.on('error', error => paused.reject(error));
+            worker.on('error', (error) => paused.reject(error));
             await paused.promise;
 
             const entryDirA = join(ckptDirA, `entry-${witness.witnessId}`);
             const stagedFiles = await readdir(entryDirA);
-            expect(stagedFiles.some(name => name.startsWith('.lease-') && name.endsWith('.tmp'))).toBe(true);
-            expect(stagedFiles.filter(name => name.startsWith('.lease-') && name.endsWith('.lock'))).toEqual([]);
+            expect(stagedFiles.some((name) => name.startsWith('.lease-') && name.endsWith('.tmp'))).toBe(true);
+            expect(stagedFiles.filter((name) => name.startsWith('.lease-') && name.endsWith('.lock'))).toEqual([]);
 
             await worker.terminate();
 
             const reclaimedA = await reclaimScanCleanupCheckpointOwner(ckptDirA, ownerIdA);
             expect(reclaimedA.reclaimedDirLock).toBe(true);
             expect(existsSync(join(ckptDirA, '.checkpoint.lock'))).toBe(false);
-            expect((await readdir(entryDirA)).filter(name => name.endsWith('.tmp'))).toEqual([]);
+            expect((await readdir(entryDirA)).filter((name) => name.endsWith('.tmp'))).toEqual([]);
             await expect(reclaimScanCleanupCheckpoint(ckptDirA, entryDirA)).resolves.toBe(true);
             expect(existsSync(entryDirA)).toBe(false);
         } finally {
@@ -3973,12 +3995,15 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         const ckptDir1 = join(root, 'ckpt-race-lstat-vs-fresh-zero');
         await mkdir(ckptDir1, {recursive: true});
         const lockPath1 = join(ckptDir1, '.checkpoint.lock');
-        await writeFile(lockPath1, JSON.stringify({
-            pid: 999_999_999,
-            ownerId: 'dead-old-owner',
-            token: 'olddeadtoken11111111111111111111',
-            acquiredAtMs: Date.now() - 15_000,
-        }));
+        await writeFile(
+            lockPath1,
+            JSON.stringify({
+                pid: 999_999_999,
+                ownerId: 'dead-old-owner',
+                token: 'olddeadtoken11111111111111111111',
+                acquiredAtMs: Date.now() - 15_000,
+            }),
+        );
         const oldDate = new Date(Date.now() - 15_000);
         await utimes(lockPath1, oldDate, oldDate);
 
@@ -4037,11 +4062,8 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
 
             // Release Contender 2: both contenders serialize cleanly and complete.
             contender2.release('atRename');
-            await Promise.all([
-                contender1.done,
-                contender2.done,
-            ]);
-            expect((await readdir(ckptDir1)).filter(name => name.startsWith('.checkpoint.'))).toEqual([]);
+            await Promise.all([contender1.done, contender2.done]);
+            expect((await readdir(ckptDir1)).filter((name) => name.startsWith('.checkpoint.'))).toEqual([]);
         } finally {
             await Promise.all([
                 contender1.worker.terminate().catch(() => undefined),
@@ -4092,9 +4114,9 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             await contender3.waitFor('beforeStaleLockUnlink');
             contender3.release('beforeStaleLockUnlink');
 
-            await expect.poll(async () => (
-                (await readdir(ckptDir2)).filter(name => name.startsWith('.checkpoint.reclaim-')).length
-            )).toBe(0);
+            await expect
+                .poll(async () => (await readdir(ckptDir2)).filter((name) => name.startsWith('.checkpoint.reclaim-')).length)
+                .toBe(0);
 
             const freshStatsAfter2 = await stat(lockPath2);
             expect(freshStatsAfter2.dev).toBe(freshStatsBefore2.dev);
@@ -4107,11 +4129,8 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             expect(contender3.isDone()).toBe(false);
 
             contender4.release('atRename');
-            await Promise.all([
-                contender3.done,
-                contender4.done,
-            ]);
-            expect((await readdir(ckptDir2)).filter(name => name.startsWith('.checkpoint.'))).toEqual([]);
+            await Promise.all([contender3.done, contender4.done]);
+            expect((await readdir(ckptDir2)).filter((name) => name.startsWith('.checkpoint.'))).toEqual([]);
         } finally {
             await Promise.all([
                 contender3.worker.terminate().catch(() => undefined),
@@ -4159,30 +4178,30 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         // `(dev, ino)` and identical empty bytes (`sha256`). Only the
         // `isLockMetadataReclaimable(null, currentTarget.mtimeMs)` check under
         // the reclaim lock can prevent unlinking the lock.
-        await expect(openScanCleanupConversionCheckpoint({
-            checkpointDir: ckptDir,
-            sourcePdfPath,
-            witness,
-            documentPageCount: 1,
-            mode: 'batch',
-            ownerId: 'same-inode-age-contender',
-            lockTimeoutMs: 60,
-            log: () => undefined,
-            fileSystem: {
-                beforeStaleLockUnlink: async info => {
-                    beforeUnlinkCalls += 1;
-                    observedReclaimFile = info.reclaimFileName;
-                    expect(info.staleToken).toBeNull();
-                    const freshNow = new Date();
-                    await utimes(lockPath, freshNow, freshNow);
+        await expect(
+            openScanCleanupConversionCheckpoint({
+                checkpointDir: ckptDir,
+                sourcePdfPath,
+                witness,
+                documentPageCount: 1,
+                mode: 'batch',
+                ownerId: 'same-inode-age-contender',
+                lockTimeoutMs: 60,
+                log: () => undefined,
+                fileSystem: {
+                    beforeStaleLockUnlink: async (info) => {
+                        beforeUnlinkCalls += 1;
+                        observedReclaimFile = info.reclaimFileName;
+                        expect(info.staleToken).toBeNull();
+                        const freshNow = new Date();
+                        await utimes(lockPath, freshNow, freshNow);
+                    },
                 },
-            },
-        })).rejects.toThrow(/Timed out waiting for scan cleanup checkpoint lock/u);
+            }),
+        ).rejects.toThrow(/Timed out waiting for scan cleanup checkpoint lock/u);
 
         expect(beforeUnlinkCalls).toBe(1);
-        expect(observedReclaimFile).toBe(
-            `.checkpoint.reclaim-corrupt-${String(initialStats.dev)}-${String(initialStats.ino)}`,
-        );
+        expect(observedReclaimFile).toBe(`.checkpoint.reclaim-corrupt-${String(initialStats.dev)}-${String(initialStats.ino)}`);
 
         // The exact same `(dev, ino)` 0-byte lock survived intact and the
         // reclaim lock was cleaned up.
@@ -4190,7 +4209,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         expect(survivingStats.dev).toBe(initialStats.dev);
         expect(survivingStats.ino).toBe(initialStats.ino);
         expect(survivingStats.size).toBe(0);
-        expect((await readdir(ckptDir)).filter(name => name.startsWith('.checkpoint.reclaim-'))).toEqual([]);
+        expect((await readdir(ckptDir)).filter((name) => name.startsWith('.checkpoint.reclaim-'))).toEqual([]);
     });
 
     it('preserves previously committed page and batch generations if a replacement commit fails during manifest rename', async () => {
@@ -4269,16 +4288,28 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         };
 
         // 1. Commit v1 page artifacts, then fail a v2 replacement commit on manifest rename.
-        await handle.commitCompletedPages([{
-            pageNumber: 1,
-            artifacts: await writePageSet(scratchV1, 'generation-v1-png-payload'),
-        }], planSignature);
+        await handle.commitCompletedPages(
+            [
+                {
+                    pageNumber: 1,
+                    artifacts: await writePageSet(scratchV1, 'generation-v1-png-payload'),
+                },
+            ],
+            planSignature,
+        );
 
         failManifestRename = true;
-        await expect(handle.commitCompletedPages([{
-            pageNumber: 1,
-            artifacts: await writePageSet(scratchV2, 'generation-v2-png-payload'),
-        }], planSignature)).rejects.toThrow('Simulated replacement manifest rename failure');
+        await expect(
+            handle.commitCompletedPages(
+                [
+                    {
+                        pageNumber: 1,
+                        artifacts: await writePageSet(scratchV2, 'generation-v2-png-payload'),
+                    },
+                ],
+                planSignature,
+            ),
+        ).rejects.toThrow('Simulated replacement manifest rename failure');
 
         // v1 artifacts must still restore cleanly with v1 bytes intact!
         failManifestRename = false;
@@ -4313,28 +4344,30 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         });
 
         failManifestRename = true;
-        await expect(handle.commitCompletedBatch({
-            batchIndex: 0,
-            firstPageNumber: 1,
-            batchSignature: batchSigV1,
-            batchPdfPath: null,
-            summary: {
-                inputPages: 1,
-                outputPages: 0,
-                spreadsSplit: 0,
-                offcutsDiscarded: 0,
-                deskewSkipped: 0,
-                cropSkipped: 0,
-                excludedPages: 1,
-                blankPagesSkipped: 0,
-                accessibilityTagsRemoved: false,
-                warnings: ['v2-warning'],
-            },
-            representationReport: null,
-            provenanceStamp: null,
-            sourceTextPages: [],
-            skippedNonAffine: [],
-        })).rejects.toThrow('Simulated replacement manifest rename failure');
+        await expect(
+            handle.commitCompletedBatch({
+                batchIndex: 0,
+                firstPageNumber: 1,
+                batchSignature: batchSigV1,
+                batchPdfPath: null,
+                summary: {
+                    inputPages: 1,
+                    outputPages: 0,
+                    spreadsSplit: 0,
+                    offcutsDiscarded: 0,
+                    deskewSkipped: 0,
+                    cropSkipped: 0,
+                    excludedPages: 1,
+                    blankPagesSkipped: 0,
+                    accessibilityTagsRemoved: false,
+                    warnings: ['v2-warning'],
+                },
+                representationReport: null,
+                provenanceStamp: null,
+                sourceTextPages: [],
+                skippedNonAffine: [],
+            }),
+        ).rejects.toThrow('Simulated replacement manifest rename failure');
 
         // v1 batch state must remain intact and restorable!
         failManifestRename = false;
@@ -4349,10 +4382,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         const checkpointDir = join(root, 'checkpoints');
         const scratch = join(root, 'scratch');
         const restoreScratch = join(root, 'restore');
-        await Promise.all([
-            mkdir(scratch, {recursive: true}),
-            mkdir(restoreScratch, {recursive: true}),
-        ]);
+        await Promise.all([mkdir(scratch, {recursive: true}), mkdir(restoreScratch, {recursive: true})]);
         const sourcePdfPath = join(root, 'source.pdf');
         await writeFile(sourcePdfPath, '%PDF-1.7-cr14-cr22');
         const sourceSha256 = createHash('sha256').update('%PDF-1.7-cr14-cr22').digest('hex');
@@ -4388,23 +4418,31 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         const pageMetaPath = join(scratch, 'clean-1-page.json');
         const outMetaPath = join(scratch, 'clean-1-0.json');
         await writeFile(pageMetaPath, JSON.stringify(pageMetadata()));
-        await writeFile(outMetaPath, JSON.stringify({
-            ...outputMetadata(),
-            bilevelWritten: true,
-        }));
-        await handle.commitCompletedPages([{
-            pageNumber: 1,
-            artifacts: [
+        await writeFile(
+            outMetaPath,
+            JSON.stringify({
+                ...outputMetadata(),
+                bilevelWritten: true,
+            }),
+        );
+        await handle.commitCompletedPages(
+            [
                 {
-                    scratchPath: pageMetaPath,
-                    fileName: 'clean-1-page.json',
-                },
-                {
-                    scratchPath: outMetaPath,
-                    fileName: 'clean-1-0.json',
+                    pageNumber: 1,
+                    artifacts: [
+                        {
+                            scratchPath: pageMetaPath,
+                            fileName: 'clean-1-page.json',
+                        },
+                        {
+                            scratchPath: outMetaPath,
+                            fileName: 'clean-1-0.json',
+                        },
+                    ],
                 },
             ],
-        }], planSignature);
+            planSignature,
+        );
 
         // CR-14: restoreCompletedPages must reject a page claiming bilevelWritten: true without its .pbm.
         const restored = await handle.restoreCompletedPages(restoreScratch, [1], planSignature);
@@ -4413,17 +4451,20 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         // CR-22: block .checkpoint.lock with a live lock so complete() fails on lock timeout;
         // complete() MUST still release its own active entry lease in finally!
         const liveLockPath = join(checkpointDir, '.checkpoint.lock');
-        await writeFile(liveLockPath, JSON.stringify({
-            pid: process.pid,
-            ownerId: 'blocking-live-owner',
-            token: 'blockingtoken1111111111111111111',
-            acquiredAtMs: Date.now(),
-        }));
+        await writeFile(
+            liveLockPath,
+            JSON.stringify({
+                pid: process.pid,
+                ownerId: 'blocking-live-owner',
+                token: 'blockingtoken1111111111111111111',
+                acquiredAtMs: Date.now(),
+            }),
+        );
         await expect(handle.complete()).rejects.toThrow(/Timed out waiting for scan cleanup checkpoint lock/u);
         await rm(liveLockPath, {force: true});
 
         // Entry must now have zero active leases so reclaimScanCleanupCheckpoint returns true!
-        expect((await readdir(handle.entryDir)).filter(name => name.startsWith('.lease-'))).toEqual([]);
+        expect((await readdir(handle.entryDir)).filter((name) => name.startsWith('.lease-'))).toEqual([]);
         await expect(reclaimScanCleanupCheckpoint(checkpointDir, handle.entryDir)).resolves.toBe(true);
     });
 
@@ -4432,57 +4473,61 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         // is parked at maxInFlightPages must NOT deadlock.
         let estimateCalls = 0;
         const page1Produced = Promise.withResolvers<void>();
-        await expect(runBoundedRasterProducerConsumer<number, number>({
-            items: [1, 2, 3],
-            budget: {
-                producerConcurrency: 1,
-                maxChunkPages: 2,
-                maxInFlightPages: 1,
-                maxInFlightBytes: 1024 * 1024,
-            },
-            signal: new AbortController().signal,
-            estimateItemBytes: (_item, index) => {
-                estimateCalls += 1;
-                if (index === 1 && estimateCalls >= 2) {
-                    throw new Error('Synthetic estimateItemBytes failure in consumer');
-                }
-                return 1024;
-            },
-            produce: async item => {
-                if (item === 1) {
-                    page1Produced.resolve();
-                }
-                return {
-                    staged: item,
-                    actualBytes: 1024,
-                };
-            },
-            consumeChunk: async () => undefined,
-            cleanupStaged: async () => undefined,
-        })).rejects.toThrow('Synthetic estimateItemBytes failure in consumer');
+        await expect(
+            runBoundedRasterProducerConsumer<number, number>({
+                items: [1, 2, 3],
+                budget: {
+                    producerConcurrency: 1,
+                    maxChunkPages: 2,
+                    maxInFlightPages: 1,
+                    maxInFlightBytes: 1024 * 1024,
+                },
+                signal: new AbortController().signal,
+                estimateItemBytes: (_item, index) => {
+                    estimateCalls += 1;
+                    if (index === 1 && estimateCalls >= 2) {
+                        throw new Error('Synthetic estimateItemBytes failure in consumer');
+                    }
+                    return 1024;
+                },
+                produce: async (item) => {
+                    if (item === 1) {
+                        page1Produced.resolve();
+                    }
+                    return {
+                        staged: item,
+                        actualBytes: 1024,
+                    };
+                },
+                consumeChunk: async () => undefined,
+                cleanupStaged: async () => undefined,
+            }),
+        ).rejects.toThrow('Synthetic estimateItemBytes failure in consumer');
 
         // CR-15: cleanupStaged returning unreclaimedBytes + error keeps bytes
         // reserved and surfaces cleanup failure when no primary error occurred.
-        await expect(runBoundedRasterProducerConsumer<number, number>({
-            items: [1, 2],
-            budget: {
-                producerConcurrency: 1,
-                maxChunkPages: 1,
-                maxInFlightPages: 2,
-                maxInFlightBytes: 1500,
-            },
-            signal: new AbortController().signal,
-            estimateItemBytes: () => 1000,
-            produce: async item => ({
-                staged: item,
-                actualBytes: 1000,
+        await expect(
+            runBoundedRasterProducerConsumer<number, number>({
+                items: [1, 2],
+                budget: {
+                    producerConcurrency: 1,
+                    maxChunkPages: 1,
+                    maxInFlightPages: 2,
+                    maxInFlightBytes: 1500,
+                },
+                signal: new AbortController().signal,
+                estimateItemBytes: () => 1000,
+                produce: async (item) => ({
+                    staged: item,
+                    actualBytes: 1000,
+                }),
+                consumeChunk: async () => undefined,
+                cleanupStaged: async () => ({
+                    unreclaimedBytes: 1000,
+                    error: Object.assign(new Error('EBUSY removing staged raster'), {code: 'EBUSY'}),
+                }),
             }),
-            consumeChunk: async () => undefined,
-            cleanupStaged: async () => ({
-                unreclaimedBytes: 1000,
-                error: Object.assign(new Error('EBUSY removing staged raster'), {code: 'EBUSY'}),
-            }),
-        })).rejects.toThrow('EBUSY removing staged raster');
+        ).rejects.toThrow('EBUSY removing staged raster');
 
         // CR-26: when both a producer error and an unproven consumer error occur,
         // the thrown AggregateError itself carries the direct symbol mark as well.
@@ -4498,7 +4543,7 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             },
             signal: new AbortController().signal,
             estimateItemBytes: () => 1024,
-            produce: async item => {
+            produce: async (item) => {
                 if (item === 2) {
                     await consumerStarted.promise;
                     throw new Error('concurrent renderer failure');
@@ -4511,15 +4556,12 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             consumeChunk: async () => {
                 consumerStarted.resolve();
                 await releaseConsumer.promise;
-                throw markUnprovenNativeTermination(
-                    new Error('unproven sidecar stop'),
-                    'pid=77777 unproven termination',
-                );
+                throw markUnprovenNativeTermination(new Error('unproven sidecar stop'), 'pid=77777 unproven termination');
             },
             cleanupStaged: async () => undefined,
         });
         await consumerStarted.promise;
-        await new Promise<void>(resolveImmediate => setImmediate(resolveImmediate));
+        await new Promise<void>((resolveImmediate) => setImmediate(resolveImmediate));
         releaseConsumer.resolve();
         let caughtDirectMark: unknown;
         try {
@@ -4528,8 +4570,9 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             caughtDirectMark = error;
         }
         expect(caughtDirectMark).toBeInstanceOf(AggregateError);
-        expect((caughtDirectMark as Record<symbol, unknown>)[Symbol.for('evb.unprovenNativeTermination')])
-            .toBe('pid=77777 unproven termination');
+        expect((caughtDirectMark as Record<symbol, unknown>)[Symbol.for('evb.unprovenNativeTermination')]).toBe(
+            'pid=77777 unproven termination',
+        );
         expect(getUnprovenNativeTerminationDetail(caughtDirectMark)).toBe('pid=77777 unproven termination');
 
         // CR-24: estimateRawRasterBytes bounds input rasters to residentScratchRasterCount
@@ -4545,16 +4588,21 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
             additionalScratchBytes: 100_000,
         }));
         const boundedTwoInputs = estimateRawRasterBytes(tenPagePlans, 2)!;
-        const singleInputOnly = estimateRawRasterBytes([{
-            renderDpi: 150,
-            raster: {
-                dpi: 150,
-                width: 100,
-                height: 100,
-            },
-            renderCopies: 1,
-            additionalScratchBytes: 0,
-        }], 1)!;
+        const singleInputOnly = estimateRawRasterBytes(
+            [
+                {
+                    renderDpi: 150,
+                    raster: {
+                        dpi: 150,
+                        width: 100,
+                        height: 100,
+                    },
+                    renderCopies: 1,
+                    additionalScratchBytes: 0,
+                },
+            ],
+            1,
+        )!;
         // 2 resident input rasters + 10 * 100,000 bytes of retained batch outputs.
         expect(boundedTwoInputs).toBe(singleInputOnly * 2 + 10 * 100_000);
     });

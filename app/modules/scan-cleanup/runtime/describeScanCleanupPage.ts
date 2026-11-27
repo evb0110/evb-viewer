@@ -1,7 +1,4 @@
-import type {
-    TTranslateFn,
-    TTranslationKey,
-} from '@i18n-app';
+import type {TTranslateFn, TTranslationKey} from '@i18n-app';
 import type {
     IScanCleanupContentAcceptedTrim,
     IScanCleanupContentBlockEvidence,
@@ -102,9 +99,7 @@ export function scanCleanupLayoutLabel(
 }
 
 function formatConfidence(t: TTranslateFn, value: number | null | undefined) {
-    return value === null || value === undefined
-        ? t('scanCleanup.pages.diagnostics.unavailable')
-        : `${Math.round(value * 100)}%`;
+    return value === null || value === undefined ? t('scanCleanup.pages.diagnostics.unavailable') : `${Math.round(value * 100)}%`;
 }
 
 /**
@@ -152,19 +147,22 @@ export function scanCleanupPageOutputModeHint(
     return confidence === undefined
         ? t('scanCleanup.pages.outputModeRecommendationHintUnknown', {mode: scanCleanupOutputModeLabel(t, recommended)})
         : t('scanCleanup.pages.outputModeRecommendationHintKnown', {
-            mode: scanCleanupOutputModeLabel(t, recommended),
-            confidence: `${Math.round(confidence * 100)}%`,
-        });
+              mode: scanCleanupOutputModeLabel(t, recommended),
+              confidence: `${Math.round(confidence * 100)}%`,
+          });
 }
 
 function definedRows(rows: ReadonlyArray<readonly [string, string | null]>) {
-    return rows.flatMap(([
-        label,
-        value,
-    ]) => (value === null ? [] : [{
-        label,
-        value,
-    }]));
+    return rows.flatMap(([label, value]) =>
+        value === null
+            ? []
+            : [
+                  {
+                      label,
+                      value,
+                  },
+              ],
+    );
 }
 
 function outputHalfLabel(t: TTranslateFn, half: IScanCleanupPageOutputDiagnostics['half']) {
@@ -184,12 +182,15 @@ function trimValue(t: TTranslateFn, trim: IScanCleanupContentAcceptedTrim) {
 }
 
 function blockValue(t: TTranslateFn, block: IScanCleanupContentBlockEvidence) {
-    const evidence = [
-        block.pictureMaskOverlapPixels > 0 ? t('scanCleanup.pages.diagnostics.pictureEvidence') : '',
-        block.headingEvidence ? t('scanCleanup.pages.diagnostics.headingEvidence') : '',
-        block.grayscaleEvidence ? t('scanCleanup.pages.diagnostics.grayscaleEvidence') : '',
-        block.textEvidence ? t('scanCleanup.pages.diagnostics.textEvidence') : '',
-    ].filter(Boolean).join(', ') || t('scanCleanup.pages.diagnostics.noProtectedEvidence');
+    const evidence =
+        [
+            block.pictureMaskOverlapPixels > 0 ? t('scanCleanup.pages.diagnostics.pictureEvidence') : '',
+            block.headingEvidence ? t('scanCleanup.pages.diagnostics.headingEvidence') : '',
+            block.grayscaleEvidence ? t('scanCleanup.pages.diagnostics.grayscaleEvidence') : '',
+            block.textEvidence ? t('scanCleanup.pages.diagnostics.textEvidence') : '',
+        ]
+            .filter(Boolean)
+            .join(', ') || t('scanCleanup.pages.diagnostics.noProtectedEvidence');
     return t('scanCleanup.pages.diagnostics.boundsValue', {
         x: Math.round(block.bounds.xPx),
         y: Math.round(block.bounds.yPx),
@@ -200,29 +201,33 @@ function blockValue(t: TTranslateFn, block: IScanCleanupContentBlockEvidence) {
 }
 
 function trimRows(t: TTranslateFn, outputs: readonly IScanCleanupPageOutputDiagnostics[]) {
-    return outputs.flatMap(output => {
+    return outputs.flatMap((output) => {
         const prefix = outputs.length > 1 ? `${outputHalfLabel(t, output.half)} · ` : '';
         const trims = output.contentDiagnostics?.acceptedTrims ?? [];
         const rows = [
-            ...trims.map(trim => ({
+            ...trims.map((trim) => ({
                 label: `${prefix}${t('scanCleanup.pages.diagnostics.acceptedTrim')}`,
                 value: trimValue(t, trim),
             })),
-            ...trims.flatMap(trim => trim.removedBlocks).map(block => ({
-                label: `${prefix}${t('scanCleanup.pages.diagnostics.removedBounds')}`,
-                value: blockValue(t, block),
-            })),
-            ...(output.contentDiagnostics?.protectedBlocks ?? []).map(block => ({
+            ...trims
+                .flatMap((trim) => trim.removedBlocks)
+                .map((block) => ({
+                    label: `${prefix}${t('scanCleanup.pages.diagnostics.removedBounds')}`,
+                    value: blockValue(t, block),
+                })),
+            ...(output.contentDiagnostics?.protectedBlocks ?? []).map((block) => ({
                 label: `${prefix}${t('scanCleanup.pages.diagnostics.protectedBounds')}`,
                 value: blockValue(t, block),
             })),
         ];
         return rows.length > 0
             ? rows
-            : [{
-                label: `${prefix}${t('scanCleanup.pages.diagnostics.trimResult')}`,
-                value: t('scanCleanup.pages.diagnostics.noTrim'),
-            }];
+            : [
+                  {
+                      label: `${prefix}${t('scanCleanup.pages.diagnostics.trimResult')}`,
+                      value: t('scanCleanup.pages.diagnostics.noTrim'),
+                  },
+              ];
     });
 }
 
@@ -232,8 +237,10 @@ function trimRows(t: TTranslateFn, outputs: readonly IScanCleanupPageOutputDiagn
  */
 export function scanCleanupPageDiagnosticGroups(
     t: TTranslateFn,
-    facts: Pick<IScanCleanupPageFacts, 'diagnostics' | 'recommendedOutputMode'
-        | 'recommendedOutputModeConfidence' | 'recommendedOutputModeReason'>,
+    facts: Pick<
+        IScanCleanupPageFacts,
+        'diagnostics' | 'recommendedOutputMode' | 'recommendedOutputModeConfidence' | 'recommendedOutputModeReason'
+    >,
 ): IScanCleanupPageDiagnosticGroup[] {
     const diagnostics = facts.diagnostics;
     if (!diagnostics) {
@@ -245,13 +252,14 @@ export function scanCleanupPageDiagnosticGroups(
     const evidence = diagnostics.binarizationDiagnostics;
     const outputs = diagnostics.outputDiagnostics ?? [];
     const sideConfidence = outputs[0]?.contentDiagnostics?.sideConfidence;
-    const deskew = diagnostics.detectedSkewDegrees === undefined
-        ? null
-        : diagnostics.manualSkew === true
-            ? t('scanCleanup.pages.diagnostics.deskewManualValue', {angle: diagnostics.detectedSkewDegrees.toFixed(2)})
-            // The detector's skew score is a peak-to-average ratio, not a
-            // probability, so it is not shown as a percentage.
-            : t('scanCleanup.settings.rotationDegrees', {value: diagnostics.detectedSkewDegrees.toFixed(2)});
+    const deskew =
+        diagnostics.detectedSkewDegrees === undefined
+            ? null
+            : diagnostics.manualSkew === true
+              ? t('scanCleanup.pages.diagnostics.deskewManualValue', {angle: diagnostics.detectedSkewDegrees.toFixed(2)})
+              : // The detector's skew score is a peak-to-average ratio, not a
+                // probability, so it is not shown as a percentage.
+                t('scanCleanup.settings.rotationDegrees', {value: diagnostics.detectedSkewDegrees.toFixed(2)});
     return [
         {
             title: t('scanCleanup.pages.diagnostics.modeDecision'),
@@ -262,53 +270,54 @@ export function scanCleanupPageDiagnosticGroups(
                     recommended === undefined
                         ? null
                         : t('scanCleanup.pages.diagnostics.recommendedModeValue', {
-                            mode: scanCleanupOutputModeLabel(t, recommended),
-                            confidence: formatConfidence(t, facts.recommendedOutputModeConfidence
-                                ?? diagnostics.recommendedOutputModeConfidence),
-                        }),
+                              mode: scanCleanupOutputModeLabel(t, recommended),
+                              confidence: formatConfidence(
+                                  t,
+                                  facts.recommendedOutputModeConfidence ?? diagnostics.recommendedOutputModeConfidence,
+                              ),
+                          }),
                 ],
                 [
                     t('scanCleanup.pages.diagnostics.reason'),
                     reason === undefined ? null : t(`scanCleanup.pages.diagnostics.modeReason.${reason}`),
                 ],
-                [
-                    t('scanCleanup.pages.diagnostics.binarization'),
-                    route ? t(`scanCleanup.advanced.binarization.${route}`) : null,
-                ],
+                [t('scanCleanup.pages.diagnostics.binarization'), route ? t(`scanCleanup.advanced.binarization.${route}`) : null],
                 [
                     t('scanCleanup.pages.diagnostics.contrastIllumination'),
                     evidence
                         ? t('scanCleanup.pages.diagnostics.contrastIlluminationValue', {
-                            contrast: evidence.robustContrast.toFixed(1),
-                            illumination: evidence.illuminationDeviation.toFixed(1),
-                        })
+                              contrast: evidence.robustContrast.toFixed(1),
+                              illumination: evidence.illuminationDeviation.toFixed(1),
+                          })
                         : null,
                 ],
                 [
                     t('scanCleanup.pages.diagnostics.edgeStroke'),
                     evidence
                         ? t('scanCleanup.pages.diagnostics.edgeStrokeValue', {
-                            edge: formatConfidence(t, evidence.edgeDensity),
-                            stroke: evidence.estimatedStrokeWidthPx.toFixed(1),
-                        })
+                              edge: formatConfidence(t, evidence.edgeDensity),
+                              stroke: evidence.estimatedStrokeWidthPx.toFixed(1),
+                          })
                         : null,
                 ],
                 [
                     t('scanCleanup.pages.diagnostics.borderAgreement'),
                     evidence
                         ? t('scanCleanup.pages.diagnostics.borderAgreementValue', {
-                            border: formatConfidence(t, evidence.darkBorderCoverage),
-                            agreement: formatConfidence(t, evidence.otsuAdaptiveAgreement),
-                        })
+                              border: formatConfidence(t, evidence.darkBorderCoverage),
+                              agreement: formatConfidence(t, evidence.otsuAdaptiveAgreement),
+                          })
                         : null,
                 ],
                 [
                     t('scanCleanup.pages.diagnostics.despeckleFallback'),
                     diagnostics.despeckleFallback === undefined
                         ? null
-                        : t(diagnostics.despeckleFallback
-                            ? 'scanCleanup.pages.diagnostics.fallbackUsed'
-                            : 'scanCleanup.pages.diagnostics.fallbackNotUsed'),
+                        : t(
+                              diagnostics.despeckleFallback
+                                  ? 'scanCleanup.pages.diagnostics.fallbackUsed'
+                                  : 'scanCleanup.pages.diagnostics.fallbackNotUsed',
+                          ),
                 ],
             ]),
         },
@@ -331,33 +340,32 @@ export function scanCleanupPageDiagnosticGroups(
                         confidence: formatConfidence(t, diagnostics.layoutConfidence),
                     }),
                 ],
-                [
-                    t('scanCleanup.pages.diagnostics.deskew'),
-                    deskew,
-                ],
+                [t('scanCleanup.pages.diagnostics.deskew'), deskew],
                 [
                     t('scanCleanup.pages.diagnostics.sideConfidence'),
                     sideConfidence
-                        ? ([
-                            'left',
-                            'top',
-                            'right',
-                            'bottom',
-                        ] as const).map(side => t('scanCleanup.pages.diagnostics.sideConfidenceValue', {
-                            side: t(`scanCleanup.pages.diagnostics.trimSide.${side}`),
-                            confidence: formatConfidence(t, sideConfidence[side]),
-                        })).join(' · ')
+                        ? (['left', 'top', 'right', 'bottom'] as const)
+                              .map((side) =>
+                                  t('scanCleanup.pages.diagnostics.sideConfidenceValue', {
+                                      side: t(`scanCleanup.pages.diagnostics.trimSide.${side}`),
+                                      confidence: formatConfidence(t, sideConfidence[side]),
+                                  }),
+                              )
+                              .join(' · ')
                         : null,
                 ],
                 [
                     t('scanCleanup.pages.diagnostics.dewarp'),
                     diagnostics.autoDewarpAttempted === true
-                        ? t(diagnostics.dewarpApplied
-                            ? 'scanCleanup.pages.diagnostics.dewarpApplied'
-                            : 'scanCleanup.pages.diagnostics.dewarpGated', {confidence: formatConfidence(t, diagnostics.dewarpConfidence)})
+                        ? t(
+                              diagnostics.dewarpApplied
+                                  ? 'scanCleanup.pages.diagnostics.dewarpApplied'
+                                  : 'scanCleanup.pages.diagnostics.dewarpGated',
+                              {confidence: formatConfidence(t, diagnostics.dewarpConfidence)},
+                          )
                         : null,
                 ],
             ]),
         },
-    ].filter(group => group.rows.length > 0 || group.notes.length > 0);
+    ].filter((group) => group.rows.length > 0 || group.notes.length > 0);
 }

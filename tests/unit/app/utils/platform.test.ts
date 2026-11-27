@@ -1,12 +1,7 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type { IHostCapability } from '@contracts/hostPlatformFeature';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
-import { shouldPreferDesktopPlatform } from '@app/utils/platform';
+import {describe, expect, it, vi} from 'vitest';
+import type {IHostCapability} from '@contracts/hostPlatformFeature';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
+import {shouldPreferDesktopPlatform} from '@app/utils/platform';
 
 describe('platform runtime detection', () => {
     it('prefers the desktop platform only when runtime state or the bridge requires it', () => {
@@ -21,13 +16,13 @@ describe('platform runtime detection', () => {
         let browserPlatformImportCount = 0;
         vi.doMock('@app/platform/browserPlatformApi', () => {
             browserPlatformImportCount += 1;
-            return { browserPlatformApi: { shell: { openExternal: vi.fn().mockResolvedValue(undefined) } } };
+            return {browserPlatformApi: {shell: {openExternal: vi.fn().mockResolvedValue(undefined)}}};
         });
 
-        const electronAPI = createElectronPlatformApiFixture({ shell: { openExternal: vi.fn().mockResolvedValue(undefined) } });
-        vi.stubGlobal('window', { electronAPI });
+        const electronAPI = createElectronPlatformApiFixture({shell: {openExternal: vi.fn().mockResolvedValue(undefined)}});
+        vi.stubGlobal('window', {electronAPI});
 
-        const { getPlatformAPI } = await import('@app/utils/platform');
+        const {getPlatformAPI} = await import('@app/utils/platform');
 
         await getPlatformAPI().shell.openExternal('https://example.com');
         expect(electronAPI.shell.openExternal).toHaveBeenCalledWith('https://example.com');
@@ -43,18 +38,19 @@ describe('platform runtime detection', () => {
         const openExternal = vi.fn().mockResolvedValue(undefined);
         vi.doMock('@app/platform/browserPlatformApi', async () => {
             browserPlatformImportCount += 1;
-            const { browserHostCapability } = await vi.importActual<{ browserHostCapability: IHostCapability }>('@app/platform/browser-api/browserHostCapability');
-            return {browserPlatformApi: {
-                host: browserHostCapability,
-                shell: { openExternal },
-            }};
+            const {browserHostCapability} = await vi.importActual<{browserHostCapability: IHostCapability}>(
+                '@app/platform/browser-api/browserHostCapability',
+            );
+            return {
+                browserPlatformApi: {
+                    host: browserHostCapability,
+                    shell: {openExternal},
+                },
+            };
         });
         vi.stubGlobal('window', {});
 
-        const {
-            getPlatformAPI,
-            loadBrowserPlatformApi,
-        } = await import('@app/utils/platform');
+        const {getPlatformAPI, loadBrowserPlatformApi} = await import('@app/utils/platform');
 
         expect(() => getPlatformAPI()).toThrow('before the browser-platform plugin loaded it');
         await loadBrowserPlatformApi();
@@ -76,7 +72,7 @@ describe('platform runtime detection', () => {
         const exitFullscreen = vi.fn();
         const requestFullscreen = vi.fn();
         const document = {
-            documentElement: { requestFullscreen },
+            documentElement: {requestFullscreen},
             exitFullscreen,
             fullscreenElement: null as object | null,
             fullscreenEnabled: true,

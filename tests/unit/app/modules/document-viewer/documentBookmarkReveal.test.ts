@@ -1,18 +1,11 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     getDocumentBookmarkVisibleRows,
     resolveDocumentBookmarkRevealRowIndex,
     type IDocumentBookmarkTreeItem,
 } from '@app/modules/document-viewer/bookmarks/documentBookmarks';
 
-function bookmark(
-    id: string,
-    children: IDocumentBookmarkTreeItem[] = [],
-): IDocumentBookmarkTreeItem {
+function bookmark(id: string, children: IDocumentBookmarkTreeItem[] = []): IDocumentBookmarkTreeItem {
     return {
         id,
         title: `Bookmark ${id}`,
@@ -21,16 +14,10 @@ function bookmark(
     };
 }
 
-const items = [
-    bookmark('a', [
-        bookmark('a1', [bookmark('a2')]),
-        bookmark('a3'),
-    ]),
-    bookmark('b'),
-];
+const items = [bookmark('a', [bookmark('a1', [bookmark('a2')]), bookmark('a3')]), bookmark('b')];
 
 function rowIds(rows: ReturnType<typeof getDocumentBookmarkVisibleRows>) {
-    return rows.map(row => row.item.id);
+    return rows.map((row) => row.item.id);
 }
 
 describe('document bookmark visible rows', () => {
@@ -41,59 +28,28 @@ describe('document bookmark visible rows', () => {
             activePathIds: new Set(),
         });
 
-        expect(rowIds(rows)).toEqual([
-            'a',
-            'a1',
-            'a2',
-            'a3',
-            'b',
-        ]);
-        expect(rows.map(row => row.depth)).toEqual([
-            0,
-            1,
-            2,
-            1,
-            0,
-        ]);
+        expect(rowIds(rows)).toEqual(['a', 'a1', 'a2', 'a3', 'b']);
+        expect(rows.map((row) => row.depth)).toEqual([0, 1, 2, 1, 0]);
     });
 
     it('renders only expanded branches in top-level mode', () => {
         const rows = getDocumentBookmarkVisibleRows(items, {
             displayMode: 'top-level',
             expandedIds: new Set(['a']),
-            activePathIds: new Set([
-                'a',
-                'a1',
-                'a2',
-            ]),
+            activePathIds: new Set(['a', 'a1', 'a2']),
         });
 
-        expect(rowIds(rows)).toEqual([
-            'a',
-            'a1',
-            'a3',
-            'b',
-        ]);
+        expect(rowIds(rows)).toEqual(['a', 'a1', 'a3', 'b']);
     });
 
     it('renders the active path in current-expanded mode', () => {
         const rows = getDocumentBookmarkVisibleRows(items, {
             displayMode: 'current-expanded',
             expandedIds: new Set(),
-            activePathIds: new Set([
-                'a',
-                'a1',
-                'a2',
-            ]),
+            activePathIds: new Set(['a', 'a1', 'a2']),
         });
 
-        expect(rowIds(rows)).toEqual([
-            'a',
-            'a1',
-            'a2',
-            'a3',
-            'b',
-        ]);
+        expect(rowIds(rows)).toEqual(['a', 'a1', 'a2', 'a3', 'b']);
     });
 
     it('keeps manually expanded branches open when the active path changes', () => {
@@ -103,21 +59,12 @@ describe('document bookmark visible rows', () => {
             activePathIds: new Set(['b']),
         });
 
-        expect(rowIds(rows)).toEqual([
-            'a',
-            'a1',
-            'a3',
-            'b',
-        ]);
+        expect(rowIds(rows)).toEqual(['a', 'a1', 'a3', 'b']);
     });
 });
 
 describe('resolveDocumentBookmarkRevealRowIndex', () => {
-    const activePathIds = new Set([
-        'a',
-        'a1',
-        'a2',
-    ]);
+    const activePathIds = new Set(['a', 'a1', 'a2']);
 
     it('reveals the active row when it is rendered', () => {
         const rows = getDocumentBookmarkVisibleRows(items, {

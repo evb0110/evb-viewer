@@ -1,12 +1,5 @@
-import type {
-    IAnnotationCommentSummary,
-    TAnnotationStableKey,
-} from '@app/types/annotations';
-import {
-    asAnnotationId,
-    deriveAnnotationId,
-    type AnnotationId,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {IAnnotationCommentSummary, TAnnotationStableKey} from '@app/types/annotations';
+import {asAnnotationId, deriveAnnotationId, type AnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 export interface IComputeSummaryStableKeyParams {
     pageIndex: number;
@@ -31,11 +24,7 @@ export function computeSummaryStableKey(params: IComputeSummaryStableKeyParams):
     // the same two-arm shape even while PDF.js still exposes its legacy ids.
     const annotationId = params.annotationId?.trim();
     const uid = params.uid?.trim();
-    const externalId = annotationId?.length
-        ? annotationId
-        : uid?.length
-            ? uid
-            : `${params.source}:${params.id}`;
+    const externalId = annotationId?.length ? annotationId : uid?.length ? uid : `${params.source}:${params.id}`;
     return `ann:${params.pageIndex}:${externalId}`;
 }
 
@@ -44,12 +33,6 @@ export function annotationIdForSummary(summary: TAnnotationCommentMatchInput): A
     if (summary.appAnnotationId) {
         return asAnnotationId(summary.appAnnotationId);
     }
-    const explicitExternalIdentity = summary.annotationName
-        ?? summary.annotationId
-        ?? summary.uid
-        ?? summary.id;
-    return deriveAnnotationId(
-        'legacy-annotation-summary-binding',
-        `${summary.source}:${summary.pageIndex}:${explicitExternalIdentity}`,
-    );
+    const explicitExternalIdentity = summary.annotationName ?? summary.annotationId ?? summary.uid ?? summary.id;
+    return deriveAnnotationId('legacy-annotation-summary-binding', `${summary.source}:${summary.pageIndex}:${explicitExternalIdentity}`);
 }

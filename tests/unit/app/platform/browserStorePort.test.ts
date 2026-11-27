@@ -1,18 +1,6 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    appendPdfMutationsToStoreFile,
-    createWorkerStorePort,
-    openBrowserStorePort,
-} from '@app/platform/browser/browserStorePort';
-import type {
-    TOpfsOperations,
-    TOpfsRequest,
-} from '@app/platform/browser/opfsStore.worker';
+import {describe, expect, it, vi} from 'vitest';
+import {appendPdfMutationsToStoreFile, createWorkerStorePort, openBrowserStorePort} from '@app/platform/browser/browserStorePort';
+import type {TOpfsOperations, TOpfsRequest} from '@app/platform/browser/opfsStore.worker';
 
 class MockStoreWorker extends EventTarget {
     readonly sent: TOpfsRequest[] = [];
@@ -21,10 +9,12 @@ class MockStoreWorker extends EventTarget {
         error?: {name: string; message: string};
     } | null;
 
-    constructor(handler: (request: TOpfsRequest) => {
-        result?: unknown;
-        error?: {name: string; message: string};
-    } | null) {
+    constructor(
+        handler: (request: TOpfsRequest) => {
+            result?: unknown;
+            error?: {name: string; message: string};
+        } | null,
+    ) {
         super();
         this.handler = handler;
     }
@@ -40,12 +30,14 @@ class MockStoreWorker extends EventTarget {
             return;
         }
         queueMicrotask(() => {
-            this.dispatchEvent(new MessageEvent('message', {
-                data: {
-                    id: request.id,
-                    ...reply,
-                },
-            }));
+            this.dispatchEvent(
+                new MessageEvent('message', {
+                    data: {
+                        id: request.id,
+                        ...reply,
+                    },
+                }),
+            );
         });
     }
 
@@ -61,23 +53,40 @@ describe('browserStorePort typed worker RPC', () => {
         const payload = new Uint8Array([1, 2, 3]);
         const worker = new MockStoreWorker((request) => {
             switch (request.op) {
-                case 'probe': return {result: true};
-                case 'list': return {result: ['manifest.json']};
-                case 'read': return {result: payload};
-                case 'writeAtomic': return {result: undefined};
-                case 'open': return {result: 7};
-                case 'size': return {result: 3};
-                case 'readAt': return {result: payload.subarray(1, 3)};
-                case 'witness': return {result: 'content-v2:file'};
-                case 'witnessBlob': return {result: 'content-v2:blob'};
-                case 'writeAt': return {result: undefined};
-                case 'truncate': return {result: undefined};
-                case 'flush': return {result: undefined};
-                case 'close': return {result: undefined};
-                case 'copyIn': return {result: undefined};
-                case 'copy': return {result: undefined};
-                case 'remove': return {error: {name: 'QuotaExceededError', message: 'disk full'}};
-                case 'appendPdfMutations': return {result: {status: 'failed', error: {code: 'invalid-request', message: 'synthetic'}}};
+                case 'probe':
+                    return {result: true};
+                case 'list':
+                    return {result: ['manifest.json']};
+                case 'read':
+                    return {result: payload};
+                case 'writeAtomic':
+                    return {result: undefined};
+                case 'open':
+                    return {result: 7};
+                case 'size':
+                    return {result: 3};
+                case 'readAt':
+                    return {result: payload.subarray(1, 3)};
+                case 'witness':
+                    return {result: 'content-v2:file'};
+                case 'witnessBlob':
+                    return {result: 'content-v2:blob'};
+                case 'writeAt':
+                    return {result: undefined};
+                case 'truncate':
+                    return {result: undefined};
+                case 'flush':
+                    return {result: undefined};
+                case 'close':
+                    return {result: undefined};
+                case 'copyIn':
+                    return {result: undefined};
+                case 'copy':
+                    return {result: undefined};
+                case 'remove':
+                    return {error: {name: 'QuotaExceededError', message: 'disk full'}};
+                case 'appendPdfMutations':
+                    return {result: {status: 'failed', error: {code: 'invalid-request', message: 'synthetic'}}};
             }
         });
 
@@ -110,7 +119,7 @@ describe('browserStorePort typed worker RPC', () => {
             message: 'disk full',
         });
 
-        expect(worker.sent.map(request => request.op)).toEqual([
+        expect(worker.sent.map((request) => request.op)).toEqual([
             'probe',
             'list',
             'read',
@@ -154,7 +163,7 @@ describe('browserStorePort typed worker RPC', () => {
         try {
             const opened = await openBrowserStorePort(() => failingWorker as unknown as Worker);
 
-            expect(failingWorker.sent.map(request => request.op)).toEqual(['probe']);
+            expect(failingWorker.sent.map((request) => request.op)).toEqual(['probe']);
             expect(opened.durable).toBe(false);
             await opened.port.writeAtomic('docs/test.txt', new Uint8Array([65, 66]));
             expect(await opened.port.read('docs/test.txt')).toEqual(new Uint8Array([65, 66]));
@@ -185,12 +194,6 @@ describe('browserStorePort typed worker RPC', () => {
             args: [],
         };
 
-        expect([validProbe.op, validReadAt.op, _returnTypes.length, _invalidArgs.id, _unknownOp.id]).toEqual([
-            'probe',
-            'readAt',
-            3,
-            3,
-            4,
-        ]);
+        expect([validProbe.op, validReadAt.op, _returnTypes.length, _invalidArgs.id, _unknownOp.id]).toEqual(['probe', 'readAt', 3, 3, 4]);
     });
 });

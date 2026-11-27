@@ -1,26 +1,105 @@
 <template>
-    <div class="model-picker-content" data-model-picker-content>
-        <div v-if="showRail" ref="rail" class="picker-rail" role="toolbar" aria-orientation="vertical" :aria-label="t('assistant.providers')" @keydown="handleRailKeydown">
-            <span v-if="indicatorTop !== null" class="rail-indicator" :style="{ top: `${indicatorTop}px` }" aria-hidden="true" />
-            <AppTooltip :text="t('assistant.favorites')" :content="railTooltip">
-                <button type="button" class="rail-button" data-rail-tab="favorites" :aria-label="t('assistant.favorites')" :aria-pressed="tab === 'favorites'" :tabindex="tab === 'favorites' ? 0 : -1" @click="selectTab('favorites')">
-                    <UIcon name="i-ph-star-fill" class="rail-star" />
+    <div
+        class="model-picker-content"
+        data-model-picker-content
+    >
+        <div
+            v-if="showRail"
+            ref="rail"
+            class="picker-rail"
+            role="toolbar"
+            aria-orientation="vertical"
+            :aria-label="t('assistant.providers')"
+            @keydown="handleRailKeydown"
+        >
+            <span
+                v-if="indicatorTop !== null"
+                class="rail-indicator"
+                :style="{top: `${indicatorTop}px`}"
+                aria-hidden="true"
+            />
+            <AppTooltip
+                :text="t('assistant.favorites')"
+                :content="railTooltip"
+            >
+                <button
+                    type="button"
+                    class="rail-button"
+                    data-rail-tab="favorites"
+                    :aria-label="t('assistant.favorites')"
+                    :aria-pressed="tab === 'favorites'"
+                    :tabindex="tab === 'favorites' ? 0 : -1"
+                    @click="selectTab('favorites')"
+                >
+                    <UIcon
+                        name="i-ph-star-fill"
+                        class="rail-star"
+                    />
                 </button>
             </AppTooltip>
-            <span class="rail-separator" aria-hidden="true" />
-            <AppTooltip v-for="item in railItems" :key="item.id" :text="item.description" :content="railTooltip">
-                <button type="button" class="rail-button" :data-rail-tab="item.id" :aria-label="item.description" :aria-pressed="item.isSelected" :disabled="item.disabled" :tabindex="item.tabindex" @click="selectTab(item.id)">
-                    <AssistantProviderIcon class="rail-icon" :provider="item.driver" :badge="item.badge" />
+            <span
+                class="rail-separator"
+                aria-hidden="true"
+            />
+            <AppTooltip
+                v-for="item in railItems"
+                :key="item.id"
+                :text="item.description"
+                :content="railTooltip"
+            >
+                <button
+                    type="button"
+                    class="rail-button"
+                    :data-rail-tab="item.id"
+                    :aria-label="item.description"
+                    :aria-pressed="item.isSelected"
+                    :disabled="item.disabled"
+                    :tabindex="item.tabindex"
+                    @click="selectTab(item.id)"
+                >
+                    <AssistantProviderIcon
+                        class="rail-icon"
+                        :provider="item.driver"
+                        :badge="item.badge"
+                    />
                 </button>
             </AppTooltip>
         </div>
-        <div class="picker-list-column" :class="{ 'has-rail': showRail }">
+        <div
+            class="picker-list-column"
+            :class="{'has-rail': showRail}"
+        >
             <div class="picker-search">
-                <UIcon name="i-ph-magnifying-glass" class="search-icon" />
-                <input ref="search" v-model="query" class="search-input" type="text" role="combobox" aria-autocomplete="list" aria-expanded="true" :aria-controls="listId" :aria-activedescendant="activeDescendantId" :placeholder="t('assistant.searchModels')" :aria-label="t('assistant.searchModels')" @keydown="handleSearchKeydown">
+                <UIcon
+                    name="i-ph-magnifying-glass"
+                    class="search-icon"
+                />
+                <input
+                    ref="search"
+                    v-model="query"
+                    class="search-input"
+                    type="text"
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-expanded="true"
+                    :aria-controls="listId"
+                    :aria-activedescendant="activeDescendantId"
+                    :placeholder="t('assistant.searchModels')"
+                    :aria-label="t('assistant.searchModels')"
+                    @keydown="handleSearchKeydown"
+                />
             </div>
-            <div :id="listId" ref="list" class="picker-list app-scrollbar" role="listbox" :aria-label="t('assistant.searchModels')">
-                <template v-for="(row, index) in renderedRows" :key="row.key">
+            <div
+                :id="listId"
+                ref="list"
+                class="picker-list app-scrollbar"
+                role="listbox"
+                :aria-label="t('assistant.searchModels')"
+            >
+                <template
+                    v-for="(row, index) in renderedRows"
+                    :key="row.key"
+                >
                     <!-- The star is a separate control, so it sits beside the option rather than inside it. -->
                     <div
                         v-if="row.kind === 'model'"
@@ -30,16 +109,46 @@
                         @pointermove="highlighted = row.key"
                         @click="pick(row.item)"
                     >
-                        <div :id="row.optionId" class="row-option" role="option" :aria-selected="row.isActive">
-                            <AssistantProviderIcon class="row-icon" :provider="row.item.instance.driver" :badge="row.badge" />
-                            <span class="row-name" :title="row.item.model.label">{{ row.item.model.label }}<span class="sr-only">, {{ row.item.instance.label }}</span></span>
-                            <UIcon v-if="row.isActive" name="i-ph-check" class="row-check" />
+                        <div
+                            :id="row.optionId"
+                            class="row-option"
+                            role="option"
+                            :aria-selected="row.isActive"
+                        >
+                            <AssistantProviderIcon
+                                class="row-icon"
+                                :provider="row.item.instance.driver"
+                                :badge="row.badge"
+                            />
+                            <span
+                                class="row-name"
+                                :title="row.item.model.label"
+                                >{{ row.item.model.label }}<span class="sr-only">, {{ row.item.instance.label }}</span></span
+                            >
+                            <UIcon
+                                v-if="row.isActive"
+                                name="i-ph-check"
+                                class="row-check"
+                            />
                         </div>
                         <span class="row-trailing">
-                            <button type="button" class="row-star" :class="{ 'is-favorite': row.item.isFavorite, 'on-hover': row.hideStarUntilHover }" :aria-label="row.favoriteLabel" :aria-pressed="row.item.isFavorite" @keydown.stop @click.stop="toggleFavorite(row.item.instance.id, row.item.model.id)">
+                            <button
+                                type="button"
+                                class="row-star"
+                                :class="{'is-favorite': row.item.isFavorite, 'on-hover': row.hideStarUntilHover}"
+                                :aria-label="row.favoriteLabel"
+                                :aria-pressed="row.item.isFavorite"
+                                @keydown.stop
+                                @click.stop="toggleFavorite(row.item.instance.id, row.item.model.id)"
+                            >
                                 <UIcon :name="row.favoriteIcon" />
                             </button>
-                            <kbd v-if="row.jumpLabel" class="row-kbd" aria-hidden="true">{{ row.jumpLabel }}</kbd>
+                            <kbd
+                                v-if="row.jumpLabel"
+                                class="row-kbd"
+                                aria-hidden="true"
+                                >{{ row.jumpLabel }}</kbd
+                            >
                         </span>
                     </div>
                     <div
@@ -57,19 +166,21 @@
                         {{ row.label }}
                     </div>
                 </template>
-                <p v-if="!renderedRows.length" class="picker-empty">{{ emptyMessage }}</p>
+                <p
+                    v-if="!renderedRows.length"
+                    class="picker-empty"
+                    >{{ emptyMessage }}</p
+                >
             </div>
         </div>
     </div>
 </template>
 
 <script setup lang="ts">
-import { useEventListener } from '@vueuse/core';
-import type {
-    IAssistantInstanceStatus, IAssistantSelection,
-} from '@contracts/assistant';
+import {useEventListener} from '@vueuse/core';
+import type {IAssistantInstanceStatus, IAssistantSelection} from '@contracts/assistant';
 import AssistantProviderIcon from '@app/modules/agent-panel/components/AssistantProviderIcon.vue';
-import { useAssistantModelFavorites } from '@app/modules/agent-panel/composables/useAssistantModelFavorites';
+import {useAssistantModelFavorites} from '@app/modules/agent-panel/composables/useAssistantModelFavorites';
 import {
     instanceBadge,
     isPickableInstance,
@@ -80,32 +191,31 @@ import {
     type IModelPickerItem,
     type TModelPickerTab,
 } from '@app/modules/agent-panel/utils/assistantModelPicker';
-import { useTypedI18n } from '@app/composables/useTypedI18n';
+import {useTypedI18n} from '@app/composables/useTypedI18n';
 
-type TRow = { kind: 'model'; key: string; item: IModelPickerItem } | { kind: 'more'; key: string; expanded: boolean };
-type TRenderedRow = {
-    kind: 'model';
-    key: string;
-    optionId: string;
-    item: IModelPickerItem;
-    isActive: boolean;
-    badge: ReturnType<typeof instanceBadge>;
-    favoriteLabel: string;
-    favoriteIcon: string;
-    hideStarUntilHover: boolean;
-    jumpLabel: string | undefined;
-} | {
-    kind: 'more';
-    key: string;
-    optionId: string;
-    expanded: boolean;
-    label: string;
-};
+type TRow = {kind: 'model'; key: string; item: IModelPickerItem} | {kind: 'more'; key: string; expanded: boolean};
+type TRenderedRow =
+    | {
+          kind: 'model';
+          key: string;
+          optionId: string;
+          item: IModelPickerItem;
+          isActive: boolean;
+          badge: ReturnType<typeof instanceBadge>;
+          favoriteLabel: string;
+          favoriteIcon: string;
+          hideStarUntilHover: boolean;
+          jumpLabel: string | undefined;
+      }
+    | {
+          kind: 'more';
+          key: string;
+          optionId: string;
+          expanded: boolean;
+          label: string;
+      };
 
-const {
-    instances,
-    selection,
-} = defineProps<{
+const {instances, selection} = defineProps<{
     instances: IAssistantInstanceStatus[];
     selection: IAssistantSelection | null;
 }>();
@@ -114,15 +224,13 @@ const emit = defineEmits<{
     focusEffort: [];
     close: [];
 }>();
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 const listId = useId();
 const search = ref<HTMLInputElement | null>(null);
 const list = ref<HTMLElement | null>(null);
 const rail = ref<HTMLElement | null>(null);
 const query = ref('');
-const {
-    favoriteKeys, toggleFavorite,
-} = useAssistantModelFavorites();
+const {favoriteKeys, toggleFavorite} = useAssistantModelFavorites();
 // Beside the rail, like T3 Code, so the list stays readable under the pointer.
 const railTooltip = {
     side: 'left',
@@ -137,87 +245,98 @@ const stateKeys = {
     missing: 'assistant.stateMissing',
 } as const;
 
-const railInstances = computed(() => instances.filter(instance => instance.enabled && instance.state !== 'disabled'));
-const activeKey = computed(() => selection ? modelPickerKey(selection.instanceId, selection.model) : null);
-const items = computed(() => instances.filter(isPickableInstance).flatMap(instance => instance.models.map((model): IModelPickerItem => {
-    const key = modelPickerKey(instance.id, model.id);
-    return {
-        key,
-        instance,
-        model,
-        isFavorite: favoriteKeys.value.has(key),
-    };
-})));
+const railInstances = computed(() => instances.filter((instance) => instance.enabled && instance.state !== 'disabled'));
+const activeKey = computed(() => (selection ? modelPickerKey(selection.instanceId, selection.model) : null));
+const items = computed(() =>
+    instances.filter(isPickableInstance).flatMap((instance) =>
+        instance.models.map((model): IModelPickerItem => {
+            const key = modelPickerKey(instance.id, model.id);
+            return {
+                key,
+                instance,
+                model,
+                isFavorite: favoriteKeys.value.has(key),
+            };
+        }),
+    ),
+);
 // Opens on Favorites when one can be picked, else on the selected model's provider (T3 Code).
 const chosenTab = ref<TModelPickerTab | null>(null);
-const tab = computed((): TModelPickerTab => chosenTab.value
-    ?? (items.value.some(item => item.isFavorite) ? 'favorites' : (selection?.instanceId ?? railInstances.value[0]?.id ?? 'favorites')));
+const tab = computed(
+    (): TModelPickerTab =>
+        chosenTab.value ??
+        (items.value.some((item) => item.isFavorite) ? 'favorites' : (selection?.instanceId ?? railInstances.value[0]?.id ?? 'favorites')),
+);
 // Older models stay folded unless the selected model is one of them; each toggle flips that default.
 const toggledLegacy = ref(new Set<string>());
-const activeItem = computed(() => items.value.find(item => item.key === activeKey.value));
+const activeItem = computed(() => items.value.find((item) => item.key === activeKey.value));
 function isLegacyExpanded(instanceId: string) {
-    const holdsActive = activeItem.value?.instance.id === instanceId && activeItem.value.model.isLegacy === true && !activeItem.value.isFavorite;
+    const holdsActive =
+        activeItem.value?.instance.id === instanceId && activeItem.value.model.isLegacy === true && !activeItem.value.isFavorite;
     return holdsActive !== toggledLegacy.value.has(instanceId);
 }
 const isSearching = computed(() => query.value.trim().length > 0);
 
 const rows = computed((): TRow[] => {
-    if (isSearching.value) return rankModelSearch(items.value, query.value).map(item => ({
-        kind: 'model',
-        key: item.key,
-        item,
-    }));
-    if (tab.value === 'favorites') return items.value.filter(item => item.isFavorite).map(item => ({
-        kind: 'model',
-        key: item.key,
-        item,
-    }));
-    const own = items.value.filter(item => item.instance.id === tab.value);
-    const current = [
-        ...own.filter(item => item.isFavorite),
-        ...own.filter(item => !item.isFavorite && !item.model.isLegacy),
-    ];
-    const legacy = own.filter(item => !item.isFavorite && item.model.isLegacy);
+    if (isSearching.value) {
+        return rankModelSearch(items.value, query.value).map((item) => ({
+            kind: 'model',
+            key: item.key,
+            item,
+        }));
+    }
+    if (tab.value === 'favorites') {
+        return items.value
+            .filter((item) => item.isFavorite)
+            .map((item) => ({
+                kind: 'model',
+                key: item.key,
+                item,
+            }));
+    }
+    const own = items.value.filter((item) => item.instance.id === tab.value);
+    const current = [...own.filter((item) => item.isFavorite), ...own.filter((item) => !item.isFavorite && !item.model.isLegacy)];
+    const legacy = own.filter((item) => !item.isFavorite && item.model.isLegacy);
     const expanded = isLegacyExpanded(tab.value);
     return [
-        ...[
-            ...current,
-            ...(expanded ? legacy : []),
-        ].map((item): TRow => ({
+        ...[...current, ...(expanded ? legacy : [])].map((item): TRow => ({
             kind: 'model',
             key: item.key,
             item,
         })),
-        ...(legacy.length ? [{
-            kind: 'more' as const,
-            key: `more:${tab.value}`,
-            expanded,
-        }] : []),
+        ...(legacy.length
+            ? [
+                  {
+                      kind: 'more' as const,
+                      key: `more:${tab.value}`,
+                      expanded,
+                  },
+              ]
+            : []),
     ];
 });
-const modelRows = computed(() => rows.value.flatMap(row => row.kind === 'model' ? [row] : []));
-const jumpLabels = computed(() => new Map(modelRows.value.slice(0, 9).map((row, index) => [
-    row.key,
-    modelJumpLabel(index),
-])));
+const modelRows = computed(() => rows.value.flatMap((row) => (row.kind === 'model' ? [row] : [])));
+const jumpLabels = computed(() => new Map(modelRows.value.slice(0, 9).map((row, index) => [row.key, modelJumpLabel(index)])));
 const showRail = computed(() => !isSearching.value && railInstances.value.length > 0);
-const railItems = computed(() => railInstances.value.map(instance => {
-    const isSelected = tab.value === instance.id;
-    return {
-        id: instance.id,
-        driver: instance.driver,
-        badge: instanceBadge(instance, instances),
-        description: describeInstance(instance),
-        isSelected,
-        disabled: !isPickableInstance(instance),
-        tabindex: isSelected ? 0 : -1,
-    };
-}));
+const railItems = computed(() =>
+    railInstances.value.map((instance) => {
+        const isSelected = tab.value === instance.id;
+        return {
+            id: instance.id,
+            driver: instance.driver,
+            badge: instanceBadge(instance, instances),
+            description: describeInstance(instance),
+            isSelected,
+            disabled: !isPickableInstance(instance),
+            tabindex: isSelected ? 0 : -1,
+        };
+    }),
+);
 const renderedRows = computed<TRenderedRow[]>(() => {
     const hideStarUntilHover = tab.value === 'favorites' && !isSearching.value;
     return rows.value.map((row): TRenderedRow => {
         if (row.kind === 'model') {
-            const { item } = row;
+            const {item} = row;
             const isFavorite = item.isFavorite;
             return {
                 kind: 'model',
@@ -241,37 +360,51 @@ const renderedRows = computed<TRenderedRow[]>(() => {
         };
     });
 });
-const emptyMessage = computed(() => t(tab.value === 'favorites' && !isSearching.value ? 'assistant.noFavorites' : 'assistant.noModelsFound'));
+const emptyMessage = computed(() =>
+    t(tab.value === 'favorites' && !isSearching.value ? 'assistant.noFavorites' : 'assistant.noModelsFound'),
+);
 const highlighted = ref<string | null>(null);
 const activeDescendantId = computed(() => (highlighted.value ? optionId(highlighted.value) : undefined));
 // A changed list highlights the selected model when it shows, else the first row.
-watch(rows, value => {
-    if (value.some(row => row.key === highlighted.value)) return;
-    highlighted.value = value.find(row => row.key === activeKey.value)?.key ?? value[0]?.key ?? null;
-}, { immediate: true });
+watch(
+    rows,
+    (value) => {
+        if (value.some((row) => row.key === highlighted.value)) {
+            return;
+        }
+        highlighted.value = value.find((row) => row.key === activeKey.value)?.key ?? value[0]?.key ?? null;
+    },
+    {immediate: true},
+);
 
 const indicatorTop = ref<number | null>(null);
-watch([
-    tab,
-    rail,
-    railInstances,
-], async () => {
-    await nextTick();
-    const button = Array.from(rail.value?.querySelectorAll<HTMLElement>('[data-rail-tab]') ?? []).find(item => item.dataset.railTab === tab.value);
-    indicatorTop.value = button ? button.offsetTop + button.offsetHeight / 2 - 10 : null;
-}, { immediate: true });
+watch(
+    [tab, rail, railInstances],
+    async () => {
+        await nextTick();
+        const button = Array.from(rail.value?.querySelectorAll<HTMLElement>('[data-rail-tab]') ?? []).find(
+            (item) => item.dataset.railTab === tab.value,
+        );
+        indicatorTop.value = button ? button.offsetTop + button.offsetHeight / 2 - 10 : null;
+    },
+    {immediate: true},
+);
 
 function optionId(key: string) {
-    return `${listId}-${Array.from(key).reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 7).toString(36)}`;
+    return `${listId}-${Array.from(key)
+        .reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 7)
+        .toString(36)}`;
 }
 
 function describeInstance(instance: IAssistantInstanceStatus) {
-    if (isPickableInstance(instance)) return instance.label;
+    if (isPickableInstance(instance)) {
+        return instance.label;
+    }
     return `${instance.label}: ${t(stateKeys[instance.state])}${instance.message ? `. ${instance.message}` : ''}`;
 }
 
 function focusSearch() {
-    search.value?.focus({ preventScroll: true });
+    search.value?.focus({preventScroll: true});
 }
 
 function selectTab(next: TModelPickerTab) {
@@ -281,8 +414,11 @@ function selectTab(next: TModelPickerTab) {
 
 function toggleLegacy() {
     const next = new Set(toggledLegacy.value);
-    if (next.has(tab.value)) next.delete(tab.value);
-    else next.add(tab.value);
+    if (next.has(tab.value)) {
+        next.delete(tab.value);
+    } else {
+        next.add(tab.value);
+    }
     toggledLegacy.value = next;
 }
 
@@ -291,19 +427,23 @@ function pick(item: IModelPickerItem) {
 }
 
 function scrollHighlightedIntoView() {
-    nextTick(() => list.value?.querySelector('[data-highlighted]')?.scrollIntoView({ block: 'nearest' }));
+    nextTick(() => list.value?.querySelector('[data-highlighted]')?.scrollIntoView({block: 'nearest'}));
 }
 
 function moveHighlight(step: 1 | -1) {
-    const index = rows.value.findIndex(row => row.key === highlighted.value);
+    const index = rows.value.findIndex((row) => row.key === highlighted.value);
     const next = rows.value[Math.min(rows.value.length - 1, Math.max(0, index + step))];
-    if (!next) return;
+    if (!next) {
+        return;
+    }
     highlighted.value = next.key;
     scrollHighlightedIntoView();
 }
 
 function handleSearchKeydown(event: KeyboardEvent) {
-    if (event.isComposing) return;
+    if (event.isComposing) {
+        return;
+    }
     const plain = !event.altKey && !event.ctrlKey && !event.metaKey;
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault();
@@ -312,9 +452,12 @@ function handleSearchKeydown(event: KeyboardEvent) {
     }
     if (event.key === 'Enter') {
         event.preventDefault();
-        const row = rows.value.find(candidate => candidate.key === highlighted.value);
-        if (row?.kind === 'model') pick(row.item);
-        else if (row) toggleLegacy();
+        const row = rows.value.find((candidate) => candidate.key === highlighted.value);
+        if (row?.kind === 'model') {
+            pick(row.item);
+        } else if (row) {
+            toggleLegacy();
+        }
         return;
     }
     if (event.key === 'Escape') {
@@ -323,8 +466,9 @@ function handleSearchKeydown(event: KeyboardEvent) {
         return;
     }
     if (plain && ((event.key === 'ArrowLeft' && !event.shiftKey && !query.value) || (event.key === 'Tab' && event.shiftKey))) {
-        const button = rail.value?.querySelector<HTMLButtonElement>('button[aria-pressed="true"]:not(:disabled)')
-            ?? rail.value?.querySelector<HTMLButtonElement>('button:not(:disabled)');
+        const button =
+            rail.value?.querySelector<HTMLButtonElement>('button[aria-pressed="true"]:not(:disabled)') ??
+            rail.value?.querySelector<HTMLButtonElement>('button:not(:disabled)');
         if (button) {
             event.preventDefault();
             button.focus();
@@ -334,39 +478,57 @@ function handleSearchKeydown(event: KeyboardEvent) {
     // Right at the end of the text moves into the effort column; a highlighted model is picked first.
     if (plain && !event.shiftKey && event.key === 'ArrowRight' && search.value?.selectionStart === query.value.length) {
         event.preventDefault();
-        const row = rows.value.find(candidate => candidate.key === highlighted.value);
-        if (row?.kind === 'model' && row.key !== activeKey.value) pick(row.item);
-        else emit('focusEffort');
+        const row = rows.value.find((candidate) => candidate.key === highlighted.value);
+        if (row?.kind === 'model' && row.key !== activeKey.value) {
+            pick(row.item);
+        } else {
+            emit('focusEffort');
+        }
     }
 }
 
 function handleRailKeydown(event: KeyboardEvent) {
-    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+        return;
+    }
     if (event.key === 'ArrowRight') {
         event.preventDefault();
         focusSearch();
         return;
     }
-    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') {
+        return;
+    }
     const buttons = Array.from(rail.value?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? []);
-    const index = buttons.findIndex(button => button === document.activeElement);
+    const index = buttons.findIndex((button) => button === document.activeElement);
     const next = buttons[Math.min(buttons.length - 1, Math.max(0, index + (event.key === 'ArrowDown' ? 1 : -1)))];
     event.preventDefault();
     next?.focus();
 }
 
 // Capture gives the picker's ⌘1–⌘9 priority over the app's own shortcuts while it is open.
-useEventListener(window, 'keydown', (event: KeyboardEvent) => {
-    if (event.defaultPrevented || event.repeat || event.isComposing) return;
-    const index = modelJumpIndex(event);
-    if (index === null) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const row = modelRows.value[index];
-    if (row) pick(row.item);
-}, { capture: true });
+useEventListener(
+    window,
+    'keydown',
+    (event: KeyboardEvent) => {
+        if (event.defaultPrevented || event.repeat || event.isComposing) {
+            return;
+        }
+        const index = modelJumpIndex(event);
+        if (index === null) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        const row = modelRows.value[index];
+        if (row) {
+            pick(row.item);
+        }
+    },
+    {capture: true},
+);
 
-defineExpose({ focusSearch });
+defineExpose({focusSearch});
 </script>
 
 <style lang="scss" scoped>

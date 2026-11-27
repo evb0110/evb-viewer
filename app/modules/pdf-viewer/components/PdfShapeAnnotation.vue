@@ -20,7 +20,10 @@
         >
             <line
                 v-if="entity.tool === 'line' || entity.tool === 'arrow'"
-                :x1="line.x1" :y1="line.y1" :x2="line.x2" :y2="line.y2"
+                :x1="line.x1"
+                :y1="line.y1"
+                :x2="line.x2"
+                :y2="line.y2"
             />
             <ellipse
                 v-else-if="entity.tool === 'circle'"
@@ -34,7 +37,13 @@
                     :points="points"
                 />
             </template>
-            <rect v-else :x="entity.rect.left" :y="entity.rect.top" :width="entity.rect.width" :height="entity.rect.height" />
+            <rect
+                v-else
+                :x="entity.rect.left"
+                :y="entity.rect.top"
+                :width="entity.rect.width"
+                :height="entity.rect.height"
+            />
             <template v-if="pass === 'visual'">
                 <component
                     :is="head.closed ? 'polygon' : 'polyline'"
@@ -50,65 +59,50 @@
 </template>
 
 <script setup lang="ts">
-import type { IShapeEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import { toPdfScaledCssLength } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
-import type { IAnnotationPageDimensions } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
+import type {IShapeEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {toPdfScaledCssLength} from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
+import type {IAnnotationPageDimensions} from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
 
-const {
-    entity,
-    selected,
-    originalAppearance,
-    pageSize,
-} = defineProps<{
+const {entity, selected, originalAppearance, pageSize} = defineProps<{
     entity: IShapeEntity;
     selected: boolean;
     originalAppearance?: boolean;
     pageSize?: IAnnotationPageDimensions;
 }>();
-const renderPasses = [
-    'hit',
-    'visual',
-] as const;
-const strokePointSets = computed(() => entity.strokes?.length ? entity.strokes : entity.points ? [entity.points] : []);
-const drawStrokeTag = computed(() => (
-    entity.pdfSubtype === 'Polygon' ? 'polygon' : 'polyline'
-));
-const drawableStrokePoints = computed(() => strokePointSets.value
-    .filter(points => points.length > 1)
-    .map(formatPoints));
+const renderPasses = ['hit', 'visual'] as const;
+const strokePointSets = computed(() => (entity.strokes?.length ? entity.strokes : entity.points ? [entity.points] : []));
+const drawStrokeTag = computed(() => (entity.pdfSubtype === 'Polygon' ? 'polygon' : 'polyline'));
+const drawableStrokePoints = computed(() => strokePointSets.value.filter((points) => points.length > 1).map(formatPoints));
 const ellipse = computed(() => ({
     cx: entity.rect.left + entity.rect.width / 2,
     cy: entity.rect.top + entity.rect.height / 2,
     rx: Math.abs(entity.rect.width / 2),
     ry: Math.abs(entity.rect.height / 2),
 }));
-const linePoints = computed(() => entity.points?.length ? entity.points : entity.strokes?.[0] ?? []);
+const linePoints = computed(() => (entity.points?.length ? entity.points : (entity.strokes?.[0] ?? [])));
 // Drawing tools clamp to unit page space, but an imported line, polyline or
 // ink annotation authored elsewhere is not clamped and legitimately paints
 // past the page edge. Marking it here is what lets an observer tell that case
 // apart from an overlay that drifted off its page.
 const OUTSIDE_PAGE_EPSILON = 0.001;
 const isDrawnPastPageEdge = computed(() => {
-    const { rect } = entity;
+    const {rect} = entity;
     const coordinates = [
         rect.left,
         rect.top,
         rect.left + rect.width,
         rect.top + rect.height,
-        ...strokePointSets.value.flatMap(points => points.flatMap(point => [
-            point.x,
-            point.y,
-        ])),
+        ...strokePointSets.value.flatMap((points) => points.flatMap((point) => [point.x, point.y])),
     ];
-    return coordinates.some(value => (
-        value < -OUTSIDE_PAGE_EPSILON || value > 1 + OUTSIDE_PAGE_EPSILON
-    ));
+    return coordinates.some((value) => value < -OUTSIDE_PAGE_EPSILON || value > 1 + OUTSIDE_PAGE_EPSILON);
 });
-function formatPoints(points: ReadonlyArray<{
-    x: number;
-    y: number
-}>) {
-    return points.map(point => `${point.x},${point.y}`).join(' ');
+function formatPoints(
+    points: ReadonlyArray<{
+        x: number;
+        y: number;
+    }>,
+) {
+    return points.map((point) => `${point.x},${point.y}`).join(' ');
 }
 const line = computed(() => {
     const first = linePoints.value[0];
@@ -138,10 +132,7 @@ const arrowHeads = computed(() => {
             y: line.value.y2 * page.height,
         },
     ] as const;
-    const styles = [
-        entity.lineStartStyle ?? 'none',
-        entity.lineEndStyle ?? (entity.tool === 'arrow' ? 'closedArrow' : 'none'),
-    ];
+    const styles = [entity.lineStartStyle ?? 'none', entity.lineEndStyle ?? (entity.tool === 'arrow' ? 'closedArrow' : 'none')];
     return styles.flatMap((style, index) => {
         if (style === 'none') {
             return [];
@@ -156,23 +147,27 @@ const arrowHeads = computed(() => {
         const halfWidth = headLength * 0.35;
         const ux = (tip.x - other.x) / length;
         const uy = (tip.y - other.y) / length;
-        return [{
-            closed: style === 'closedArrow',
-            points: formatPoints([
-                {
-                    x: tip.x - ux * headLength - uy * halfWidth,
-                    y: tip.y - uy * headLength + ux * halfWidth,
-                },
-                tip,
-                {
-                    x: tip.x - ux * headLength + uy * halfWidth,
-                    y: tip.y - uy * headLength - ux * halfWidth,
-                },
-            ].map(point => ({
-                x: point.x / page.width,
-                y: point.y / page.height,
-            }))),
-        }];
+        return [
+            {
+                closed: style === 'closedArrow',
+                points: formatPoints(
+                    [
+                        {
+                            x: tip.x - ux * headLength - uy * halfWidth,
+                            y: tip.y - uy * headLength + ux * halfWidth,
+                        },
+                        tip,
+                        {
+                            x: tip.x - ux * headLength + uy * halfWidth,
+                            y: tip.y - uy * headLength - ux * halfWidth,
+                        },
+                    ].map((point) => ({
+                        x: point.x / page.width,
+                        y: point.y / page.height,
+                    })),
+                ),
+            },
+        ];
     });
 });
 const shapeStyle = computed(() => ({

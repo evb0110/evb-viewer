@@ -18,7 +18,10 @@
             :disabled="isOperationInProgress || isDjvuMode"
             @click="onDeletePages"
         >
-            <UIcon name="i-ph-trash" class="pdf-context-menu__icon" />
+            <UIcon
+                name="i-ph-trash"
+                class="pdf-context-menu__icon"
+            />
             {{ t('pageOps.deletePages') }}
         </button>
 
@@ -29,7 +32,11 @@
             :disabled="isOperationInProgress || isDjvuMode"
             @click="onExtractPages"
         >
-            <UIcon name="i-ph-export" class="pdf-context-menu__icon" style="transform: scaleX(-1)" />
+            <UIcon
+                name="i-ph-export"
+                class="pdf-context-menu__icon"
+                style="transform: scaleX(-1)"
+            />
             {{ t('pageOps.extractPages') }}
         </button>
 
@@ -40,7 +47,10 @@
             :disabled="isOperationInProgress || isDjvuMode"
             @click="onExportPages"
         >
-            <UIcon name="i-ph-export" class="pdf-context-menu__icon" />
+            <UIcon
+                name="i-ph-export"
+                class="pdf-context-menu__icon"
+            />
             {{ t('pageOps.exportPages') }}
         </button>
 
@@ -53,7 +63,10 @@
             :disabled="isOperationInProgress || isDjvuMode"
             @click="onRotateCw"
         >
-            <UIcon name="i-ph-arrow-clockwise" class="pdf-context-menu__icon" />
+            <UIcon
+                name="i-ph-arrow-clockwise"
+                class="pdf-context-menu__icon"
+            />
             {{ t('pageOps.rotateCw') }}
         </button>
 
@@ -64,7 +77,10 @@
             :disabled="isOperationInProgress || isDjvuMode"
             @click="onRotateCcw"
         >
-            <UIcon name="i-ph-arrow-counter-clockwise" class="pdf-context-menu__icon" />
+            <UIcon
+                name="i-ph-arrow-counter-clockwise"
+                class="pdf-context-menu__icon"
+            />
             {{ t('pageOps.rotateCcw') }}
         </button>
 
@@ -77,7 +93,10 @@
             :disabled="isOperationInProgress || isDjvuMode"
             @click="onInsertBefore"
         >
-            <UIcon name="i-ph-file-plus" class="pdf-context-menu__icon" />
+            <UIcon
+                name="i-ph-file-plus"
+                class="pdf-context-menu__icon"
+            />
             {{ t('pageOps.insertBefore') }}
         </button>
 
@@ -88,7 +107,10 @@
             :disabled="isOperationInProgress || isDjvuMode"
             @click="onInsertAfter"
         >
-            <UIcon name="i-ph-file-plus" class="pdf-context-menu__icon" />
+            <UIcon
+                name="i-ph-file-plus"
+                class="pdf-context-menu__icon"
+            />
             {{ t('pageOps.insertAfter') }}
         </button>
 
@@ -116,7 +138,7 @@
 
 <script setup lang="ts">
 import PdfContextMenuBase from '@app/modules/pdf-viewer/components/PdfContextMenuBase.vue';
-import type { IPageContextMenuState } from '@app/types/pdfContextMenu';
+import type {IPageContextMenuState} from '@app/types/pdfContextMenu';
 
 const {
     isDjvuMode = false,
@@ -142,16 +164,16 @@ const emit = defineEmits<{
     'invert-selection': [];
 }>();
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 
 function getRenderedPageIndicator(page: number) {
     if (typeof document === 'undefined') {
         return String(page);
     }
 
-    const renderedLabel = document.querySelector<HTMLElement>(`[data-thumbnail-page="${page}"] [data-document-thumbnail-label]`)
-        ?.textContent
-        .trim();
+    const renderedLabel = document
+        .querySelector<HTMLElement>(`[data-thumbnail-page="${page}"] [data-document-thumbnail-label]`)
+        ?.textContent.trim();
     if (renderedLabel === undefined || renderedLabel.length === 0) {
         return String(page);
     }
@@ -162,7 +184,7 @@ function getRenderedPageIndicator(page: number) {
 const menuTitle = computed(() => {
     const [page] = menu.pages;
     if (menu.pages.length === 1 && page !== undefined) {
-        return t('pageOps.pageTarget', { page: getRenderedPageIndicator(page) });
+        return t('pageOps.pageTarget', {page: getRenderedPageIndicator(page)});
     }
 
     return t('pageOps.pagesSelected', menu.pages.length);

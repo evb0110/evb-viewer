@@ -1,58 +1,36 @@
-import { setImmediate as nextTask } from 'node:timers/promises';
-import { setFlagsFromString } from 'node:v8';
-import { runInNewContext } from 'node:vm';
-import {
-    describe,
-    expect,
-    it,
-    onTestFinished,
-    vi,
-} from 'vitest';
-import {
-    computed,
-    effectScope,
-    ref,
-    shallowRef,
-    watch,
-    type Ref,
-} from 'vue';
-import {
-    requirePaneId,
-    type IEditorPaneState,
-} from '@contracts/editorPanes';
-import { requireDocumentRef } from '@contracts/documentRef';
-import { requireTabId } from '@contracts/windowTabs';
-import type { ITab } from '@app/types/tabs';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import {setImmediate as nextTask} from 'node:timers/promises';
+import {setFlagsFromString} from 'node:v8';
+import {runInNewContext} from 'node:vm';
+import {describe, expect, it, onTestFinished, vi} from 'vitest';
+import {computed, effectScope, ref, shallowRef, watch, type Ref} from 'vue';
+import {requirePaneId, type IEditorPaneState} from '@contracts/editorPanes';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireTabId} from '@contracts/windowTabs';
+import type {ITab} from '@app/types/tabs';
+import type {IWorkspaceExpose} from '@app/types/workspaceExpose';
 import type * as TRecentReadingViewModule from '@app/modules/workspace-shell/document-sessions/recentReadingView';
-import { useAppShellTabLifecycle } from '@app/modules/workspace-shell/composables/useAppShellTabLifecycle';
-import { useAppShellDirectionalTabs } from '@app/modules/workspace-shell/composables/useAppShellDirectionalTabs';
-import { cast } from '@tests/helpers/cast';
-import { createWorkspaceLayoutChange } from '@app/modules/workspace-shell/composables/workspaceLayoutChange';
+import {useAppShellTabLifecycle} from '@app/modules/workspace-shell/composables/useAppShellTabLifecycle';
+import {useAppShellDirectionalTabs} from '@app/modules/workspace-shell/composables/useAppShellDirectionalTabs';
+import {cast} from '@tests/helpers/cast';
+import {createWorkspaceLayoutChange} from '@app/modules/workspace-shell/composables/workspaceLayoutChange';
 import {
     createDocumentViews,
     createViewLayoutReceipt,
     type IDocumentViewPort,
 } from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
-import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import {createDocumentOpenSurfaceSession} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import {
     createWorkspaceDocumentController,
     type IWorkspaceDocumentController,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import type { TDirtyCloseDecision } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
-import {
-    createWorkspaceExposeFixture,
-    setTestDocumentDirty,
-} from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
-import {
-    createDefaultWorkspaceToolbarSnapshot,
-    createDefaultWorkspaceViewerCapabilities,
-} from '@app/types/workspaceExpose';
+import type {TDirtyCloseDecision} from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
+import {createWorkspaceExposeFixture, setTestDocumentDirty} from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
+import {createDefaultWorkspaceToolbarSnapshot, createDefaultWorkspaceViewerCapabilities} from '@app/types/workspaceExpose';
 
 vi.mock('@app/composables/useRuntimeErrorReports', () => ({useRuntimeErrorReports: () => ({reportRuntimeError: vi.fn()})}));
 const readingView = vi.hoisted(() => ({remember: vi.fn(async () => undefined)}));
-vi.mock('@app/modules/workspace-shell/document-sessions/recentReadingView', async importOriginal => ({
-    ...await importOriginal<typeof TRecentReadingViewModule>(),
+vi.mock('@app/modules/workspace-shell/document-sessions/recentReadingView', async (importOriginal) => ({
+    ...(await importOriginal<typeof TRecentReadingViewModule>()),
     rememberReadingView: readingView.remember,
 }));
 
@@ -68,7 +46,7 @@ function createPane(id: string, activeTabId: string | null, tabIds: string[]): I
     return {
         paneId: requirePaneId(id),
         activeTabId: activeTabId === null ? null : requireTabId(activeTabId),
-        tabIds: tabIds.map(tabId => requireTabId(tabId)),
+        tabIds: tabIds.map((tabId) => requireTabId(tabId)),
     };
 }
 
@@ -125,9 +103,7 @@ function createLifecycle(options: {
     closePane?: (paneId: string) => void;
     activateTab?: (paneId: string, tabId: string) => void;
 }) {
-    const getPaneById = (paneId: string | null | undefined) => (
-        options.panes.value.find(pane => pane.paneId === paneId) ?? null
-    );
+    const getPaneById = (paneId: string | null | undefined) => options.panes.value.find((pane) => pane.paneId === paneId) ?? null;
     const requestDirtyTabCloseConfirmation = vi.fn(async () => options.decision ?? 'discard');
     const closeTab = vi.fn(options.closeTab ?? (() => {}));
     const documentSessionsByTabId = shallowRef(options.sessions);
@@ -144,17 +120,18 @@ function createLifecycle(options: {
             has: vi.fn(() => false),
         },
         getPaneById,
-        getTabById: (tabId: string | null | undefined) => options.tabs.value.find(tab => tab.id === tabId) ?? null,
-        getPaneByTabId: (tabId: string | null | undefined) => (
-            options.panes.value.find(pane => (tabId ? pane.tabIds.some(candidate => candidate === tabId) : false)) ?? null
-        ),
+        getTabById: (tabId: string | null | undefined) => options.tabs.value.find((tab) => tab.id === tabId) ?? null,
+        getPaneByTabId: (tabId: string | null | undefined) =>
+            options.panes.value.find((pane) => (tabId ? pane.tabIds.some((candidate) => candidate === tabId) : false)) ?? null,
         activatePane: vi.fn(),
         activateTab: vi.fn(options.activateTab ?? (() => {})),
         closeTab,
         closePane: vi.fn(options.closePane ?? (() => {})),
         requestDirtyTabCloseConfirmation,
         changeWorkspaceLayout: createWorkspaceLayoutChange({
-            setWorkspaceLayoutResizing: (value) => { layoutResizing.value = value; },
+            setWorkspaceLayoutResizing: (value) => {
+                layoutResizing.value = value;
+            },
             documentSessionsByTabId,
         }),
     });
@@ -180,10 +157,7 @@ describe('useAppShellTabLifecycle', () => {
             setTestDocumentDirty(session, true);
         });
         await mutationStarted.promise;
-        const {
-            lifecycle,
-            requestDirtyTabCloseConfirmation,
-        } = createLifecycle({
+        const {lifecycle, requestDirtyTabCloseConfirmation} = createLifecycle({
             panes: ref([createPane('pane-1', 'tab-1', ['tab-1'])]),
             tabs: ref([{id: 'tab-1'}]),
             sessions: {'tab-1': session},
@@ -195,17 +169,15 @@ describe('useAppShellTabLifecycle', () => {
 
         expect(requestDirtyTabCloseConfirmation).not.toHaveBeenCalled();
         expect(workspace.handleCloseFileFromUi).not.toHaveBeenCalled();
-        expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
-            color: 'info',
-            description: 'notifications.closingAfterPageProcessing',
-        }));
+        expect(toastAdd).toHaveBeenCalledWith(
+            expect.objectContaining({
+                color: 'info',
+                description: 'notifications.closingAfterPageProcessing',
+            }),
+        );
 
         releaseMutation.resolve(undefined);
-        await Promise.all([
-            mutation,
-            firstClose,
-            repeatedClose,
-        ]);
+        await Promise.all([mutation, firstClose, repeatedClose]);
 
         expect(requestDirtyTabCloseConfirmation).toHaveBeenCalledOnce();
         expect(toastRemove).toHaveBeenCalledOnce();
@@ -220,10 +192,7 @@ describe('useAppShellTabLifecycle', () => {
     it('closes a clean idle document immediately without asking or persisting', async () => {
         const session = createDocumentSession('tab-1');
         const workspace = attachDocumentWorkspace(session, false);
-        const {
-            lifecycle,
-            requestDirtyTabCloseConfirmation,
-        } = createLifecycle({
+        const {lifecycle, requestDirtyTabCloseConfirmation} = createLifecycle({
             panes: ref([createPane('pane-1', 'tab-1', ['tab-1'])]),
             tabs: ref([{id: 'tab-1'}]),
             sessions: {'tab-1': session},
@@ -239,10 +208,7 @@ describe('useAppShellTabLifecycle', () => {
     it('saves a dirty document before closing when the user chooses Save', async () => {
         const session = createDocumentSession('tab-1', {dirty: true});
         const workspace = attachDocumentWorkspace(session, true);
-        const {
-            lifecycle,
-            requestDirtyTabCloseConfirmation,
-        } = createLifecycle({
+        const {lifecycle, requestDirtyTabCloseConfirmation} = createLifecycle({
             panes: ref([createPane('pane-1', 'tab-1', ['tab-1'])]),
             tabs: ref([{id: 'tab-1'}]),
             sessions: {'tab-1': session},
@@ -285,10 +251,7 @@ describe('useAppShellTabLifecycle', () => {
             createPane('pane-left', 'tab-document', ['tab-document']),
             createPane('pane-right', 'tab-empty', ['tab-empty']),
         ]);
-        const tabs = ref<ITab[]>([
-            {id: 'tab-document'},
-            {id: 'tab-empty'},
-        ]);
+        const tabs = ref<ITab[]>([{id: 'tab-document'}, {id: 'tab-empty'}]);
         const activePaneId = ref<string | null>('pane-right');
         const activeTabId = ref<string | null>('tab-empty');
         const transitionStates = {
@@ -302,17 +265,18 @@ describe('useAppShellTabLifecycle', () => {
         // tab transition, as DocumentWorkspace passes it to the viewer.
         const placements: PromiseWithResolvers<void>[] = [];
         const viewerResizingAtPlacement: boolean[] = [];
-        documentSession.attachWorkspace('tab-document', createWorkspaceExposeFixture({
-            whenLayoutPlaced: () => {
-                viewerResizingAtPlacement.push(layoutResizing.value || lifecycle.isTabTransitionBusy.value);
-                const placement = Promise.withResolvers<void>();
-                placements.push(placement);
-                return placement.promise;
-            },
-        }));
-        const {
-            layoutResizing, lifecycle,
-        } = createLifecycle({
+        documentSession.attachWorkspace(
+            'tab-document',
+            createWorkspaceExposeFixture({
+                whenLayoutPlaced: () => {
+                    viewerResizingAtPlacement.push(layoutResizing.value || lifecycle.isTabTransitionBusy.value);
+                    const placement = Promise.withResolvers<void>();
+                    placements.push(placement);
+                    return placement.promise;
+                },
+            }),
+        );
+        const {layoutResizing, lifecycle} = createLifecycle({
             panes,
             tabs,
             sessions: {
@@ -328,22 +292,26 @@ describe('useAppShellTabLifecycle', () => {
             },
             closeTab: (paneId, tabId) => {
                 transitionStates.closeTab = [lifecycle.isTabTransitionBusy.value, layoutResizing.value];
-                const pane = panes.value.find(candidate => candidate.paneId === paneId);
+                const pane = panes.value.find((candidate) => candidate.paneId === paneId);
                 if (pane) {
-                    pane.tabIds = pane.tabIds.filter(candidate => candidate !== tabId);
+                    pane.tabIds = pane.tabIds.filter((candidate) => candidate !== tabId);
                     pane.activeTabId = pane.tabIds[0] ?? null;
                 }
-                tabs.value = tabs.value.filter(tab => tab.id !== tabId);
+                tabs.value = tabs.value.filter((tab) => tab.id !== tabId);
             },
             closePane: (paneId) => {
                 transitionStates.closePane = [lifecycle.isTabTransitionBusy.value, layoutResizing.value];
-                panes.value = panes.value.filter(pane => pane.paneId !== paneId);
+                panes.value = panes.value.filter((pane) => pane.paneId !== paneId);
             },
         });
         let publishedBusyState = false;
-        const stopWatchingBusyState = watch(lifecycle.isTabTransitionBusy, (isBusy) => {
-            publishedBusyState = isBusy;
-        }, {flush: 'post'});
+        const stopWatchingBusyState = watch(
+            lifecycle.isTabTransitionBusy,
+            (isBusy) => {
+                publishedBusyState = isBusy;
+            },
+            {flush: 'post'},
+        );
 
         await lifecycle.enqueueTabTransition(async () => {
             expect(publishedBusyState).toBe(true);
@@ -351,7 +319,9 @@ describe('useAppShellTabLifecycle', () => {
         stopWatchingBusyState();
 
         let closed = false;
-        const closing = lifecycle.handleCloseTab('pane-right', 'tab-empty').then(() => { closed = true; });
+        const closing = lifecycle.handleCloseTab('pane-right', 'tab-empty').then(() => {
+            closed = true;
+        });
         await vi.waitFor(() => expect(placements).toHaveLength(1));
         // The close, the collapse and the handoff commit together, inside the
         // tab transition and the resize fence, which holds until the placement.
@@ -383,9 +353,7 @@ describe('useAppShellTabLifecycle', () => {
         ]);
         const tabs = ref<ITab[]>([{id: 'tab-document'}, {id: 'tab-empty'}, {id: 'tab-other'}]);
         const fenceWhenClosed: boolean[] = [];
-        const {
-            layoutResizing, lifecycle,
-        } = createLifecycle({
+        const {layoutResizing, lifecycle} = createLifecycle({
             panes,
             tabs,
             sessions: {
@@ -397,8 +365,10 @@ describe('useAppShellTabLifecycle', () => {
             activeTabId: ref('tab-empty'),
             closeTab: (paneId, tabId) => {
                 fenceWhenClosed.push(layoutResizing.value);
-                const pane = panes.value.find(candidate => candidate.paneId === paneId);
-                if (pane) pane.tabIds = pane.tabIds.filter(candidate => candidate !== tabId);
+                const pane = panes.value.find((candidate) => candidate.paneId === paneId);
+                if (pane) {
+                    pane.tabIds = pane.tabIds.filter((candidate) => candidate !== tabId);
+                }
             },
         });
 
@@ -412,10 +382,9 @@ describe('useAppShellTabLifecycle', () => {
         const panes = ref<IEditorPaneState[]>([createPane('pane-1', 'tab-3', ['tab-1', 'tab-2', 'tab-3'])]);
         const tabs = ref<ITab[]>([{id: 'tab-1'}, {id: 'tab-2'}, {id: 'tab-3'}]);
         const activeTabId = ref<string | null>('tab-3');
-        const sessions = Object.fromEntries(['tab-1', 'tab-2', 'tab-3'].map(tabId => [
-            tabId,
-            createWorkspaceDocumentController({tabId}),
-        ]));
+        const sessions = Object.fromEntries(
+            ['tab-1', 'tab-2', 'tab-3'].map((tabId) => [tabId, createWorkspaceDocumentController({tabId})]),
+        );
         let replacementShown: () => void = () => {};
         const replacementShownPromise = new Promise<void>((resolve) => {
             replacementShown = resolve;
@@ -428,11 +397,13 @@ describe('useAppShellTabLifecycle', () => {
             activateTab: (_paneId, tabId) => {
                 activeTabId.value = tabId;
                 panes.value[0]!.activeTabId = requireTabId(tabId);
-                if (tabId === 'tab-2') replacementShown();
+                if (tabId === 'tab-2') {
+                    replacementShown();
+                }
             },
             closeTab: (_paneId, tabId) => {
-                panes.value[0]!.tabIds = panes.value[0]!.tabIds.filter(candidate => candidate !== tabId);
-                tabs.value = tabs.value.filter(tab => tab.id !== tabId);
+                panes.value[0]!.tabIds = panes.value[0]!.tabIds.filter((candidate) => candidate !== tabId);
+                tabs.value = tabs.value.filter((tab) => tab.id !== tabId);
             },
         });
 
@@ -445,29 +416,20 @@ describe('useAppShellTabLifecycle', () => {
 
         expect(sessions['tab-2']!.getView('tab-2')?.mountedWorkspace.value).toBeNull();
         expect(lifecycle.isTabTransitionBusy.value).toBe(false);
-        expect(tabs.value.map(tab => tab.id)).toEqual(['tab-1', 'tab-2']);
+        expect(tabs.value.map((tab) => tab.id)).toEqual(['tab-1', 'tab-2']);
 
         await lifecycle.handleCloseTab('pane-1', 'tab-1');
 
-        expect(tabs.value.map(tab => tab.id)).toEqual(['tab-2']);
+        expect(tabs.value.map((tab) => tab.id)).toEqual(['tab-2']);
     });
 
     it('asks about unsaved work when the other view lets go of the document while this view closes', async () => {
         const session = createDocumentSession('tab-a', {dirty: true});
         session.addView('tab-b');
         const workspace = attachDocumentWorkspace(session, false);
-        const panes = ref<IEditorPaneState[]>([createPane('pane-1', 'tab-b', [
-            'tab-a',
-            'tab-b',
-        ])]);
-        const tabs = ref<ITab[]>([
-            {id: 'tab-a'},
-            {id: 'tab-b'},
-        ]);
-        const {
-            lifecycle,
-            requestDirtyTabCloseConfirmation,
-        } = createLifecycle({
+        const panes = ref<IEditorPaneState[]>([createPane('pane-1', 'tab-b', ['tab-a', 'tab-b'])]);
+        const tabs = ref<ITab[]>([{id: 'tab-a'}, {id: 'tab-b'}]);
+        const {lifecycle, requestDirtyTabCloseConfirmation} = createLifecycle({
             panes,
             tabs,
             sessions: {
@@ -492,10 +454,7 @@ describe('useAppShellTabLifecycle', () => {
     it('keeps the last tab as the empty tab after its document closes', async () => {
         const session = createDocumentSession('tab-1');
         attachDocumentWorkspace(session, false);
-        const {
-            closeTab,
-            lifecycle,
-        } = createLifecycle({
+        const {closeTab, lifecycle} = createLifecycle({
             panes: ref([createPane('pane-1', 'tab-1', ['tab-1'])]),
             tabs: ref([{id: 'tab-1'}]),
             sessions: {'tab-1': session},
@@ -510,23 +469,28 @@ describe('useAppShellTabLifecycle', () => {
 
     it('closes a tab whose document is still opening and ends the open', async () => {
         const session = createWorkspaceDocumentController({tabId: 'tab-1'});
-        const workspace = createWorkspaceExposeFixture({handleCloseFileFromUi: vi.fn(async (options?: Parameters<IWorkspaceExpose['handleCloseFileFromUi']>[0]) => {
-            await options?.onCloseCommit?.();
-            return true;
-        })});
+        const workspace = createWorkspaceExposeFixture({
+            handleCloseFileFromUi: vi.fn(async (options?: Parameters<IWorkspaceExpose['handleCloseFileFromUi']>[0]) => {
+                await options?.onCloseCommit?.();
+                return true;
+            }),
+        });
         session.attachWorkspace('tab-1', workspace as IWorkspaceExpose);
         const shape = Promise.withResolvers<null>();
-        const open = session.runOpen({
-            pageShape: {
-                path: requireDocumentRef('/docs/dictionary.pdf'),
-                answer: shape.promise,
+        const open = session.runOpen(
+            {
+                pageShape: {
+                    path: requireDocumentRef('/docs/dictionary.pdf'),
+                    answer: shape.promise,
+                },
+                kind: 'open',
+                target: {
+                    fileName: 'dictionary.pdf',
+                    originalPath: requireDocumentRef('/docs/dictionary.pdf'),
+                },
             },
-            kind: 'open',
-            target: {
-                fileName: 'dictionary.pdf',
-                originalPath: requireDocumentRef('/docs/dictionary.pdf'),
-            },
-        }, () => new Promise<null>(() => {}));
+            () => new Promise<null>(() => {}),
+        );
         const {lifecycle} = createLifecycle({
             panes: ref([createPane('pane-1', 'tab-1', ['tab-1'])]),
             tabs: ref([{id: 'tab-1'}]),
@@ -594,12 +558,14 @@ describe('workspace layout change', () => {
         const createView = (paneId: string, surface: ReturnType<typeof createDocumentOpenSurfaceSession>) => {
             const viewer = createPlacingViewer(layoutResizing);
             const focused = computed(() => activePaneId.value === paneId);
-            const whenLayoutPlaced = scope.run(() => createViewLayoutReceipt({
-                controller: presented,
-                openSurface: surface,
-                isShown: computed(() => focused.value || true),
-                viewer: () => viewer,
-            }))!;
+            const whenLayoutPlaced = scope.run(() =>
+                createViewLayoutReceipt({
+                    controller: presented,
+                    openSurface: surface,
+                    isShown: computed(() => focused.value || true),
+                    viewer: () => viewer,
+                }),
+            )!;
             return {
                 focused,
                 viewer,
@@ -615,49 +581,59 @@ describe('workspace layout change', () => {
         const panes = ref<IEditorPaneState[]>([createPane('pane-source', 'tab-source', ['tab-source'])]);
         const tabs = ref<ITab[]>([{id: 'tab-source'}]);
         const fenceAtSplit: boolean[] = [];
-        const directionalTabs = useAppShellDirectionalTabs(cast<Parameters<typeof useAppShellDirectionalTabs>[0]>({
-            activePaneId,
-            panes,
-            tabs,
-            documentSessionsByTabId: sessions,
-            isTabTransitionBusy: computed(() => false),
-            getPaneById: (paneId: string | null) => panes.value.find(pane => pane.paneId === paneId) ?? null,
-            splitPane: () => {
-                fenceAtSplit.push(layoutResizing.value);
-                panes.value = [...panes.value, createPane('pane-new', null, [])];
-                return 'pane-new';
-            },
-            createTab: () => {
-                tabs.value = [...tabs.value, {id: 'tab-new'}];
-                return {id: 'tab-new'};
-            },
-            linkDocumentView: (sourceTabId: string, targetTabId: string) => {
-                document.addView(targetTabId);
-                document.attachWorkspace(targetTabId, linked.workspace);
-                linkedSurface.begin({
-                    documentId: 'sample.pdf',
-                    documentRevision: 'open-intent:view:tab-new',
-                    provisional: true,
-                }, null, 4);
-                sessions.value = {
-                    ...sessions.value,
-                    [targetTabId]: document,
-                };
-                return sourceTabId === 'tab-source';
-            },
-            // Split Right moves focus to the new pane; the source pane stays shown.
-            activatePane: (paneId: string) => {
-                activePaneId.value = paneId;
-            },
-            enqueueTabTransition: <T>(task: () => Promise<T>) => task(),
-            changeWorkspaceLayout: createWorkspaceLayoutChange({
-                setWorkspaceLayoutResizing: (value) => { layoutResizing.value = value; },
+        const directionalTabs = useAppShellDirectionalTabs(
+            cast<Parameters<typeof useAppShellDirectionalTabs>[0]>({
+                activePaneId,
+                panes,
+                tabs,
                 documentSessionsByTabId: sessions,
+                isTabTransitionBusy: computed(() => false),
+                getPaneById: (paneId: string | null) => panes.value.find((pane) => pane.paneId === paneId) ?? null,
+                splitPane: () => {
+                    fenceAtSplit.push(layoutResizing.value);
+                    panes.value = [...panes.value, createPane('pane-new', null, [])];
+                    return 'pane-new';
+                },
+                createTab: () => {
+                    tabs.value = [...tabs.value, {id: 'tab-new'}];
+                    return {id: 'tab-new'};
+                },
+                linkDocumentView: (sourceTabId: string, targetTabId: string) => {
+                    document.addView(targetTabId);
+                    document.attachWorkspace(targetTabId, linked.workspace);
+                    linkedSurface.begin(
+                        {
+                            documentId: 'sample.pdf',
+                            documentRevision: 'open-intent:view:tab-new',
+                            provisional: true,
+                        },
+                        null,
+                        4,
+                    );
+                    sessions.value = {
+                        ...sessions.value,
+                        [targetTabId]: document,
+                    };
+                    return sourceTabId === 'tab-source';
+                },
+                // Split Right moves focus to the new pane; the source pane stays shown.
+                activatePane: (paneId: string) => {
+                    activePaneId.value = paneId;
+                },
+                enqueueTabTransition: <T>(task: () => Promise<T>) => task(),
+                changeWorkspaceLayout: createWorkspaceLayoutChange({
+                    setWorkspaceLayoutResizing: (value) => {
+                        layoutResizing.value = value;
+                    },
+                    documentSessionsByTabId: sessions,
+                }),
             }),
-        }));
+        );
 
         let split = false;
-        const splitting = directionalTabs.splitEditor('right').then(() => { split = true; });
+        const splitting = directionalTabs.splitEditor('right').then(() => {
+            split = true;
+        });
         await vi.waitFor(() => expect(source.viewer.placements).toHaveLength(1));
         // The views took their point under the fence before the split moved the pane.
         expect(fenceAtSplit).toEqual([true]);
@@ -686,7 +662,9 @@ describe('workspace layout change', () => {
     it('holds the fence until the last of overlapping layout changes ends', async () => {
         const fence = ref(false);
         const change = createWorkspaceLayoutChange({
-            setWorkspaceLayoutResizing: (value) => { fence.value = value; },
+            setWorkspaceLayoutResizing: (value) => {
+                fence.value = value;
+            },
             documentSessionsByTabId: shallowRef({}),
         });
         const longer = Promise.withResolvers<void>();
@@ -694,7 +672,9 @@ describe('workspace layout change', () => {
         const longerChange = change(async (enter) => {
             await enter();
             await longer.promise;
-        }).then(() => { longerEnded = true; });
+        }).then(() => {
+            longerEnded = true;
+        });
 
         await change(async (enter) => {
             await enter();
@@ -723,19 +703,18 @@ describe('workspace layout change', () => {
         await change(() => undefined);
         expect(fences).toEqual([]);
 
-        await expect(change(async (enter) => {
-            await enter();
-            throw new Error('split failed');
-        })).rejects.toThrow('split failed');
+        await expect(
+            change(async (enter) => {
+                await enter();
+                throw new Error('split failed');
+            }),
+        ).rejects.toThrow('split failed');
         expect(fences).toEqual([true, false]);
     });
 });
 
 describe('document views', () => {
-    it.each([
-        'view',
-        'document host',
-    ])('lets a cold tab\'s unmounted viewer be collected when its %s goes first', async (first) => {
+    it.each(['view', 'document host'])("lets a cold tab's unmounted viewer be collected when its %s goes first", async (first) => {
         setFlagsFromString('--expose_gc');
         const collectGarbage = runInNewContext('gc') as () => void;
         const scope = effectScope();
@@ -744,17 +723,21 @@ describe('document views', () => {
         const views = scope.run(() => createDocumentViews(createWorkspaceDocumentController({tabId: 'tab-a'})))!;
         const pdfViewerRef = shallowRef<object | null>({unmountedViewer: true});
         const viewerRef = new WeakRef(pdfViewerRef.value!);
-        let detach: (() => void) | null = views.attachView(cast<IDocumentViewPort>({
-            tabId: 'tab-a',
-            view: {
-                pdfViewerRef,
-                pdfDocument: shallowRef(null),
-                totalPages: ref(1),
-            },
-        }));
+        let detach: (() => void) | null = views.attachView(
+            cast<IDocumentViewPort>({
+                tabId: 'tab-a',
+                view: {
+                    pdfViewerRef,
+                    pdfDocument: shallowRef(null),
+                    totalPages: ref(1),
+                },
+            }),
+        );
         expect(views.pdfViewer.value === viewerRef.deref()).toBe(true);
 
-        if (first === 'document host') scope.stop();
+        if (first === 'document host') {
+            scope.stop();
+        }
         // Unmounting clears the view's template ref, then the view gives its port back.
         pdfViewerRef.value = null;
         detach();
@@ -773,12 +756,14 @@ describe('view layout receipt', () => {
         const scope = effectScope();
         const isShown = ref(true);
         const viewerPlaced = vi.fn(async () => undefined);
-        const whenLayoutPlaced = scope.run(() => createViewLayoutReceipt({
-            controller: cast<IWorkspaceDocumentController>({snapshot: ref({phase})}),
-            openSurface: surface,
-            isShown,
-            viewer: () => ({whenLayoutPlaced: viewerPlaced}),
-        }))!;
+        const whenLayoutPlaced = scope.run(() =>
+            createViewLayoutReceipt({
+                controller: cast<IWorkspaceDocumentController>({snapshot: ref({phase})}),
+                openSurface: surface,
+                isShown,
+                viewer: () => ({whenLayoutPlaced: viewerPlaced}),
+            }),
+        )!;
         onTestFinished(() => scope.stop());
         return {
             isShown,
@@ -804,24 +789,30 @@ describe('view layout receipt', () => {
         expect(view.viewerPlaced).toHaveBeenCalledOnce();
     });
 
-    it.each([
-        'unmounted',
-        'hidden',
-    ] as const)('settles at once and stops watching when the opening view is %s', async (end) => {
+    it.each(['unmounted', 'hidden'] as const)('settles at once and stops watching when the opening view is %s', async (end) => {
         const view = createReceipt('presented');
-        view.surface.begin({
-            documentId: 'sample.pdf',
-            documentRevision: 'open-intent:view',
-            provisional: true,
-        }, null, 3);
+        view.surface.begin(
+            {
+                documentId: 'sample.pdf',
+                documentRevision: 'open-intent:view',
+                provisional: true,
+            },
+            null,
+            3,
+        );
         const ticket = view.surface.navigationTicket.value!;
         let settled = false;
-        const receipt = view.whenLayoutPlaced().then(() => { settled = true; });
+        const receipt = view.whenLayoutPlaced().then(() => {
+            settled = true;
+        });
         await Promise.resolve();
         expect(settled).toBe(false);
 
-        if (end === 'unmounted') view.scope.stop();
-        else view.isShown.value = false;
+        if (end === 'unmounted') {
+            view.scope.stop();
+        } else {
+            view.isShown.value = false;
+        }
         await receipt;
 
         expect(settled).toBe(true);

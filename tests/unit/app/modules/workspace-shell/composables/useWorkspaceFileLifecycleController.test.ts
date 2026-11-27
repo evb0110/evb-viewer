@@ -1,22 +1,12 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    computed,
-    effectScope,
-    ref,
-} from 'vue';
-import { requireDocumentRef } from '@contracts/documentRef';
-import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
-import { SerializableError } from '@contracts/serializableError';
-import { requireEpochMs } from '@contracts/timestamps';
-import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { createPdfSourceJob } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
-import type { IWorkspaceViewerLifecycleHooks } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {computed, effectScope, ref} from 'vue';
+import {requireDocumentRef} from '@contracts/documentRef';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {SerializableError} from '@contracts/serializableError';
+import {requireEpochMs} from '@contracts/timestamps';
+import {createWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {createPdfSourceJob} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
+import type {IWorkspaceViewerLifecycleHooks} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 
 const mocks = vi.hoisted(() => ({
     convertToPdf: vi.fn(),
@@ -42,89 +32,97 @@ const djvuState = {
     isDjvuMode: ref(false),
 };
 
-vi.mock('@app/modules/workspace-shell/composables/usePdfFile', () => ({usePdfFile: () => ({
-    pdfSrc: ref(null),
-    pdfReloadSrc: ref(null),
-    pdfData: ref(null),
-    pdfRasterDisplayProfile: ref(null),
-    workingCopyPath: state.workingCopyPath,
-    openedWorkingCopyPath: ref(null),
-    originalPath: state.originalPath,
-    documentRevisionInfo: ref(null),
-    documentRevisionToken: ref(null),
-    fileName: ref(null),
-    isDirty: ref(false),
-    requiresSaveAsOnFirstSave: ref(false),
-    recoveryDirtyBaseline: ref(false),
-    wasEncrypted: ref(false),
-    pdfConformanceProfile: ref(null),
-    lastSaveMode: ref(null),
-    error: state.pdfError,
-    failurePresentation: state.pdfFailurePresentation,
-    isElectron: ref(true),
-    pendingDjvu: state.pendingDjvu,
-    publishPdfSource: vi.fn(),
-    notifyPdfInitialVisualReady: vi.fn(),
-    pickFileToOpen: vi.fn(),
-    openFile: vi.fn(),
-    openFileDirect: mocks.openFileDirect,
-    openFileDirectBatch: vi.fn(),
-    ensureHistoryBaselineForMutation: vi.fn(),
-    reloadWorkingCopyRevision: vi.fn(),
-    reloadWorkingCopyIntoHistory: vi.fn(),
-    mapHistoryPage: vi.fn(),
-    closeFile: mocks.closeFile,
-    repairWorkingCopy: vi.fn(),
-    optimizeWorkingCopy: vi.fn(),
-    optimizeWorkingCopyAsCopy: vi.fn(),
-    saveWorkingCopy: vi.fn(),
-    trySavePdfNativeMutations: vi.fn(),
-    saveWorkingCopyAs: vi.fn(),
-    markDirty: vi.fn(),
-    setWorkspaceCommandSink: vi.fn(),
-    resetForClose: vi.fn(),
-})}));
+vi.mock('@app/modules/workspace-shell/composables/usePdfFile', () => ({
+    usePdfFile: () => ({
+        pdfSrc: ref(null),
+        pdfReloadSrc: ref(null),
+        pdfData: ref(null),
+        pdfRasterDisplayProfile: ref(null),
+        workingCopyPath: state.workingCopyPath,
+        openedWorkingCopyPath: ref(null),
+        originalPath: state.originalPath,
+        documentRevisionInfo: ref(null),
+        documentRevisionToken: ref(null),
+        fileName: ref(null),
+        isDirty: ref(false),
+        requiresSaveAsOnFirstSave: ref(false),
+        recoveryDirtyBaseline: ref(false),
+        wasEncrypted: ref(false),
+        pdfConformanceProfile: ref(null),
+        lastSaveMode: ref(null),
+        error: state.pdfError,
+        failurePresentation: state.pdfFailurePresentation,
+        isElectron: ref(true),
+        pendingDjvu: state.pendingDjvu,
+        publishPdfSource: vi.fn(),
+        notifyPdfInitialVisualReady: vi.fn(),
+        pickFileToOpen: vi.fn(),
+        openFile: vi.fn(),
+        openFileDirect: mocks.openFileDirect,
+        openFileDirectBatch: vi.fn(),
+        ensureHistoryBaselineForMutation: vi.fn(),
+        reloadWorkingCopyRevision: vi.fn(),
+        reloadWorkingCopyIntoHistory: vi.fn(),
+        mapHistoryPage: vi.fn(),
+        closeFile: mocks.closeFile,
+        repairWorkingCopy: vi.fn(),
+        optimizeWorkingCopy: vi.fn(),
+        optimizeWorkingCopyAsCopy: vi.fn(),
+        saveWorkingCopy: vi.fn(),
+        trySavePdfNativeMutations: vi.fn(),
+        saveWorkingCopyAs: vi.fn(),
+        markDirty: vi.fn(),
+        setWorkspaceCommandSink: vi.fn(),
+        resetForClose: vi.fn(),
+    }),
+}));
 
-vi.mock('@app/composables/useDjvu', () => ({useDjvu: () => ({
-    source: computed(() => ({
-        isDjvuMode: djvuState.isDjvuMode.value,
-        sourcePath: djvuState.sourcePath.value,
-        openingPath: null,
-        sourceError: null,
-        sourceSizeBytes: null,
-    })),
-    conversionState: computed(() => ({
-        isConverting: false,
-        phase: null,
-        percent: 0,
-    })),
-    openDjvuFile: mocks.openDjvuFile,
-    convertToPdf: mocks.convertToPdf,
-    ensurePdfProjectionForAction: mocks.ensurePdfProjectionForAction,
-    cancelActiveJobs: mocks.cancelActiveJobs,
-    supersedePendingOpen: mocks.supersedePendingOpen,
-    releaseActiveSource: mocks.releaseActiveSource,
-})}));
+vi.mock('@app/composables/useDjvu', () => ({
+    useDjvu: () => ({
+        source: computed(() => ({
+            isDjvuMode: djvuState.isDjvuMode.value,
+            sourcePath: djvuState.sourcePath.value,
+            openingPath: null,
+            sourceError: null,
+            sourceSizeBytes: null,
+        })),
+        conversionState: computed(() => ({
+            isConverting: false,
+            phase: null,
+            percent: 0,
+        })),
+        openDjvuFile: mocks.openDjvuFile,
+        convertToPdf: mocks.convertToPdf,
+        ensurePdfProjectionForAction: mocks.ensurePdfProjectionForAction,
+        cancelActiveJobs: mocks.cancelActiveJobs,
+        supersedePendingOpen: mocks.supersedePendingOpen,
+        releaseActiveSource: mocks.releaseActiveSource,
+    }),
+}));
 
-vi.mock('@app/composables/useRecentFiles', () => ({useRecentFiles: () => ({
-    recentFiles: ref([]),
-    loadRecentFiles: vi.fn(),
-    removeRecentFile: vi.fn(),
-    clearRecentFiles: vi.fn(),
-})}));
+vi.mock('@app/composables/useRecentFiles', () => ({
+    useRecentFiles: () => ({
+        recentFiles: ref([]),
+        loadRecentFiles: vi.fn(),
+        removeRecentFile: vi.fn(),
+        clearRecentFiles: vi.fn(),
+    }),
+}));
 
-const { useWorkspaceFileLifecycleController } =
-    await import('@app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController');
+const {useWorkspaceFileLifecycleController} = await import('@app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController');
 
 function createController(hooks?: () => IWorkspaceViewerLifecycleHooks[]) {
     const document = createWorkspaceDocumentController({tabId: 'tab-1'});
-    return Object.assign(useWorkspaceFileLifecycleController({
-        ...(hooks ? {createViewerLifecycleHooks: hooks} : {}),
-        runDocumentOpen: async (_request, run) => (await run()).status === 'opened',
-        document,
-        admitPdfSource: intent => createPdfSourceJob(intent, {}),
-        resetDocumentPresentation: vi.fn(),
-    }), {document});
+    return Object.assign(
+        useWorkspaceFileLifecycleController({
+            ...(hooks ? {createViewerLifecycleHooks: hooks} : {}),
+            runDocumentOpen: async (_request, run) => (await run()).status === 'opened',
+            document,
+            admitPdfSource: (intent) => createPdfSourceJob(intent, {}),
+            resetDocumentPresentation: vi.fn(),
+        }),
+        {document},
+    );
 }
 
 function createDeferred() {
@@ -215,7 +213,7 @@ describe('useWorkspaceFileLifecycleController', () => {
         expect(mocks.openFileDirect).toHaveBeenCalledWith('/tmp/output.pdf', undefined);
     });
 
-    it('stops the document\'s conversion before a close releases its source', async () => {
+    it("stops the document's conversion before a close releases its source", async () => {
         const cancelled = createDeferred();
         mocks.cancelActiveJobs.mockImplementation(async () => {
             await cancelled.promise;
@@ -302,7 +300,7 @@ describe('useWorkspaceFileLifecycleController', () => {
         expect(djvuState.sourcePath.value).toBeNull();
     });
 
-    it('explains a damaged DjVu in the user\'s words and keeps the native cause for Copy details', async () => {
+    it("explains a damaged DjVu in the user's words and keeps the native cause for Copy details", async () => {
         const path = requireDocumentRef('/docs/corrupt.djvu');
         const nativeCause = 'djvused failed with exit code 10. *** (DjVuDocEditor.cpp:178) file://localhost/docs/corrupt.djvu';
         const receipt: FailureReceipt = {
@@ -321,10 +319,15 @@ describe('useWorkspaceFileLifecycleController', () => {
                 },
             };
         });
-        mocks.openDjvuFile.mockRejectedValue(Object.assign(new SerializableError({
-            code: 'invalid-djvu',
-            message: nativeCause,
-        }), {failure: receipt}));
+        mocks.openDjvuFile.mockRejectedValue(
+            Object.assign(
+                new SerializableError({
+                    code: 'invalid-djvu',
+                    message: nativeCause,
+                }),
+                {failure: receipt},
+            ),
+        );
 
         const outcome = await createController().openFileDirectWithViewerLifecycle(path);
 
@@ -388,12 +391,14 @@ describe('useWorkspaceFileLifecycleController', () => {
             };
         });
         // The activation commits the reopened document under its open, which starts a new instance.
-        mocks.openDjvuFile.mockImplementation(async (_path: unknown, activation: {setOriginalPath: (documentPath: typeof path) => void}) => {
-            activation.setOriginalPath(path);
-            djvuState.isDjvuMode.value = true;
-            djvuState.sourcePath.value = path;
-            return true;
-        });
+        mocks.openDjvuFile.mockImplementation(
+            async (_path: unknown, activation: {setOriginalPath: (documentPath: typeof path) => void}) => {
+                activation.setOriginalPath(path);
+                djvuState.isDjvuMode.value = true;
+                djvuState.sourcePath.value = path;
+                return true;
+            },
+        );
         // The reopen claims the document's open transaction, as every shell open does.
         controller.document.claimOpen({kind: 'open', target: null});
         const reopening = controller.openFileDirectWithViewerLifecycle(path);
@@ -463,11 +468,13 @@ describe('useWorkspaceFileLifecycleController', () => {
         const bWorkingPath = requireDocumentRef('/tmp/b-working.pdf');
         djvuState.sourcePath.value = aPath;
         djvuState.isDjvuMode.value = true;
-        mocks.cancelActiveJobs.mockImplementationOnce(async () => {
-            cancelStarted.resolve();
-            await resumeCancel.promise;
-            return true;
-        }).mockResolvedValue(false);
+        mocks.cancelActiveJobs
+            .mockImplementationOnce(async () => {
+                cancelStarted.resolve();
+                await resumeCancel.promise;
+                return true;
+            })
+            .mockResolvedValue(false);
         mocks.closeFile.mockImplementation(async () => {
             state.workingCopyPath.value = null;
         });
@@ -501,11 +508,7 @@ describe('useWorkspaceFileLifecycleController', () => {
     it('aborts an active projection when the user cancels DjVu work', async () => {
         const projection = createDeferred();
         let projectionSignal: AbortSignal | undefined;
-        mocks.ensurePdfProjectionForAction.mockImplementation(async (
-            _reason,
-            _openConvertedPdf,
-            signal: AbortSignal,
-        ) => {
+        mocks.ensurePdfProjectionForAction.mockImplementation(async (_reason, _openConvertedPdf, signal: AbortSignal) => {
             projectionSignal = signal;
             await projection.promise;
         });
@@ -525,11 +528,7 @@ describe('useWorkspaceFileLifecycleController', () => {
         await expect(ensurePromise).resolves.toBeUndefined();
 
         let replacementSignal: AbortSignal | undefined;
-        mocks.ensurePdfProjectionForAction.mockImplementation(async (
-            _reason,
-            _openConvertedPdf,
-            signal: AbortSignal,
-        ) => {
+        mocks.ensurePdfProjectionForAction.mockImplementation(async (_reason, _openConvertedPdf, signal: AbortSignal) => {
             replacementSignal = signal;
         });
         await expect(controller.ensureDjvuPdfProjection('ocr')).resolves.toBeUndefined();
@@ -540,11 +539,7 @@ describe('useWorkspaceFileLifecycleController', () => {
     it('aborts an active projection before closing the document', async () => {
         const projection = createDeferred();
         let projectionSignal: AbortSignal | undefined;
-        mocks.ensurePdfProjectionForAction.mockImplementation(async (
-            _reason,
-            _openConvertedPdf,
-            signal: AbortSignal,
-        ) => {
+        mocks.ensurePdfProjectionForAction.mockImplementation(async (_reason, _openConvertedPdf, signal: AbortSignal) => {
             projectionSignal = signal;
             await projection.promise;
         });
@@ -567,11 +562,7 @@ describe('useWorkspaceFileLifecycleController', () => {
     it('aborts an active projection when the workspace scope is disposed', async () => {
         const projection = createDeferred();
         let projectionSignal: AbortSignal | undefined;
-        mocks.ensurePdfProjectionForAction.mockImplementation(async (
-            _reason,
-            _openConvertedPdf,
-            signal: AbortSignal,
-        ) => {
+        mocks.ensurePdfProjectionForAction.mockImplementation(async (_reason, _openConvertedPdf, signal: AbortSignal) => {
             projectionSignal = signal;
             await projection.promise;
         });

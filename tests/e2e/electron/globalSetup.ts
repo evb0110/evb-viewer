@@ -1,18 +1,11 @@
-import {
-    readdirSync,
-    statSync,
-} from 'node:fs';
-import { join } from 'node:path';
-import { pruneStaleE2ESessions } from '@scripts/electron-run/electronRunE2ESessionPrune';
-import { buildE2ERunEnv } from '@scripts/electron-run/electronRunRunId';
-import { projectRoot } from '@scripts/electron-run/projectRoot';
+import {readdirSync, statSync} from 'node:fs';
+import {join} from 'node:path';
+import {pruneStaleE2ESessions} from '@scripts/electron-run/electronRunE2ESessionPrune';
+import {buildE2ERunEnv} from '@scripts/electron-run/electronRunRunId';
+import {projectRoot} from '@scripts/electron-run/projectRoot';
 
 const RENDERER_ENTRY = join(projectRoot, 'nuxt-output', 'public', 'electron', 'index.html');
-const RENDERER_SOURCES = [
-    'app',
-    'packages',
-    'nuxt.config.ts',
-];
+const RENDERER_SOURCES = ['app', 'packages', 'nuxt.config.ts'];
 
 function findSourceNewerThan(path: string, builtAtMs: number): string | null {
     const stats = statSync(path);
@@ -60,12 +53,14 @@ export default async function setup() {
     if (result.stale.length === 0) {
         console.log('[E2E setup] No stale e2e sessions found.');
     } else {
-        console.log([
-            `[E2E setup] Stale e2e sessions: ${result.stale.length}`,
-            `[E2E setup] Removed: ${result.removed.length > 0 ? result.removed.join(', ') : 'none'}`,
-            `[E2E setup] Refused: ${result.refused.length > 0
-                ? result.refused.map(entry => `${entry.name} (${entry.reason})`).join(', ')
-                : 'none'}`,
-        ].join('\n'));
+        console.log(
+            [
+                `[E2E setup] Stale e2e sessions: ${result.stale.length}`,
+                `[E2E setup] Removed: ${result.removed.length > 0 ? result.removed.join(', ') : 'none'}`,
+                `[E2E setup] Refused: ${
+                    result.refused.length > 0 ? result.refused.map((entry) => `${entry.name} (${entry.reason})`).join(', ') : 'none'
+                }`,
+            ].join('\n'),
+        );
     }
 }

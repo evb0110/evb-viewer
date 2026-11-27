@@ -1,25 +1,15 @@
 import {te} from '@electron/te';
-import { getAppTempDir } from '@electron/utils/appTempDir';
-import { usingManagedScratchScope } from '@electron/utils/managedScratchTemp';
-import {
-    stat,
-    writeFile,
-} from 'node:fs/promises';
+import {getAppTempDir} from '@electron/utils/appTempDir';
+import {usingManagedScratchScope} from '@electron/utils/managedScratchTemp';
+import {stat, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
-import type {
-    IPageOpsMetadataSnapshot,
-    IPageIdentityDelta,
-} from '@contracts/electronApiPageOps';
+import type {IPageOpsMetadataSnapshot, IPageIdentityDelta} from '@contracts/electronApiPageOps';
 import type {IPdfNativeMutationSet} from '@contracts/electronApiDocuments';
 import {splitPdfNativeMutationSetIntoBoundedChunks} from '@pdf-core/nativePdfMutationPolicy';
 import {normalizePageLabelRanges} from '@pdf-core/pdfPageLabels';
 import {isEqual} from 'es-toolkit/predicate';
 import {createPageIdentityDeltaPageMapper} from '@contracts/electronApiPageOps';
-import {
-    requirePageIndex,
-    pageIndexToPageNumber,
-    pageNumberToPageIndex,
-} from '@contracts/pageNumbers';
+import {requirePageIndex, pageIndexToPageNumber, pageNumberToPageIndex} from '@contracts/pageNumbers';
 import type {TPageNumber} from '@contracts/pageNumbers';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
@@ -35,29 +25,38 @@ function remapBookmarkItems(
     items: readonly IPdfBookmarkEntry[],
     mapPageNumber: (pageNumber: TPageNumber) => TPageNumber | null,
 ): IPdfBookmarkEntry[] {
-    return items.flatMap(item => {
+    return items.flatMap((item) => {
         const children = remapBookmarkItems(item.items, mapPageNumber);
-        const sourceIndex = item.pageIndex ?? (typeof item.originalDestination?.sourceTarget === 'number'
-            ? requirePageIndex(item.originalDestination.sourceTarget) : null);
+        const sourceIndex =
+            item.pageIndex ??
+            (typeof item.originalDestination?.sourceTarget === 'number' ? requirePageIndex(item.originalDestination.sourceTarget) : null);
         if (sourceIndex === null) {
-            return [{
-                ...item,
-                items: children,
-            }];
+            return [
+                {
+                    ...item,
+                    items: children,
+                },
+            ];
         }
         const mappedPageNumber = mapPageNumber(pageIndexToPageNumber(sourceIndex));
         if (mappedPageNumber === null) {
             return children;
         }
-        return [{
-            ...item,
-            pageIndex: pageNumberToPageIndex(mappedPageNumber),
-            ...(item.originalDestination ? {originalDestination: {
-                ...item.originalDestination,
-                sourceTarget: pageNumberToPageIndex(mappedPageNumber),
-            }} : {}),
-            items: children,
-        }];
+        return [
+            {
+                ...item,
+                pageIndex: pageNumberToPageIndex(mappedPageNumber),
+                ...(item.originalDestination
+                    ? {
+                          originalDestination: {
+                              ...item.originalDestination,
+                              sourceTarget: pageNumberToPageIndex(mappedPageNumber),
+                          },
+                      }
+                    : {}),
+                items: children,
+            },
+        ];
     });
 }
 
@@ -67,16 +66,20 @@ export async function resolvePageMetadataSourceTargets(
     sourcePath: string,
     options: {
         signal: AbortSignal;
-        cancelGroup: string
+        cancelGroup: string;
     },
 ): Promise<IPageOpsMetadataSnapshot | undefined> {
-    const needsResolution = (items: readonly IPdfBookmarkEntry[]): boolean => items.some(item => (
-        item.namedDest !== null
-        || (item.pageIndex === null && typeof item.originalDestination?.sourceTarget === 'object')
-        || needsResolution(item.items)
-    ));
+    const needsResolution = (items: readonly IPdfBookmarkEntry[]): boolean =>
+        items.some(
+            (item) =>
+                item.namedDest !== null ||
+                (item.pageIndex === null && typeof item.originalDestination?.sourceTarget === 'object') ||
+                needsResolution(item.items),
+        );
     const binaryPath = resolveNativePageOpsPath();
-    if (!binaryPath) throw new Error('Native bookmark target resolution is unavailable');
+    if (!binaryPath) {
+        throw new Error('Native bookmark target resolution is unavailable');
+    }
     // The renderer omits bookmarks it has not read since the last reload. The
     // working PDF still holds them, and qpdf is about to rewrite their pages, so
     // read them here instead of letting a deleted page keep its bookmark. An
@@ -95,40 +98,46 @@ export async function resolvePageMetadataSourceTargets(
     }
     // The page engine carries the document's own page labels; only labels the
     // renderer has not saved yet are written over its output.
-    if (metadata.pageLabelRanges !== undefined && await hasSourcePageLabels(metadata.pageLabelRanges, binaryPath, sourcePath, options)) {
+    if (metadata.pageLabelRanges !== undefined && (await hasSourcePageLabels(metadata.pageLabelRanges, binaryPath, sourcePath, options))) {
         const {pageLabels: _labels, pageLabelRanges: _ranges, ...rest} = metadata;
         metadata = rest;
     }
-    if (!needsResolution(metadata.bookmarks ?? [])) return metadata;
-    return usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async tempDir => {
+    if (!needsResolution(metadata.bookmarks ?? [])) {
+        return metadata;
+    }
+    return usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async (tempDir) => {
         const mutationsPath = join(tempDir, 'targets.json');
         const bookmarks: IPdfBookmarkEntry[] = [];
-        for (const chunk of splitPdfNativeMutationSetIntoBoundedChunks({bookmarks: {
-            totalPages: await getPdfPageCount(sourcePath, options),
-            untitledLabel: metadata.untitledBookmarkLabel,
-            items: metadata.bookmarks?.slice() ?? [],
-        }})) {
+        for (const chunk of splitPdfNativeMutationSetIntoBoundedChunks({
+            bookmarks: {
+                totalPages: await getPdfPageCount(sourcePath, options),
+                untitledLabel: metadata.untitledBookmarkLabel,
+                items: metadata.bookmarks?.slice() ?? [],
+            },
+        })) {
             await writeFile(mutationsPath, JSON.stringify(chunk), 'utf8');
-            const result = await runNativeToolCommand(binaryPath, [
-                'read-document-catalog',
-                '--input',
-                sourcePath,
-                '--mutations-file',
-                mutationsPath,
-            ], {
-                ...options,
-                timeoutMs: PAGE_METADATA_REMAP_TIMEOUT_MS,
-                maxStdoutBytes: 64 * 1024 * 1024,
-                rejectOnStdoutTruncation: true,
-                commandLabel: 'evb-pdf-page-ops(source-bookmark-targets)',
-            });
+            const result = await runNativeToolCommand(
+                binaryPath,
+                ['read-document-catalog', '--input', sourcePath, '--mutations-file', mutationsPath],
+                {
+                    ...options,
+                    timeoutMs: PAGE_METADATA_REMAP_TIMEOUT_MS,
+                    maxStdoutBytes: 64 * 1024 * 1024,
+                    rejectOnStdoutTruncation: true,
+                    commandLabel: 'evb-pdf-page-ops(source-bookmark-targets)',
+                },
+            );
             const resolved = decodeMetadataSnapshot({
                 ...JSON.parse(result.stdout),
                 untitledBookmarkLabel: metadata.untitledBookmarkLabel,
             });
-            if (!resolved.bookmarks) throw new Error('Native bookmark target resolution returned no bookmarks');
-            const level = (chunk.continuation?.bookmarkPath ?? [])
-                .reduce<readonly IPdfBookmarkEntry[]>((items, index) => items[index]!.items, bookmarks);
+            if (!resolved.bookmarks) {
+                throw new Error('Native bookmark target resolution returned no bookmarks');
+            }
+            const level = (chunk.continuation?.bookmarkPath ?? []).reduce<readonly IPdfBookmarkEntry[]>(
+                (items, index) => items[index]!.items,
+                bookmarks,
+            );
             // Decoding owns these arrays; the contract exposes readonly views.
             (level as IPdfBookmarkEntry[]).push(...resolved.bookmarks);
         }
@@ -143,39 +152,41 @@ async function hasSourcePageLabels(
     sourcePath: string,
     options: {signal: AbortSignal; cancelGroup: string},
 ) {
-    const source = await readNativePdfCatalogPart(binaryPath, sourcePath, 'pageLabels', {
+    const source = (await readNativePdfCatalogPart(binaryPath, sourcePath, 'pageLabels', {
         ...options,
         commandLabel: 'evb-pdf-page-ops(source-page-labels)',
-    }).catch(() => null) as Array<{pageIndex: number; style?: IPdfPageLabelRange['style']; prefix?: string; start?: number}> | null;
-    return source !== null && isEqual(
-        normalizePageLabelRanges(source.map(range => ({
-            startPage: range.pageIndex + 1,
-            style: range.style ?? null,
-            prefix: range.prefix ?? '',
-            startNumber: range.start ?? 1,
-        })), Number.MAX_SAFE_INTEGER),
-        normalizePageLabelRanges(ranges, Number.MAX_SAFE_INTEGER),
+    }).catch(() => null)) as Array<{pageIndex: number; style?: IPdfPageLabelRange['style']; prefix?: string; start?: number}> | null;
+    return (
+        source !== null &&
+        isEqual(
+            normalizePageLabelRanges(
+                source.map((range) => ({
+                    startPage: range.pageIndex + 1,
+                    style: range.style ?? null,
+                    prefix: range.prefix ?? '',
+                    startNumber: range.start ?? 1,
+                })),
+                Number.MAX_SAFE_INTEGER,
+            ),
+            normalizePageLabelRanges(ranges, Number.MAX_SAFE_INTEGER),
+        )
     );
 }
 
-function remapKnownPageLabels(
-    pageLabels: readonly string[],
-    delta: IPageIdentityDelta,
-    nextPageCount: number | undefined,
-) {
+function remapKnownPageLabels(pageLabels: readonly string[], delta: IPageIdentityDelta, nextPageCount: number | undefined) {
     if (pageLabels.length !== delta.previousPageCount || nextPageCount === undefined) {
         return undefined;
     }
     const remapped = Array<string | undefined>(nextPageCount);
     if (delta.pages !== undefined) {
         delta.pages.forEach((page, index) => {
-            remapped[index] = 'fromPageNumber' in page
-                ? pageLabels[page.fromPageNumber - 1]
-                : undefined;
+            remapped[index] = 'fromPageNumber' in page ? pageLabels[page.fromPageNumber - 1] : undefined;
         });
     } else {
         for (const range of delta.ranges ?? []) {
-            if (range.kind !== 'retain' && range.kind !== 'move') continue;
+            if (range.kind !== 'retain' && range.kind !== 'move') {
+                continue;
+            }
             for (let offset = 0; offset < range.count; offset += 1) {
                 remapped[range.toPageNumber - 1 + offset] = pageLabels[range.fromPageNumber - 1 + offset];
             }
@@ -192,22 +203,21 @@ function remapCompactPageLabelRanges(
     if (pageLabelRanges.length === 0 || nextPageCount === undefined) {
         return undefined;
     }
-    const normalizedPageLabelRanges = pageLabelRanges[0]!.startPage > 1
-        ? [
-            {
-                startPage: 1,
-                style: 'D' as const,
-                prefix: '',
-                startNumber: 1,
-            },
-            ...pageLabelRanges,
-        ]
-        : pageLabelRanges;
+    const normalizedPageLabelRanges =
+        pageLabelRanges[0]!.startPage > 1
+            ? [
+                  {
+                      startPage: 1,
+                      style: 'D' as const,
+                      prefix: '',
+                      startNumber: 1,
+                  },
+                  ...pageLabelRanges,
+              ]
+            : pageLabelRanges;
     const sourceRanges = normalizedPageLabelRanges.map((range, index) => ({
         ...range,
-        endPage: normalizedPageLabelRanges[index + 1]
-            ? normalizedPageLabelRanges[index + 1]!.startPage - 1
-            : delta.previousPageCount,
+        endPage: normalizedPageLabelRanges[index + 1] ? normalizedPageLabelRanges[index + 1]!.startPage - 1 : delta.previousPageCount,
     }));
     const remapped: IPdfPageLabelRange[] = [];
     let lastRangeCount = 0;
@@ -217,11 +227,11 @@ function remapCompactPageLabelRanges(
         }
         const previous = remapped.at(-1);
         if (
-            previous
-            && previous.startPage + lastRangeCount === range.startPage
-            && previous.style === range.style
-            && previous.prefix === range.prefix
-            && previous.startNumber + lastRangeCount === range.startNumber
+            previous &&
+            previous.startPage + lastRangeCount === range.startPage &&
+            previous.style === range.style &&
+            previous.prefix === range.prefix &&
+            previous.startNumber + lastRangeCount === range.startNumber
         ) {
             lastRangeCount += count;
             return;
@@ -245,16 +255,23 @@ function remapCompactPageLabelRanges(
         }
         for (let index = first; index < sourceRanges.length; index += 1) {
             const sourceRange = sourceRanges[index]!;
-            if (sourceRange.startPage > sourceEndPage) break;
+            if (sourceRange.startPage > sourceEndPage) {
+                break;
+            }
             const overlapStart = Math.max(sourceStartPage, sourceRange.startPage);
             const overlapEnd = Math.min(sourceEndPage, sourceRange.endPage);
-            if (overlapStart > overlapEnd) continue;
-            append({
-                startPage: destinationStartPage + overlapStart - sourceStartPage,
-                style: sourceRange.style,
-                prefix: sourceRange.prefix,
-                startNumber: sourceRange.startNumber + overlapStart - sourceRange.startPage,
-            }, overlapEnd - overlapStart + 1);
+            if (overlapStart > overlapEnd) {
+                continue;
+            }
+            append(
+                {
+                    startPage: destinationStartPage + overlapStart - sourceStartPage,
+                    style: sourceRange.style,
+                    prefix: sourceRange.prefix,
+                    startNumber: sourceRange.startNumber + overlapStart - sourceRange.startPage,
+                },
+                overlapEnd - overlapStart + 1,
+            );
         }
     };
     if (delta.pages !== undefined) {
@@ -262,23 +279,29 @@ function remapCompactPageLabelRanges(
             if ('fromPageNumber' in page) {
                 appendMappedRange(page.fromPageNumber, index + 1, 1);
             } else {
-                append({
-                    startPage: index + 1,
-                    style: 'D',
-                    prefix: '',
-                    startNumber: 1,
-                }, 1);
+                append(
+                    {
+                        startPage: index + 1,
+                        style: 'D',
+                        prefix: '',
+                        startNumber: 1,
+                    },
+                    1,
+                );
             }
         });
     } else {
         for (const range of delta.ranges ?? []) {
             if (range.kind === 'insert') {
-                append({
-                    startPage: range.toPageNumber,
-                    style: 'D',
-                    prefix: '',
-                    startNumber: 1,
-                }, range.count);
+                append(
+                    {
+                        startPage: range.toPageNumber,
+                        style: 'D',
+                        prefix: '',
+                        startNumber: 1,
+                    },
+                    range.count,
+                );
             } else if (range.kind === 'touch') {
                 appendMappedRange(range.toPageNumber, range.toPageNumber, range.count);
             } else if (range.kind === 'retain' || range.kind === 'move') {
@@ -289,18 +312,15 @@ function remapCompactPageLabelRanges(
     return remapped.length > 0 && remapped[0]!.startPage === 1 ? remapped : undefined;
 }
 
-export function remapPageMetadata(
-    metadata: IPageOpsMetadataSnapshot,
-    delta: IPageIdentityDelta,
-) {
+export function remapPageMetadata(metadata: IPageOpsMetadataSnapshot, delta: IPageIdentityDelta) {
     const nextPageCount = delta.nextPageCount ?? delta.pages?.length;
     // Ranges keep the label structure; the per-page labels are the fallback.
-    const compactRanges = metadata.pageLabelRanges === undefined
-        ? undefined
-        : remapCompactPageLabelRanges(metadata.pageLabelRanges, delta, nextPageCount);
-    const labels = metadata.pageLabelRanges === undefined && metadata.pageLabels !== undefined && metadata.pageLabels !== null
-        ? remapKnownPageLabels(metadata.pageLabels, delta, nextPageCount)
-        : undefined;
+    const compactRanges =
+        metadata.pageLabelRanges === undefined ? undefined : remapCompactPageLabelRanges(metadata.pageLabelRanges, delta, nextPageCount);
+    const labels =
+        metadata.pageLabelRanges === undefined && metadata.pageLabels !== undefined && metadata.pageLabels !== null
+            ? remapKnownPageLabels(metadata.pageLabels, delta, nextPageCount)
+            : undefined;
     const result: {
         pageLabels?: {
             totalPages: number;
@@ -362,45 +382,38 @@ export async function applyPageMetadataRemap(input: {
     if (!binaryPath) {
         throw new Error('Cannot safely remap PDF page metadata because the native page tool is unavailable');
     }
-    await usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async tempDir => {
+    await usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async (tempDir) => {
         const mutationsPath = join(tempDir, 'mutations.json');
         const workingCopyStat = await stat(input.workingCopyPath, {bigint: true});
         if (!workingCopyStat.isFile() || workingCopyStat.nlink !== 1n) {
             throw new Error('Page metadata remap requires an exclusively owned working-copy inode');
         }
-        const mutationChunks = splitPdfNativeMutationSetIntoBoundedChunks(
-            mutations,
-        );
-        for (const [
-            chunkIndex,
-            mutationChunk,
-        ] of mutationChunks.entries()) {
-            const chunkMutationsPath = chunkIndex === 0
-                ? mutationsPath
-                : join(tempDir, `mutations-${chunkIndex}.json`);
-            await writeFile(
-                chunkMutationsPath,
-                JSON.stringify(mutationChunk),
-                'utf8',
+        const mutationChunks = splitPdfNativeMutationSetIntoBoundedChunks(mutations);
+        for (const [chunkIndex, mutationChunk] of mutationChunks.entries()) {
+            const chunkMutationsPath = chunkIndex === 0 ? mutationsPath : join(tempDir, `mutations-${chunkIndex}.json`);
+            await writeFile(chunkMutationsPath, JSON.stringify(mutationChunk), 'utf8');
+            await runNativeToolCommand(
+                binaryPath,
+                [
+                    'save-mutations',
+                    '--input',
+                    input.workingCopyPath,
+                    '--output',
+                    input.workingCopyPath,
+                    '--mutations-file',
+                    chunkMutationsPath,
+                    '--modified-at',
+                    createNativeModifiedAt(),
+                    '--append',
+                    '--append-in-place',
+                ],
+                {
+                    timeoutMs: PAGE_METADATA_REMAP_TIMEOUT_MS,
+                    commandLabel: 'evb-pdf-page-ops(page-metadata-remap)',
+                    signal: input.signal,
+                    cancelGroup: input.cancelGroup,
+                },
             );
-            await runNativeToolCommand(binaryPath, [
-                'save-mutations',
-                '--input',
-                input.workingCopyPath,
-                '--output',
-                input.workingCopyPath,
-                '--mutations-file',
-                chunkMutationsPath,
-                '--modified-at',
-                createNativeModifiedAt(),
-                '--append',
-                '--append-in-place',
-            ], {
-                timeoutMs: PAGE_METADATA_REMAP_TIMEOUT_MS,
-                commandLabel: 'evb-pdf-page-ops(page-metadata-remap)',
-                signal: input.signal,
-                cancelGroup: input.cancelGroup,
-            });
         }
     });
 }

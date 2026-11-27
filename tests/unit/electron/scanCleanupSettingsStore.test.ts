@@ -1,20 +1,7 @@
-import {
-    mkdtemp,
-    readFile,
-    readdir,
-    rename,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
+import {mkdtemp, readFile, readdir, rename, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {
     createDefaultScanCleanupSettingsFile,
     decodeScanCleanupSettingsUpdateRequest,
@@ -35,10 +22,14 @@ async function createStoreFile() {
 }
 
 afterEach(async () => {
-    await Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, {
-        recursive: true,
-        force: true,
-    })));
+    await Promise.all(
+        temporaryDirectories.splice(0).map((directory) =>
+            rm(directory, {
+                recursive: true,
+                force: true,
+            }),
+        ),
+    );
 });
 
 describe('file-backed scan-cleanup settings store', () => {
@@ -53,10 +44,14 @@ describe('file-backed scan-cleanup settings store', () => {
             },
         });
 
-        await expect(store.update({settings: {
-            ...initial.settings,
-            readingOrder: 'rtl',
-        }})).rejects.toThrow('simulated interrupted promotion');
+        await expect(
+            store.update({
+                settings: {
+                    ...initial.settings,
+                    readingOrder: 'rtl',
+                },
+            }),
+        ).rejects.toThrow('simulated interrupted promotion');
         expect(JSON.parse(await readFile(filePath, 'utf8'))).toEqual(initial);
     });
 
@@ -84,30 +79,44 @@ describe('file-backed scan-cleanup settings store', () => {
         let replacementStarted!: () => void;
         let releaseReplacement!: () => void;
         let releaseReply!: () => void;
-        const started = new Promise<void>(resolve => { replacementStarted = resolve; });
-        const replacement = new Promise<void>(resolve => { releaseReplacement = resolve; });
-        const reply = new Promise<void>(resolve => { releaseReply = resolve; });
+        const started = new Promise<void>((resolve) => {
+            replacementStarted = resolve;
+        });
+        const replacement = new Promise<void>((resolve) => {
+            releaseReplacement = resolve;
+        });
+        const reply = new Promise<void>((resolve) => {
+            releaseReply = resolve;
+        });
         const store = createScanCleanupSettingsStore({
             filePath,
-            onSettingsChanged: change => { published.push(change); },
+            onSettingsChanged: (change) => {
+                published.push(change);
+            },
             replace: async (source, target) => {
                 replacementStarted();
                 await replacement;
                 await rename(source, target);
             },
         });
-        const olderReply = store.update(decodeScanCleanupSettingsUpdateRequest({
-            settingsPatch: {readingOrder: 'rtl'},
-            requestId: firstId,
-        })).then(async result => {
-            await reply;
-            return result;
-        });
+        const olderReply = store
+            .update(
+                decodeScanCleanupSettingsUpdateRequest({
+                    settingsPatch: {readingOrder: 'rtl'},
+                    requestId: firstId,
+                }),
+            )
+            .then(async (result) => {
+                await reply;
+                return result;
+            });
         await started;
-        const newerReply = store.update(decodeScanCleanupSettingsUpdateRequest({
-            settingsPatch: {readingOrder: 'ltr'},
-            requestId: secondId,
-        }));
+        const newerReply = store.update(
+            decodeScanCleanupSettingsUpdateRequest({
+                settingsPatch: {readingOrder: 'ltr'},
+                requestId: secondId,
+            }),
+        );
         const latestRead = store.get();
         expect(published).toEqual([]);
         releaseReplacement();
@@ -116,18 +125,9 @@ describe('file-backed scan-cleanup settings store', () => {
         releaseReply();
         const older = await olderReply;
 
-        expect(published.map(change => [
-            change.settings.readingOrder,
-            change.requestId,
-        ])).toEqual([
-            [
-                'rtl',
-                firstId,
-            ],
-            [
-                'ltr',
-                secondId,
-            ],
+        expect(published.map((change) => [change.settings.readingOrder, change.requestId])).toEqual([
+            ['rtl', firstId],
+            ['ltr', secondId],
         ]);
         expect(older.settings.readingOrder).toBe('rtl');
         expect(newer.settings.readingOrder).toBe('ltr');
@@ -143,33 +143,36 @@ describe('file-backed scan-cleanup settings store', () => {
         let fail = true;
         const store = createScanCleanupSettingsStore({
             filePath,
-            onSettingsChanged: change => { published.push(change); },
+            onSettingsChanged: (change) => {
+                published.push(change);
+            },
             replace: async (source, target) => {
-                if (fail) throw new Error('disk replacement failure');
+                if (fail) {
+                    throw new Error('disk replacement failure');
+                }
                 await rename(source, target);
             },
         });
         const failedId = createRequestId();
-        await expect(store.update(decodeScanCleanupSettingsUpdateRequest({
-            settingsPatch: {readingOrder: 'rtl'},
-            requestId: failedId,
-        })))
-            .rejects.toThrow('disk replacement failure');
+        await expect(
+            store.update(
+                decodeScanCleanupSettingsUpdateRequest({
+                    settingsPatch: {readingOrder: 'rtl'},
+                    requestId: failedId,
+                }),
+            ),
+        ).rejects.toThrow('disk replacement failure');
         expect(published).toEqual([]);
         expect(JSON.parse(await readFile(filePath, 'utf8')).settings.readingOrder).toBe('ltr');
         fail = false;
         const retryId = createRequestId();
-        await store.update(decodeScanCleanupSettingsUpdateRequest({
-            settingsPatch: {readingOrder: 'rtl'},
-            requestId: retryId,
-        }));
-        expect(published.map(change => [
-            change.settings.readingOrder,
-            change.requestId,
-        ])).toEqual([[
-            'rtl',
-            retryId,
-        ]]);
+        await store.update(
+            decodeScanCleanupSettingsUpdateRequest({
+                settingsPatch: {readingOrder: 'rtl'},
+                requestId: retryId,
+            }),
+        );
+        expect(published.map((change) => [change.settings.readingOrder, change.requestId])).toEqual([['rtl', retryId]]);
         expect(JSON.parse(await readFile(filePath, 'utf8')).settings.readingOrder).toBe('rtl');
     });
 
@@ -191,8 +194,7 @@ describe('file-backed scan-cleanup settings store', () => {
         expect(loaded.documentOverrides).toEqual({});
         expect(JSON.parse(await readFile(filePath, 'utf8'))).toEqual(createDefaultScanCleanupSettingsFile());
         const directory = join(filePath, '..');
-        const quarantinedName = (await readdir(directory))
-            .find(name => /^scan-cleanup-settings\.json\.\d+\.corrupt$/u.test(name));
+        const quarantinedName = (await readdir(directory)).find((name) => /^scan-cleanup-settings\.json\.\d+\.corrupt$/u.test(name));
         expect(quarantinedName).toBeDefined();
         await expect(readFile(join(directory, quarantinedName!), 'utf8')).resolves.toBe(corruptRaw);
         expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Quarantined corrupt scan-cleanup settings'));
@@ -200,11 +202,15 @@ describe('file-backed scan-cleanup settings store', () => {
 
     it('quarantines an unsupported future schema and replaces it with defaults', async () => {
         const filePath = await createStoreFile();
-        const futureRaw = `${JSON.stringify({
-            schemaVersion: 99,
-            settings: {},
-            documentOverrides: {},
-        }, null, 2)}\n`;
+        const futureRaw = `${JSON.stringify(
+            {
+                schemaVersion: 99,
+                settings: {},
+                documentOverrides: {},
+            },
+            null,
+            2,
+        )}\n`;
         await writeFile(filePath, futureRaw, 'utf8');
         const logger = {warn: vi.fn()};
         const store = createScanCleanupSettingsStore({
@@ -220,8 +226,7 @@ describe('file-backed scan-cleanup settings store', () => {
         expect(loaded.documentOverrides).toEqual({});
         expect(JSON.parse(await readFile(filePath, 'utf8'))).toEqual(createDefaultScanCleanupSettingsFile());
         const directory = join(filePath, '..');
-        const quarantinedName = (await readdir(directory))
-            .find(name => /^scan-cleanup-settings\.json\.\d+\.corrupt$/u.test(name));
+        const quarantinedName = (await readdir(directory)).find((name) => /^scan-cleanup-settings\.json\.\d+\.corrupt$/u.test(name));
         expect(quarantinedName).toBeDefined();
         await expect(readFile(join(directory, quarantinedName!), 'utf8')).resolves.toBe(futureRaw);
         expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Quarantined corrupt scan-cleanup settings'));
@@ -229,10 +234,14 @@ describe('file-backed scan-cleanup settings store', () => {
 
     it('quarantines settings whose document overrides are not an object', async () => {
         const filePath = await createStoreFile();
-        const corruptRaw = `${JSON.stringify({
-            ...createDefaultScanCleanupSettingsFile(),
-            documentOverrides: [],
-        }, null, 2)}\n`;
+        const corruptRaw = `${JSON.stringify(
+            {
+                ...createDefaultScanCleanupSettingsFile(),
+                documentOverrides: [],
+            },
+            null,
+            2,
+        )}\n`;
         await writeFile(filePath, corruptRaw, 'utf8');
         const logger = {warn: vi.fn()};
         const store = createScanCleanupSettingsStore({
@@ -247,8 +256,7 @@ describe('file-backed scan-cleanup settings store', () => {
         });
         expect(loaded.documentOverrides).toEqual({});
         const directory = join(filePath, '..');
-        const quarantinedName = (await readdir(directory))
-            .find(name => /^scan-cleanup-settings\.json\.\d+\.corrupt$/u.test(name));
+        const quarantinedName = (await readdir(directory)).find((name) => /^scan-cleanup-settings\.json\.\d+\.corrupt$/u.test(name));
         expect(quarantinedName).toBeDefined();
         await expect(readFile(join(directory, quarantinedName!), 'utf8')).resolves.toBe(corruptRaw);
         expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Quarantined corrupt scan-cleanup settings'));
@@ -258,34 +266,40 @@ describe('file-backed scan-cleanup settings store', () => {
         const filePath = await createStoreFile();
         const sourceSha256 = 'a'.repeat(64);
         const base = createDefaultScanCleanupSettingsFile();
-        await writeFile(filePath, `${JSON.stringify({
-            ...base,
-            settings: {
-                ...base.settings,
-                pageAlignment: 'invalid',
-            },
-            documentOverrides: {[sourceSha256]: {
-                overrides: {
-                    '1': {
-                        rotationDegrees: 0,
-                        layoutOverride: 'auto',
-                        excluded: false,
-                        manualSplit: null,
-                    },
-                    '2': {
-                        rotationDegrees: 0,
-                        layoutOverride: 'auto',
-                        excluded: false,
-                        manualSplit: null,
-                        manualZones: {
-                            picture: [],
-                            fill: [{points: []}],
+        await writeFile(
+            filePath,
+            `${JSON.stringify({
+                ...base,
+                settings: {
+                    ...base.settings,
+                    pageAlignment: 'invalid',
+                },
+                documentOverrides: {
+                    [sourceSha256]: {
+                        overrides: {
+                            '1': {
+                                rotationDegrees: 0,
+                                layoutOverride: 'auto',
+                                excluded: false,
+                                manualSplit: null,
+                            },
+                            '2': {
+                                rotationDegrees: 0,
+                                layoutOverride: 'auto',
+                                excluded: false,
+                                manualSplit: null,
+                                manualZones: {
+                                    picture: [],
+                                    fill: [{points: []}],
+                                },
+                            },
                         },
+                        lastUsedAtMs: 1,
                     },
                 },
-                lastUsedAtMs: 1,
-            }},
-        })}\n`, 'utf8');
+            })}\n`,
+            'utf8',
+        );
         const store = createScanCleanupSettingsStore({filePath});
 
         const loaded = await store.get();
@@ -304,15 +318,19 @@ describe('file-backed scan-cleanup settings store', () => {
     it('rewrites a pre-ink settings file at the current schema with ink as its alignment', async () => {
         const filePath = await createStoreFile();
         const base = createDefaultScanCleanupSettingsFile();
-        await writeFile(filePath, `${JSON.stringify({
-            ...base,
-            schemaVersion: 1,
-            settings: {
-                ...base.settings,
-                pageAlignment: 'top-center',
-                readingOrder: 'rtl',
-            },
-        })}\n`, 'utf8');
+        await writeFile(
+            filePath,
+            `${JSON.stringify({
+                ...base,
+                schemaVersion: 1,
+                settings: {
+                    ...base.settings,
+                    pageAlignment: 'top-center',
+                    readingOrder: 'rtl',
+                },
+            })}\n`,
+            'utf8',
+        );
         const store = createScanCleanupSettingsStore({filePath});
 
         const loaded = await store.get();
@@ -330,14 +348,16 @@ describe('file-backed scan-cleanup settings store', () => {
         const filePath = await createStoreFile();
         const store = createScanCleanupSettingsStore({filePath});
 
-        const seeded = await store.get({legacyStorage: {
-            settingsRaw: JSON.stringify({
-                pageAlignment: 'top-center',
-                readingOrder: 'rtl',
-            }),
-            documentOverridesRaw: '{}',
-            exportedAtMs: 10,
-        }});
+        const seeded = await store.get({
+            legacyStorage: {
+                settingsRaw: JSON.stringify({
+                    pageAlignment: 'top-center',
+                    readingOrder: 'rtl',
+                }),
+                documentOverridesRaw: '{}',
+                exportedAtMs: 10,
+            },
+        });
         expect(seeded.settings).toMatchObject({
             pageAlignment: 'ink',
             readingOrder: 'rtl',
@@ -348,15 +368,19 @@ describe('file-backed scan-cleanup settings store', () => {
         const filePath = await createStoreFile();
         const sourceSha256 = 'A'.repeat(64);
         const legacyDocumentKey = '/documents/scan.pdf';
-        const legacyOverrides = {[legacyDocumentKey]: {
-            updatedAt: 20,
-            overrides: {'1': {
-                rotationDegrees: 90,
-                layoutOverride: 'auto',
-                excluded: false,
-                manualSplit: null,
-            }},
-        }};
+        const legacyOverrides = {
+            [legacyDocumentKey]: {
+                updatedAt: 20,
+                overrides: {
+                    '1': {
+                        rotationDegrees: 90,
+                        layoutOverride: 'auto',
+                        excluded: false,
+                        manualSplit: null,
+                    },
+                },
+            },
+        };
         const store = createScanCleanupSettingsStore({
             filePath,
             now: () => 100,
@@ -375,16 +399,20 @@ describe('file-backed scan-cleanup settings store', () => {
             legacyDocumentKey,
         });
         expect(migrated.settings.readingOrder).toBe('rtl');
-        expect(migrated.documentOverrides).toEqual({[sourceSha256.toLowerCase()]: expect.objectContaining({
-            lastUsedAtMs: 20,
-            overrides: legacyOverrides[legacyDocumentKey].overrides,
-        })});
+        expect(migrated.documentOverrides).toEqual({
+            [sourceSha256.toLowerCase()]: expect.objectContaining({
+                lastUsedAtMs: 20,
+                overrides: legacyOverrides[legacyDocumentKey].overrides,
+            }),
+        });
         expect(migrated.documentOverrides[legacyDocumentKey]).toBeUndefined();
 
-        const updated = await store.update({document: {
-            sourceSha256: sourceSha256.toLowerCase(),
-            patch: {outputMode: 'grayscale'},
-        }});
+        const updated = await store.update({
+            document: {
+                sourceSha256: sourceSha256.toLowerCase(),
+                patch: {outputMode: 'grayscale'},
+            },
+        });
         expect(updated.documentOverrides[sourceSha256.toLowerCase()]).toMatchObject({
             outputMode: 'grayscale',
             lastUsedAtMs: 100,
@@ -396,12 +424,14 @@ describe('file-backed scan-cleanup settings store', () => {
         const sourceSha256 = 'd'.repeat(64);
         const initial = createDefaultScanCleanupSettingsFile();
         initial.documentOverrides[sourceSha256] = {
-            overrides: {'1': {
-                rotationDegrees: 90,
-                layoutOverride: 'spread',
-                excluded: false,
-                manualSplit: null,
-            }},
+            overrides: {
+                '1': {
+                    rotationDegrees: 90,
+                    layoutOverride: 'spread',
+                    excluded: false,
+                    manualSplit: null,
+                },
+            },
             marginsMm: {
                 leftMm: 4,
                 topMm: 5,
@@ -417,10 +447,12 @@ describe('file-backed scan-cleanup settings store', () => {
             now: () => 2,
         });
 
-        const updated = await store.update({document: {
-            sourceSha256,
-            patch: {resetOverrides: true},
-        }});
+        const updated = await store.update({
+            document: {
+                sourceSha256,
+                patch: {resetOverrides: true},
+            },
+        });
 
         expect(updated.documentOverrides[sourceSha256]).toEqual({
             marginsMm: initial.documentOverrides[sourceSha256]!.marginsMm,
@@ -443,13 +475,15 @@ describe('file-backed scan-cleanup settings store', () => {
             now: () => 3,
         });
 
-        const updated = await store.update({document: {
-            sourceSha256,
-            patch: {
-                overrides: {},
-                pageOverrideDefaults,
+        const updated = await store.update({
+            document: {
+                sourceSha256,
+                patch: {
+                    overrides: {},
+                    pageOverrideDefaults,
+                },
             },
-        }});
+        });
 
         expect(updated.documentOverrides[sourceSha256]).toMatchObject({
             pageOverrideDefaults,
@@ -457,10 +491,12 @@ describe('file-backed scan-cleanup settings store', () => {
         });
         expect(updated.documentOverrides[sourceSha256]?.overrides).toEqual({});
 
-        const reset = await store.update({document: {
-            sourceSha256,
-            patch: {resetOverrides: true},
-        }});
+        const reset = await store.update({
+            document: {
+                sourceSha256,
+                patch: {resetOverrides: true},
+            },
+        });
         expect(reset.documentOverrides[sourceSha256]).toBeUndefined();
     });
 
@@ -474,21 +510,27 @@ describe('file-backed scan-cleanup settings store', () => {
             now: () => 20,
         });
 
-        const migrated = await store.get({legacyStorage: {
-            settingsRaw: JSON.stringify({readingOrder: 'rtl'}),
-            documentOverridesRaw: JSON.stringify({
-                '/documents/broken.pdf': {overrides: {'01': {
-                    rotationDegrees: 0,
-                    layoutOverride: 'auto',
-                    excluded: false,
-                    manualSplit: null,
-                }}},
-                [validHash]: {
-                    outputMode: 'grayscale',
-                    updatedAt: 20,
-                },
-            }),
-        }});
+        const migrated = await store.get({
+            legacyStorage: {
+                settingsRaw: JSON.stringify({readingOrder: 'rtl'}),
+                documentOverridesRaw: JSON.stringify({
+                    '/documents/broken.pdf': {
+                        overrides: {
+                            '01': {
+                                rotationDegrees: 0,
+                                layoutOverride: 'auto',
+                                excluded: false,
+                                manualSplit: null,
+                            },
+                        },
+                    },
+                    [validHash]: {
+                        outputMode: 'grayscale',
+                        updatedAt: 20,
+                    },
+                }),
+            },
+        });
 
         expect(migrated.settings.readingOrder).toBe('rtl');
         expect(migrated.documentOverrides[validHash]).toMatchObject({
@@ -508,10 +550,12 @@ describe('file-backed scan-cleanup settings store', () => {
             logger,
         });
 
-        const migrated = await store.get({legacyStorage: {
-            settingsRaw: '[]',
-            documentOverridesRaw: JSON.stringify({[validHash]: {outputMode: 'color'}}),
-        }});
+        const migrated = await store.get({
+            legacyStorage: {
+                settingsRaw: '[]',
+                documentOverridesRaw: JSON.stringify({[validHash]: {outputMode: 'color'}}),
+            },
+        });
 
         expect(migrated.settings).toEqual(createDefaultScanCleanupSettingsFile().settings);
         expect(migrated.documentOverrides[validHash]?.outputMode).toBe('color');
@@ -529,10 +573,12 @@ describe('file-backed scan-cleanup settings store', () => {
             logger,
         });
 
-        const loaded = await store.get({legacyStorage: {
-            settingsRaw: JSON.stringify({readingOrder: 'ltr'}),
-            documentOverridesRaw: 'x'.repeat(6 * 1024 * 1024),
-        }});
+        const loaded = await store.get({
+            legacyStorage: {
+                settingsRaw: JSON.stringify({readingOrder: 'ltr'}),
+                documentOverridesRaw: 'x'.repeat(6 * 1024 * 1024),
+            },
+        });
 
         expect(loaded).toEqual(initial);
         expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('1 envelope'));
@@ -540,15 +586,23 @@ describe('file-backed scan-cleanup settings store', () => {
     });
 
     it('keeps new page-override writes strict at the IPC boundary', () => {
-        expect(() => decodeScanCleanupSettingsUpdateRequest({document: {
-            sourceSha256: 'a'.repeat(64),
-            patch: {overrides: {'01': {
-                rotationDegrees: 0,
-                layoutOverride: 'auto',
-                excluded: false,
-                manualSplit: null,
-            }}},
-        }})).toThrow('page override number');
+        expect(() =>
+            decodeScanCleanupSettingsUpdateRequest({
+                document: {
+                    sourceSha256: 'a'.repeat(64),
+                    patch: {
+                        overrides: {
+                            '01': {
+                                rotationDegrees: 0,
+                                layoutOverride: 'auto',
+                                excluded: false,
+                                manualSplit: null,
+                            },
+                        },
+                    },
+                },
+            }),
+        ).toThrow('page override number');
     });
 
     it('expires old document overrides on load and keeps recent entries', async () => {
@@ -594,10 +648,12 @@ describe('file-backed scan-cleanup settings store', () => {
                     layoutMode: 'force-two-page',
                     readingOrder: 'rtl',
                 }),
-                documentOverridesRaw: JSON.stringify({[legacyDocumentKey]: {
-                    updatedAt: now,
-                    outputMode: 'grayscale',
-                }}),
+                documentOverridesRaw: JSON.stringify({
+                    [legacyDocumentKey]: {
+                        updatedAt: now,
+                        outputMode: 'grayscale',
+                    },
+                }),
                 exportedAtMs: now,
             },
             sourceSha256,
@@ -606,10 +662,12 @@ describe('file-backed scan-cleanup settings store', () => {
 
         expect(loaded.settings.readingOrder).toBe('rtl');
         expect(loaded.settings.layoutMode).toBe('force-single');
-        expect(loaded.documentOverrides).toEqual({[sourceSha256]: {
-            outputMode: 'grayscale',
-            lastUsedAtMs: now,
-        }});
+        expect(loaded.documentOverrides).toEqual({
+            [sourceSha256]: {
+                outputMode: 'grayscale',
+                lastUsedAtMs: now,
+            },
+        });
 
         const restarted = createScanCleanupSettingsStore({
             filePath,
@@ -620,10 +678,12 @@ describe('file-backed scan-cleanup settings store', () => {
                 readingOrder: 'rtl',
                 layoutMode: 'force-single',
             },
-            documentOverrides: {[sourceSha256]: {
-                outputMode: 'grayscale',
-                lastUsedAtMs: now,
-            }},
+            documentOverrides: {
+                [sourceSha256]: {
+                    outputMode: 'grayscale',
+                    lastUsedAtMs: now,
+                },
+            },
         });
     });
 
@@ -631,15 +691,7 @@ describe('file-backed scan-cleanup settings store', () => {
         const filePath = await createStoreFile();
         const sourceSha256 = 'f'.repeat(64);
         const legacyDocumentKey = '/documents/legacy-split.pdf';
-        const positions = [
-            0,
-            0.019,
-            0.02,
-            0.5,
-            0.98,
-            0.981,
-            1,
-        ];
+        const positions = [0, 0.019, 0.02, 0.5, 0.98, 0.981, 1];
         const store = createScanCleanupSettingsStore({
             filePath,
             now: () => 20,
@@ -648,48 +700,36 @@ describe('file-backed scan-cleanup settings store', () => {
         const loaded = await store.get({
             legacyStorage: {
                 settingsRaw: '{}',
-                documentOverridesRaw: JSON.stringify({[legacyDocumentKey]: {
-                    updatedAt: 10,
-                    overrides: Object.fromEntries(positions.map((xNormalized, index) => [
-                        String(index + 1),
-                        {
-                            rotationDegrees: (index % 4) * 90,
-                            layoutOverride: 'spread',
-                            excluded: false,
-                            manualSplit: {
-                                xNormalized,
-                                rotationDegrees: (index % 4) * 90,
-                            },
-                        },
-                    ])),
-                }}),
+                documentOverridesRaw: JSON.stringify({
+                    [legacyDocumentKey]: {
+                        updatedAt: 10,
+                        overrides: Object.fromEntries(
+                            positions.map((xNormalized, index) => [
+                                String(index + 1),
+                                {
+                                    rotationDegrees: (index % 4) * 90,
+                                    layoutOverride: 'spread',
+                                    excluded: false,
+                                    manualSplit: {
+                                        xNormalized,
+                                        rotationDegrees: (index % 4) * 90,
+                                    },
+                                },
+                            ]),
+                        ),
+                    },
+                }),
                 exportedAtMs: 10,
             },
             sourceSha256,
             legacyDocumentKey,
         });
 
-        expect(Object.values(loaded.documentOverrides[sourceSha256]!.overrides!).map(override => (
-            override.manualSplit?.xNormalized
-        ))).toEqual([
-            0.02,
-            0.02,
-            0.02,
-            0.5,
-            0.98,
-            0.98,
-            0.98,
-        ]);
-        expect(Object.values(loaded.documentOverrides[sourceSha256]!.overrides!).map(override => (
-            override.manualSplit?.rotationDegrees
-        ))).toEqual([
-            0,
-            90,
-            180,
-            270,
-            0,
-            90,
-            180,
-        ]);
+        expect(
+            Object.values(loaded.documentOverrides[sourceSha256]!.overrides!).map((override) => override.manualSplit?.xNormalized),
+        ).toEqual([0.02, 0.02, 0.02, 0.5, 0.98, 0.98, 0.98]);
+        expect(
+            Object.values(loaded.documentOverrides[sourceSha256]!.overrides!).map((override) => override.manualSplit?.rotationDegrees),
+        ).toEqual([0, 90, 180, 270, 0, 90, 180]);
     });
 });

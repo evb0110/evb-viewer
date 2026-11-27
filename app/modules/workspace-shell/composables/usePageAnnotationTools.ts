@@ -1,9 +1,5 @@
-import type {
-    IAnnotationEditorState,
-    IAnnotationModifiedPayload,
-    IAnnotationSettings,
-} from '@app/types/annotations';
-import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
+import type {IAnnotationEditorState, IAnnotationModifiedPayload, IAnnotationSettings} from '@app/types/annotations';
+import {DEFAULT_ANNOTATION_SETTINGS} from '@app/constants/annotationDefaults';
 
 interface IPageAnnotationToolsDeps {
     clearAnnotationChanges: () => void;
@@ -11,13 +7,10 @@ interface IPageAnnotationToolsDeps {
 }
 
 export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
-    const {
-        clearAnnotationChanges,
-        hasAnnotationChanges,
-    } = deps;
+    const {clearAnnotationChanges, hasAnnotationChanges} = deps;
 
     const annotationKeepActive = ref(true);
-    const annotationSettings = ref<IAnnotationSettings>({ ...DEFAULT_ANNOTATION_SETTINGS });
+    const annotationSettings = ref<IAnnotationSettings>({...DEFAULT_ANNOTATION_SETTINGS});
     const annotationActiveCommentStableKey = ref<string | null>(null);
     const annotationEditorState = ref<IAnnotationEditorState>({
         isEditing: false,
@@ -31,10 +24,7 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
     const annotationSavedRevision = ref(0);
     const annotationDirty = computed(() => annotationRevision.value !== annotationSavedRevision.value);
 
-    function handleAnnotationSettingChange<K extends keyof IAnnotationSettings>(payload: {
-        key: K;
-        value: IAnnotationSettings[K]
-    }) {
+    function handleAnnotationSettingChange<K extends keyof IAnnotationSettings>(payload: {key: K; value: IAnnotationSettings[K]}) {
         annotationSettings.value = {
             ...annotationSettings.value,
             [payload.key]: payload.value,
@@ -63,10 +53,7 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
             markAnnotationDirty();
             return;
         }
-        if (
-            !annotationEditorState.value.hasSomethingToUndo
-            && !hasAnnotationChanges()
-        ) {
+        if (!annotationEditorState.value.hasSomethingToUndo && !hasAnnotationChanges()) {
             syncAnnotationClean();
             return;
         }

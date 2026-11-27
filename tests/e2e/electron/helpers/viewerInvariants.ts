@@ -1,11 +1,11 @@
-import type { Page } from 'puppeteer-core';
+import type {Page} from 'puppeteer-core';
 import type {
     IViewerInvariantReport,
     IViewerInvariantUnresolved,
     IViewerInvariantViolation,
     TViewerInvariantId,
 } from '@app/modules/viewer-invariants/viewerInvariantTypes';
-import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
+import {evaluateInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 
 // The Settled definition in docs/architecture/behavior-contract.md.
 const DEFAULT_SETTLE_TIMEOUT_MS = 10_000;
@@ -84,13 +84,10 @@ function subjectOfViolation(violation: IViewerInvariantViolation) {
     return describeSubject(violation.id, typeof annotationId === 'string' ? annotationId : null);
 }
 
-function describeUnmetRequirements(
-    report: IViewerInvariantReport,
-    options: IAssertViewerInvariantsOptions,
-) {
+function describeUnmetRequirements(report: IViewerInvariantReport, options: IAssertViewerInvariantsOptions) {
     const unmet: string[] = [];
     for (const id of options.requireRan ?? []) {
-        const skip = report.skipped.find(entry => entry.id === id);
+        const skip = report.skipped.find((entry) => entry.id === id);
         if (skip) {
             unmet.push(`${id} did not run: ${skip.reason}`);
         }
@@ -102,15 +99,19 @@ function describeUnmetRequirements(
     }
     for (const annotationId of required.annotationIds ?? []) {
         if (!report.observed.annotationIds.includes(annotationId)) {
-            unmet.push(`the annotation ${annotationId} is no longer drawn;`
-                + ` mounted pages ${report.observed.mountedPageNumbers.join(', ') || 'none'},`
-                + ` drawn annotations ${report.observed.annotationIds.join(', ') || 'none'}`);
+            unmet.push(
+                `the annotation ${annotationId} is no longer drawn;` +
+                    ` mounted pages ${report.observed.mountedPageNumbers.join(', ') || 'none'},` +
+                    ` drawn annotations ${report.observed.annotationIds.join(', ') || 'none'}`,
+            );
         }
     }
     for (const annotationId of required.noteWindowFor ?? []) {
         if (!report.observed.noteWindowAnnotationIds.includes(annotationId)) {
-            unmet.push(`the note window for ${annotationId} is no longer open;`
-                + ` open windows ${report.observed.noteWindowAnnotationIds.join(', ') || 'none'}`);
+            unmet.push(
+                `the note window for ${annotationId} is no longer open;` +
+                    ` open windows ${report.observed.noteWindowAnnotationIds.join(', ') || 'none'}`,
+            );
         }
     }
     if (required.pageIndicator && report.observed.pageIndicator === null) {
@@ -128,9 +129,7 @@ export function evaluateViewerInvariantCheckpoint(
     report: IViewerInvariantReport,
     options: IAssertViewerInvariantsOptions,
 ): IViewerInvariantCheckpointResult {
-    const outstanding = (options.expected ?? []).map(exception => (
-        describeSubject(exception.id, exception.annotationId ?? null)
-    ));
+    const outstanding = (options.expected ?? []).map((exception) => describeSubject(exception.id, exception.annotationId ?? null));
     const tolerated: IViewerInvariantViolation[] = [];
     const unexpected: IViewerInvariantViolation[] = [];
     for (const violation of report.violations) {
@@ -145,17 +144,21 @@ export function evaluateViewerInvariantCheckpoint(
     const unmet = describeUnmetRequirements(report, options);
 
     if (unexpected.length > 0 || outstanding.length > 0 || unmet.length > 0) {
-        throw new Error([
-            `Viewer invariants failed at checkpoint "${options.checkpoint}":`,
-            ...unexpected.map(formatViolation),
-            ...unmet.map(entry => `  - ${entry}`),
-            ...(outstanding.length > 0
-                ? [`  tolerated but not observed: ${outstanding.join(', ')}.`
-                    + ' Either the defect is fixed and the exception belongs in the'
-                    + ' bin, or this checkpoint no longer reaches it.']
-                : []),
-            `  not applicable here: ${report.skipped.map(skip => skip.id).join(', ') || 'none'}`,
-        ].join('\n'));
+        throw new Error(
+            [
+                `Viewer invariants failed at checkpoint "${options.checkpoint}":`,
+                ...unexpected.map(formatViolation),
+                ...unmet.map((entry) => `  - ${entry}`),
+                ...(outstanding.length > 0
+                    ? [
+                          `  tolerated but not observed: ${outstanding.join(', ')}.` +
+                              ' Either the defect is fixed and the exception belongs in the' +
+                              ' bin, or this checkpoint no longer reaches it.',
+                      ]
+                    : []),
+                `  not applicable here: ${report.skipped.map((skip) => skip.id).join(', ') || 'none'}`,
+            ].join('\n'),
+        );
     }
 
     return {
@@ -194,40 +197,43 @@ export async function readViewerInvariantReport(
         'documentWellFormed' | 'editedAnnotationIds' | 'requireNavigationIdle' | 'settleTimeoutMs'
     >,
 ): Promise<IViewerInvariantReport> {
-    return evaluateInPage(page, async (input: {
-        documentWellFormed: boolean;
-        editedAnnotationIds: string[];
-        requireNavigationIdle: boolean;
-        settleTimeoutMs: number;
-    }) => {
-        interface IViewerInvariantSettleOutcome {
-            reason: string | null;
-            settled: boolean;
-        }
-        interface IViewerInvariantHandle {
-            checkNow: (checkOptions: Record<string, unknown>) => IViewerInvariantReport;
-            waitForSettled: (settleOptions: Record<string, unknown>) => Promise<IViewerInvariantSettleOutcome>;
-        }
-        const invariants = (window as Window & {__evbViewerInvariants?: IViewerInvariantHandle})
-            .__evbViewerInvariants;
-        if (!invariants) {
-            throw new Error('The viewer invariant handle is not installed on this renderer');
-        }
-        const settle = await invariants.waitForSettled({
-            requireNavigationIdle: input.requireNavigationIdle,
-            timeoutMs: input.settleTimeoutMs,
-        });
-        return invariants.checkNow({
-            documentWellFormed: input.documentWellFormed,
-            editedAnnotationIds: input.editedAnnotationIds,
-            settleFailure: settle.settled ? null : settle.reason,
-        });
-    }, {
-        documentWellFormed: options.documentWellFormed ?? false,
-        editedAnnotationIds: [...(options.editedAnnotationIds ?? [])],
-        requireNavigationIdle: options.requireNavigationIdle ?? false,
-        settleTimeoutMs: options.settleTimeoutMs ?? DEFAULT_SETTLE_TIMEOUT_MS,
-    });
+    return evaluateInPage(
+        page,
+        async (input: {
+            documentWellFormed: boolean;
+            editedAnnotationIds: string[];
+            requireNavigationIdle: boolean;
+            settleTimeoutMs: number;
+        }) => {
+            interface IViewerInvariantSettleOutcome {
+                reason: string | null;
+                settled: boolean;
+            }
+            interface IViewerInvariantHandle {
+                checkNow: (checkOptions: Record<string, unknown>) => IViewerInvariantReport;
+                waitForSettled: (settleOptions: Record<string, unknown>) => Promise<IViewerInvariantSettleOutcome>;
+            }
+            const invariants = (window as Window & {__evbViewerInvariants?: IViewerInvariantHandle}).__evbViewerInvariants;
+            if (!invariants) {
+                throw new Error('The viewer invariant handle is not installed on this renderer');
+            }
+            const settle = await invariants.waitForSettled({
+                requireNavigationIdle: input.requireNavigationIdle,
+                timeoutMs: input.settleTimeoutMs,
+            });
+            return invariants.checkNow({
+                documentWellFormed: input.documentWellFormed,
+                editedAnnotationIds: input.editedAnnotationIds,
+                settleFailure: settle.settled ? null : settle.reason,
+            });
+        },
+        {
+            documentWellFormed: options.documentWellFormed ?? false,
+            editedAnnotationIds: [...(options.editedAnnotationIds ?? [])],
+            requireNavigationIdle: options.requireNavigationIdle ?? false,
+            settleTimeoutMs: options.settleTimeoutMs ?? DEFAULT_SETTLE_TIMEOUT_MS,
+        },
+    );
 }
 
 /** Starts a new two-observation sequence, for a test that resets the viewer. */

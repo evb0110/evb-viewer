@@ -1,18 +1,8 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import type {
-    IScanCleanupDetectionResult,
-    IScanCleanupOptions,
-} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {describe, expect, it} from 'vitest';
+import type {IScanCleanupDetectionResult, IScanCleanupOptions} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import {
-    buildScanCleanupPlacementAnchorSummary,
-    resolveScanCleanupSheetAnchorsFromSummary,
-} from '@evb/scan-cleanup/core/placementAnchors';
+import {buildScanCleanupPlacementAnchorSummary, resolveScanCleanupSheetAnchorsFromSummary} from '@evb/scan-cleanup/core/placementAnchors';
 
 const options: IScanCleanupOptions = {
     preserveOriginalQuality: false,
@@ -58,37 +48,33 @@ function result(pageNumber: number, yNormalized: number, heightPoints = 792): IS
             pageNumber: brandedPageNumber,
             rotationDegrees: 0,
             layoutClassification: 'single-uncut-page',
-            outputs: {full: {contentBox: {
-                xNormalized: 0.1,
-                yNormalized,
-                widthNormalized: 0.8,
-                heightNormalized: 0.7,
-                rotationDegrees: 0,
-            }}},
+            outputs: {
+                full: {
+                    contentBox: {
+                        xNormalized: 0.1,
+                        yNormalized,
+                        widthNormalized: 0.8,
+                        heightNormalized: 0.7,
+                        rotationDegrees: 0,
+                    },
+                },
+            },
         },
     };
 }
 
-function resultStore(
-    records: readonly IScanCleanupDetectionResult[],
-): IScanCleanupDetectionResultStore {
+function resultStore(records: readonly IScanCleanupDetectionResult[]): IScanCleanupDetectionResultStore {
     return {
         pageCount: records.length,
         resultCount: records.length,
         append: async () => undefined,
         replace: async () => undefined,
-        getPage: async pageNumber => records[pageNumber - 1],
-        readRange: async (firstPageNumber, lastPageNumberExclusive) => records.slice(
-            firstPageNumber - 1,
-            lastPageNumberExclusive - 1,
-        ),
-        forEachChunk: async onChunk => {
+        getPage: async (pageNumber) => records[pageNumber - 1],
+        readRange: async (firstPageNumber, lastPageNumberExclusive) => records.slice(firstPageNumber - 1, lastPageNumberExclusive - 1),
+        forEachChunk: async (onChunk) => {
             for (let firstPageNumber = 1; firstPageNumber <= records.length; firstPageNumber += 1_024) {
                 const chunk = records.slice(firstPageNumber - 1, firstPageNumber + 1_023);
-                await onChunk(
-                    chunk,
-                    firstPageNumber,
-                );
+                await onChunk(chunk, firstPageNumber);
             }
         },
         close: async () => undefined,
@@ -130,13 +116,15 @@ describe('scan-cleanup bounded ink placement summary', () => {
             layoutOverride: 'auto',
             excluded: false,
             manualSplit: null,
-            manualContentBoxes: {full: {
-                xNormalized: 0.1,
-                yNormalized: 0.3,
-                widthNormalized: 0.8,
-                heightNormalized: 0.7,
-                rotationDegrees: 0,
-            }},
+            manualContentBoxes: {
+                full: {
+                    xNormalized: 0.1,
+                    yNormalized: 0.3,
+                    widthNormalized: 0.8,
+                    heightNormalized: 0.7,
+                    rotationDegrees: 0,
+                },
+            },
         };
         currentOptions.pageOverrides['3'] = {
             rotationDegrees: 0,
@@ -168,13 +156,7 @@ describe('scan-cleanup bounded ink placement summary', () => {
         // shoulder above and a tail below, and a title opening whose two leaves
         // start 0.5 mm apart, a few millimetres under the tail. The 4 mm
         // tolerance is 0.0143 of this sheet.
-        const tops = [
-            0.0597,
-            0.058,
-            0.03,
-            ...Array.from({length: 30}, () => 0.04),
-            0.045,
-        ];
+        const tops = [0.0597, 0.058, 0.03, ...Array.from({length: 30}, () => 0.04), 0.045];
         const records = tops.map((top, index) => result(index + 1, top));
 
         const summary = await buildScanCleanupPlacementAnchorSummary({
@@ -221,11 +203,7 @@ describe('scan-cleanup bounded ink placement summary', () => {
     it('places early, middle, and late pages of a 20,001-page result store from bounded calibration', async () => {
         const records = Array.from({length: 20_001}, (_, index) => {
             const pageNumber = index + 1;
-            const yNormalized = pageNumber === 10_001
-                ? 0.3
-                : pageNumber === 20_001
-                    ? 0.2
-                    : 0.1;
+            const yNormalized = pageNumber === 10_001 ? 0.3 : pageNumber === 20_001 ? 0.2 : 0.1;
             return result(pageNumber, yNormalized);
         });
 
@@ -248,5 +226,4 @@ describe('scan-cleanup bounded ink placement summary', () => {
         expect(resolveScanCleanupSheetAnchorsFromSummary(summary, {full: 0.3}).full).toEqual({yNormalized: expect.closeTo(0.2)});
         expect(resolveScanCleanupSheetAnchorsFromSummary(summary, {full: 0.2}).full).toEqual({yNormalized: expect.closeTo(0.1)});
     });
-
 });

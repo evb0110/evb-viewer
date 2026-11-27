@@ -1,11 +1,5 @@
-import {
-    effectScope,
-    ref,
-} from 'vue';
-import {
-    onTestFinished,
-    vi,
-} from 'vitest';
+import {effectScope, ref} from 'vue';
+import {onTestFinished, vi} from 'vitest';
 import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import type {AnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {useAnnotationNoteWindows} from '@app/modules/workspace-shell/composables/useAnnotationNoteWindows';
@@ -33,7 +27,10 @@ export function createComment(overrides: Partial<IAnnotationCommentSummary> = {}
 }
 
 /** The document store's projection: its live summaries and its tombstones. */
-export function createHarness(comment = createComment(), options: Pick<Parameters<typeof useAnnotationNoteWindows>[0], 'reportNoteFailure'> = {}) {
+export function createHarness(
+    comment = createComment(),
+    options: Pick<Parameters<typeof useAnnotationNoteWindows>[0], 'reportNoteFailure'> = {},
+) {
     const annotationComments = ref<IAnnotationCommentSummary[]>([comment]);
     const deletedAnnotationIds = ref<ReadonlySet<string>>(new Set());
     const deps = {
@@ -44,9 +41,7 @@ export function createHarness(comment = createComment(), options: Pick<Parameter
         },
         annotationComments,
         deletedAnnotationIds,
-        updateAnnotationCommentInViewer: vi.fn<
-            (annotationId: AnnotationId, text: string) => boolean
-        >(() => true),
+        updateAnnotationCommentInViewer: vi.fn<(annotationId: AnnotationId, text: string) => boolean>(() => true),
     };
 
     const scope = effectScope();

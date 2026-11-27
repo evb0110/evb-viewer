@@ -1,17 +1,13 @@
 import {decodeScanCleanupPageOpsResult} from '@contracts/scan-cleanup/nativeArtifactCodecs';
-import {
-    readFile,
-    stat,
-    writeFile,
-} from 'fs/promises';
-import { join } from 'path';
-import { overlayScanCleanupTextLayer } from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
+import {readFile, stat, writeFile} from 'fs/promises';
+import {join} from 'path';
+import {overlayScanCleanupTextLayer} from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
 import type {IScanCleanupTextLayerPlan} from '@evb/scan-cleanup/core/sourceTextLayer';
 import {
     assertScanCleanupCompactSourceBudget,
     type IScanCleanupCompactSourceBudget,
 } from '@evb/scan-cleanup/core/policy/scanCleanupRepresentationPolicy';
-import type { IScanCleanupRepresentationReport } from '@evb/scan-cleanup/core/types';
+import type {IScanCleanupRepresentationReport} from '@evb/scan-cleanup/core/types';
 
 /**
  * Overlays the source text once over the finished output. The batches measured
@@ -27,11 +23,10 @@ export async function overlayScanCleanupTextLayerAndMeasure(
 ) {
     const stagedPdfPath = args[2];
     const scratch = args[3];
-    const result = await overlayScanCleanupTextLayer(sourceText.pages, ...args) ?? decodeScanCleanupPageOpsResult('');
-    const omittedSourcePages = [...new Set([
-        ...sourceText.skippedNonAffine,
-        ...result.textOmittedSourcePages,
-    ])].sort((left, right) => left - right);
+    const result = (await overlayScanCleanupTextLayer(sourceText.pages, ...args)) ?? decodeScanCleanupPageOpsResult('');
+    const omittedSourcePages = [...new Set([...sourceText.skippedNonAffine, ...result.textOmittedSourcePages])].sort(
+        (left, right) => left - right,
+    );
     if (sourceText.pages.length === 0) {
         return {
             ...result,
@@ -44,10 +39,7 @@ export async function overlayScanCleanupTextLayerAndMeasure(
     report.outputBytes = after.size;
     report.outputToSourceByteRatio = after.size / report.sourceBytes;
     await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`);
-    assertScanCleanupCompactSourceBudget(
-        after.size,
-        report.compactSourceBudget as IScanCleanupCompactSourceBudget | null,
-    );
+    assertScanCleanupCompactSourceBudget(after.size, report.compactSourceBudget as IScanCleanupCompactSourceBudget | null);
     return {
         ...result,
         omittedSourcePages,

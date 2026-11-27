@@ -11,66 +11,19 @@ import type {
 } from '@contracts/electronApiOcr';
 import {isAbortError} from '@contracts/isAbortError';
 import type {IOcrCapability} from '@contracts/ocrPlatformFeature';
-import {
-    AVAILABLE_OCR_LANGUAGES,
-    isAvailableOcrLanguageCode,
-    type IOcrLanguage,
-    withOcrModelSublanguages,
-} from '@contracts/ocrLanguages';
-import {
-    createJobId,
-    type TRequestId,
-} from '@contracts/shared';
-import {
-    isBrowserLegacyDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
+import {AVAILABLE_OCR_LANGUAGES, isAvailableOcrLanguageCode, type IOcrLanguage, withOcrModelSublanguages} from '@contracts/ocrLanguages';
+import {createJobId, type TRequestId} from '@contracts/shared';
+import {isBrowserLegacyDocumentRef, type TDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import {createEpochMs} from '@contracts/timestamps';
-import {
-    getOcrPageSelectionCount,
-    iterateOcrPageRequestBatches,
-} from '@ocr-core/ocrPageSelection';
-import {
-    canStoreBrowserOcrModels,
-    hasCachedOcrModel,
-} from '@app/platform/browser-api/browserOcrModels';
+import {getOcrPageSelectionCount, iterateOcrPageRequestBatches} from '@ocr-core/ocrPageSelection';
+import {canStoreBrowserOcrModels, hasCachedOcrModel} from '@app/platform/browser-api/browserOcrModels';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {getErrorMessage} from '@app/utils/error';
 
 // The smallest module that uses a SIMD128 instruction; the engine needs SIMD.
 const WASM_SIMD_PROBE = new Uint8Array([
-    0,
-    97,
-    115,
-    109,
-    1,
-    0,
-    0,
-    0,
-    1,
-    5,
-    1,
-    96,
-    0,
-    1,
-    123,
-    3,
-    2,
-    1,
-    0,
-    10,
-    10,
-    1,
-    8,
-    0,
-    65,
-    0,
-    253,
-    15,
-    253,
-    98,
-    11,
+    0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11,
 ]);
 
 type TProgressListener = (progress: IOcrProgress) => void;
@@ -90,10 +43,7 @@ const activeJobs = new Map<TRequestId, AbortController>();
 const stagedResults = new Map<TDocumentRef, IBrowserOcrStagedResult>();
 
 /** The workspace localizes these codes; the message stays the code so the user sees only that text. */
-const LOCALIZED_BROWSER_ERROR_CODES = new Set<TOcrErrorCode>([
-    'OCR_BROWSER_UNSUPPORTED',
-    'OCR_MODEL_DOWNLOAD_FAILED',
-]);
+const LOCALIZED_BROWSER_ERROR_CODES = new Set<TOcrErrorCode>(['OCR_BROWSER_UNSUPPORTED', 'OCR_MODEL_DOWNLOAD_FAILED']);
 
 function errorEnvelope(code: TOcrErrorCode, message: string, retryable = false): IOcrErrorEnvelope {
     return {
@@ -130,31 +80,43 @@ function findUnsupportedReason() {
 }
 
 function emitProgress(progress: IOcrProgress) {
-    for (const listener of progressListeners) listener(progress);
+    for (const listener of progressListeners) {
+        listener(progress);
+    }
 }
 
 function emitComplete(result: IOcrCompleteResult) {
-    for (const listener of completeListeners) listener(result);
+    for (const listener of completeListeners) {
+        listener(result);
+    }
 }
 
 function expandPages(selection: TOcrSearchablePdfPages) {
     const pages: IOcrSearchablePdfPage[] = [];
-    for (const batch of iterateOcrPageRequestBatches(selection)) pages.push(...batch);
+    for (const batch of iterateOcrPageRequestBatches(selection)) {
+        pages.push(...batch);
+    }
     return pages;
 }
 
 function findLanguageProblem(pages: readonly IOcrSearchablePdfPage[]) {
-    const languages = new Set(pages.flatMap(page => page.languages));
-    if (pages.some(page => page.languages.length === 0)) return 'Choose a language to recognize.';
-    if (languages.size > 1) return 'OCR recognition accepts one language per request';
-    const unsupported = [...languages].find(code => !isAvailableOcrLanguageCode(code));
+    const languages = new Set(pages.flatMap((page) => page.languages));
+    if (pages.some((page) => page.languages.length === 0)) {
+        return 'Choose a language to recognize.';
+    }
+    if (languages.size > 1) {
+        return 'OCR recognition accepts one language per request';
+    }
+    const unsupported = [...languages].find((code) => !isAvailableOcrLanguageCode(code));
     return unsupported === undefined ? null : `Unsupported OCR language: ${unsupported}`;
 }
 
 /** Ends a result that will not be applied: its layer is cut unless a commit took it. */
 async function discardStagedResult(ref: TDocumentRef) {
     const staged = stagedResults.get(ref);
-    if (!staged) return;
+    if (!staged) {
+        return;
+    }
     stagedResults.delete(ref);
     await browserDocumentStore.discardAppend(ref, staged.lease);
 }
@@ -164,11 +126,11 @@ function nothingWrittenResult(
     outcome: {
         targeted: boolean;
         errors: string[];
-        diagnostics: IOcrDiagnostic[]
+        diagnostics: IOcrDiagnostic[];
     },
 ): IOcrCompleteResult {
-    const neutral = !outcome.targeted && outcome.errors.length === 0
-        && !outcome.diagnostics.some(diagnostic => diagnostic.severity === 'warning');
+    const neutral =
+        !outcome.targeted && outcome.errors.length === 0 && !outcome.diagnostics.some((diagnostic) => diagnostic.severity === 'warning');
     if (neutral) {
         return {
             requestId,
@@ -207,10 +169,11 @@ async function runJob(
             pages,
             options,
             signal: controller.signal,
-            emit: progress => emitProgress({
-                requestId,
-                ...progress,
-            }),
+            emit: (progress) =>
+                emitProgress({
+                    requestId,
+                    ...progress,
+                }),
         });
         if (outcome.kind === 'nothing-written') {
             terminal = nothingWrittenResult(requestId, outcome);
@@ -233,10 +196,13 @@ async function runJob(
     } catch (error) {
         const canceled = controller.signal.aborted || isAbortError(error);
         const message = canceled ? 'OCR was canceled' : getErrorMessage(error);
-        const code: TOcrErrorCode = error instanceof Error && error.name === 'BrowserOcrJobError' && 'code' in error
-            && LOCALIZED_BROWSER_ERROR_CODES.has(error.code as TOcrErrorCode)
-            ? error.code as TOcrErrorCode
-            : 'OCR_INTERNAL_ERROR';
+        const code: TOcrErrorCode =
+            error instanceof Error &&
+            error.name === 'BrowserOcrJobError' &&
+            'code' in error &&
+            LOCALIZED_BROWSER_ERROR_CODES.has(error.code as TOcrErrorCode)
+                ? (error.code as TOcrErrorCode)
+                : 'OCR_INTERNAL_ERROR';
         terminal = {
             requestId,
             success: false,
@@ -293,14 +259,20 @@ export const browserOcrCapability: IOcrCapability = {
         return Promise.resolve({canceled: true});
     },
     async getLanguages() {
-        if (findUnsupportedReason() !== null) return [];
-        return Promise.all(AVAILABLE_OCR_LANGUAGES
-            .map(async (language): Promise<IOcrLanguage> => ({
+        if (findUnsupportedReason() !== null) {
+            return [];
+        }
+        return Promise.all(
+            AVAILABLE_OCR_LANGUAGES.map(async (language): Promise<IOcrLanguage> => ({
                 code: language.code,
                 script: language.script,
-                modelState: (await Promise.all(withOcrModelSublanguages([language.code]).map(code => hasCachedOcrModel(code).catch(() => false))))
-                    .every(Boolean) ? 'installed' : 'missing',
-            })));
+                modelState: (
+                    await Promise.all(withOcrModelSublanguages([language.code]).map((code) => hasCachedOcrModel(code).catch(() => false)))
+                ).every(Boolean)
+                    ? 'installed'
+                    : 'missing',
+            })),
+        );
     },
     async resolveDocumentTextCatalog(workingCopyPath, documentRevision, pageCount?: number, _requestId?: TRequestId) {
         const {readBrowserDocumentTextSnapshot} = await import('@app/platform/browser-api/browserOcrTextCatalog');
@@ -329,10 +301,10 @@ export const browserOcrCapability: IOcrCapability = {
     ) {
         const staged = pdfPath === undefined ? undefined : stagedResults.get(pdfPath);
         if (
-            pdfPath === undefined
-            || staged === undefined
-            || staged.requestId !== requestId
-            || (documentRef !== undefined && pdfPath !== documentRef)
+            pdfPath === undefined ||
+            staged === undefined ||
+            staged.requestId !== requestId ||
+            (documentRef !== undefined && pdfPath !== documentRef)
         ) {
             return {cleaned: false};
         }
@@ -352,7 +324,9 @@ export const browserOcrCapability: IOcrCapability = {
         }
         let pages: IOcrSearchablePdfPage[];
         try {
-            if (getOcrPageSelectionCount(selection) === 0) throw new Error('Choose at least one page to recognize');
+            if (getOcrPageSelectionCount(selection) === 0) {
+                throw new Error('Choose at least one page to recognize');
+            }
             pages = expandPages(selection);
         } catch (error) {
             return Promise.resolve(refusedStart('OCR_INVALID_PAYLOAD', getErrorMessage(error)));
@@ -361,9 +335,8 @@ export const browserOcrCapability: IOcrCapability = {
         if (languageProblem !== null) {
             return Promise.resolve(refusedStart('OCR_INVALID_PAYLOAD', languageProblem));
         }
-        const options: IOcrSearchablePdfOptions = typeof renderDpiOrOptions === 'number'
-            ? {renderDpi: renderDpiOrOptions}
-            : renderDpiOrOptions ?? {};
+        const options: IOcrSearchablePdfOptions =
+            typeof renderDpiOrOptions === 'number' ? {renderDpi: renderDpiOrOptions} : (renderDpiOrOptions ?? {});
         const controller = new AbortController();
         activeJobs.set(requestId, controller);
         void runJob(requestId, sourcePdfPath, pages, options, controller);

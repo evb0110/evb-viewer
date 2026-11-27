@@ -1,10 +1,6 @@
 import {createHash} from 'node:crypto';
 import {homedir} from 'node:os';
-import {
-    isAbsolute,
-    join,
-    win32,
-} from 'node:path';
+import {isAbsolute, join, win32} from 'node:path';
 
 export const APP_TEMP_DIR_NAME = 'evb-viewer';
 // Not an app name: macOS keeps an Electron profile at Application Support/<app
@@ -12,9 +8,7 @@ export const APP_TEMP_DIR_NAME = 'evb-viewer';
 const APP_STATE_DIR_NAME = 'evb-viewer-state';
 
 export function getAppTempUserId() {
-    return typeof process.getuid === 'function'
-        ? `u${String(process.getuid())}`
-        : 'user';
+    return typeof process.getuid === 'function' ? `u${String(process.getuid())}` : 'user';
 }
 
 /**
@@ -55,14 +49,8 @@ function joinTempDirectory(tempDir: string, directoryName: string) {
         : join(tempDir, directoryName);
 }
 
-export function createAppTempNamespace(
-    userDataPath: string,
-    userId: string,
-    isWindows: boolean,
-) {
-    const normalizedPath = isWindows
-        ? userDataPath.trim().replaceAll('\\', '/').toLowerCase()
-        : userDataPath.trim();
+export function createAppTempNamespace(userDataPath: string, userId: string, isWindows: boolean) {
+    const normalizedPath = isWindows ? userDataPath.trim().replaceAll('\\', '/').toLowerCase() : userDataPath.trim();
     if (!normalizedPath) {
         throw new Error('App temp namespace requires a non-empty userData path.');
     }
@@ -70,16 +58,8 @@ export function createAppTempNamespace(
     return `${userId}-${profileHash}`;
 }
 
-export function getAppTempNamespacePath(
-    userDataPath: string,
-    tempDir: string,
-    userId: string,
-    isWindows: boolean,
-) {
-    return joinTempDirectory(
-        tempDir,
-        getAppTempNamespaceDirectoryName(createAppTempNamespace(userDataPath, userId, isWindows)),
-    );
+export function getAppTempNamespacePath(userDataPath: string, tempDir: string, userId: string, isWindows: boolean) {
+    return joinTempDirectory(tempDir, getAppTempNamespaceDirectoryName(createAppTempNamespace(userDataPath, userId, isWindows)));
 }
 
 export function getAppTempNamespacePathForNamespace(namespace: string, baseDir = getAppStateDir()) {

@@ -1,11 +1,7 @@
-import { randomUUID } from 'node:crypto';
-import {
-    open,
-    rename,
-    rm,
-} from 'node:fs/promises';
-import { join } from 'node:path';
-import type { TDjvuCompactFidelityPreset } from '@contracts/djvuConversionPolicy';
+import {randomUUID} from 'node:crypto';
+import {open, rename, rm} from 'node:fs/promises';
+import {join} from 'node:path';
+import type {TDjvuCompactFidelityPreset} from '@contracts/djvuConversionPolicy';
 
 interface ICompactDjvuFidelityPage {
     pageNumber: number;
@@ -22,13 +18,7 @@ export interface ICompactDjvuFidelityManifestWriter {
 }
 
 function serializePage(page: ICompactDjvuFidelityPage) {
-    const {
-        pageNumber,
-        kind,
-        reason,
-        effectivePpi,
-        jpegQuality,
-    } = page;
+    const {pageNumber, kind, reason, effectivePpi, jpegQuality} = page;
     return JSON.stringify({
         pageNumber,
         kind,

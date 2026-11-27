@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {buildSerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
@@ -57,12 +53,14 @@ describe('annotation persistence backend conformance', () => {
             author: null,
             subtype: 'Squiggly',
             contents: 'overlap',
-            quadPoints: [{
-                left: 0.3,
-                top: 0.4,
-                width: 0.2,
-                height: 0.03,
-            }],
+            quadPoints: [
+                {
+                    left: 0.3,
+                    top: 0.4,
+                    width: 0.2,
+                    height: 0.03,
+                },
+            ],
             color: '#336699',
             opacity: 0.42,
         });
@@ -73,17 +71,12 @@ describe('annotation persistence backend conformance', () => {
         expect(Object.isFrozen(plan)).toBe(true);
         expect(Object.isFrozen(plan.steps)).toBe(true);
 
-        const programs = ANNOTATION_PERSISTENCE_BACKENDS.map(backend => (
-            projectAnnotationBackendMutations(plan, backend)
-        ));
-        const semantics = programs.map(program => program.map(({
-            backend: _backend,
-            ...mutation
-        }) => mutation));
+        const programs = ANNOTATION_PERSISTENCE_BACKENDS.map((backend) => projectAnnotationBackendMutations(plan, backend));
+        const semantics = programs.map((program) => program.map(({backend: _backend, ...mutation}) => mutation));
 
         const expectedSemantics = semantics[0]!;
         expect(assertAnnotationBackendSemanticConformance(plan)).toEqual(expectedSemantics);
-        expect(expectedSemantics.map(mutation => mutation.operation)).toEqual([
+        expect(expectedSemantics.map((mutation) => mutation.operation)).toEqual([
             'prepare-free-text-appearance',
             'delete-annotation',
             'write-free-text-contents',
@@ -100,24 +93,30 @@ describe('annotation persistence backend conformance', () => {
 
     it('captures one global immutable frontier for structure, metadata, OCR, annotations, and postconditions', () => {
         const store = new AnnotationStore();
-        const pageLabels = [{
-            startPage: 1,
-            style: 'D' as const,
-            prefix: '',
-            startNumber: 1,
-        }];
+        const pageLabels = [
+            {
+                startPage: 1,
+                style: 'D' as const,
+                prefix: '',
+                startNumber: 1,
+            },
+        ];
         const plan = buildSerializationPlan(store.beginSave(requireDocumentRevisionToken('revision-global')), [], [], {
-            pageOperations: [{
-                operation: 'rotate',
-                pageIndexes: [requirePageIndex(0)],
-                fields: {degrees: 90},
-            }],
+            pageOperations: [
+                {
+                    operation: 'rotate',
+                    pageIndexes: [requirePageIndex(0)],
+                    fields: {degrees: 90},
+                },
+            ],
             metadata: {pageLabels},
-            ocrOperations: [{
-                pageIndex: requirePageIndex(0),
-                operation: 'replace-text-layer',
-                payloadHash: 'ocr-hash',
-            }],
+            ocrOperations: [
+                {
+                    pageIndex: requirePageIndex(0),
+                    operation: 'replace-text-layer',
+                    payloadHash: 'ocr-hash',
+                },
+            ],
             routeConstraints: {
                 allowedBackends: ['native-append'],
                 forceRewrite: true,
@@ -130,19 +129,15 @@ describe('annotation persistence backend conformance', () => {
 
         pageLabels[0]!.prefix = 'mutated-after-frontier';
         expect(plan.sourceRevision).toBe(requireDocumentRevisionToken('revision-global'));
-        expect(plan.mutationOrder).toEqual([
-            'page-tree',
-            'metadata',
-            'ocr',
-            'annotations',
-            'postconditions',
-        ]);
+        expect(plan.mutationOrder).toEqual(['page-tree', 'metadata', 'ocr', 'annotations', 'postconditions']);
         expect(plan.metadata.pageLabels?.[0]?.prefix).toBe('');
-        expect(plan.pageOperations).toEqual([{
-            operation: 'rotate',
-            pageIndexes: [requirePageIndex(0)],
-            fields: {degrees: 90},
-        }]);
+        expect(plan.pageOperations).toEqual([
+            {
+                operation: 'rotate',
+                pageIndexes: [requirePageIndex(0)],
+                fields: {degrees: 90},
+            },
+        ]);
         expect(plan.ocrOperations).toHaveLength(1);
         expect(plan.postconditions).toMatchObject({
             expectedPageCount: 1,

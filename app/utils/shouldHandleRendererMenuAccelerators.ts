@@ -1,4 +1,4 @@
-import { isBrowserPlatformActive } from '@app/utils/platform';
+import {isBrowserPlatformActive} from '@app/utils/platform';
 
 export function shouldHandleRendererMenuAccelerators() {
     return isBrowserPlatformActive();

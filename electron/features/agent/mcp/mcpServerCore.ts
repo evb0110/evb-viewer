@@ -1,19 +1,9 @@
-import type {
-    IAgentTabSnapshot,
-    IAgentWorkspaceSnapshot,
-    TAgentCommand,
-} from '@contracts/agent';
-import {
-    parseTabId,
-    type TTabId,
-} from '@contracts/windowTabs';
-import { parseAgentResourceUri } from '@contracts/agentResourceUri';
-import { isRecord } from '@contracts/runtimeGuards';
-import type {
-    IAgentDocumentPageReadOptions,
-    IAgentDocumentSearchOptions,
-} from '@electron/features/agent/documentText';
-import { getErrorMessage } from '@electron/utils/error';
+import type {IAgentTabSnapshot, IAgentWorkspaceSnapshot, TAgentCommand} from '@contracts/agent';
+import {parseTabId, type TTabId} from '@contracts/windowTabs';
+import {parseAgentResourceUri} from '@contracts/agentResourceUri';
+import {isRecord} from '@contracts/runtimeGuards';
+import type {IAgentDocumentPageReadOptions, IAgentDocumentSearchOptions} from '@electron/features/agent/documentText';
+import {getErrorMessage} from '@electron/utils/error';
 import {
     ASSISTANT_BOOKMARK_WORKFLOW,
     ASSISTANT_DOCUMENT_EDIT_SAFETY_WORKFLOW,
@@ -21,17 +11,8 @@ import {
     ASSISTANT_OCR_READINESS_WORKFLOW,
     ASSISTANT_PAGE_NUMBER_WORKFLOW,
 } from '@electron/features/agent/assistantPresetWorkflows';
-import {
-    createErrorResponse,
-    createResultResponse,
-    getJsonRpcId,
-    type IJsonRpcResponse,
-} from '@electron/features/agent/mcp/mcpJsonRpc';
-import {
-    getOptionalTabId,
-    getOptionalWindowId,
-    getParamsObject,
-} from '@electron/features/agent/mcp/mcpRequestParams';
+import {createErrorResponse, createResultResponse, getJsonRpcId, type IJsonRpcResponse} from '@electron/features/agent/mcp/mcpJsonRpc';
+import {getOptionalTabId, getOptionalWindowId, getParamsObject} from '@electron/features/agent/mcp/mcpRequestParams';
 import {
     describeAgentCapability,
     getCapabilityTemplate,
@@ -48,21 +29,10 @@ import {
     validateMcpToolArguments,
     type IMcpResourceDefinition,
 } from '@electron/features/agent/mcp/mcpDefinitions';
-import {
-    createMcpToolExecutionErrorResult,
-    createMcpToolResult,
-} from '@electron/features/agent/mcp/createMcpToolResult';
-import type {
-    ILocalMcpServerIdentity,
-    IProcessMcpRequestOptions,
-    TMcpCallerKind,
-} from '@electron/features/agent/mcp/mcpServerCoreTypes';
-import {
-    enforceCapabilityPolicy,
-    enforceReadActionToolPolicy,
-    getMcpCallerKind,
-} from '@electron/features/agent/mcp/mcpToolPolicy';
-export { ASSISTANT_MCP_TOOL_HANDLER_NAMES } from '@electron/features/agent/mcp/mcpToolPolicy';
+import {createMcpToolExecutionErrorResult, createMcpToolResult} from '@electron/features/agent/mcp/createMcpToolResult';
+import type {ILocalMcpServerIdentity, IProcessMcpRequestOptions, TMcpCallerKind} from '@electron/features/agent/mcp/mcpServerCoreTypes';
+import {enforceCapabilityPolicy, enforceReadActionToolPolicy, getMcpCallerKind} from '@electron/features/agent/mcp/mcpToolPolicy';
+export {ASSISTANT_MCP_TOOL_HANDLER_NAMES} from '@electron/features/agent/mcp/mcpToolPolicy';
 export type {
     ILocalMcpServerDescriptor,
     ILocalMcpServerIdentity,
@@ -79,34 +49,34 @@ interface IJsonRpcRequest {
     params?: unknown;
 }
 function createInitializeMetadata(identity: ILocalMcpServerIdentity) {
-    return {evb: {
-        appName: identity.appName,
-        isPackaged: identity.isPackaged,
-        userDataPath: identity.userDataPath,
-        mcp: {
-            host: identity.host,
-            port: identity.port,
+    return {
+        evb: {
+            appName: identity.appName,
+            isPackaged: identity.isPackaged,
+            userDataPath: identity.userDataPath,
+            mcp: {
+                host: identity.host,
+                port: identity.port,
+            },
         },
-    }};
+    };
 }
 
 export function createHealthResponse(identity: ILocalMcpServerIdentity) {
     return {
         ok: true,
         ...identity,
-        tools: MCP_TOOLS.map(tool => tool.name),
-        resources: [
-            'evb://workspace/current',
-            ...MCP_RESOURCE_TEMPLATES.map(template => template.uriTemplate),
-        ],
-        prompts: MCP_PROMPTS.map(prompt => prompt.name),
+        tools: MCP_TOOLS.map((tool) => tool.name),
+        resources: ['evb://workspace/current', ...MCP_RESOURCE_TEMPLATES.map((template) => template.uriTemplate)],
+        prompts: MCP_PROMPTS.map((prompt) => prompt.name),
     };
 }
 
 function createInitializeInstructions(callerKind: TMcpCallerKind) {
-    const writePolicyInstruction = callerKind === 'internal'
-        ? 'For writes, destructive actions, or long-running actions, inspect policy/availability and prefer dryRun or preview when supported. Internal write capabilities with policy.internal = allow can be applied through evb_run_action. Capabilities whose internal policy is confirm require an app grant flow that is not currently available, so do not claim they were applied.'
-        : 'For external MCP callers, write, destructive, or long-running capabilities whose policy.external is confirm are blocked until EVB Viewer has an app-issued grant flow. Preview first, and if evb_run_action returns a confirmation-required error, report that no change was applied instead of claiming success.';
+    const writePolicyInstruction =
+        callerKind === 'internal'
+            ? 'For writes, destructive actions, or long-running actions, inspect policy/availability and prefer dryRun or preview when supported. Internal write capabilities with policy.internal = allow can be applied through evb_run_action. Capabilities whose internal policy is confirm require an app grant flow that is not currently available, so do not claim they were applied.'
+            : 'For external MCP callers, write, destructive, or long-running capabilities whose policy.external is confirm are blocked until EVB Viewer has an app-issued grant flow. Preview first, and if evb_run_action returns a confirmation-required error, report that no change was applied instead of claiming success.';
 
     return [
         'EVB Viewer exposes the live workspace. A document may or may not be open; inspect the workspace before answering questions about open tabs, current pages, or document contents.',
@@ -131,10 +101,7 @@ function getOptionalActionInput(params: unknown) {
     return isRecord(input) ? input : undefined;
 }
 
-function getRequiredCapability<TCapability>(
-    capability: TCapability | undefined,
-    name: string,
-) {
+function getRequiredCapability<TCapability>(capability: TCapability | undefined, name: string) {
     if (!capability) {
         throw new Error(`${name} is not available in this EVB Viewer MCP session.`);
     }
@@ -191,15 +158,11 @@ function normalizePageNumber(value: unknown, pageCount: number | null = null) {
     }
 
     const page = Math.max(1, Math.trunc(value));
-    return pageCount === null
-        ? page
-        : Math.min(page, pageCount);
+    return pageCount === null ? page : Math.min(page, pageCount);
 }
 
 function getTabPageCount(tab: IAgentTabSnapshot) {
-    return typeof tab.totalPages === 'number' && Number.isFinite(tab.totalPages) && tab.totalPages > 0
-        ? Math.trunc(tab.totalPages)
-        : null;
+    return typeof tab.totalPages === 'number' && Number.isFinite(tab.totalPages) && tab.totalPages > 0 ? Math.trunc(tab.totalPages) : null;
 }
 
 function assertReadPageBudget(pageCount: number) {
@@ -245,17 +208,12 @@ function getReadPages(params: unknown, fallbackPage: number | null, pageCount: n
     return Array.from(pages).sort((left, right) => left - right);
 }
 
-function getDocumentSearchOptions(
-    params: unknown,
-    tab?: IAgentTabSnapshot,
-): IAgentDocumentSearchOptions {
+function getDocumentSearchOptions(params: unknown, tab?: IAgentTabSnapshot): IAgentDocumentSearchOptions {
     const maxResults = getOptionalFiniteNumber(params, 'maxResults');
     const matchCase = getOptionalBoolean(params, 'matchCase');
     const wholeWord = getOptionalBoolean(params, 'wholeWord');
     const useRegex = getOptionalBoolean(params, 'useRegex');
-    const pages = tab
-        ? getReadPages(params, null, getTabPageCount(tab))
-        : [];
+    const pages = tab ? getReadPages(params, null, getTabPageCount(tab)) : [];
     return {
         query: getRequiredQuery(params),
         ...(maxResults === undefined ? {} : {maxResults}),
@@ -266,10 +224,7 @@ function getDocumentSearchOptions(
     };
 }
 
-function getDocumentPageReadOptions(
-    params: unknown,
-    tab: IAgentTabSnapshot,
-): IAgentDocumentPageReadOptions {
+function getDocumentPageReadOptions(params: unknown, tab: IAgentTabSnapshot): IAgentDocumentPageReadOptions {
     const maxCharsPerPage = getOptionalFiniteNumber(params, 'maxCharsPerPage');
     return {
         pages: getReadPages(params, tab.currentPage, getTabPageCount(tab)),
@@ -278,9 +233,7 @@ function getDocumentPageReadOptions(
 }
 
 function selectDocumentsFromSnapshot(snapshot: IAgentWorkspaceSnapshot, tabId?: TTabId) {
-    const tabs = tabId
-        ? snapshot.tabs.filter(tab => tab.tabId === tabId)
-        : snapshot.tabs;
+    const tabs = tabId ? snapshot.tabs.filter((tab) => tab.tabId === tabId) : snapshot.tabs;
     return {
         activePaneId: snapshot.activePaneId,
         activeTabId: snapshot.activeTabId,
@@ -289,20 +242,18 @@ function selectDocumentsFromSnapshot(snapshot: IAgentWorkspaceSnapshot, tabId?: 
 }
 
 function createOpenDocumentsResponse(snapshot: IAgentWorkspaceSnapshot) {
-    const documents = snapshot.tabs
-        .filter(isAgentDocumentTab)
-        .map(tab => ({
-            tabId: tab.tabId,
-            paneId: tab.paneId,
-            isActive: tab.tabId === snapshot.activeTabId,
-            fileName: tab.fileName,
-            originalPath: tab.originalPath,
-            kind: tab.kind,
-            currentPage: tab.currentPage,
-            totalPages: tab.totalPages,
-            isDirty: tab.isDirty,
-            readiness: tab.readiness,
-        }));
+    const documents = snapshot.tabs.filter(isAgentDocumentTab).map((tab) => ({
+        tabId: tab.tabId,
+        paneId: tab.paneId,
+        isActive: tab.tabId === snapshot.activeTabId,
+        fileName: tab.fileName,
+        originalPath: tab.originalPath,
+        kind: tab.kind,
+        currentPage: tab.currentPage,
+        totalPages: tab.totalPages,
+        isDirty: tab.isDirty,
+        readiness: tab.readiness,
+    }));
 
     return {
         workspaceMode: snapshot.summary.mode,
@@ -310,12 +261,12 @@ function createOpenDocumentsResponse(snapshot: IAgentWorkspaceSnapshot) {
         documentCount: documents.length,
         activePaneId: snapshot.activePaneId,
         activeTabId: snapshot.activeTabId,
-        activeDocument: documents.find(document => document.isActive) ?? null,
+        activeDocument: documents.find((document) => document.isActive) ?? null,
         documents,
         recentFilesResolved: snapshot.summary.recentFilesResolved,
         recentFileCount: snapshot.recentFiles.length,
         recentFiles: snapshot.recentFiles,
-        panes: snapshot.panes.map(pane => ({
+        panes: snapshot.panes.map((pane) => ({
             paneId: pane.paneId,
             activeTabId: pane.activeTabId,
             tabIds: pane.tabIds,
@@ -329,17 +280,14 @@ function getTargetTab(snapshot: IAgentWorkspaceSnapshot, tabId?: TTabId) {
         throw new Error('No active tab is available.');
     }
 
-    const tab = snapshot.tabs.find(candidate => candidate.tabId === resolvedTabId);
+    const tab = snapshot.tabs.find((candidate) => candidate.tabId === resolvedTabId);
     if (!tab) {
         throw new Error(`Tab ${resolvedTabId} is not open.`);
     }
     return tab;
 }
 
-async function getTargetTabFromParams(
-    params: unknown,
-    options: IProcessMcpRequestOptions,
-) {
+async function getTargetTabFromParams(params: unknown, options: IProcessMcpRequestOptions) {
     const windowId = getOptionalWindowId(params);
     const snapshot = await options.getWorkspaceSnapshot(windowId);
     return {
@@ -361,11 +309,7 @@ function createActionParams(params: unknown) {
     };
 }
 
-async function runAgentActionTool(
-    params: unknown,
-    options: IProcessMcpRequestOptions,
-    dispatchOptions: { readOnlyOnly?: boolean } = {},
-) {
+async function runAgentActionTool(params: unknown, options: IProcessMcpRequestOptions, dispatchOptions: {readOnlyOnly?: boolean} = {}) {
     const id = getRequiredCapabilityId(params);
     const requestedId = getRequestedCapabilityId(params);
     const template = getCapabilityTemplate(id);
@@ -413,36 +357,45 @@ async function runAgentActionTool(
     if (id === 'document.inspect_text') {
         const {tab} = await getTargetTabFromParams(actionParams, options);
         const inspectDocumentText = getRequiredCapability(options.inspectDocumentText, id);
-        return inspectDocumentText({
-            tab,
-            options: {},
-        }, windowId);
+        return inspectDocumentText(
+            {
+                tab,
+                options: {},
+            },
+            windowId,
+        );
     }
 
     if (id === 'document.search') {
         const {tab} = await getTargetTabFromParams(actionParams, options);
         const searchDocument = getRequiredCapability(options.searchDocument, id);
-        return searchDocument({
-            tab,
-            options: getDocumentSearchOptions(actionParams, tab),
-        }, windowId);
+        return searchDocument(
+            {
+                tab,
+                options: getDocumentSearchOptions(actionParams, tab),
+            },
+            windowId,
+        );
     }
 
     if (id === 'document.read_pages') {
         const {tab} = await getTargetTabFromParams(actionParams, options);
         const readDocumentPages = getRequiredCapability(options.readDocumentPages, id);
-        return readDocumentPages({
-            tab,
-            options: getDocumentPageReadOptions(actionParams, tab),
-        }, windowId);
+        return readDocumentPages(
+            {
+                tab,
+                options: getDocumentPageReadOptions(actionParams, tab),
+            },
+            windowId,
+        );
     }
 
     if (
-        id === 'toc.read'
-        || id === 'bookmarks.read'
-        || id === 'page_labels.read'
-        || id === 'annotation.list'
-        || id === 'annotation.list_notes'
+        id === 'toc.read' ||
+        id === 'bookmarks.read' ||
+        id === 'page_labels.read' ||
+        id === 'annotation.list' ||
+        id === 'annotation.list_notes'
     ) {
         const snapshot = await options.getWorkspaceSnapshot(windowId);
         const tab = getTargetTab(snapshot, getOptionalTabId(actionParams));
@@ -456,20 +409,26 @@ async function runAgentActionTool(
         } else if (id === 'annotation.list') {
             resourceKind = 'annotations';
         }
-        return options.runCommand({
-            name: 'read_resource',
-            arguments: {
-                tabId: tab.tabId,
-                uri: `evb://document/${encodeURIComponent(tab.tabId)}/${resourceKind}`,
+        return options.runCommand(
+            {
+                name: 'read_resource',
+                arguments: {
+                    tabId: tab.tabId,
+                    uri: `evb://document/${encodeURIComponent(tab.tabId)}/${resourceKind}`,
+                },
             },
-        }, windowId);
+            windowId,
+        );
     }
 
     if (id === 'view.activate_tab') {
-        return options.runCommand({
-            name: 'activate_tab',
-            arguments: {tabId: getRequiredTabId(actionParams)},
-        }, windowId);
+        return options.runCommand(
+            {
+                name: 'activate_tab',
+                arguments: {tabId: getRequiredTabId(actionParams)},
+            },
+            windowId,
+        );
     }
 
     if (id === 'view.go_to_page') {
@@ -504,7 +463,8 @@ function getJobStatus(params: unknown) {
         jobId: typeof jobId === 'string' && jobId.trim().length > 0 ? jobId.trim() : null,
         status: 'not-found',
         tracked: false,
-        message: 'No tracked EVB MCP job was found. OCR progress is available through evb_run_action with id ocr.status; other EVB MCP actions complete inline or expose progress in the EVB Viewer UI.',
+        message:
+            'No tracked EVB MCP job was found. OCR progress is available through evb_run_action with id ocr.status; other EVB MCP actions complete inline or expose progress in the EVB Viewer UI.',
     };
 }
 
@@ -519,10 +479,15 @@ async function callTool(name: string, params: unknown, options: IProcessMcpReque
     }
 
     if (name === 'evb_read_resource') {
-        return createMcpToolResult(await readMcpResource({
-            windowId,
-            uri: getRequiredResourceUri(params),
-        }, options));
+        return createMcpToolResult(
+            await readMcpResource(
+                {
+                    windowId,
+                    uri: getRequiredResourceUri(params),
+                },
+                options,
+            ),
+        );
     }
 
     if (name === 'evb_run_action') {
@@ -553,35 +518,55 @@ async function callTool(name: string, params: unknown, options: IProcessMcpReque
     if (name === 'evb_inspect_document_text') {
         const {tab} = await getTargetTabFromParams(params, options);
         const inspectDocumentText = getRequiredCapability(options.inspectDocumentText, 'evb_inspect_document_text');
-        return createMcpToolResult(await inspectDocumentText({
-            tab,
-            options: {},
-        }, windowId));
+        return createMcpToolResult(
+            await inspectDocumentText(
+                {
+                    tab,
+                    options: {},
+                },
+                windowId,
+            ),
+        );
     }
 
     if (name === 'evb_search_document' || name === 'evb_viewer_search_open_document') {
         const {tab} = await getTargetTabFromParams(params, options);
         const searchDocument = getRequiredCapability(options.searchDocument, name);
-        return createMcpToolResult(await searchDocument({
-            tab,
-            options: getDocumentSearchOptions(params, tab),
-        }, windowId));
+        return createMcpToolResult(
+            await searchDocument(
+                {
+                    tab,
+                    options: getDocumentSearchOptions(params, tab),
+                },
+                windowId,
+            ),
+        );
     }
 
     if (name === 'evb_read_document_pages') {
         const {tab} = await getTargetTabFromParams(params, options);
         const readDocumentPages = getRequiredCapability(options.readDocumentPages, 'evb_read_document_pages');
-        return createMcpToolResult(await readDocumentPages({
-            tab,
-            options: getDocumentPageReadOptions(params, tab),
-        }, windowId));
+        return createMcpToolResult(
+            await readDocumentPages(
+                {
+                    tab,
+                    options: getDocumentPageReadOptions(params, tab),
+                },
+                windowId,
+            ),
+        );
     }
 
     if (name === 'evb_activate_tab') {
-        return createMcpToolResult(await options.runCommand({
-            name: 'activate_tab',
-            arguments: { tabId: getRequiredTabId(params) },
-        }, windowId));
+        return createMcpToolResult(
+            await options.runCommand(
+                {
+                    name: 'activate_tab',
+                    arguments: {tabId: getRequiredTabId(params)},
+                },
+                windowId,
+            ),
+        );
     }
 
     if (name === 'evb_go_to_page') {
@@ -590,7 +575,7 @@ async function callTool(name: string, params: unknown, options: IProcessMcpReque
             name: 'go_to_page',
             arguments: {
                 page: getRequiredPage(params),
-                ...(tabId ? { tabId } : {}),
+                ...(tabId ? {tabId} : {}),
             },
         };
         return createMcpToolResult(await options.runCommand(command, windowId));
@@ -658,12 +643,7 @@ function createDocumentResources(tab: IAgentTabSnapshot) {
             'annotations',
             'Annotation summaries with stable keys, pages, subtype, colors, and note flags.',
         ),
-        createDocumentJsonResource(
-            tab,
-            'notes',
-            'notes',
-            'Note-bearing annotations and open note-window state for this EVB Viewer tab.',
-        ),
+        createDocumentJsonResource(tab, 'notes', 'notes', 'Note-bearing annotations and open note-window state for this EVB Viewer tab.'),
         createDocumentJsonResource(
             tab,
             'toc',
@@ -687,12 +667,12 @@ function createDocumentResources(tab: IAgentTabSnapshot) {
 
 async function listMcpResources(options: IProcessMcpRequestOptions) {
     const snapshot = await options.getWorkspaceSnapshot();
-    return {resources: [
-        createWorkspaceResource(),
-        ...snapshot.tabs
-            .filter(tab => tab.kind === 'pdf' && isAgentDocumentTab(tab))
-            .flatMap(createDocumentResources),
-    ]};
+    return {
+        resources: [
+            createWorkspaceResource(),
+            ...snapshot.tabs.filter((tab) => tab.kind === 'pdf' && isAgentDocumentTab(tab)).flatMap(createDocumentResources),
+        ],
+    };
 }
 
 function parseResourceUri(uri: unknown) {
@@ -711,30 +691,19 @@ function createTextResourceContent(uri: string, text: string, mimeType: string) 
     };
 }
 
-async function readMcpResource(
-    params: unknown,
-    options: IProcessMcpRequestOptions,
-) {
+async function readMcpResource(params: unknown, options: IProcessMcpRequestOptions) {
     const windowId = getOptionalWindowId(params);
     const parsed = parseResourceUri(getParamsObject(params).uri);
     if (parsed.host === 'workspace' && parsed.parts[0] === 'current') {
         const snapshot = await options.getWorkspaceSnapshot(windowId);
-        return {contents: [createTextResourceContent(
-            parsed.uri,
-            JSON.stringify(snapshot, null, 2),
-            'application/json',
-        )]};
+        return {contents: [createTextResourceContent(parsed.uri, JSON.stringify(snapshot, null, 2), 'application/json')]};
     }
 
     if (parsed.host !== 'document') {
         throw new Error(`Unknown EVB resource host: ${parsed.host}`);
     }
 
-    const [
-        tabId,
-        resourceKind,
-        pageToken,
-    ] = parsed.parts;
+    const [tabId, resourceKind, pageToken] = parsed.parts;
     if (!tabId || !resourceKind) {
         throw new Error(`Invalid EVB document resource URI: ${parsed.uri}`);
     }
@@ -747,15 +716,14 @@ async function readMcpResource(
     const tab = getTargetTab(snapshot, parsedTabId);
     if (resourceKind === 'text-status' || resourceKind === 'ocr-status') {
         const inspectDocumentText = getRequiredCapability(options.inspectDocumentText, 'resources/read text-status');
-        const result = await inspectDocumentText({
-            tab,
-            options: {},
-        }, windowId);
-        return {contents: [createTextResourceContent(
-            parsed.uri,
-            JSON.stringify(result, null, 2),
-            'application/json',
-        )]};
+        const result = await inspectDocumentText(
+            {
+                tab,
+                options: {},
+            },
+            windowId,
+        );
+        return {contents: [createTextResourceContent(parsed.uri, JSON.stringify(result, null, 2), 'application/json')]};
     }
 
     if (resourceKind === 'page') {
@@ -764,38 +732,38 @@ async function readMcpResource(
             throw new Error(`Invalid EVB document page resource URI: ${parsed.uri}`);
         }
         const readDocumentPages = getRequiredCapability(options.readDocumentPages, 'resources/read page');
-        const result = await readDocumentPages({
-            tab,
-            options: {pages: [page]},
-        }, windowId);
+        const result = await readDocumentPages(
+            {
+                tab,
+                options: {pages: [page]},
+            },
+            windowId,
+        );
         const pages: unknown[] = Array.isArray(result.pages) ? result.pages : [];
-        const pageResult = pages.find(candidate => isRecord(candidate) && candidate.page === page);
-        const text = isRecord(pageResult) && typeof pageResult.text === 'string'
-            ? pageResult.text
-            : '';
+        const pageResult = pages.find((candidate) => isRecord(candidate) && candidate.page === page);
+        const text = isRecord(pageResult) && typeof pageResult.text === 'string' ? pageResult.text : '';
         return {contents: [createTextResourceContent(parsed.uri, text, 'text/plain')]};
     }
 
     if (
-        resourceKind === 'annotations'
-        || resourceKind === 'notes'
-        || resourceKind === 'toc'
-        || resourceKind === 'bookmarks'
-        || resourceKind === 'page-labels'
-        || resourceKind === 'page-numbering'
+        resourceKind === 'annotations' ||
+        resourceKind === 'notes' ||
+        resourceKind === 'toc' ||
+        resourceKind === 'bookmarks' ||
+        resourceKind === 'page-labels' ||
+        resourceKind === 'page-numbering'
     ) {
-        const result = await options.runCommand({
-            name: 'read_resource',
-            arguments: {
-                tabId: tab.tabId,
-                uri: parsed.uri,
+        const result = await options.runCommand(
+            {
+                name: 'read_resource',
+                arguments: {
+                    tabId: tab.tabId,
+                    uri: parsed.uri,
+                },
             },
-        }, windowId);
-        return {contents: [createTextResourceContent(
-            parsed.uri,
-            JSON.stringify(result, null, 2),
-            'application/json',
-        )]};
+            windowId,
+        );
+        return {contents: [createTextResourceContent(parsed.uri, JSON.stringify(result, null, 2), 'application/json')]};
     }
 
     throw new Error(`Unknown EVB document resource kind: ${resourceKind}`);
@@ -850,27 +818,26 @@ function createPromptText(name: string, params: unknown) {
 
 function getMcpPrompt(params: unknown) {
     const name = getPromptName(params);
-    const prompt = MCP_PROMPTS.find(candidate => candidate.name === name);
+    const prompt = MCP_PROMPTS.find((candidate) => candidate.name === name);
     if (!prompt) {
         throw new Error(`Unknown prompt: ${name}`);
     }
 
     return {
         description: prompt.description,
-        messages: [{
-            role: 'user',
-            content: {
-                type: 'text',
-                text: createPromptText(name, params),
+        messages: [
+            {
+                role: 'user',
+                content: {
+                    type: 'text',
+                    text: createPromptText(name, params),
+                },
             },
-        }],
+        ],
     };
 }
 
-export async function processMcpRequest(
-    rawRequest: unknown,
-    options: IProcessMcpRequestOptions,
-): Promise<IJsonRpcResponse | null> {
+export async function processMcpRequest(rawRequest: unknown, options: IProcessMcpRequestOptions): Promise<IJsonRpcResponse | null> {
     if (!isRecord(rawRequest)) {
         return createErrorResponse(null, -32600, 'Invalid JSON-RPC request.');
     }
@@ -911,7 +878,7 @@ export async function processMcpRequest(
         }
 
         if (method === 'tools/list') {
-            return createResultResponse(id, { tools: createMcpToolsForCaller(getMcpCallerKind(options)) });
+            return createResultResponse(id, {tools: createMcpToolsForCaller(getMcpCallerKind(options))});
         }
 
         if (method === 'tools/call') {
@@ -922,28 +889,26 @@ export async function processMcpRequest(
             }
 
             try {
-                const argumentsForValidation = (
-                    (toolName === 'evb_run_action' || toolName === 'evb_read_action')
-                    && isRecord(params.arguments)
-                    && typeof params.arguments.id === 'string'
-                )
-                    ? {
-                        ...params.arguments,
-                        id: getRequiredCapabilityId(params.arguments),
-                    }
-                    : params.arguments;
+                const argumentsForValidation =
+                    (toolName === 'evb_run_action' || toolName === 'evb_read_action') &&
+                    isRecord(params.arguments) &&
+                    typeof params.arguments.id === 'string'
+                        ? {
+                              ...params.arguments,
+                              id: getRequiredCapabilityId(params.arguments),
+                          }
+                        : params.arguments;
                 const validatedArguments = validateMcpToolArguments(toolName, argumentsForValidation);
                 const originalId = isRecord(params.arguments) ? params.arguments.id : undefined;
-                const toolArguments = (
-                    (toolName === 'evb_run_action' || toolName === 'evb_read_action')
-                    && typeof originalId === 'string'
-                    && isRecord(validatedArguments)
-                )
-                    ? {
-                        ...validatedArguments,
-                        id: originalId,
-                    }
-                    : validatedArguments;
+                const toolArguments =
+                    (toolName === 'evb_run_action' || toolName === 'evb_read_action') &&
+                    typeof originalId === 'string' &&
+                    isRecord(validatedArguments)
+                        ? {
+                              ...validatedArguments,
+                              id: originalId,
+                          }
+                        : validatedArguments;
                 const result = await callTool(toolName, toolArguments, options);
                 return createResultResponse(id, result);
             } catch (error) {

@@ -1,13 +1,7 @@
 import type * as TViMockOriginalModule from '@app/platform/browser-api/browserYield';
 import type * as TExtractBrowserSearchPageTextModule from '@app/platform/browser-api/extractBrowserSearchPageText';
 
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     createPdfjsDocumentInitFromBrowserDocument: vi.fn(),
@@ -22,11 +16,13 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@app/platform/browser-api/browserPageOpsWorkerClient', () => ({runBrowserPageOpsWorkerRequest: mocks.pageOps}));
-vi.mock('@app/platform/browserDocumentStore', () => ({browserDocumentStore: {
-    stat: async () => ({size: 1}),
-    read: async () => Uint8Array.of(1),
-    readableBlob: mocks.readableBlob,
-}}));
+vi.mock('@app/platform/browserDocumentStore', () => ({
+    browserDocumentStore: {
+        stat: async () => ({size: 1}),
+        read: async () => Uint8Array.of(1),
+        readableBlob: mocks.readableBlob,
+    },
+}));
 
 vi.mock('@app/platform/browser-api/browserPdfjsDocumentInit', () => ({
     createPdfjsDocumentInitFromBrowserDocument: mocks.createPdfjsDocumentInitFromBrowserDocument,
@@ -41,8 +37,8 @@ vi.mock('@app/platform/browser-api/browserYield', async (importOriginal) => ({
     yieldToBrowser: mocks.yieldToBrowser,
 }));
 
-vi.mock('@app/platform/browser-api/extractBrowserSearchPageText', async importOriginal => ({
-    ...await importOriginal<typeof TExtractBrowserSearchPageTextModule>(),
+vi.mock('@app/platform/browser-api/extractBrowserSearchPageText', async (importOriginal) => ({
+    ...(await importOriginal<typeof TExtractBrowserSearchPageTextModule>()),
     extractBrowserSearchPageData: mocks.extractBrowserSearchPageData,
 }));
 
@@ -69,25 +65,35 @@ describe('browserSearchCore', () => {
 
     it('reads a right-to-left page from its EVB OCR lines under the search signal', async () => {
         mocks.extractBrowserSearchPageData.mockResolvedValue({text: 'ש ל ו ם'});
-        mocks.pageOps.mockResolvedValue({pages: [{
-            pageNumber: 1,
-            paintedText: false,
-            evbOcrLayer: true,
-            evbOcrLines: [{
-                text: 'שלום',
-                words: [],
-            }],
-        }]});
+        mocks.pageOps.mockResolvedValue({
+            pages: [
+                {
+                    pageNumber: 1,
+                    paintedText: false,
+                    evbOcrLayer: true,
+                    evbOcrLines: [
+                        {
+                            text: 'שלום',
+                            words: [],
+                        },
+                    ],
+                },
+            ],
+        });
         const signal = new AbortController().signal;
-        const { loadBrowserSearchDocument } = await import('@app/platform/browser-api/browserSearchCore');
+        const {loadBrowserSearchDocument} = await import('@app/platform/browser-api/browserSearchCore');
         const document = await loadBrowserSearchDocument('/tmp/rtl.pdf');
 
         await expect(document.extractPage(1, {signal})).resolves.toMatchObject({text: 'שלום'});
-        expect(mocks.pageOps).toHaveBeenCalledWith('ocrTextVisibility', {
-            source: expect.any(Blob),
-            pages: [1],
-            withEvbOcrText: true,
-        }, {signal});
+        expect(mocks.pageOps).toHaveBeenCalledWith(
+            'ocrTextVisibility',
+            {
+                source: expect.any(Blob),
+                pages: [1],
+                withEvbOcrText: true,
+            },
+            {signal},
+        );
         const source: Blob = mocks.pageOps.mock.calls[0]![1].source;
         expect(new Uint8Array(await source.arrayBuffer())).toEqual(Uint8Array.of(1));
     });
@@ -101,16 +107,22 @@ describe('browserSearchCore', () => {
             paintedText: false,
             evbOcrLayer: false,
         },
-    ])('keeps repaired foreign or painted RTL text ($paintedText, $evbOcrLayer)', async metadata => {
+    ])('keeps repaired foreign or painted RTL text ($paintedText, $evbOcrLayer)', async (metadata) => {
         mocks.extractBrowserSearchPageData.mockResolvedValue({text: 'הַקְדְשָה'});
-        mocks.pageOps.mockResolvedValue({pages: [{
-            pageNumber: 1,
-            ...metadata,
-            evbOcrLines: [{
-                text: 'wrong override',
-                words: [],
-            }],
-        }]});
+        mocks.pageOps.mockResolvedValue({
+            pages: [
+                {
+                    pageNumber: 1,
+                    ...metadata,
+                    evbOcrLines: [
+                        {
+                            text: 'wrong override',
+                            words: [],
+                        },
+                    ],
+                },
+            ],
+        });
         const {loadBrowserSearchDocument} = await import('@app/platform/browser-api/browserSearchCore');
         const document = await loadBrowserSearchDocument('/tmp/foreign.pdf');
         await expect(document.extractPage(1)).resolves.toMatchObject({text: 'הַקְדְשָה'});
@@ -123,11 +135,10 @@ describe('browserSearchCore', () => {
             continueSearch = false;
             return {pages: []};
         });
-        const { loadBrowserSearchDocument } = await import('@app/platform/browser-api/browserSearchCore');
+        const {loadBrowserSearchDocument} = await import('@app/platform/browser-api/browserSearchCore');
         const document = await loadBrowserSearchDocument('/tmp/rtl.pdf');
 
-        await expect(document.extractPage(1, {shouldContinue: () => continueSearch}))
-            .rejects.toThrow('ERR_BROWSER_SEARCH_CANCELED');
+        await expect(document.extractPage(1, {shouldContinue: () => continueSearch})).rejects.toThrow('ERR_BROWSER_SEARCH_CANCELED');
     });
 
     it('preserves RTL results while requesting EVB layers in windows of at most 2,048 pages', async () => {
@@ -141,59 +152,58 @@ describe('browserSearchCore', () => {
             }),
         });
         mocks.extractBrowserSearchPageData.mockResolvedValue({text: 'ש ל ו ם'});
-        mocks.pageOps.mockImplementation(async (_type, {pages}: {pages: number[]}) => ({pages: pages.map(pageNumber => ({
-            pageNumber,
-            paintedText: false,
-            evbOcrLayer: true,
-            evbOcrLines: [{
-                text: `שלום ${pageNumber}`,
-                words: [],
-            }],
-        }))}));
+        mocks.pageOps.mockImplementation(async (_type, {pages}: {pages: number[]}) => ({
+            pages: pages.map((pageNumber) => ({
+                pageNumber,
+                paintedText: false,
+                evbOcrLayer: true,
+                evbOcrLines: [
+                    {
+                        text: `שלום ${pageNumber}`,
+                        words: [],
+                    },
+                ],
+            })),
+        }));
         const {streamBrowserSearchDocumentPages} = await import('@app/platform/browser-api/browserSearchCore');
         const {findPdfSearchMatches} = await import('@pdf-core/pdfSearchAlgorithms');
         const results: Array<{
             pageNumber: number;
             startOffset: number;
-            endOffset: number
+            endOffset: number;
         }> = [];
         for await (const page of streamBrowserSearchDocumentPages('/tmp/long-rtl.pdf')) {
             expect(page.text).toBe(`שלום ${page.pageNumber}`);
-            for (const match of findPdfSearchMatches(page.text, 'שלום', {})) results.push({
-                pageNumber: page.pageNumber,
-                ...match,
-            });
+            for (const match of findPdfSearchMatches(page.text, 'שלום', {})) {
+                results.push({
+                    pageNumber: page.pageNumber,
+                    ...match,
+                });
+            }
         }
-        expect(results).toEqual(Array.from({length: pageCount}, (_, index) => ({
-            pageNumber: index + 1,
-            startOffset: 0,
-            endOffset: 4,
-        })));
-        const requests = mocks.pageOps.mock.calls.map(([
-            , payload,
-        ]) => (payload as {pages: number[]}).pages);
-        expect(requests.map(pages => pages.length)).toEqual([
-            2_048,
-            2_048,
-            1,
-        ]);
+        expect(results).toEqual(
+            Array.from({length: pageCount}, (_, index) => ({
+                pageNumber: index + 1,
+                startOffset: 0,
+                endOffset: 4,
+            })),
+        );
+        const requests = mocks.pageOps.mock.calls.map(([, payload]) => (payload as {pages: number[]}).pages);
+        expect(requests.map((pages) => pages.length)).toEqual([2_048, 2_048, 1]);
         expect(requests.flat()).toEqual(Array.from({length: pageCount}, (_, index) => index + 1));
     });
 
     it('cancels after getPage resolves without starting page text extraction', async () => {
-        const { iterateBrowserSearchDocumentPages } =
-            await import('@app/platform/browser-api/browserSearchCore');
+        const {iterateBrowserSearchDocumentPages} = await import('@app/platform/browser-api/browserSearchCore');
         let shouldContinue = true;
         mocks.getPage.mockImplementation(async () => {
             shouldContinue = false;
             return {};
         });
 
-        await expect(iterateBrowserSearchDocumentPages(
-            '/tmp/search.pdf',
-            vi.fn(),
-            {shouldContinue: () => shouldContinue},
-        )).rejects.toThrow('ERR_BROWSER_SEARCH_CANCELED');
+        await expect(iterateBrowserSearchDocumentPages('/tmp/search.pdf', vi.fn(), {shouldContinue: () => shouldContinue})).rejects.toThrow(
+            'ERR_BROWSER_SEARCH_CANCELED',
+        );
 
         expect(mocks.getPage).toHaveBeenCalledWith(1);
         expect(mocks.extractBrowserSearchPageData).not.toHaveBeenCalled();
@@ -210,8 +220,7 @@ describe('browserSearchCore', () => {
                 numPages: 1_000_000,
             }),
         });
-        const { streamBrowserSearchDocumentPages } =
-            await import('@app/platform/browser-api/browserSearchCore');
+        const {streamBrowserSearchDocumentPages} = await import('@app/platform/browser-api/browserSearchCore');
         const stream = streamBrowserSearchDocumentPages('/tmp/million.pdf');
 
         const first = await stream.next();
@@ -230,12 +239,15 @@ describe('browserSearchCore', () => {
         expect(mocks.getPage).toHaveBeenCalledTimes(1);
         await stream.return(undefined);
         expect(mocks.destroyDocument).toHaveBeenCalledOnce();
-        expect(arrayFrom.mock.calls.some(([value]) => (
-            typeof value === 'object'
-            && value !== null
-            && 'length' in value
-            && Number((value as {length?: unknown}).length) >= 1_000_000
-        ))).toBe(false);
+        expect(
+            arrayFrom.mock.calls.some(
+                ([value]) =>
+                    typeof value === 'object' &&
+                    value !== null &&
+                    'length' in value &&
+                    Number((value as {length?: unknown}).length) >= 1_000_000,
+            ),
+        ).toBe(false);
         arrayFrom.mockRestore();
     });
 
@@ -248,8 +260,7 @@ describe('browserSearchCore', () => {
                 numPages: 2_646,
             }),
         });
-        const { streamBrowserSearchDocumentPages } =
-            await import('@app/platform/browser-api/browserSearchCore');
+        const {streamBrowserSearchDocumentPages} = await import('@app/platform/browser-api/browserSearchCore');
         const stream = streamBrowserSearchDocumentPages('/tmp/2646.pdf');
 
         await expect(stream.next()).resolves.toEqual({

@@ -103,10 +103,7 @@ class ScanCleanupDetectionSessionCache extends Map<string, IScanCleanupDetection
     }
 
     private evictToBudget() {
-        while (
-            this.size > this.limits.maxEntries
-            || this.retainedBytes > this.limits.maxBytes
-        ) {
+        while (this.size > this.limits.maxEntries || this.retainedBytes > this.limits.maxBytes) {
             const oldestKey = this.keys().next().value;
             if (oldestKey === undefined) {
                 return;
@@ -163,23 +160,25 @@ export function isScanCleanupLifecycleIdentityPromotion(
     documentRevision: string | null | undefined,
 ) {
     if (
-        !previousLifecycleKey
-        || !currentLifecycleKey
-        || !sourcePath
-        || !sourceSha256
-        || documentRevision === null
-        || documentRevision === undefined
-        || previousLifecycleKey === currentLifecycleKey
+        !previousLifecycleKey ||
+        !currentLifecycleKey ||
+        !sourcePath ||
+        !sourceSha256 ||
+        documentRevision === null ||
+        documentRevision === undefined ||
+        previousLifecycleKey === currentLifecycleKey
     ) {
         return false;
     }
     const previousDocumentKey = documentKeyFor(previousLifecycleKey);
     const currentDocumentKey = documentKeyFor(currentLifecycleKey);
-    return previousDocumentKey === sourcePath
-        && isScanCleanupSourceSha256(currentDocumentKey)
-        && currentDocumentKey === sourceSha256.toLowerCase()
-        && lifecycleRevisionFor(previousLifecycleKey) === documentRevision
-        && lifecycleRevisionFor(currentLifecycleKey) === documentRevision;
+    return (
+        previousDocumentKey === sourcePath &&
+        isScanCleanupSourceSha256(currentDocumentKey) &&
+        currentDocumentKey === sourceSha256.toLowerCase() &&
+        lifecycleRevisionFor(previousLifecycleKey) === documentRevision &&
+        lifecycleRevisionFor(currentLifecycleKey) === documentRevision
+    );
 }
 
 /**
@@ -194,20 +193,16 @@ export function promoteScanCleanupDetectionState(options: {
     sourceSha256: string | null | undefined;
     documentRevision: string | null | undefined;
 }) {
-    const {
-        authoritativeLifecycleKey,
-        documentRevision,
-        provisionalLifecycleKey,
-        sourcePath,
-        sourceSha256,
-    } = options;
-    if (!isScanCleanupLifecycleIdentityPromotion(
-        provisionalLifecycleKey,
-        authoritativeLifecycleKey,
-        sourcePath,
-        sourceSha256,
-        documentRevision,
-    )) {
+    const {authoritativeLifecycleKey, documentRevision, provisionalLifecycleKey, sourcePath, sourceSha256} = options;
+    if (
+        !isScanCleanupLifecycleIdentityPromotion(
+            provisionalLifecycleKey,
+            authoritativeLifecycleKey,
+            sourcePath,
+            sourceSha256,
+            documentRevision,
+        )
+    ) {
         return false;
     }
     if (!provisionalLifecycleKey || !authoritativeLifecycleKey) {
@@ -228,14 +223,8 @@ export function promoteScanCleanupDetectionState(options: {
 }
 
 /** Drops all revisions for each of several lifecycle aliases. */
-export function discardScanCleanupDetectionStateForAliases(
-    documentKeys: ReadonlyArray<string | null | undefined>,
-) {
-    const aliases = new Set(
-        documentKeys
-            .filter((documentKey): documentKey is string => Boolean(documentKey))
-            .map(documentKeyFor),
-    );
+export function discardScanCleanupDetectionStateForAliases(documentKeys: ReadonlyArray<string | null | undefined>) {
+    const aliases = new Set(documentKeys.filter((documentKey): documentKey is string => Boolean(documentKey)).map(documentKeyFor));
     if (aliases.size === 0) {
         return;
     }

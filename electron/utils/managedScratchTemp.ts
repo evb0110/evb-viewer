@@ -1,39 +1,13 @@
-import {
-    appendFile,
-    lstat,
-    mkdir,
-    mkdtemp,
-    readFile,
-    readdir,
-    rm,
-    writeFile,
-} from 'fs/promises';
-import {
-    basename,
-    dirname,
-    isAbsolute,
-    join,
-    resolve,
-} from 'path';
-import { createLogger } from '@electron/utils/createLogger';
-import {
-    getOwnStartTime,
-    isRecordedProcessRunning,
-} from '@electron/utils/processIdentity';
-import {
-    fsyncDirectory,
-    fsyncFile,
-} from '@electron/utils/fsyncPath';
-import { getErrorMessage } from '@electron/utils/error';
-import { atomicReplace } from '@electron/utils/atomicReplace';
-import {
-    fileIdentitySchema,
-    isSameFileIdentity,
-    readFileIdentity,
-    type IFileIdentity,
-} from '@electron/utils/fileIdentity';
-import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
-import { keepOriginalBeside } from '@electron/utils/boundedPathComponent';
+import {appendFile, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile} from 'fs/promises';
+import {basename, dirname, isAbsolute, join, resolve} from 'path';
+import {createLogger} from '@electron/utils/createLogger';
+import {getOwnStartTime, isRecordedProcessRunning} from '@electron/utils/processIdentity';
+import {fsyncDirectory, fsyncFile} from '@electron/utils/fsyncPath';
+import {getErrorMessage} from '@electron/utils/error';
+import {atomicReplace} from '@electron/utils/atomicReplace';
+import {fileIdentitySchema, isSameFileIdentity, readFileIdentity, type IFileIdentity} from '@electron/utils/fileIdentity';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
+import {keepOriginalBeside} from '@electron/utils/boundedPathComponent';
 import {isErrnoException} from '@contracts/runtimeGuards';
 import * as v from 'valibot';
 
@@ -57,7 +31,7 @@ const MANAGED_SCRATCH_PREFIXES = [
 const MANAGED_SCRATCH_STALE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const MANAGED_SCRATCH_SWEEP_MAX_ENTRIES = 200;
 
-export type TManagedScratchPrefix = typeof MANAGED_SCRATCH_PREFIXES[number];
+export type TManagedScratchPrefix = (typeof MANAGED_SCRATCH_PREFIXES)[number];
 
 const managedScratchMarkerSchema = v.object({
     pid: v.pipe(v.number(), v.integer(), v.minValue(1)),
@@ -78,10 +52,7 @@ async function readManagedScratchMarker(directoryPath: string) {
     }
 }
 
-export async function createManagedScratchTempDir(
-    prefix: TManagedScratchPrefix,
-    rootPath: string,
-) {
+export async function createManagedScratchTempDir(prefix: TManagedScratchPrefix, rootPath: string) {
     await mkdir(rootPath, {recursive: true});
     const rootStat = await lstat(rootPath);
     if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
@@ -89,11 +60,15 @@ export async function createManagedScratchTempDir(
     }
     const tempDir = await mkdtemp(join(rootPath, prefix));
     try {
-        await writeFile(join(tempDir, MANAGED_SCRATCH_MARKER_FILE), `${JSON.stringify({
-            pid: process.pid,
-            startTime: await getOwnStartTime(),
-            prefix,
-        })}\n`, 'utf8');
+        await writeFile(
+            join(tempDir, MANAGED_SCRATCH_MARKER_FILE),
+            `${JSON.stringify({
+                pid: process.pid,
+                startTime: await getOwnStartTime(),
+                prefix,
+            })}\n`,
+            'utf8',
+        );
     } catch (error) {
         await rm(tempDir, {
             force: true,
@@ -104,13 +79,9 @@ export async function createManagedScratchTempDir(
     return tempDir;
 }
 
-export async function removeManagedScratchTempDir(
-    directoryPath: string,
-    prefix: TManagedScratchPrefix,
-    rootPath: string,
-) {
+export async function removeManagedScratchTempDir(directoryPath: string, prefix: TManagedScratchPrefix, rootPath: string) {
     const resolvedDirectory = resolve(directoryPath);
-    const comparable = (path: string) => process.platform === 'win32' ? path.toLowerCase() : path;
+    const comparable = (path: string) => (process.platform === 'win32' ? path.toLowerCase() : path);
     let directoryStat;
     try {
         directoryStat = await lstat(resolvedDirectory);
@@ -120,10 +91,12 @@ export async function removeManagedScratchTempDir(
         }
         throw error;
     }
-    if (!directoryStat.isDirectory()
-        || directoryStat.isSymbolicLink()
-        || dirname(comparable(resolvedDirectory)) !== comparable(resolve(rootPath))
-        || !basename(resolvedDirectory).startsWith(prefix)) {
+    if (
+        !directoryStat.isDirectory() ||
+        directoryStat.isSymbolicLink() ||
+        dirname(comparable(resolvedDirectory)) !== comparable(resolve(rootPath)) ||
+        !basename(resolvedDirectory).startsWith(prefix)
+    ) {
         return false;
     }
     const marker = await readManagedScratchMarker(resolvedDirectory);
@@ -138,17 +111,17 @@ export async function removeManagedScratchTempDir(
 }
 
 const absolutePathSchema = v.pipe(v.string(), v.check(isAbsolute));
-const tempPathSchema = v.pipe(absolutePathSchema, v.check(path => MANAGED_SCRATCH_TEMP_NAME_PATTERN.test(basename(path))));
+const tempPathSchema = v.pipe(
+    absolutePathSchema,
+    v.check((path) => MANAGED_SCRATCH_TEMP_NAME_PATTERN.test(basename(path))),
+);
 
 // One line per record. Each entry is written before the file it names is
 // created or replaced, so a crash leaves it for the next startup sweep. A null
 // scratch path records nothing, which is how an export without a scratch runs.
 const managedScratchRecordEntrySchema = v.variant('kind', [
     v.object({
-        kind: v.picklist([
-            'stage',
-            'writer',
-        ]),
+        kind: v.picklist(['stage', 'writer']),
         path: tempPathSchema,
     }),
     v.object({
@@ -169,7 +142,11 @@ type TManagedScratchRecordEntry = v.InferOutput<typeof managedScratchRecordEntry
 
 async function appendManagedScratchRecord(scratchPath: string | null, ...entries: TManagedScratchRecordEntry[]) {
     if (scratchPath) {
-        await appendFile(join(scratchPath, MANAGED_SCRATCH_RECORD_FILE), entries.map(entry => `${JSON.stringify(entry)}\n`).join(''), 'utf8');
+        await appendFile(
+            join(scratchPath, MANAGED_SCRATCH_RECORD_FILE),
+            entries.map((entry) => `${JSON.stringify(entry)}\n`).join(''),
+            'utf8',
+        );
     }
 }
 
@@ -181,7 +158,9 @@ async function commitManagedScratchRecord(scratchPath: string | null) {
     if (scratchPath) {
         await fsyncFile(join(scratchPath, MANAGED_SCRATCH_RECORD_FILE));
         await fsyncFile(join(scratchPath, MANAGED_SCRATCH_MARKER_FILE)).catch((error: unknown) => {
-            if (!isErrnoException(error) || error.code !== 'ENOENT') throw error;
+            if (!isErrnoException(error) || error.code !== 'ENOENT') {
+                throw error;
+            }
         });
         await fsyncDirectory(scratchPath);
         await fsyncDirectory(dirname(scratchPath));
@@ -191,19 +170,17 @@ async function commitManagedScratchRecord(scratchPath: string | null) {
 // Names the temporary files a batch will create beside its targets, and commits
 // the batch before any of them exists. Older records also name them 'writer'.
 export async function recordManagedScratchPaths(scratchPath: string | null, paths: string[]) {
-    await appendManagedScratchRecord(scratchPath, ...paths.map(path => ({
-        kind: 'stage' as const,
-        path,
-    })));
+    await appendManagedScratchRecord(
+        scratchPath,
+        ...paths.map((path) => ({
+            kind: 'stage' as const,
+            path,
+        })),
+    );
     await commitManagedScratchRecord(scratchPath);
 }
 
-export async function recordManagedScratchBackup(
-    scratchPath: string | null,
-    path: string,
-    target: string,
-    original: IFileIdentity,
-) {
+export async function recordManagedScratchBackup(scratchPath: string | null, path: string, target: string, original: IFileIdentity) {
     await appendManagedScratchRecord(scratchPath, {
         kind: 'backup',
         path,
@@ -303,7 +280,7 @@ async function applyManagedScratchRecord(scratchPath: string) {
         logger.warn(`Keeping managed scratch record "${recordPath}": a line is unreadable, so none is applied`);
         return false;
     }
-    const complete = entries.some(entry => entry.kind === 'complete');
+    const complete = entries.some((entry) => entry.kind === 'complete');
     const publishes = new Map<string, Extract<TManagedScratchRecordEntry, {kind: 'publish'}>>();
     const backedUp = new Set<string>();
     for (const entry of entries) {
@@ -328,9 +305,11 @@ async function applyManagedScratchRecord(scratchPath: string) {
             // rm removes the entry itself, never a symlink's target, and fails on a directory.
             await attempt(entry.path, () => rm(entry.path, {force: true}));
         } else if (entry.kind === 'backup') {
-            await attempt(entry.path, () => (complete
-                ? rm(entry.path, {force: true})
-                : settlePublishedTarget(entry.target, entry.path, entry.original, publishes.get(entry.target)?.published ?? null)));
+            await attempt(entry.path, () =>
+                complete
+                    ? rm(entry.path, {force: true})
+                    : settlePublishedTarget(entry.target, entry.path, entry.original, publishes.get(entry.target)?.published ?? null),
+            );
         } else if (entry.kind === 'publish' && !complete && !backedUp.has(entry.target)) {
             await attempt(entry.target, () => settlePublishedTarget(entry.target, null, null, entry.published));
         }
@@ -370,7 +349,10 @@ export async function usingManagedScratchScope<T>(
         keepReason ??= await rm(scratchPath, {
             force: true,
             recursive: true,
-        }).then(() => undefined, (error: unknown) => `removal failed: ${getErrorMessage(error)}`);
+        }).then(
+            () => undefined,
+            (error: unknown) => `removal failed: ${getErrorMessage(error)}`,
+        );
         if (keepReason !== undefined) {
             logger.warn(`Keeping managed scratch "${scratchPath}" for the stale sweep: ${keepReason}`);
         }
@@ -393,8 +375,9 @@ export async function sweepStaleManagedScratchTempDirs(
         return 0;
     }
 
-    const managedEntries = entries.filter(entry => MANAGED_SCRATCH_PREFIXES.some(prefix => entry.startsWith(prefix))
-        && !entry.startsWith('native-command-'));
+    const managedEntries = entries.filter(
+        (entry) => MANAGED_SCRATCH_PREFIXES.some((prefix) => entry.startsWith(prefix)) && !entry.startsWith('native-command-'),
+    );
     for (const entry of managedEntries.slice(0, maxEntries)) {
         const scratchPath = join(tempDir, entry);
         try {
@@ -404,7 +387,7 @@ export async function sweepStaleManagedScratchTempDirs(
             }
             const marker = await readManagedScratchMarker(scratchPath);
             // A scope is live while the run that made it does: its pid with its start time.
-            if (!marker || !entry.startsWith(marker.prefix) || await isRecordedProcessRunning(marker.pid, marker.startTime, profile)) {
+            if (!marker || !entry.startsWith(marker.prefix) || (await isRecordedProcessRunning(marker.pid, marker.startTime, profile))) {
                 continue;
             }
             // An unsettled record keeps its scratch whatever its age.

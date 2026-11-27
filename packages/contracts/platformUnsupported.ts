@@ -1,9 +1,5 @@
 export type TPlatformUnsupportedReason =
-    | 'unsupported-backend'
-    | 'missing-browser-permission'
-    | 'user-canceled'
-    | 'not-implemented'
-    | 'requires-native-backend';
+    'unsupported-backend' | 'missing-browser-permission' | 'user-canceled' | 'not-implemented' | 'requires-native-backend';
 
 export interface IPlatformUnsupportedResult {
     readonly ok: false;
@@ -18,10 +14,7 @@ export interface IPlatformOkResult<T> {
 
 export type TPlatformResult<T> = IPlatformOkResult<T> | IPlatformUnsupportedResult;
 
-export function createPlatformUnsupportedResult(
-    reason: TPlatformUnsupportedReason,
-    message?: string,
-): IPlatformUnsupportedResult {
+export function createPlatformUnsupportedResult(reason: TPlatformUnsupportedReason, message?: string): IPlatformUnsupportedResult {
     return {
         ok: false,
         reason,

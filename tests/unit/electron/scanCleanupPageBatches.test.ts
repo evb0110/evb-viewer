@@ -4,30 +4,14 @@ import {
     SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES,
     SCAN_CLEANUP_STREAMING_BATCH_PAGES,
 } from '@evb/scan-cleanup/core/pageBatches';
-import {
-    getScanCleanupPageAt,
-    resolveScanCleanupPageScopeLazy,
-} from '@evb/scan-cleanup/core/pageScope';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {getScanCleanupPageAt, resolveScanCleanupPageScopeLazy} from '@evb/scan-cleanup/core/pageScope';
+import {describe, expect, it} from 'vitest';
 
 describe('scan-cleanup page batching', () => {
     it.each([
-        [
-            SCAN_CLEANUP_STREAMING_BATCH_PAGES,
-            true,
-        ],
-        [
-            SCAN_CLEANUP_STREAMING_BATCH_PAGES + 1,
-            false,
-        ],
-        [
-            2_646,
-            false,
-        ],
+        [SCAN_CLEANUP_STREAMING_BATCH_PAGES, true],
+        [SCAN_CLEANUP_STREAMING_BATCH_PAGES + 1, false],
+        [2_646, false],
     ])('keeps the all-document scope array-free at the streaming boundary (%s pages)', (pageCount, isArray) => {
         const scope = resolveScanCleanupPageScopeLazy(undefined, pageCount);
 
@@ -41,8 +25,7 @@ describe('scan-cleanup page batching', () => {
         expect(Array.isArray(scope)).toBe(false);
         expect(scope.length).toBe(SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES + 1);
         expect(getScanCleanupPageAt(scope, 0)).toBe(1);
-        expect(getScanCleanupPageAt(scope, scope.length - 1))
-            .toBe(SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES + 1);
+        expect(getScanCleanupPageAt(scope, scope.length - 1)).toBe(SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES + 1);
     });
 
     it('continues across the native manifest boundary in source order', async () => {
@@ -51,16 +34,12 @@ describe('scan-cleanup page batching', () => {
 
         await runScanCleanupPageBatches(
             SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES + 1,
-            async batch => {
-                for (
-                    let pageNumber = batch.startOffset + 1;
-                    pageNumber <= batch.endOffsetExclusive;
-                    pageNumber += 1
-                ) {
+            async (batch) => {
+                for (let pageNumber = batch.startOffset + 1; pageNumber <= batch.endOffsetExclusive; pageNumber += 1) {
                     processed.push(pageNumber);
                 }
             },
-            {onBatchComplete: batch => progress.push(batch.endOffsetExclusive)},
+            {onBatchComplete: (batch) => progress.push(batch.endOffsetExclusive)},
         );
 
         expect([...iterateScanCleanupPageBatches(SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES + 1)]).toEqual([
@@ -75,36 +54,32 @@ describe('scan-cleanup page batching', () => {
                 endOffsetExclusive: SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES + 1,
             },
         ]);
-        expect(progress).toEqual([
-            SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES,
-            SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES + 1,
-        ]);
+        expect(progress).toEqual([SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES, SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES + 1]);
         expect(processed).toHaveLength(SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES + 1);
         expect(processed[SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES - 1]).toBe(SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES);
         expect(processed[SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES]).toBe(SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES + 1);
     });
 
     it('rejects a custom batch size above the native manifest ceiling', () => {
-        expect(() => [...iterateScanCleanupPageBatches(
-            SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES + 1,
-            SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES + 1,
-        )]).toThrow(
-            `Scan cleanup batch size must not exceed ${String(SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES)} pages`,
-        );
+        expect(() => [
+            ...iterateScanCleanupPageBatches(SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES + 1, SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES + 1),
+        ]).toThrow(`Scan cleanup batch size must not exceed ${String(SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES)} pages`);
     });
 
     it('stops before the next batch when cancellation arrives', async () => {
         const controller = new AbortController();
         const batches: number[] = [];
 
-        await expect(runScanCleanupPageBatches(
-            SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES + 1,
-            async batch => {
-                batches.push(batch.batchIndex);
-                controller.abort();
-            },
-            {signal: controller.signal},
-        )).rejects.toMatchObject({name: 'AbortError'});
+        await expect(
+            runScanCleanupPageBatches(
+                SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES + 1,
+                async (batch) => {
+                    batches.push(batch.batchIndex);
+                    controller.abort();
+                },
+                {signal: controller.signal},
+            ),
+        ).rejects.toMatchObject({name: 'AbortError'});
         expect(batches).toEqual([0]);
     });
 
@@ -113,10 +88,10 @@ describe('scan-cleanup page batching', () => {
         const scope = resolveScanCleanupPageScopeLazy(undefined, totalPages);
         const invocations: Array<{
             start: number;
-            length: number
+            length: number;
         }> = [];
 
-        await runScanCleanupPageBatches(scope.length, async batch => {
+        await runScanCleanupPageBatches(scope.length, async (batch) => {
             invocations.push({
                 start: batch.startOffset + 1,
                 length: batch.endOffsetExclusive - batch.startOffset,
@@ -142,20 +117,21 @@ describe('scan-cleanup page batching', () => {
         const controller = new AbortController();
         const invocations: number[] = [];
 
-        await expect(runScanCleanupPageBatches(
-            scope.length,
-            async batch => {
-                invocations.push(batch.batchIndex);
-                if (batch.batchIndex === 1) controller.abort();
-            },
-            {signal: controller.signal},
-        )).rejects.toMatchObject({name: 'AbortError'});
+        await expect(
+            runScanCleanupPageBatches(
+                scope.length,
+                async (batch) => {
+                    invocations.push(batch.batchIndex);
+                    if (batch.batchIndex === 1) {
+                        controller.abort();
+                    }
+                },
+                {signal: controller.signal},
+            ),
+        ).rejects.toMatchObject({name: 'AbortError'});
 
         expect(Array.isArray(scope)).toBe(false);
-        expect(invocations).toEqual([
-            0,
-            1,
-        ]);
+        expect(invocations).toEqual([0, 1]);
         expect([...iterateScanCleanupPageBatches(totalPages)].length).toBe(50);
     });
 });

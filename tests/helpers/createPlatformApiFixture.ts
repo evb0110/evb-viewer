@@ -1,23 +1,16 @@
-import type { IPlatformApi } from '@contracts/platformApi';
-import type { TPlatformBackend } from '@contracts/platformDescriptorTypes';
-import { PLATFORM_API_DESCRIPTOR } from '@contracts/platformApi';
-import type { IPlatformMethodDescriptor } from '@contracts/platformApiDescriptor';
-import { isRecord } from '@contracts/runtimeGuards';
-import { createDefaultPlatformApiFixtureMethod } from '@tests/helpers/createDefaultPlatformApiFixtureMethod';
+import type {IPlatformApi} from '@contracts/platformApi';
+import type {TPlatformBackend} from '@contracts/platformDescriptorTypes';
+import {PLATFORM_API_DESCRIPTOR} from '@contracts/platformApi';
+import type {IPlatformMethodDescriptor} from '@contracts/platformApiDescriptor';
+import {isRecord} from '@contracts/runtimeGuards';
+import {createDefaultPlatformApiFixtureMethod} from '@tests/helpers/createDefaultPlatformApiFixtureMethod';
 
-type TDeepPartialValue<T> = NonNullable<T> extends (...args: never[]) => unknown
-    ? T
-    : NonNullable<T> extends object
-        ? TDeepPartial<NonNullable<T>>
-        : T;
-type TRequiredKey<T, TKey extends keyof T> = Pick<T, TKey> extends Required<Pick<T, TKey>>
-    ? true
-    : false;
+type TDeepPartialValue<T> =
+    NonNullable<T> extends (...args: never[]) => unknown ? T : NonNullable<T> extends object ? TDeepPartial<NonNullable<T>> : T;
+type TRequiredKey<T, TKey extends keyof T> = Pick<T, TKey> extends Required<Pick<T, TKey>> ? true : false;
 
 export type TDeepPartial<T> = {
-    [TKey in keyof T]?: TRequiredKey<T, TKey> extends true
-        ? TDeepPartialValue<T[TKey]>
-        : TDeepPartialValue<T[TKey]> | undefined;
+    [TKey in keyof T]?: TRequiredKey<T, TKey> extends true ? TDeepPartialValue<T[TKey]> : TDeepPartialValue<T[TKey]> | undefined;
 };
 
 export type TPlatformApiFixtureOverrides = TDeepPartial<IPlatformApi>;
@@ -53,17 +46,11 @@ function readPath(root: unknown, path: readonly string[]) {
     return value;
 }
 
-function deepMerge(
-    target: Record<string, unknown>,
-    overrides: unknown,
-) {
+function deepMerge(target: Record<string, unknown>, overrides: unknown) {
     if (!isRecord(overrides)) {
         return target;
     }
-    for (const [
-        key,
-        value,
-    ] of Object.entries(overrides)) {
+    for (const [key, value] of Object.entries(overrides)) {
         const current = target[key];
         if (isRecord(current) && isRecord(value) && typeof current !== 'function' && typeof value !== 'function') {
             deepMerge(current, value);
@@ -78,11 +65,7 @@ function createBasePlatformApiFixture() {
     const api: Record<string, unknown> = {};
     const methods: readonly IPlatformMethodDescriptor[] = PLATFORM_API_DESCRIPTOR.methods;
     for (const descriptor of methods) {
-        setPath(
-            api,
-            descriptor.path,
-            createDefaultPlatformApiFixtureMethod(descriptor),
-        );
+        setPath(api, descriptor.path, createDefaultPlatformApiFixtureMethod(descriptor));
     }
     return api;
 }

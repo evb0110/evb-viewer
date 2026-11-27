@@ -1,4 +1,4 @@
-import type { IAnnotationSettings } from '@app/types/annotations';
+import type {IAnnotationSettings} from '@app/types/annotations';
 
 export const DEFAULT_ANNOTATION_SETTINGS = {
     highlightColor: '#ffd400',
@@ -28,21 +28,21 @@ export const ANNOTATION_PROPERTY_RANGES = {
     highlightThickness: {
         min: 4,
         max: 24,
-        step: 1, 
+        step: 1,
     },
     inkThickness: {
         min: 1,
         max: 24,
-        step: 1, 
+        step: 1,
     },
     shapeStrokeWidth: {
         min: 1,
         max: 10,
-        step: 0.5, 
+        step: 0.5,
     },
     textSize: {
         min: 8,
         max: 72,
-        step: 1, 
+        step: 1,
     },
 } as const;

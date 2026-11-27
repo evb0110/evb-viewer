@@ -1,11 +1,11 @@
-import type { Ref } from 'vue';
-import { tryOnScopeDispose } from '@vueuse/core';
+import type {Ref} from 'vue';
+import {tryOnScopeDispose} from '@vueuse/core';
 import {
     getPageIdentityDeltaNextPageCount,
     mapPageNumberThroughPageIdentityDelta,
     type IPageIdentityDelta,
 } from '@contracts/electronApiPageOps';
-import { requirePageNumber } from '@contracts/pageNumbers';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     createPdfPageNavigationRequest,
     createPdfReloadWaiter,
@@ -13,29 +13,19 @@ import {
     type IDocumentViewerExpose,
     type usePageContextMenu,
 } from '@app/modules/pdf-viewer/public';
-import {
-    whenDocumentOpeningPlaced,
-    type IDocumentOpenSurfaceSession,
-} from '@app/modules/document-viewer/public';
-import type { useWorkspaceViewerShellState } from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
-import type { useWorkspaceSearchSidebar } from '@app/modules/workspace-shell/composables/useWorkspaceSearchSidebar';
+import {whenDocumentOpeningPlaced, type IDocumentOpenSurfaceSession} from '@app/modules/document-viewer/public';
+import type {useWorkspaceViewerShellState} from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
+import type {useWorkspaceSearchSidebar} from '@app/modules/workspace-shell/composables/useWorkspaceSearchSidebar';
 import type {
     IWorkspaceDocumentController,
     IWorkspaceOpenRequest,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import {
-    admitOpenedDocument,
-    didFinishOpen,
-    type TDocumentOpenOutcome,
-} from '@app/types/documentOpenOutcome';
-import {
-    finishOpeningReader,
-    followOpeningReader,
-} from '@app/modules/workspace-shell/document-sessions/recentReadingView';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import type { TAnnotationTool } from '@app/types/annotations';
+import type {IWorkspaceExpose} from '@app/types/workspaceExpose';
+import {admitOpenedDocument, didFinishOpen, type TDocumentOpenOutcome} from '@app/types/documentOpenOutcome';
+import {finishOpeningReader, followOpeningReader} from '@app/modules/workspace-shell/document-sessions/recentReadingView';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TOpenFileResult} from '@contracts/electronApiDocuments';
+import type {TAnnotationTool} from '@app/types/annotations';
 
 export type TViewShellState = ReturnType<typeof useWorkspaceViewerShellState>;
 
@@ -55,7 +45,8 @@ export interface IDocumentViewPort {
     emitOpenInNewTab: (result: TDocumentRef | TOpenFileResult) => void;
     /** Gives this view a document of its own and runs the open in its new workspace. */
     detachAndOpen: (open: (workspace: IWorkspaceExpose) => Promise<boolean>) => Promise<void>;
-    view: Pick<TViewShellState,
+    view: Pick<
+        TViewShellState,
         | 'pdfViewerRef'
         | 'documentViewerRef'
         | 'pdfDocument'
@@ -68,7 +59,8 @@ export interface IDocumentViewPort {
         | 'setSelectedPageSelection'
         | 'requestThumbnailInvalidation'
         | 'closeAllDropdowns'
-        | 'openDropdown'>;
+        | 'openDropdown'
+    >;
     search: Pick<ReturnType<typeof useWorkspaceSearchSidebar>, 'resetSearchCache' | 'closeSearch' | 'adoptPageRotation'>;
     pageContextMenu: Pick<ReturnType<typeof usePageContextMenu>, 'closePageContextMenu'>;
     closeAnnotationContextMenu: () => void;
@@ -146,14 +138,19 @@ export const createDocumentViews = (controller: IWorkspaceDocumentController) =>
     // An open runs in the view that starts it, whose lifecycle claims its
     // surface; without one, the document runs it alone. A normal open starts
     // where its reader left it, unless they move first.
-    async function runDocumentOpen(port: IDocumentViewPort | null, request: IWorkspaceOpenRequest, run: () => Promise<TDocumentOpenOutcome>) {
+    async function runDocumentOpen(
+        port: IDocumentViewPort | null,
+        request: IWorkspaceOpenRequest,
+        run: () => Promise<TDocumentOpenOutcome>,
+    ) {
         if (!port) {
             return didFinishOpen(controller.runOpen(request, async () => admitOpenedDocument(await run()) && {presentation: null}));
         }
         const workspace = controller.getView(port.tabId)?.mountedWorkspace.value;
-        const opening = request.kind === 'open' && !request.carriesView && workspace
-            ? followOpeningReader(controller, port.openSurface, workspace)
-            : null;
+        const opening =
+            request.kind === 'open' && !request.carriesView && workspace
+                ? followOpeningReader(controller, port.openSurface, workspace)
+                : null;
         try {
             return await port.runDocumentOpen(request, run);
         } finally {
@@ -166,12 +163,24 @@ export const createDocumentViews = (controller: IWorkspaceDocumentController) =>
     // The viewers share the document's PDF session and annotation store, so
     // what one of them answers about the document every one would: the first
     // mounted, not the focused, serves.
-    const pdfViewer = fromViews(() => ports().map(port => port.view.pdfViewerRef.value).find(viewer => viewer) ?? null, null);
+    const pdfViewer = fromViews(
+        () =>
+            ports()
+                .map((port) => port.view.pdfViewerRef.value)
+                .find((viewer) => viewer) ?? null,
+        null,
+    );
     // The PDF.js document the views present, and its page count. The session
     // drops its document when a reload starts; the views present the previous
     // one until the next is ready, and that is the document's state meanwhile.
-    const presentedPdfDocument = fromViews(() => ports().map(port => port.view.pdfDocument.value).find(document => document) ?? null, null);
-    const reportedPageCount = fromViews(() => Math.max(0, ...ports().map(port => port.view.totalPages.value)), 0);
+    const presentedPdfDocument = fromViews(
+        () =>
+            ports()
+                .map((port) => port.view.pdfDocument.value)
+                .find((document) => document) ?? null,
+        null,
+    );
+    const reportedPageCount = fromViews(() => Math.max(0, ...ports().map((port) => port.view.totalPages.value)), 0);
 
     /**
      * Brings the document the view opens next to `page` (R4: a moved tab
@@ -192,23 +201,25 @@ export const createDocumentViews = (controller: IWorkspaceDocumentController) =>
      * view's receipt. Each view keeps its own reading point, its page moved
      * through `mapPage` when the reload changes the pages (T4).
      */
-    function prepareReload(mapPage: (page: number) => number = page => page) {
-        const waiters = ports().map(port => createPdfReloadWaiter({
-            openSurface: port.openSurface,
-            resetSearchCache: port.search.resetSearchCache,
-            admission: port.view.pdfViewerRef.value?.admitReload?.(mapPage) ?? null,
-        }));
+    function prepareReload(mapPage: (page: number) => number = (page) => page) {
+        const waiters = ports().map((port) =>
+            createPdfReloadWaiter({
+                openSurface: port.openSurface,
+                resetSearchCache: port.search.resetSearchCache,
+                admission: port.view.pdfViewerRef.value?.admitReload?.(mapPage) ?? null,
+            }),
+        );
         return {
-            promise: Promise.all(waiters.map(waiter => waiter.promise)).then(() => undefined),
-            cancel: () => waiters.forEach(waiter => waiter.cancel()),
+            promise: Promise.all(waiters.map((waiter) => waiter.promise)).then(() => undefined),
+            cancel: () => waiters.forEach((waiter) => waiter.cancel()),
         };
     }
 
     // Remap the current reading position, never a position captured at edit time.
     function mapPageIdentity(delta: IPageIdentityDelta) {
         const nextCount = getPageIdentityDeltaNextPageCount(delta);
-        const map = (page: number) => mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(page))
-            ?? Math.max(1, Math.min(page, nextCount ?? page));
+        const map = (page: number) =>
+            mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(page)) ?? Math.max(1, Math.min(page, nextCount ?? page));
         for (const record of controller.views.value.values()) {
             if (viewPorts.value.has(record.tabId)) {
                 // Its mounted viewer carries its own semantic anchor through
@@ -217,13 +228,16 @@ export const createDocumentViews = (controller: IWorkspaceDocumentController) =>
             }
             const page = map(record.viewState.value.currentPage ?? record.toolbarSnapshot.value.currentPage);
             const anchor = record.readingAnchor.value;
-            record.applyViewState({
-                ...record.viewState.value,
-                currentPage: page,
-            }, anchor && {
-                ...anchor,
-                page: mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(anchor.page)) ?? page,
-            });
+            record.applyViewState(
+                {
+                    ...record.viewState.value,
+                    currentPage: page,
+                },
+                anchor && {
+                    ...anchor,
+                    page: mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(anchor.page)) ?? page,
+                },
+            );
             record.publishToolbarSnapshot({
                 ...record.toolbarSnapshot.value,
                 currentPage: page,

@@ -8,9 +8,9 @@ type TIpcProgressReplayMode<TPayload> =
     // Remove internal job retention when every job feature uses the main job registry.
     | {kind: 'internal'}
     | {
-        kind: 'external';
-        getReplayPayloads: (target: IProgressPumpTarget<TPayload>) => Iterable<TPayload>;
-    };
+          kind: 'external';
+          getReplayPayloads: (target: IProgressPumpTarget<TPayload>) => Iterable<TPayload>;
+      };
 
 export interface IIpcProgressPumpOptions<TPayload> {
     channel: string;
@@ -60,10 +60,7 @@ export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions
     }
 
     // Live progress goes only to the target it was published for, its owner.
-    function send(
-        payload: TPayload,
-        target: IProgressPumpTarget<TPayload> | null | undefined = options.getTarget(),
-    ) {
+    function send(payload: TPayload, target: IProgressPumpTarget<TPayload> | null | undefined = options.getTarget()) {
         sendToTarget(target, payload);
     }
 
@@ -130,10 +127,7 @@ export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions
         timersByKey.set(key, timer);
     }
 
-    function enqueue(
-        payload: TPayload,
-        target: IProgressPumpTarget<TPayload> | null | undefined = options.getTarget(),
-    ) {
+    function enqueue(payload: TPayload, target: IProgressPumpTarget<TPayload> | null | undefined = options.getTarget()) {
         const key = options.getKey(payload);
         if (options.isTerminal?.(payload) === true) {
             pendingByKey.delete(key);
@@ -176,10 +170,7 @@ export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions
         timersByKey.clear();
         pendingByKey.clear();
         pendingTargetsByKey.clear();
-        for (const [
-            key,
-            retained,
-        ] of retainedByKey.entries()) {
+        for (const [key, retained] of retainedByKey.entries()) {
             if (!retained.terminal) {
                 clearRetainedTimer(key);
                 retainedByKey.delete(key);
@@ -202,9 +193,8 @@ export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions
         if (target.isDestroyed?.() === true) {
             return;
         }
-        const replayPayloads = replayMode.kind === 'external'
-            ? replayMode.getReplayPayloads(target)
-            : [...retainedByKey.values()].map(({payload}) => payload);
+        const replayPayloads =
+            replayMode.kind === 'external' ? replayMode.getReplayPayloads(target) : [...retainedByKey.values()].map(({payload}) => payload);
         for (const payload of replayPayloads) {
             sendToTarget(target, payload);
         }

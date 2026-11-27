@@ -21,7 +21,10 @@
         </header>
 
         <div class="scan-cleanup-settings-scroll app-scrollbar app-scroll-region--balanced">
-            <section class="scan-cleanup-option-group" data-settings-group="output">
+            <section
+                class="scan-cleanup-option-group"
+                data-settings-group="output"
+            >
                 <h3>{{ t('scanCleanup.output.label') }}</h3>
                 <ScanCleanupSegmented
                     :model-value="settings.outputMode"
@@ -30,7 +33,11 @@
                     :disabled="lossless"
                     @update:model-value="updateDocument('outputMode', $event)"
                 />
-                <p class="scan-cleanup-option-description" data-output-description>{{ outputDescription }}</p>
+                <p
+                    class="scan-cleanup-option-description"
+                    data-output-description
+                    >{{ outputDescription }}</p
+                >
                 <UCheckbox
                     :model-value="lossless"
                     :label="t('scanCleanup.output.preserveOriginalQuality')"
@@ -50,7 +57,10 @@
                         :disabled="!bilevelOutput"
                         @update:model-value="emit('thickness-input', $event ?? settings.thickness)"
                     />
-                    <div class="scan-cleanup-scale" aria-hidden="true">
+                    <div
+                        class="scan-cleanup-scale"
+                        aria-hidden="true"
+                    >
                         <span>{{ t('scanCleanup.thickness.thinner') }}</span>
                         <span>{{ t('scanCleanup.thickness.default') }}</span>
                         <span>{{ t('scanCleanup.thickness.thicker') }}</span>
@@ -58,7 +68,10 @@
                 </UFormField>
             </section>
 
-            <section class="scan-cleanup-option-group" data-settings-group="document">
+            <section
+                class="scan-cleanup-option-group"
+                data-settings-group="document"
+            >
                 <h3>{{ t('scanCleanup.groups.documentSettings') }}</h3>
                 <UCheckbox
                     :model-value="settings.crop"
@@ -81,7 +94,8 @@
                     <span
                         v-if="blankPageCount > 0"
                         class="scan-cleanup-inline-note"
-                    >{{ t('scanCleanup.crop.blankDetected', {count: blankPageCount}) }}</span>
+                        >{{ t('scanCleanup.crop.blankDetected', {count: blankPageCount}) }}</span
+                    >
                 </div>
                 <div class="scan-cleanup-selection-field">
                     <ScanCleanupSettingLabel :label="t('scanCleanup.layout.readingOrder')" />
@@ -94,7 +108,10 @@
                 </div>
             </section>
 
-            <section class="scan-cleanup-option-group" data-settings-group="pages">
+            <section
+                class="scan-cleanup-option-group"
+                data-settings-group="pages"
+            >
                 <h3>{{ t('scanCleanup.groups.pageSettings') }}</h3>
                 <ScanCleanupScopeSelector
                     :model-value="scope"
@@ -104,7 +121,10 @@
                     :selected-count="selectedCount"
                     @update:model-value="emit('update:scope', $event)"
                 />
-                <div class="scan-cleanup-scope-context" data-scope-context>
+                <div
+                    class="scan-cleanup-scope-context"
+                    data-scope-context
+                >
                     <span>{{ scopeContext }}</span>
                     <UPopover
                         v-if="hasScopeOverrides"
@@ -186,7 +206,10 @@
                     />
                 </div>
 
-                <div v-if="scoped" class="scan-cleanup-selection-field">
+                <div
+                    v-if="scoped"
+                    class="scan-cleanup-selection-field"
+                >
                     <ScanCleanupSettingLabel
                         control="output-mode"
                         :label="t('scanCleanup.output.pageLabel')"
@@ -203,7 +226,11 @@
                         :disabled="lossless"
                         @update:model-value="emit('update-output-mode', $event)"
                     />
-                    <p v-if="outputModeHint" class="scan-cleanup-option-description">{{ outputModeHint }}</p>
+                    <p
+                        v-if="outputModeHint"
+                        class="scan-cleanup-option-description"
+                        >{{ outputModeHint }}</p
+                    >
                 </div>
 
                 <div
@@ -218,7 +245,10 @@
                         :overridden="scoped && overrideCounts.margins > 0"
                         @reset="emit('reset-control-override', 'margins')"
                     >
-                        <AppTooltip :text="t('scanCleanup.margins.linkTooltip')" usefulness="always">
+                        <AppTooltip
+                            :text="t('scanCleanup.margins.linkTooltip')"
+                            usefulness="always"
+                        >
                             <UButton
                                 type="button"
                                 data-margins-link
@@ -245,7 +275,10 @@
                         @change="handleMarginChange('all', $event)"
                         @update:model-value="emitMargin('all', $event)"
                     />
-                    <div v-else class="scan-cleanup-margins-grid">
+                    <div
+                        v-else
+                        class="scan-cleanup-margins-grid"
+                    >
                         <UFormField
                             v-for="side in marginSideFields"
                             :key="side.key"
@@ -289,7 +322,10 @@
                     </template>
                 </ScanCleanupAutoValueRow>
 
-                <div v-if="settings.matchPageSize" class="scan-cleanup-selection-field">
+                <div
+                    v-if="settings.matchPageSize"
+                    class="scan-cleanup-selection-field"
+                >
                     <ScanCleanupSettingLabel
                         control="placement"
                         :label="t('scanCleanup.settings.contentPlacement')"
@@ -317,7 +353,11 @@
                             @click="emit('update-placement', item.value)"
                         />
                     </div>
-                    <p v-if="placementHint" class="scan-cleanup-option-description">{{ placementHint }}</p>
+                    <p
+                        v-if="placementHint"
+                        class="scan-cleanup-option-description"
+                        >{{ placementHint }}</p
+                    >
                 </div>
 
                 <UCheckbox
@@ -434,7 +474,10 @@
                 </template>
             </UCollapsible>
 
-            <div v-if="!lossless" class="scan-cleanup-footnote">
+            <div
+                v-if="!lossless"
+                class="scan-cleanup-footnote"
+            >
                 <span>{{ t('scanCleanup.imageOnly') }}</span>
                 <UPopover>
                     <UButton
@@ -477,30 +520,18 @@ import {
     SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES,
     SCAN_CLEANUP_MARGIN_MAX_MM,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
-import {
-    DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
-    getScanCleanupPageOverride,
-} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE, getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import ScanCleanupAutoValueRow from '@app/modules/scan-cleanup/components/settings/ScanCleanupAutoValueRow.vue';
 import ScanCleanupPageFindings from '@app/modules/scan-cleanup/components/settings/ScanCleanupPageFindings.vue';
 import ScanCleanupScopeSelector from '@app/modules/scan-cleanup/components/settings/ScanCleanupScopeSelector.vue';
 import ScanCleanupSettingLabel from '@app/modules/scan-cleanup/components/settings/ScanCleanupSettingLabel.vue';
 import ScanCleanupSegmented from '@app/modules/scan-cleanup/components/ScanCleanupSegmented.vue';
-import type {
-    TScanCleanupOverrideControl,
-    TScanCleanupSettingsScope,
-} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
-import {
-    scanCleanupPageOutputModeHint,
-    type IScanCleanupPageFacts,
-} from '@app/modules/scan-cleanup/runtime/describeScanCleanupPage';
+import type {TScanCleanupOverrideControl, TScanCleanupSettingsScope} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
+import {scanCleanupPageOutputModeHint, type IScanCleanupPageFacts} from '@app/modules/scan-cleanup/runtime/describeScanCleanupPage';
 import type {IScanCleanupMixedValue} from '@app/modules/scan-cleanup/runtime/scanCleanupSelectionOverrides';
 import type {TScanCleanupMarginTarget} from '@app/modules/scan-cleanup/runtime/updateScanCleanupMargins';
-import {
-    SCAN_CLEANUP_MARGIN_SIDES,
-    scanCleanupMarginsUniform,
-} from '@app/modules/scan-cleanup/runtime/updateScanCleanupMargins';
+import {SCAN_CLEANUP_MARGIN_SIDES, scanCleanupMarginsUniform} from '@app/modules/scan-cleanup/runtime/updateScanCleanupMargins';
 
 interface ISelectItem<TValue extends string = string> {
     value: TValue;
@@ -557,13 +588,13 @@ const {
     }>;
     applyScopeItems: Array<
         | {
-            label: string;
-            type: 'label';
-        }
+              label: string;
+              type: 'label';
+          }
         | {
-            label: string;
-            onSelect: () => void;
-        }
+              label: string;
+              onSelect: () => void;
+          }
     >;
     blankPageCount: number;
     /** Labels of the settings that differ from the defaults. */
@@ -622,38 +653,42 @@ const resetOpen = ref(false);
 const advancedOpen = ref(false);
 const lossless = computed(() => settings.preserveOriginalQuality === true);
 const changedSettingsTooltip = computed(() => t('scanCleanup.settings.changedFromDefaults', {settings: changedSettings.join(', ')}));
-const normalizedOutputItems = computed(() => outputItems.map(item => ({
-    ...item,
-    ariaLabel: item.fullLabel,
-})));
-const alignmentButtons = computed(() => alignmentItems.map(item => {
-    const isInk = item.value === 'ink';
-    return {
+const normalizedOutputItems = computed(() =>
+    outputItems.map((item) => ({
         ...item,
-        isInk,
-        labelProps: isInk ? {label: item.label} : {},
-        selected: !placementAlignment.mixed && placementAlignment.value === item.value,
-    };
-}));
-const marginSideFields = computed(() => SCAN_CLEANUP_MARGIN_SIDES.map(side => ({
-    key: side.key,
-    label: t(side.labelKey),
-    value: margins.mixed ? null : margins.value?.[side.key] ?? null,
-})));
+        ariaLabel: item.fullLabel,
+    })),
+);
+const alignmentButtons = computed(() =>
+    alignmentItems.map((item) => {
+        const isInk = item.value === 'ink';
+        return {
+            ...item,
+            isInk,
+            labelProps: isInk ? {label: item.label} : {},
+            selected: !placementAlignment.mixed && placementAlignment.value === item.value,
+        };
+    }),
+);
+const marginSideFields = computed(() =>
+    SCAN_CLEANUP_MARGIN_SIDES.map((side) => ({
+        key: side.key,
+        label: t(side.labelKey),
+        value: margins.mixed ? null : (margins.value?.[side.key] ?? null),
+    })),
+);
 const inclusionModelValue = computed(() => (excluded.mixed ? 'indeterminate' : excluded.value !== true));
 const binarizationModelValue = computed(() => settings.binarization ?? 'auto');
-const despeckleLevelModelValue = computed(() => (
-    settings.despeckleLevel ?? ((settings.despeckle ?? true) ? 'normal' : 'off')
-));
+const despeckleLevelModelValue = computed(() => settings.despeckleLevel ?? ((settings.despeckle ?? true) ? 'normal' : 'off'));
 const normalizeIlluminationModelValue = computed(() => settings.normalizeIllumination ?? true);
 const autoDewarpModelValue = computed(() => settings.autoDewarp ?? false);
 const autoDewarpDepthModelValue = computed(() => settings.autoDewarpDepth ?? null);
 // Page and Selected scopes edit their own pages; All edits the defaults every
 // page starts from, so only the scoped views mark controls as overridden.
 const scoped = computed(() => scope !== 'all');
-const outputDescription = computed(() => lossless.value
-    ? t('scanCleanup.output.losslessDisabledOptions')
-    : t(`scanCleanup.output.description.${settings.outputMode}`));
+const outputDescription = computed(() =>
+    lossless.value ? t('scanCleanup.output.losslessDisabledOptions') : t(`scanCleanup.output.description.${settings.outputMode}`),
+);
 const scopeContext = computed(() => {
     if (scope === 'page') {
         return t('scanCleanup.settings.scope.pageContext', {page: pageNumber});
@@ -661,68 +696,53 @@ const scopeContext = computed(() => {
     if (scope === 'selected') {
         return t('scanCleanup.settings.scope.selectedContext', {count: selectedCount});
     }
-    return hasScopeOverrides
-        ? t('scanCleanup.settings.scope.allContextCustomized')
-        : t('scanCleanup.settings.scope.allContext');
+    return hasScopeOverrides ? t('scanCleanup.settings.scope.allContextCustomized') : t('scanCleanup.settings.scope.allContext');
 });
 // Automatic dewarping replaces the detected content boxes with a reshaped
 // page, so `ink` has nothing to anchor to and every output falls back to the
 // top-centre position. Say so where the choice is made rather than letting the
 // preview quietly disagree with the setting.
-const placementHint = computed(() => !placementAlignment.mixed
-    && placementAlignment.value === 'ink'
-    && settings.autoDewarp === true
-    ? t('scanCleanup.settings.inkNeedsContentBoxes')
-    : '');
-const outputModeHint = computed(() => scope === 'page' && pageFacts
-    ? scanCleanupPageOutputModeHint(t, pageFacts, settings.outputMode, lossless.value)
-    : '');
-const binarizationItems = computed(() => ([
-    'auto',
-    'otsu',
-    'sauvola',
-    'wolf',
-] as const).map(value => ({
-    value,
-    label: t(`scanCleanup.advanced.binarization.${value}`),
-})));
-const despeckleItems = computed(() => ([
-    'off',
-    'cautious',
-    'normal',
-    'aggressive',
-] as const).map(value => ({
-    value,
-    label: t(`scanCleanup.advanced.despeckle.${value}`),
-})));
+const placementHint = computed(() =>
+    !placementAlignment.mixed && placementAlignment.value === 'ink' && settings.autoDewarp === true
+        ? t('scanCleanup.settings.inkNeedsContentBoxes')
+        : '',
+);
+const outputModeHint = computed(() =>
+    scope === 'page' && pageFacts ? scanCleanupPageOutputModeHint(t, pageFacts, settings.outputMode, lossless.value) : '',
+);
+const binarizationItems = computed(() =>
+    (['auto', 'otsu', 'sauvola', 'wolf'] as const).map((value) => ({
+        value,
+        label: t(`scanCleanup.advanced.binarization.${value}`),
+    })),
+);
+const despeckleItems = computed(() =>
+    (['off', 'cautious', 'normal', 'aggressive'] as const).map((value) => ({
+        value,
+        label: t(`scanCleanup.advanced.despeckle.${value}`),
+    })),
+);
 
-const layoutModelValue = computed(() => layout.mixed ? 'mixed' : layout.value ?? 'auto');
-const rotationModelValue = computed(() => rotation.mixed ? '' : String(rotation.value ?? 0));
-const rotationSegments = computed(() => rotationItems.filter(item => item.value !== 'mixed'));
-const outputModeOverrideModelValue = computed(() => outputModeOverride.mixed
-    ? 'mixed-values'
-    : outputModeOverride.value ?? 'auto');
-const linkedMarginValue = computed(() => (
-    margins.mixed || !margins.value || !scanCleanupMarginsUniform(margins.value)
-        ? null
-        : margins.value.topMm
-));
-const hasContentBoxes = computed(() => contentBoxes.mixed
-    || Object.keys(contentBoxes.value ?? {}).length > 0);
-const manualSkewState = computed(() => manualSkew.mixed
-    ? 'mixed'
-    : manualSkew.value === undefined ? 'auto' : 'manual');
+const layoutModelValue = computed(() => (layout.mixed ? 'mixed' : (layout.value ?? 'auto')));
+const rotationModelValue = computed(() => (rotation.mixed ? '' : String(rotation.value ?? 0)));
+const rotationSegments = computed(() => rotationItems.filter((item) => item.value !== 'mixed'));
+const outputModeOverrideModelValue = computed(() => (outputModeOverride.mixed ? 'mixed-values' : (outputModeOverride.value ?? 'auto')));
+const linkedMarginValue = computed(() =>
+    margins.mixed || !margins.value || !scanCleanupMarginsUniform(margins.value) ? null : margins.value.topMm,
+);
+const hasContentBoxes = computed(() => contentBoxes.mixed || Object.keys(contentBoxes.value ?? {}).length > 0);
+const manualSkewState = computed(() => (manualSkew.mixed ? 'mixed' : manualSkew.value === undefined ? 'auto' : 'manual'));
 const manualSkewLabel = computed(() => t('scanCleanup.settings.manualSkew'));
-const manualSkewRange = computed(() => t('scanCleanup.settings.manualSkewRange', {
-    min: SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES,
-    max: SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES,
-}));
+const manualSkewRange = computed(() =>
+    t('scanCleanup.settings.manualSkewRange', {
+        min: SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES,
+        max: SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES,
+    }),
+);
 // The stepper starts from the neutral 0° rather than from an empty field:
 // a null number field steps to its minimum, which made every first press jump
 // to -15° and put the positive half of the range out of reach.
-const manualSkewEntryValue = computed(() => manualSkew.mixed
-    ? null
-    : manualSkew.value ?? 0);
+const manualSkewEntryValue = computed(() => (manualSkew.mixed ? null : (manualSkew.value ?? 0)));
 const manualSkewValueText = computed(() => {
     const value = manualSkew.value;
     if (manualSkew.mixed || value === undefined) {
@@ -731,45 +751,44 @@ const manualSkewValueText = computed(() => {
     return `${value > 0 ? '+' : ''}${value.toFixed(1)}°`;
 });
 // The allowed range fills the hint line until a detected angle takes it.
-const manualSkewHint = computed(() => !manualSkew.mixed
-    && manualSkew.value === undefined
-    && detectedSkewDegrees !== undefined
-    ? t('scanCleanup.settings.detectedSkew', {angle: detectedSkewDegrees.toFixed(1)})
-    : manualSkewRange.value);
-const manualSplitState = computed(() => manualSplit.mixed
-    ? 'mixed'
-    : manualSplit.value === null ? 'auto' : 'manual');
-const contentBoxesState = computed(() => contentBoxes.mixed
-    ? 'mixed'
-    : hasContentBoxes.value ? 'manual' : 'auto');
+const manualSkewHint = computed(() =>
+    !manualSkew.mixed && manualSkew.value === undefined && detectedSkewDegrees !== undefined
+        ? t('scanCleanup.settings.detectedSkew', {angle: detectedSkewDegrees.toFixed(1)})
+        : manualSkewRange.value,
+);
+const manualSplitState = computed(() => (manualSplit.mixed ? 'mixed' : manualSplit.value === null ? 'auto' : 'manual'));
+const contentBoxesState = computed(() => (contentBoxes.mixed ? 'mixed' : hasContentBoxes.value ? 'manual' : 'auto'));
 // Text thickness and speckle removal only affect black-and-white output, which
 // Auto produces for text pages, so they apply while any page that is output
 // can be black and white, whether by the document's mode or its own. They keep
 // their place and disable instead of unmounting: switching B&W/gray/colour
 // must not move the controls below them.
-const bilevelOutput = computed(() => !lossless.value && [
-    settings.pageOverrideDefaults ?? DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
-    ...Object.keys(settings.pageOverrides)
-        .map(Number)
-        .filter(page => Number.isSafeInteger(page) && page >= 1 && page <= totalPages)
-        .map(page => getScanCleanupPageOverride(
-            settings.pageOverrides,
-            requirePageNumber(page),
-            settings.pageOverrideDefaults,
-            settings.marginsMm,
-        )),
-].some(override => !override.excluded
-    && [
-        'auto',
-        'bw',
-        'mixed',
-    ].includes(override.outputModeOverride ?? settings.outputMode)));
-const autoDewarpDepthState = computed(() => settings.autoDewarpDepth === undefined ? 'auto' : 'manual');
+const bilevelOutput = computed(
+    () =>
+        !lossless.value &&
+        [
+            settings.pageOverrideDefaults ?? DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
+            ...Object.keys(settings.pageOverrides)
+                .map(Number)
+                .filter((page) => Number.isSafeInteger(page) && page >= 1 && page <= totalPages)
+                .map((page) =>
+                    getScanCleanupPageOverride(
+                        settings.pageOverrides,
+                        requirePageNumber(page),
+                        settings.pageOverrideDefaults,
+                        settings.marginsMm,
+                    ),
+                ),
+        ].some((override) => !override.excluded && ['auto', 'bw', 'mixed'].includes(override.outputModeOverride ?? settings.outputMode)),
+);
+const autoDewarpDepthState = computed(() => (settings.autoDewarpDepth === undefined ? 'auto' : 'manual'));
 const autoDewarpDepthDisabled = computed(() => lossless.value || !(settings.autoDewarp ?? false));
-const resetConfirmationBody = computed(() => t(`scanCleanup.settings.resetScope.${scope}Body`, {
-    count: scope === 'selected' ? selectedCount : totalPages,
-    page: pageNumber,
-}));
+const resetConfirmationBody = computed(() =>
+    t(`scanCleanup.settings.resetScope.${scope}Body`, {
+        count: scope === 'selected' ? selectedCount : totalPages,
+        page: pageNumber,
+    }),
+);
 
 function confirmReset() {
     emit('reset-scope-overrides');
@@ -783,18 +802,12 @@ function emitMargin(target: TScanCleanupMarginTarget, value: number | null | und
 }
 
 function handleMarginChange(target: TScanCleanupMarginTarget, value: unknown) {
-    const rawValue = value instanceof Event && value.target instanceof HTMLInputElement
-        ? value.target.value
-        : value;
+    const rawValue = value instanceof Event && value.target instanceof HTMLInputElement ? value.target.value : value;
     if (rawValue === null || rawValue === undefined || rawValue === '') {
         return;
     }
     const nextValue = typeof rawValue === 'number' ? rawValue : Number(rawValue);
-    if (
-        !Number.isFinite(nextValue)
-        || nextValue < 0
-        || nextValue > SCAN_CLEANUP_MARGIN_MAX_MM
-    ) {
+    if (!Number.isFinite(nextValue) || nextValue < 0 || nextValue > SCAN_CLEANUP_MARGIN_MAX_MM) {
         return;
     }
     const current = target === 'all' ? linkedMarginValue.value : margins.value?.[target];
@@ -805,11 +818,7 @@ function handleMarginChange(target: TScanCleanupMarginTarget, value: unknown) {
 
 function handleMarginFocusOut(event: FocusEvent) {
     const control = event.currentTarget;
-    if (
-        control instanceof HTMLElement
-        && event.relatedTarget instanceof Node
-        && control.contains(event.relatedTarget)
-    ) {
+    if (control instanceof HTMLElement && event.relatedTarget instanceof Node && control.contains(event.relatedTarget)) {
         return;
     }
     emit('margin-interaction', false);
@@ -823,10 +832,10 @@ function emitManualSkew(value: number | null | undefined) {
 
 function emitAutoDewarpDepth(value: number | null | undefined) {
     if (
-        typeof value === 'number'
-        && Number.isFinite(value)
-        && value >= SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN
-        && value <= SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MAX
+        typeof value === 'number' &&
+        Number.isFinite(value) &&
+        value >= SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN &&
+        value <= SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MAX
     ) {
         updateDocument('autoDewarpDepth', value);
     }

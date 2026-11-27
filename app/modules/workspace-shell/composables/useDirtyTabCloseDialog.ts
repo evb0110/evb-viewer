@@ -1,11 +1,13 @@
-import type { InjectionKey } from 'vue';
-import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
+import type {InjectionKey} from 'vue';
+import type {TDocumentInstanceId} from '@contracts/documentInstanceId';
 import {
     describeTabDocument,
     type IWorkspaceDocumentController,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
-interface IUseDirtyTabCloseDialogDeps {getSession: (tabId: string) => IWorkspaceDocumentController | null;}
+interface IUseDirtyTabCloseDialogDeps {
+    getSession: (tabId: string) => IWorkspaceDocumentController | null;
+}
 
 export type TDirtyCloseDecision = 'save' | 'discard' | 'cancel';
 export type TDirtyCloseDialogMode = 'tab' | 'window';
@@ -19,10 +21,8 @@ interface IDirtyTabCloseTarget {
     name: string | null;
 }
 
-export const useDirtyTabCloseDialog = (
-    deps: IUseDirtyTabCloseDialogDeps,
-) => {
-    const { t } = useTypedI18n();
+export const useDirtyTabCloseDialog = (deps: IUseDirtyTabCloseDialogDeps) => {
+    const {t} = useTypedI18n();
     const dirtyTabCloseDialogOpen = ref(false);
     const dirtyTabCloseTargetId = ref<string | null>(null);
     const dirtyTabCloseTarget = ref<IDirtyTabCloseTarget | null>(null);
@@ -41,9 +41,7 @@ export const useDirtyTabCloseDialog = (
         dirtyTabCloseTargetId.value = null;
         dirtyTabCloseDialogOpen.value = false;
         if (resolver) {
-            resolver(typeof decision === 'boolean'
-                ? decision ? 'discard' : 'cancel'
-                : decision);
+            resolver(typeof decision === 'boolean' ? (decision ? 'discard' : 'cancel') : decision);
         }
     }
 
@@ -89,16 +87,19 @@ export const useDirtyTabCloseDialog = (
 
     // The prompt names one document. If the tab closes or now holds another
     // document, the question no longer applies.
-    watch(() => {
-        const target = dirtyTabCloseTarget.value;
-        return dirtyTabCloseDialogMode.value === 'tab' && target
-            ? deps.getSession(target.id) !== null && readTargetInstanceId(target.id) === target.documentInstanceId
-            : true;
-    }, (current) => {
-        if (!current && dirtyTabCloseDialogResolver) {
-            resolveDirtyTabCloseDialog(false);
-        }
-    });
+    watch(
+        () => {
+            const target = dirtyTabCloseTarget.value;
+            return dirtyTabCloseDialogMode.value === 'tab' && target
+                ? deps.getSession(target.id) !== null && readTargetInstanceId(target.id) === target.documentInstanceId
+                : true;
+        },
+        (current) => {
+            if (!current && dirtyTabCloseDialogResolver) {
+                resolveDirtyTabCloseDialog(false);
+            }
+        },
+    );
 
     if (getCurrentScope()) {
         onScopeDispose(() => {

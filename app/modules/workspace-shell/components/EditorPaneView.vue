@@ -23,7 +23,10 @@
             @tab-context-command="(tabId, command) => emit('tab-context-command', pane.paneId, tabId, command)"
         />
         <div class="editor-pane-content">
-            <template v-for="tab in visibleTabs" :key="tab.id">
+            <template
+                v-for="tab in visibleTabs"
+                :key="tab.id"
+            >
                 <!-- A tab that starts or stops sharing a document remounts for its new one. -->
                 <DocumentWorkspaceTab
                     v-if="shouldMountHost(tab.id)"
@@ -50,19 +53,13 @@
 </template>
 
 <script setup lang="ts">
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import type { IEditorPaneState } from '@contracts/editorPanes';
-import type {
-    ITab,
-    TTabView,
-} from '@app/types/tabs';
-import type {
-    ITabContextAvailability,
-    TTabContextCommand,
-} from '@app/types/tabContextMenu';
-import type { TStartSection } from '@app/types/startSection';
-import type { ITabLifecycleState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TOpenFileResult} from '@contracts/electronApiDocuments';
+import type {IEditorPaneState} from '@contracts/editorPanes';
+import type {ITab, TTabView} from '@app/types/tabs';
+import type {ITabContextAvailability, TTabContextCommand} from '@app/types/tabContextMenu';
+import type {TStartSection} from '@app/types/startSection';
+import type {ITabLifecycleState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import {
     describeTabDocument,
     type IWorkspaceDocumentController,
@@ -113,21 +110,22 @@ const emit = defineEmits<{
     'toggle-fullscreen': [];
 }>();
 
-const tabById = computed(() => new Map(tabs.map(tab => [
-    tab.id,
-    tab,
-])));
-const visibleTabs = computed<TTabView[]>(() => pane.tabIds.flatMap((tabId) => {
-    const tab = tabById.value.get(tabId);
-    const session = documentSessionsByTabId[tabId];
-    if (!tab || !session || zenMode && zenActiveTabId !== tab.id) {
-        return [];
-    }
-    return [{
-        ...describeTabDocument(session.snapshot.value),
-        id: tab.id,
-    }];
-}));
+const tabById = computed(() => new Map(tabs.map((tab) => [tab.id, tab])));
+const visibleTabs = computed<TTabView[]>(() =>
+    pane.tabIds.flatMap((tabId) => {
+        const tab = tabById.value.get(tabId);
+        const session = documentSessionsByTabId[tabId];
+        if (!tab || !session || (zenMode && zenActiveTabId !== tab.id)) {
+            return [];
+        }
+        return [
+            {
+                ...describeTabDocument(session.snapshot.value),
+                id: tab.id,
+            },
+        ];
+    }),
+);
 
 const tabBarPanePresentation = computed<'single' | 'split-active' | 'split-inactive'>(() => {
     if (paneCount <= 1) {

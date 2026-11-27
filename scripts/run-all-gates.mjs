@@ -1,32 +1,18 @@
 #!/usr/bin/env node
 
-import { getCliErrorMessage } from './lib/cli-error.mjs';
-import {
-    execFileSync,
-    spawn,
-} from 'node:child_process';
-import {
-    createWriteStream,
-    mkdirSync,
-    writeFileSync,
-} from 'node:fs';
+import {getCliErrorMessage} from './lib/cli-error.mjs';
+import {execFileSync, spawn} from 'node:child_process';
+import {createWriteStream, mkdirSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import {fileURLToPath} from 'node:url';
-import {
-    RELEASE_BUILD_RECEIPT_ENV_VAR,
-    writeReleaseBuildReceipt,
-} from './release/build-receipt.mjs';
+import {RELEASE_BUILD_RECEIPT_ENV_VAR, writeReleaseBuildReceipt} from './release/build-receipt.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export function getAllGateDefinitions() {
     return [
         {
-            args: [
-                'scripts/release/cut-release.mjs',
-                'patch',
-                '--preflight',
-            ],
+            args: ['scripts/release/cut-release.mjs', 'patch', '--preflight'],
             command: 'node',
             description: 'Cheap publication prerequisites and candidate eligibility, including hosted CI and artifact evidence',
             id: 'release-cut-preflight',
@@ -41,10 +27,7 @@ export function getAllGateDefinitions() {
             id: 'validate',
         },
         {
-            args: [
-                'run',
-                'release:verify',
-            ],
+            args: ['run', 'release:verify'],
             command: 'pnpm',
             description: 'Unique release checks and local package verification using the validated build',
             id: 'release-verify',
@@ -52,11 +35,7 @@ export function getAllGateDefinitions() {
     ];
 }
 
-export function getAllGateEnvironment(gateId, {
-    baseEnv = process.env,
-    receiptReady = false,
-    receiptPath,
-} = {}) {
+export function getAllGateEnvironment(gateId, {baseEnv = process.env, receiptReady = false, receiptPath} = {}) {
     const env = {
         ...baseEnv,
         FORCE_COLOR: baseEnv.FORCE_COLOR ?? '1',
@@ -126,51 +105,40 @@ function parseArgs(argv) {
 }
 
 export function selectGates(gates, options) {
-    const knownIds = new Set(gates.map(gate => gate.id));
-    for (const id of [
-        options.only,
-        options.from,
-        ...options.skip,
-    ]) {
+    const knownIds = new Set(gates.map((gate) => gate.id));
+    for (const id of [options.only, options.from, ...options.skip]) {
         if (id != null && !knownIds.has(id)) {
             throw new Error(`Unknown gate "${id}". Use --list to see available gates.`);
         }
     }
     let selected = gates;
     if (options.only != null) {
-        selected = gates.filter(gate => gate.id === options.only);
+        selected = gates.filter((gate) => gate.id === options.only);
     } else if (options.from != null) {
-        selected = gates.slice(gates.findIndex(gate => gate.id === options.from));
+        selected = gates.slice(gates.findIndex((gate) => gate.id === options.from));
     }
-    return selected.filter(gate => !options.skip.has(gate.id));
+    return selected.filter((gate) => !options.skip.has(gate.id));
 }
 
 function commandText(gate) {
-    return [
-        gate.command,
-        ...gate.args,
-    ].join(' ');
+    return [gate.command, ...gate.args].join(' ');
 }
 
 function gateTimestamp() {
-    return new Date().toISOString().replaceAll(':', '').replace(/\.\d{3}Z$/u, 'Z');
+    return new Date()
+        .toISOString()
+        .replaceAll(':', '')
+        .replace(/\.\d{3}Z$/u, 'Z');
 }
 
 function getProcessGroupId(pid) {
     try {
-        const groupId = Number(execFileSync('ps', [
-            '-p',
-            String(pid),
-            '-o',
-            'pgid=',
-        ], {
-            encoding: 'utf8',
-            stdio: [
-                'ignore',
-                'pipe',
-                'ignore',
-            ],
-        }).trim());
+        const groupId = Number(
+            execFileSync('ps', ['-p', String(pid), '-o', 'pgid='], {
+                encoding: 'utf8',
+                stdio: ['ignore', 'pipe', 'ignore'],
+            }).trim(),
+        );
         return Number.isInteger(groupId) && groupId > 0 ? groupId : null;
     } catch {
         return null;
@@ -194,16 +162,11 @@ async function stopGateProcess(child, signal) {
         child.kill(signal);
         const deadline = Date.now() + 1_500;
         while (child.exitCode === null && Date.now() < deadline) {
-            await new Promise(resolve => setTimeout(resolve, 50));
+            await new Promise((resolve) => setTimeout(resolve, 50));
         }
         if (child.exitCode === null) {
             try {
-                execFileSync('taskkill', [
-                    '/PID',
-                    String(child.pid),
-                    '/T',
-                    '/F',
-                ], {stdio: 'ignore'});
+                execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {stdio: 'ignore'});
             } catch {
                 // The child may have exited between the identity check and taskkill.
             }
@@ -213,7 +176,7 @@ async function stopGateProcess(child, signal) {
     const identityDeadline = Date.now() + 1_500;
     let groupId = getProcessGroupId(child.pid);
     while (groupId === null && Date.now() < identityDeadline) {
-        await new Promise(resolve => setTimeout(resolve, 20));
+        await new Promise((resolve) => setTimeout(resolve, 20));
         groupId = getProcessGroupId(child.pid);
     }
     if (groupId !== child.pid) {
@@ -222,7 +185,7 @@ async function stopGateProcess(child, signal) {
     process.kill(-child.pid, signal);
     const deadline = Date.now() + 1_500;
     while (isProcessGroupAlive(child.pid) && Date.now() < deadline) {
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await new Promise((resolve) => setTimeout(resolve, 50));
     }
     if (!isProcessGroupAlive(child.pid)) {
         return true;
@@ -233,17 +196,13 @@ async function stopGateProcess(child, signal) {
     process.kill(-child.pid, 'SIGKILL');
     const forceDeadline = Date.now() + 1_500;
     while (isProcessGroupAlive(child.pid) && Date.now() < forceDeadline) {
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await new Promise((resolve) => setTimeout(resolve, 50));
     }
     return !isProcessGroupAlive(child.pid);
 }
 
-function runGate(gate, {
-    env,
-    index,
-    logDirectory,
-}) {
-    return new Promise(resolve => {
+function runGate(gate, {env, index, logDirectory}) {
+    return new Promise((resolve) => {
         const logPath = path.join(logDirectory, `${String(index + 1).padStart(2, '0')}-${gate.id}.log`);
         const logStream = createWriteStream(logPath, {flags: 'w'});
         const startedAt = new Date();
@@ -256,25 +215,21 @@ function runGate(gate, {
             cwd: projectRoot,
             detached: process.platform !== 'win32',
             env,
-            stdio: [
-                'ignore',
-                'pipe',
-                'pipe',
-            ],
+            stdio: ['ignore', 'pipe', 'pipe'],
         });
         let cancellation;
-        const forwardSignal = signal => {
+        const forwardSignal = (signal) => {
             cancellation ??= stopGateProcess(child, signal);
         };
         const forwardSigint = () => forwardSignal('SIGINT');
         const forwardSigterm = () => forwardSignal('SIGTERM');
         process.once('SIGINT', forwardSigint);
         process.once('SIGTERM', forwardSigterm);
-        child.stdout.on('data', chunk => {
+        child.stdout.on('data', (chunk) => {
             process.stdout.write(chunk);
             logStream.write(chunk);
         });
-        child.stderr.on('data', chunk => {
+        child.stderr.on('data', (chunk) => {
             process.stderr.write(chunk);
             logStream.write(chunk);
         });
@@ -304,26 +259,33 @@ function runGate(gate, {
                 stoppedAt,
             });
         };
-        child.once('error', error => finish(1, undefined, error));
+        child.once('error', (error) => finish(1, undefined, error));
         child.once('close', (code, signal) => finish(code, signal));
     });
 }
 
 function writeSummary(logDirectory, results) {
-    writeFileSync(path.join(logDirectory, 'summary.json'), `${JSON.stringify({
-        finishedAt: new Date().toISOString(),
-        results: results.map(result => ({
-            command: commandText(result.gate),
-            exitCode: result.code,
-            gate: result.gate.id,
-            interrupted: result.interrupted,
-            logPath: result.logPath,
-            ownershipVerified: result.ownershipVerified,
-            signal: result.signal,
-            startedAt: result.startedAt.toISOString(),
-            stoppedAt: result.stoppedAt.toISOString(),
-        })),
-    }, null, 2)}\n`);
+    writeFileSync(
+        path.join(logDirectory, 'summary.json'),
+        `${JSON.stringify(
+            {
+                finishedAt: new Date().toISOString(),
+                results: results.map((result) => ({
+                    command: commandText(result.gate),
+                    exitCode: result.code,
+                    gate: result.gate.id,
+                    interrupted: result.interrupted,
+                    logPath: result.logPath,
+                    ownershipVerified: result.ownershipVerified,
+                    signal: result.signal,
+                    startedAt: result.startedAt.toISOString(),
+                    stoppedAt: result.stoppedAt.toISOString(),
+                })),
+            },
+            null,
+            2,
+        )}\n`,
+    );
 }
 
 export async function runAllGates(argv = process.argv.slice(2)) {
@@ -355,7 +317,7 @@ export async function runAllGates(argv = process.argv.slice(2)) {
                 receiptPath,
                 receiptReady,
             }),
-            index: gates.findIndex(candidate => candidate.id === gate.id),
+            index: gates.findIndex((candidate) => candidate.id === gate.id),
             logDirectory,
         });
         results.push(result);
@@ -373,10 +335,9 @@ export async function runAllGates(argv = process.argv.slice(2)) {
     process.stdout.write(`\nAll selected gates passed.\nSummary: ${path.join(logDirectory, 'summary.json')}\n`);
 }
 
-const isDirectCliRun = process.argv[1]
-    && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+const isDirectCliRun = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 if (isDirectCliRun) {
-    runAllGates().catch(error => {
+    runAllGates().catch((error) => {
         process.stderr.write(`${getCliErrorMessage(error)}\n`);
         process.exitCode = 1;
     });

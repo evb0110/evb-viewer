@@ -1,7 +1,7 @@
-import type { TPageNumber } from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 
-import type { Ref } from 'vue';
-import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/public';
+import type {Ref} from 'vue';
+import type {IDocumentViewerRuntime} from '@app/modules/document-viewer/public';
 
 interface IPdfPageSkeletonGeometryOptions {
     authoritativePageNumber?: number;
@@ -28,10 +28,7 @@ export function diagnosePdfPageSkeletonGeometry(
     const surface = chassisAuthority.openSurface;
     const snapshot = surface.snapshot.value;
     // The session decides which phases take a first geometry.
-    if (
-        snapshot.geometry !== null
-        || options.expectedGeneration !== undefined && snapshot.generation !== options.expectedGeneration
-    ) {
+    if (snapshot.geometry !== null || (options.expectedGeneration !== undefined && snapshot.generation !== options.expectedGeneration)) {
         return {
             canCommit: false,
             reason: 'surface-not-pending',
@@ -46,39 +43,22 @@ export function diagnosePdfPageSkeletonGeometry(
         } as const;
     }
     const minimumScrollHeight = Math.max(0, options.minimumScrollHeight ?? 0);
-    if (
-        !container
-        || requireVisibleSkeleton && container.scrollHeight < minimumScrollHeight
-    ) {
+    if (!container || (requireVisibleSkeleton && container.scrollHeight < minimumScrollHeight)) {
         return {
             canCommit: false,
             reason: !container ? 'viewer-container-missing' : 'virtual-extent-too-small',
         } as const;
     }
-    const pageContainer = container.querySelector<HTMLElement>(
-        `.page_container[data-page="${String(pageNumber)}"]`,
-    ) ?? null;
+    const pageContainer = container.querySelector<HTMLElement>(`.page_container[data-page="${String(pageNumber)}"]`) ?? null;
     const pageSkeleton = pageContainer?.querySelector<HTMLElement>('.document-page-skeleton') ?? null;
-    if (
-        !pageContainer?.isConnected
-        || requireVisibleSkeleton && !pageSkeleton?.isConnected
-    ) {
+    if (!pageContainer?.isConnected || (requireVisibleSkeleton && !pageSkeleton?.isConnected)) {
         return {
             canCommit: false,
             reason: !pageContainer?.isConnected ? 'page-container-disconnected' : 'skeleton-disconnected',
         } as const;
     }
-    const canvas = requireVisibleSkeleton
-        ? null
-        : pageContainer.querySelector<HTMLCanvasElement>('.page_canvas canvas');
-    if (
-        !requireVisibleSkeleton
-        && (
-            !canvas?.isConnected
-            || canvas.width <= 0
-            || canvas.height <= 0
-        )
-    ) {
+    const canvas = requireVisibleSkeleton ? null : pageContainer.querySelector<HTMLCanvasElement>('.page_canvas canvas');
+    if (!requireVisibleSkeleton && (!canvas?.isConnected || canvas.width <= 0 || canvas.height <= 0)) {
         return {
             canCommit: false,
             reason: 'canvas-not-ready',
@@ -88,11 +68,11 @@ export function diagnosePdfPageSkeletonGeometry(
     const rect = pageContainer.getBoundingClientRect();
     const canvasRect = canvas?.getBoundingClientRect() ?? null;
     if (
-        requireVisibleSkeleton && skeletonStyle?.display === 'none'
-        || requireVisibleSkeleton && skeletonStyle?.visibility === 'hidden'
-        || rect.width <= 0
-        || rect.height <= 0
-        || canvasRect !== null && (canvasRect.width <= 0 || canvasRect.height <= 0)
+        (requireVisibleSkeleton && skeletonStyle?.display === 'none') ||
+        (requireVisibleSkeleton && skeletonStyle?.visibility === 'hidden') ||
+        rect.width <= 0 ||
+        rect.height <= 0 ||
+        (canvasRect !== null && (canvasRect.width <= 0 || canvasRect.height <= 0))
     ) {
         return {
             canCommit: false,
@@ -118,19 +98,9 @@ export function commitPdfPageSkeletonGeometry(
     pageNumber: TPageNumber,
     options: IPdfPageSkeletonGeometryOptions,
 ) {
-    const diagnostic = diagnosePdfPageSkeletonGeometry(
-        chassisAuthority,
-        viewerContainer,
-        currentPage,
-        scaledMargin,
-        pageNumber,
-        options,
-    );
+    const diagnostic = diagnosePdfPageSkeletonGeometry(chassisAuthority, viewerContainer, currentPage, scaledMargin, pageNumber, options);
     if (!diagnostic.canCommit) {
         return false;
     }
-    return chassisAuthority.openSurface.commitGeometry(
-        chassisAuthority.openSurface.snapshot.value.generation,
-        diagnostic.geometry,
-    );
+    return chassisAuthority.openSurface.commitGeometry(chassisAuthority.openSurface.snapshot.value.generation, diagnostic.geometry);
 }

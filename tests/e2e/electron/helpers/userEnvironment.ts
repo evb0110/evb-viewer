@@ -1,8 +1,5 @@
-import type { Page } from 'puppeteer-core';
-import {
-    resizeElectronWindowContentArea,
-    type IElectronWindowSize,
-} from '@scripts/electron-run/resizeElectronWindow';
+import type {Page} from 'puppeteer-core';
+import {resizeElectronWindowContentArea, type IElectronWindowSize} from '@scripts/electron-run/resizeElectronWindow';
 
 // What the renderer of every hidden E2E session believes about its window,
 // identical on every host. Without this owner the same test ran in a focused
@@ -46,14 +43,20 @@ function readUserEnvironment(page: Page) {
 }
 
 export function formatUserEnvironment(report: IUserEnvironmentReport) {
-    return `focus=${String(report.hasFocus)} visibility=${report.visibilityState} `
-        + `scale=${report.devicePixelRatio} content=${report.contentSize.width}x${report.contentSize.height}`;
+    return (
+        `focus=${String(report.hasFocus)} visibility=${report.visibilityState} ` +
+        `scale=${report.devicePixelRatio} content=${report.contentSize.width}x${report.contentSize.height}`
+    );
 }
 
-function formatHostSize(size: {
-    width: number;
-    height: number
-} | undefined) {
+function formatHostSize(
+    size:
+        | {
+              width: number;
+              height: number;
+          }
+        | undefined,
+) {
     return size === undefined ? 'unknown' : `${size.width}x${size.height}`;
 }
 
@@ -67,17 +70,19 @@ export async function establishUserEnvironment(page: Page, deviceScaleFactor: nu
     const resize = await resizeElectronWindowContentArea(page, E2E_CONTENT_SIZE, RESIZE_SETTLE_TIMEOUT_MS);
     const report = await readUserEnvironment(page);
     const problems = [
-        ...(resize.settled
-            && report.contentSize.width === E2E_CONTENT_SIZE.width
-            && report.contentSize.height === E2E_CONTENT_SIZE.height
+        ...(resize.settled && report.contentSize.width === E2E_CONTENT_SIZE.width && report.contentSize.height === E2E_CONTENT_SIZE.height
             ? []
-            : [`the window did not reach the canonical content size (native content ${formatHostSize(resize.windowState.contentSize)}, display work area ${formatHostSize(resize.windowState.workAreaSize)})`]),
+            : [
+                  `the window did not reach the canonical content size (native content ${formatHostSize(resize.windowState.contentSize)}, display work area ${formatHostSize(resize.windowState.workAreaSize)})`,
+              ]),
         ...(report.hasFocus ? [] : ['the document has no focus']),
         ...(report.visibilityState === 'visible' ? [] : ['the document is not visible']),
         ...(report.devicePixelRatio === deviceScaleFactor ? [] : [`the scale is not ${deviceScaleFactor}`]),
     ];
     if (problems.length > 0) {
-        throw new Error(`The E2E renderer is not in the state a person's window is in: ${problems.join('; ')} (${formatUserEnvironment(report)})`);
+        throw new Error(
+            `The E2E renderer is not in the state a person's window is in: ${problems.join('; ')} (${formatUserEnvironment(report)})`,
+        );
     }
     return report;
 }

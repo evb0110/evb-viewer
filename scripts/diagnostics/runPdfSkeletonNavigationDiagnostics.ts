@@ -1,47 +1,25 @@
-import { getErrorMessage } from '@contracts/getErrorMessage';
+import {getErrorMessage} from '@contracts/getErrorMessage';
 import assert from 'node:assert/strict';
-import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { delay } from 'es-toolkit/promise';
-import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {delay} from 'es-toolkit/promise';
+import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
     callWorkspaceCommand,
     getWorkspaceToolbarSnapshot,
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
-import type {
-    IPdfNavLogEntry,
-    IPdfRenderTraceEntry,
-} from '@contracts/pdfDiagnostics';
-import {
-    toPdfNavLogEntries,
-    toPdfRenderTraceEntries,
-} from '@scripts/diagnostics/pdfTraceEntryGuards';
-import {
-    type IPdfDiagnosticsContext,
-    runPdfDiagnosticScenario,
-} from '@scripts/diagnostics/runPdfDiagnosticScenario';
+import type {IPdfNavLogEntry, IPdfRenderTraceEntry} from '@contracts/pdfDiagnostics';
+import {toPdfNavLogEntries, toPdfRenderTraceEntries} from '@scripts/diagnostics/pdfTraceEntryGuards';
+import {type IPdfDiagnosticsContext, runPdfDiagnosticScenario} from '@scripts/diagnostics/runPdfDiagnosticScenario';
 
-const TARGET_PDF_PATH = [
-    process.env.EVB_E2E_NAVIGATION_PDF_PATH,
-    process.env.EVB_DIAGNOSTIC_PDF_PATH,
-].find(value => typeof value === 'string' && value.length > 0)
-    ?? resolve(process.cwd(), '.devkit', 'manual-pdf-fixtures', 'navigation-source.pdf');
-const DIAGNOSTIC_OUTPUT_PATH = resolve(
-    process.cwd(),
-    '.devkit',
-    'girgas-page-navigation-skeleton-diagnostics.json',
-);
-const DIRECT_JUMP_DIAGNOSTIC_OUTPUT_PATH = resolve(
-    process.cwd(),
-    '.devkit',
-    'girgas-page-500-input-skeleton-diagnostics.json',
-);
-const RAPID_NEXT_TO_LAST_DIAGNOSTIC_OUTPUT_PATH = resolve(
-    process.cwd(),
-    '.devkit',
-    'girgas-rapid-next-to-last-skeleton-diagnostics.json',
-);
+const TARGET_PDF_PATH =
+    [process.env.EVB_E2E_NAVIGATION_PDF_PATH, process.env.EVB_DIAGNOSTIC_PDF_PATH].find(
+        (value) => typeof value === 'string' && value.length > 0,
+    ) ?? resolve(process.cwd(), '.devkit', 'manual-pdf-fixtures', 'navigation-source.pdf');
+const DIAGNOSTIC_OUTPUT_PATH = resolve(process.cwd(), '.devkit', 'girgas-page-navigation-skeleton-diagnostics.json');
+const DIRECT_JUMP_DIAGNOSTIC_OUTPUT_PATH = resolve(process.cwd(), '.devkit', 'girgas-page-500-input-skeleton-diagnostics.json');
+const RAPID_NEXT_TO_LAST_DIAGNOSTIC_OUTPUT_PATH = resolve(process.cwd(), '.devkit', 'girgas-rapid-next-to-last-skeleton-diagnostics.json');
 
 interface INavigationSample {
     sampledAtMs: number;
@@ -86,50 +64,41 @@ interface INavigationZoomToolbarSnapshot {
     effectiveZoom?: number;
 }
 
-interface INavigationEffectiveZoomSnapshot {effectiveZoom?: number;}
+interface INavigationEffectiveZoomSnapshot {
+    effectiveZoom?: number;
+}
 
-function summarizeNavigationArtifacts(
-    samples: INavigationSample[],
-    navLog: IPdfNavLogEntry[],
-    renderTrace: IPdfRenderTraceEntry[],
-) {
+function summarizeNavigationArtifacts(samples: INavigationSample[], navLog: IPdfNavLogEntry[], renderTrace: IPdfRenderTraceEntry[]) {
     return {
         samples,
         navLog,
         renderTrace,
-        skeletonSamples: samples.filter(sample => sample.skeletonPages.length > 0),
-        canvasSamples: samples.filter(sample => sample.canvasPages.length > 0),
+        skeletonSamples: samples.filter((sample) => sample.skeletonPages.length > 0),
+        canvasSamples: samples.filter((sample) => sample.canvasPages.length > 0),
         lastSample: samples.at(-1) ?? null,
-        skeletonLogEntries: navLog.filter(entry => entry.message.includes('page skeleton visible')),
+        skeletonLogEntries: navLog.filter((entry) => entry.message.includes('page skeleton visible')),
     };
 }
 
-async function setContinuousScrollMode(
-    session: IElectronE2ESession,
-    continuousScroll: boolean,
-) {
+async function setContinuousScrollMode(session: IElectronE2ESession, continuousScroll: boolean) {
     for (let attempt = 0; attempt < 3; attempt += 1) {
-        const snapshot = await getWorkspaceToolbarSnapshot(session.page, {requiredMethods: [
-            'getToolbarSnapshot',
-            'handleToggleContinuousScroll',
-        ]}) as INavigationZoomToolbarSnapshot | null;
+        const snapshot = (await getWorkspaceToolbarSnapshot(session.page, {
+            requiredMethods: ['getToolbarSnapshot', 'handleToggleContinuousScroll'],
+        })) as INavigationZoomToolbarSnapshot | null;
         if (snapshot?.continuousScroll === continuousScroll) {
             return;
         }
 
-        await callWorkspaceCommand(session.page, 'handleToggleContinuousScroll', [], {requiredMethods: [
-            'getToolbarSnapshot',
-            'handleToggleContinuousScroll',
-        ]});
-        await waitForWorkspaceToolbarSnapshot(
-            session.page,
-            { continuousScroll },
-            { timeoutMs: 3_000 },
-        ).catch(() => {});
+        await callWorkspaceCommand(session.page, 'handleToggleContinuousScroll', [], {
+            requiredMethods: ['getToolbarSnapshot', 'handleToggleContinuousScroll'],
+        });
+        await waitForWorkspaceToolbarSnapshot(session.page, {continuousScroll}, {timeoutMs: 3_000}).catch(() => {});
         await delay(100);
     }
 
-    const snapshot = await getWorkspaceToolbarSnapshot(session.page, {requiredMethods: ['getToolbarSnapshot']}) as INavigationZoomToolbarSnapshot | null;
+    const snapshot = (await getWorkspaceToolbarSnapshot(session.page, {
+        requiredMethods: ['getToolbarSnapshot'],
+    })) as INavigationZoomToolbarSnapshot | null;
     throw new Error(`Unable to set continuous scroll mode to ${String(continuousScroll)}; current=${String(snapshot?.continuousScroll)}`);
 }
 
@@ -148,11 +117,7 @@ async function goToPageViaWorkspace(session: IElectronE2ESession, pageNumber: nu
     });
 
     if (navigationResult.called) {
-        const reachedTarget = await waitForWorkspaceToolbarSnapshot(
-            session.page,
-            { currentPage: pageNumber },
-            { timeoutMs: 3_000 },
-        ).then(
+        const reachedTarget = await waitForWorkspaceToolbarSnapshot(session.page, {currentPage: pageNumber}, {timeoutMs: 3_000}).then(
             () => true,
             () => false,
         );
@@ -169,10 +134,7 @@ async function collectNavigationDiagnosticsSnapshot(session: IElectronE2ESession
         const isVisibleElement = (element: HTMLElement) => {
             const rect = element.getBoundingClientRect();
             const style = window.getComputedStyle(element);
-            return rect.width > 0
-                && rect.height > 0
-                && style.display !== 'none'
-                && style.visibility !== 'hidden';
+            return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
         };
 
         const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
@@ -180,10 +142,10 @@ async function collectNavigationDiagnosticsSnapshot(session: IElectronE2ESession
             top: 0,
             bottom: window.innerHeight,
         };
-        const visiblePageControls = Array.from(document.querySelectorAll<HTMLElement>('.page-controls'))
-            .find(isVisibleElement);
-        const visibleCurrentPageLabel = Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
-            .find(isVisibleElement);
+        const visiblePageControls = Array.from(document.querySelectorAll<HTMLElement>('.page-controls')).find(isVisibleElement);
+        const visibleCurrentPageLabel = Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary')).find(
+            isVisibleElement,
+        );
         const visiblePages = Array.from(document.querySelectorAll<HTMLElement>('.page_container'))
             .map((container): IVisiblePageDiagnostics => {
                 const rect = container.getBoundingClientRect();
@@ -205,7 +167,7 @@ async function collectNavigationDiagnosticsSnapshot(session: IElectronE2ESession
                     rectHeight: rect.height,
                 };
             })
-            .filter(page => page.rectBottom >= viewportRect.top && page.rectTop <= viewportRect.bottom);
+            .filter((page) => page.rectBottom >= viewportRect.top && page.rectTop <= viewportRect.bottom);
 
         return {
             pageControlsText: visiblePageControls?.innerText ?? '',
@@ -232,25 +194,23 @@ async function getToolbarTotalPages(session: IElectronE2ESession) {
     return Math.trunc(totalPages);
 }
 
-async function configureHighZoom(session: IElectronE2ESession, options: { continuousScroll: boolean } = { continuousScroll: false }) {
-    await session.page.waitForFunction(() => Boolean(document.querySelector('#pdf-viewer')), { timeout: 20_000 });
-    const initialSnapshot = await getWorkspaceToolbarSnapshot(session.page, {requiredMethods: ['handleZoomIn']}) as INavigationZoomToolbarSnapshot | null;
+async function configureHighZoom(session: IElectronE2ESession, options: {continuousScroll: boolean} = {continuousScroll: false}) {
+    await session.page.waitForFunction(() => Boolean(document.querySelector('#pdf-viewer')), {timeout: 20_000});
+    const initialSnapshot = (await getWorkspaceToolbarSnapshot(session.page, {
+        requiredMethods: ['handleZoomIn'],
+    })) as INavigationZoomToolbarSnapshot | null;
 
     if (!initialSnapshot) {
         throw new Error('Unable to configure workspace zoom/page state');
     }
 
-    await callWorkspaceCommand(session.page, 'handleViewModeSingle', [], {requiredMethods: [
-        'getToolbarSnapshot',
-        'handleZoomIn',
-    ]});
+    await callWorkspaceCommand(session.page, 'handleViewModeSingle', [], {requiredMethods: ['getToolbarSnapshot', 'handleZoomIn']});
     await setContinuousScrollMode(session, options.continuousScroll);
-    await callWorkspaceCommand(session.page, 'handleActualSize', [], {requiredMethods: [
-        'getToolbarSnapshot',
-        'handleZoomIn',
-    ]});
+    await callWorkspaceCommand(session.page, 'handleActualSize', [], {requiredMethods: ['getToolbarSnapshot', 'handleZoomIn']});
     for (let index = 0; index < 30; index += 1) {
-        const snapshot = await getWorkspaceToolbarSnapshot(session.page, {requiredMethods: ['handleZoomIn']}) as INavigationEffectiveZoomSnapshot | null;
+        const snapshot = (await getWorkspaceToolbarSnapshot(session.page, {
+            requiredMethods: ['handleZoomIn'],
+        })) as INavigationEffectiveZoomSnapshot | null;
         if ((snapshot?.effectiveZoom ?? 0) >= 3.4) {
             break;
         }
@@ -260,20 +220,16 @@ async function configureHighZoom(session: IElectronE2ESession, options: { contin
 }
 
 async function configureSinglePagedFitHeightMode(session: IElectronE2ESession) {
-    await session.page.waitForFunction(() => Boolean(document.querySelector('#pdf-viewer')), { timeout: 20_000 });
-    const initialSnapshot = await getWorkspaceToolbarSnapshot(session.page, {requiredMethods: [
-        'handleFitHeight',
-        'handleViewModeSingle',
-    ]}) as { continuousScroll?: boolean } | null;
+    await session.page.waitForFunction(() => Boolean(document.querySelector('#pdf-viewer')), {timeout: 20_000});
+    const initialSnapshot = (await getWorkspaceToolbarSnapshot(session.page, {
+        requiredMethods: ['handleFitHeight', 'handleViewModeSingle'],
+    })) as {continuousScroll?: boolean} | null;
 
     if (!initialSnapshot) {
         throw new Error('Unable to configure single-page paged fit-height mode');
     }
 
-    await callWorkspaceCommand(session.page, 'handleViewModeSingle', [], {requiredMethods: [
-        'getToolbarSnapshot',
-        'handleFitHeight',
-    ]});
+    await callWorkspaceCommand(session.page, 'handleViewModeSingle', [], {requiredMethods: ['getToolbarSnapshot', 'handleFitHeight']});
     await setContinuousScrollMode(session, false);
     await callWorkspaceCommand(session.page, 'handleFitHeight', [], {requiredMethods: ['getToolbarSnapshot']});
     await delay(500);
@@ -282,63 +238,67 @@ async function configureSinglePagedFitHeightMode(session: IElectronE2ESession) {
 async function waitForToolbarPage(session: IElectronE2ESession, pageNumber: number) {
     try {
         await Promise.any([
-            waitForWorkspaceToolbarSnapshot(session.page, { currentPage: pageNumber }, { timeoutMs: 15_000 }),
-            session.page.waitForFunction((targetPage: number) => {
-                const isVisibleElement = (element: HTMLElement) => {
-                    const rect = element.getBoundingClientRect();
-                    const style = window.getComputedStyle(element);
-                    return rect.width > 0
-                        && rect.height > 0
-                        && style.display !== 'none'
-                        && style.visibility !== 'hidden';
-                };
-                return Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
-                    .some((element) => {
-                        return element.textContent.trim() === String(targetPage)
-                            && isVisibleElement(element);
+            waitForWorkspaceToolbarSnapshot(session.page, {currentPage: pageNumber}, {timeoutMs: 15_000}),
+            session.page.waitForFunction(
+                (targetPage: number) => {
+                    const isVisibleElement = (element: HTMLElement) => {
+                        const rect = element.getBoundingClientRect();
+                        const style = window.getComputedStyle(element);
+                        return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+                    };
+                    return Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary')).some((element) => {
+                        return element.textContent.trim() === String(targetPage) && isVisibleElement(element);
                     });
-            }, { timeout: 15_000 }, pageNumber),
+                },
+                {timeout: 15_000},
+                pageNumber,
+            ),
         ]);
     } catch (error) {
         const snapshot = await collectNavigationDiagnosticsSnapshot(session).catch(() => null);
-        const waitErrors = error instanceof AggregateError
-            ? error.errors.map((entry: unknown) => getErrorMessage(entry))
-            : [getErrorMessage(error)];
-        throw new Error(`Timed out waiting for toolbar page ${pageNumber}: ${JSON.stringify({
-            currentPage: snapshot?.toolbarSnapshot?.currentPage ?? null,
-            pageControlsText: snapshot?.pageControlsText ?? null,
-            totalPages: snapshot?.toolbarSnapshot?.totalPages ?? null,
-            visibleRangeText: snapshot?.visibleRangeText ?? null,
-            waitErrors,
-        })}`);
+        const waitErrors =
+            error instanceof AggregateError ? error.errors.map((entry: unknown) => getErrorMessage(entry)) : [getErrorMessage(error)];
+        throw new Error(
+            `Timed out waiting for toolbar page ${pageNumber}: ${JSON.stringify({
+                currentPage: snapshot?.toolbarSnapshot?.currentPage ?? null,
+                pageControlsText: snapshot?.pageControlsText ?? null,
+                totalPages: snapshot?.toolbarSnapshot?.totalPages ?? null,
+                visibleRangeText: snapshot?.visibleRangeText ?? null,
+                waitErrors,
+            })}`,
+        );
     }
 }
 
 async function waitForToolbarPageAtLeast(session: IElectronE2ESession, pageNumber: number) {
     try {
-        await session.page.waitForFunction((targetPage: number) => {
-            const isVisibleElement = (element: HTMLElement) => {
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return rect.width > 0
-                    && rect.height > 0
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden';
-            };
-            const visibleCurrentPageLabel = Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
-                .find(isVisibleElement);
-            const currentPage = Number.parseInt(visibleCurrentPageLabel?.textContent.trim() ?? '', 10);
-            return Number.isFinite(currentPage) && currentPage >= targetPage;
-        }, { timeout: 15_000 }, pageNumber);
+        await session.page.waitForFunction(
+            (targetPage: number) => {
+                const isVisibleElement = (element: HTMLElement) => {
+                    const rect = element.getBoundingClientRect();
+                    const style = window.getComputedStyle(element);
+                    return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+                };
+                const visibleCurrentPageLabel = Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary')).find(
+                    isVisibleElement,
+                );
+                const currentPage = Number.parseInt(visibleCurrentPageLabel?.textContent.trim() ?? '', 10);
+                return Number.isFinite(currentPage) && currentPage >= targetPage;
+            },
+            {timeout: 15_000},
+            pageNumber,
+        );
     } catch (error) {
         const snapshot = await collectNavigationDiagnosticsSnapshot(session).catch(() => null);
-        throw new Error(`Timed out waiting for toolbar page >= ${pageNumber}: ${JSON.stringify({
-            currentPage: snapshot?.toolbarSnapshot?.currentPage ?? null,
-            pageControlsText: snapshot?.pageControlsText ?? null,
-            totalPages: snapshot?.toolbarSnapshot?.totalPages ?? null,
-            visibleRangeText: snapshot?.visibleRangeText ?? null,
-            waitError: getErrorMessage(error),
-        })}`);
+        throw new Error(
+            `Timed out waiting for toolbar page >= ${pageNumber}: ${JSON.stringify({
+                currentPage: snapshot?.toolbarSnapshot?.currentPage ?? null,
+                pageControlsText: snapshot?.pageControlsText ?? null,
+                totalPages: snapshot?.toolbarSnapshot?.totalPages ?? null,
+                visibleRangeText: snapshot?.visibleRangeText ?? null,
+                waitError: getErrorMessage(error),
+            })}`,
+        );
     }
 }
 
@@ -349,30 +309,23 @@ async function rapidClickNextPages(context: IPdfDiagnosticsContext, count: numbe
 }
 
 async function enterPageInToolbar(session: IElectronE2ESession, pageInput: string) {
-    await session.page.waitForFunction(() => {
-        return Array.from(document.querySelectorAll<HTMLButtonElement>('.page-controls-display'))
-            .some(button => {
+    await session.page.waitForFunction(
+        () => {
+            return Array.from(document.querySelectorAll<HTMLButtonElement>('.page-controls-display')).some((button) => {
                 const rect = button.getBoundingClientRect();
                 const style = window.getComputedStyle(button);
-                return !button.disabled
-                    && rect.width > 8
-                    && rect.height > 8
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden';
+                return !button.disabled && rect.width > 8 && rect.height > 8 && style.display !== 'none' && style.visibility !== 'hidden';
             });
-    }, { timeout: 30_000 });
+        },
+        {timeout: 30_000},
+    );
 
     const clicked = await session.page.evaluate(() => {
-        const button = Array.from(document.querySelectorAll<HTMLButtonElement>('.page-controls-display'))
-            .find((candidate) => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return !candidate.disabled
-                    && rect.width > 8
-                    && rect.height > 8
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden';
-            });
+        const button = Array.from(document.querySelectorAll<HTMLButtonElement>('.page-controls-display')).find((candidate) => {
+            const rect = candidate.getBoundingClientRect();
+            const style = window.getComputedStyle(candidate);
+            return !candidate.disabled && rect.width > 8 && rect.height > 8 && style.display !== 'none' && style.visibility !== 'hidden';
+        });
         button?.click();
         return Boolean(button);
     });
@@ -380,28 +333,23 @@ async function enterPageInToolbar(session: IElectronE2ESession, pageInput: strin
         throw new Error('Unable to click the page display');
     }
 
-    await session.page.waitForFunction(() => {
-        return Array.from(document.querySelectorAll<HTMLInputElement>('.page-controls-inline-input'))
-            .some(input => {
+    await session.page.waitForFunction(
+        () => {
+            return Array.from(document.querySelectorAll<HTMLInputElement>('.page-controls-inline-input')).some((input) => {
                 const rect = input.getBoundingClientRect();
                 const style = window.getComputedStyle(input);
-                return rect.width > 8
-                    && rect.height > 8
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden';
+                return rect.width > 8 && rect.height > 8 && style.display !== 'none' && style.visibility !== 'hidden';
             });
-    }, { timeout: 10_000 });
+        },
+        {timeout: 10_000},
+    );
 
     const selected = await session.page.evaluate(() => {
-        const input = Array.from(document.querySelectorAll<HTMLInputElement>('.page-controls-inline-input'))
-            .find((candidate) => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return rect.width > 8
-                    && rect.height > 8
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden';
-            });
+        const input = Array.from(document.querySelectorAll<HTMLInputElement>('.page-controls-inline-input')).find((candidate) => {
+            const rect = candidate.getBoundingClientRect();
+            const style = window.getComputedStyle(candidate);
+            return rect.width > 8 && rect.height > 8 && style.display !== 'none' && style.visibility !== 'hidden';
+        });
         input?.focus();
         input?.select();
         return Boolean(input);
@@ -415,7 +363,7 @@ async function enterPageInToolbar(session: IElectronE2ESession, pageInput: strin
 }
 
 async function navigateForwardWithNextButton(context: IPdfDiagnosticsContext, steps: number) {
-    const { session } = context;
+    const {session} = context;
     for (let step = 0; step < steps; step += 1) {
         const currentPage = await session.page.evaluate(() => {
             const text = document.querySelector<HTMLElement>('.page-controls-current-primary')?.textContent.trim() ?? '';
@@ -437,46 +385,48 @@ async function sampleNavigation(
 ) {
     const count = options.count ?? 180;
     const delayMs = options.delayMs ?? 10;
-    return context.sampling.repeat({
-        count,
-        delayMs,
-    }, async startedAtMs => context.page.evaluate((sampleStartedAtMs: number): INavigationSample => {
-        const pageContainers = Array.from(document.querySelectorAll<HTMLElement>('.page_container'));
-        const visiblePageContainers = pageContainers.filter((container) => {
-            const rect = container.getBoundingClientRect();
-            return rect.bottom > 0 && rect.top < window.innerHeight;
-        });
-        const pageNumber = (container: HTMLElement) => Number(container.dataset.page) || 0;
-        const skeletonPages = visiblePageContainers
-            .filter(container => Boolean(container.querySelector('.document-page-skeleton')))
-            .map(pageNumber);
-        const renderedPages = visiblePageContainers
-            .filter(container => container.classList.contains('page_container--rendered'))
-            .map(pageNumber);
-        const canvasPages = visiblePageContainers
-            .filter(container => Boolean(container.querySelector('.page_canvas canvas, .page_preview canvas')))
-            .map(pageNumber);
-        const visibleCurrentPageLabel = Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
-            .find((element) => {
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return rect.width > 0
-                        && rect.height > 0
-                        && style.display !== 'none'
-                        && style.visibility !== 'hidden';
-            });
-        return {
-            sampledAtMs: Date.now() - sampleStartedAtMs,
-            currentPageText: visibleCurrentPageLabel?.textContent.trim() ?? null,
-            skeletonPages,
-            renderedPages,
-            canvasPages,
-        };
-    }, startedAtMs));
+    return context.sampling.repeat(
+        {
+            count,
+            delayMs,
+        },
+        async (startedAtMs) =>
+            context.page.evaluate((sampleStartedAtMs: number): INavigationSample => {
+                const pageContainers = Array.from(document.querySelectorAll<HTMLElement>('.page_container'));
+                const visiblePageContainers = pageContainers.filter((container) => {
+                    const rect = container.getBoundingClientRect();
+                    return rect.bottom > 0 && rect.top < window.innerHeight;
+                });
+                const pageNumber = (container: HTMLElement) => Number(container.dataset.page) || 0;
+                const skeletonPages = visiblePageContainers
+                    .filter((container) => Boolean(container.querySelector('.document-page-skeleton')))
+                    .map(pageNumber);
+                const renderedPages = visiblePageContainers
+                    .filter((container) => container.classList.contains('page_container--rendered'))
+                    .map(pageNumber);
+                const canvasPages = visiblePageContainers
+                    .filter((container) => Boolean(container.querySelector('.page_canvas canvas, .page_preview canvas')))
+                    .map(pageNumber);
+                const visibleCurrentPageLabel = Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary')).find(
+                    (element) => {
+                        const rect = element.getBoundingClientRect();
+                        const style = window.getComputedStyle(element);
+                        return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+                    },
+                );
+                return {
+                    sampledAtMs: Date.now() - sampleStartedAtMs,
+                    currentPageText: visibleCurrentPageLabel?.textContent.trim() ?? null,
+                    skeletonPages,
+                    renderedPages,
+                    canvasPages,
+                };
+            }, startedAtMs),
+    );
 }
 
 async function runHighZoomNextPageDiagnostic(context: IPdfDiagnosticsContext) {
-    const { session } = context;
+    const {session} = context;
     let samples: INavigationSample[] = [];
     let navLog: IPdfNavLogEntry[] = [];
     let renderTrace: IPdfRenderTraceEntry[] = [];
@@ -510,20 +460,20 @@ async function runHighZoomNextPageDiagnostic(context: IPdfDiagnosticsContext) {
             samples,
             navLog,
             renderTrace,
-            skeletonSamples: samples.filter(sample => sample.skeletonPages.length > 0),
-            skeletonLogEntries: navLog.filter(entry => entry.message.includes('page skeleton visible')),
+            skeletonSamples: samples.filter((sample) => sample.skeletonPages.length > 0),
+            skeletonLogEntries: navLog.filter((entry) => entry.message.includes('page skeleton visible')),
         });
     }
 
-    const skeletonSamples = samples.filter(sample => sample.skeletonPages.length > 0);
-    const skeletonLogEntries = navLog.filter(entry => entry.message.includes('page skeleton visible'));
+    const skeletonSamples = samples.filter((sample) => sample.skeletonPages.length > 0);
+    const skeletonLogEntries = navLog.filter((entry) => entry.message.includes('page skeleton visible'));
 
     assert.deepEqual(skeletonSamples, []);
     assert.deepEqual(skeletonLogEntries, []);
 }
 
 async function runToolbarPageInputDiagnostic(context: IPdfDiagnosticsContext) {
-    const { session } = context;
+    const {session} = context;
     let samples: INavigationSample[] = [];
     let navLog: IPdfNavLogEntry[] = [];
     let renderTrace: IPdfRenderTraceEntry[] = [];
@@ -531,7 +481,7 @@ async function runToolbarPageInputDiagnostic(context: IPdfDiagnosticsContext) {
     const targetPage = Math.min(500, totalPages);
     try {
         await navigateForwardWithNextButton(context, 3);
-        await configureHighZoom(session, { continuousScroll: true });
+        await configureHighZoom(session, {continuousScroll: true});
         await context.trace.reset();
         await enterPageInToolbar(session, String(targetPage));
         samples = await sampleNavigation(context);
@@ -560,7 +510,7 @@ async function runToolbarPageInputDiagnostic(context: IPdfDiagnosticsContext) {
 }
 
 async function runRapidNextToLastPageDiagnostic(context: IPdfDiagnosticsContext) {
-    const { session } = context;
+    const {session} = context;
     let samples: INavigationSample[] = [];
     let navLog: IPdfNavLogEntry[] = [];
     let renderTrace: IPdfRenderTraceEntry[] = [];
@@ -616,8 +566,14 @@ async function runRapidNextToLastPageDiagnostic(context: IPdfDiagnosticsContext)
     assert.deepEqual(lastSample?.skeletonPages, []);
     assert.equal(finalSnapshot?.toolbarSnapshot?.currentPage, totalPages);
     assert.equal(finalSnapshot.toolbarSnapshot.fitMode, 'height');
-    assert.equal(finalSnapshot.visiblePages.some(page => page.page === totalPages && page.hasSkeleton), false);
-    assert.equal(finalSnapshot.visiblePages.some(page => page.page === totalPages && page.hasCanvas), true);
+    assert.equal(
+        finalSnapshot.visiblePages.some((page) => page.page === totalPages && page.hasSkeleton),
+        false,
+    );
+    assert.equal(
+        finalSnapshot.visiblePages.some((page) => page.page === totalPages && page.hasCanvas),
+        true,
+    );
 }
 
 export const pdfSkeletonNavigationScenario = {
@@ -639,9 +595,7 @@ export const pdfSkeletonNavigationScenario = {
     },
 };
 
-export const runPdfSkeletonNavigationDiagnostics = () => (
-    runPdfDiagnosticScenario(pdfSkeletonNavigationScenario)
-);
+export const runPdfSkeletonNavigationDiagnostics = () => runPdfDiagnosticScenario(pdfSkeletonNavigationScenario);
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
     await runPdfSkeletonNavigationDiagnostics().catch((error: unknown) => {

@@ -39,15 +39,11 @@ const RESIDENCY_RECLAIM_PRIORITY: Record<TViewerResidencyState, number> = {
 };
 
 function normalizeNonNegative(value: number | undefined) {
-    return typeof value === 'number' && Number.isFinite(value) && value > 0
-        ? value
-        : 0;
+    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
 function normalizeSortableTimestamp(value: number) {
-    return Number.isFinite(value)
-        ? value
-        : Number.MAX_SAFE_INTEGER;
+    return Number.isFinite(value) ? value : Number.MAX_SAFE_INTEGER;
 }
 
 function normalizePositiveInteger(value: number | undefined) {
@@ -62,13 +58,9 @@ export function normalizeMemoryPressureLevel(level: TMemoryPressureLevel | undef
     return level ?? 'none';
 }
 
-export function resolveInactiveViewerResidencyState(
-    options: IResolveInactiveViewerResidencyStateOptions,
-) {
+export function resolveInactiveViewerResidencyState(options: IResolveInactiveViewerResidencyStateOptions) {
     if (!options.canReclaimNow) {
-        return options.previousState === 'hibernated'
-            ? 'hibernated'
-            : 'warm';
+        return options.previousState === 'hibernated' ? 'hibernated' : 'warm';
     }
 
     return options.hasReclaimableState ? 'hibernating' : 'hibernated';
@@ -83,29 +75,21 @@ export function shouldReclaimViewerResidencyState(state: TViewerResidencyState) 
 }
 
 function isViewerReclaimCandidate(candidate: IViewerReclaimCandidate) {
-    return !candidate.isActive
-        && candidate.residencyState !== 'active'
-        && candidate.canReclaim;
+    return !candidate.isActive && candidate.residencyState !== 'active' && candidate.canReclaim;
 }
 
-function compareViewerReclaimCandidates(
-    left: IViewerReclaimCandidate,
-    right: IViewerReclaimCandidate,
-) {
-    const statePriority = RESIDENCY_RECLAIM_PRIORITY[left.residencyState]
-        - RESIDENCY_RECLAIM_PRIORITY[right.residencyState];
+function compareViewerReclaimCandidates(left: IViewerReclaimCandidate, right: IViewerReclaimCandidate) {
+    const statePriority = RESIDENCY_RECLAIM_PRIORITY[left.residencyState] - RESIDENCY_RECLAIM_PRIORITY[right.residencyState];
     if (statePriority !== 0) {
         return statePriority;
     }
 
-    const lastActiveDelta = normalizeSortableTimestamp(left.lastActiveAt)
-        - normalizeSortableTimestamp(right.lastActiveAt);
+    const lastActiveDelta = normalizeSortableTimestamp(left.lastActiveAt) - normalizeSortableTimestamp(right.lastActiveAt);
     if (lastActiveDelta !== 0) {
         return lastActiveDelta;
     }
 
-    const estimatedBytesDelta = normalizeNonNegative(right.estimatedBytes)
-        - normalizeNonNegative(left.estimatedBytes);
+    const estimatedBytesDelta = normalizeNonNegative(right.estimatedBytes) - normalizeNonNegative(left.estimatedBytes);
     if (estimatedBytesDelta !== 0) {
         return estimatedBytesDelta;
     }
@@ -113,12 +97,8 @@ function compareViewerReclaimCandidates(
     return left.viewerId.localeCompare(right.viewerId);
 }
 
-function rankViewerReclaimCandidates(
-    candidates: readonly IViewerReclaimCandidate[],
-) {
-    return candidates
-        .filter(isViewerReclaimCandidate)
-        .toSorted(compareViewerReclaimCandidates);
+function rankViewerReclaimCandidates(candidates: readonly IViewerReclaimCandidate[]) {
+    return candidates.filter(isViewerReclaimCandidate).toSorted(compareViewerReclaimCandidates);
 }
 
 export function selectViewerReclaimCandidates(
@@ -127,10 +107,7 @@ export function selectViewerReclaimCandidates(
 ) {
     const pressureLevel = normalizeMemoryPressureLevel(options.pressure?.level);
     const budgetOverflowBytes = normalizeNonNegative(options.budgetOverflowBytes);
-    const minimumCandidates = Math.max(
-        0,
-        Math.trunc(options.minimumCandidates ?? (pressureLevel === 'critical' ? 1 : 0)),
-    );
+    const minimumCandidates = Math.max(0, Math.trunc(options.minimumCandidates ?? (pressureLevel === 'critical' ? 1 : 0)));
     const maxCandidates = normalizePositiveInteger(options.maxCandidates);
     const protectedViewerIds = new Set(options.protectedViewerIds ?? []);
 

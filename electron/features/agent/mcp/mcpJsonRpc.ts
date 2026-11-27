@@ -26,19 +26,14 @@ export function createResultResponse(id: TJsonRpcId, result: unknown): IJsonRpcR
     };
 }
 
-export function createErrorResponse(
-    id: TJsonRpcId,
-    code: number,
-    message: string,
-    data?: unknown,
-): IJsonRpcResponse {
+export function createErrorResponse(id: TJsonRpcId, code: number, message: string, data?: unknown): IJsonRpcResponse {
     return {
         jsonrpc: '2.0',
         id,
         error: {
             code,
             message,
-            ...(data === undefined ? {} : { data }),
+            ...(data === undefined ? {} : {data}),
         },
     };
 }

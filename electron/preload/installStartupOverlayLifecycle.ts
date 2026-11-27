@@ -1,7 +1,4 @@
-import type {
-    TForwardPreloadLogToMain,
-    TTracePreload,
-} from '@electron/preload/preloadLog';
+import type {TForwardPreloadLogToMain, TTracePreload} from '@electron/preload/preloadLog';
 
 interface IStartupOverlayLifecycleDeps {
     tracePreload: TTracePreload;
@@ -117,7 +114,7 @@ function unmountStartupOverlay(reason: string, deps: IStartupOverlayLifecycleDep
     const overlay = document.getElementById(STARTUP_OVERLAY_ID);
     if (overlay) {
         overlay.remove();
-        deps.tracePreload('startup overlay removed', { reason });
+        deps.tracePreload('startup overlay removed', {reason});
         deps.forwardPreloadLogToMain('debug', 'loader', 'Startup overlay removed', {
             variant: 'startup-overlay',
             reason,
@@ -169,7 +166,7 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
             return 0;
         }
 
-        const detail = event.detail as { pathCount?: unknown } | null;
+        const detail = event.detail as {pathCount?: unknown} | null;
         const pathCount = typeof detail?.pathCount === 'number' ? detail.pathCount : 0;
         if (!Number.isFinite(pathCount) || pathCount <= 0) {
             return 0;
@@ -181,10 +178,15 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
     function handleStartupOpenClaimed(event: Event) {
         const pathCount = getStartupOpenPathCount(event);
         if (pathCount > 0) {
-            deps.forwardPreloadLogToMain('debug', 'loader', 'Startup external open claimed; retaining overlay until the first view is presented', {
-                variant: 'startup-overlay',
-                pathCount,
-            });
+            deps.forwardPreloadLogToMain(
+                'debug',
+                'loader',
+                'Startup external open claimed; retaining overlay until the first view is presented',
+                {
+                    variant: 'startup-overlay',
+                    pathCount,
+                },
+            );
             return;
         }
 
@@ -195,7 +197,7 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
     }
 
     function handleStartupOpenVisualReady(event: Event) {
-        const detail = event instanceof CustomEvent ? event.detail as Record<string, unknown> | null : null;
+        const detail = event instanceof CustomEvent ? (event.detail as Record<string, unknown> | null) : null;
         const reason = typeof detail?.reason === 'string' ? detail.reason : 'startup-open-visual-ready';
         deps.forwardPreloadLogToMain('debug', 'loader', 'Startup document first view or exit reached', {
             variant: 'startup-overlay',
@@ -221,7 +223,9 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
             const overlayAlreadyShown = window.sessionStorage.getItem(DEV_STARTUP_OVERLAY_SHOWN_KEY) === '1';
             if (overlayAlreadyShown) {
                 deps.tracePreload('startup overlay continuing across dev reload', {reason: DEV_STARTUP_OVERLAY_SHOWN_KEY});
-                deps.forwardPreloadLogToMain('debug', 'loader', 'Startup overlay continuing across dev reload', {variant: 'startup-overlay'});
+                deps.forwardPreloadLogToMain('debug', 'loader', 'Startup overlay continuing across dev reload', {
+                    variant: 'startup-overlay',
+                });
             }
 
             window.sessionStorage.setItem(DEV_STARTUP_OVERLAY_SHOWN_KEY, '1');
@@ -232,15 +236,19 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
 
     mountOverlayIfActive();
 
-    window.addEventListener(APP_READY_EVENT_NAME, handleAppReady, { once: true });
-    window.addEventListener(STARTUP_OPEN_CLAIMED_EVENT_NAME, handleStartupOpenClaimed, { once: true });
-    window.addEventListener(STARTUP_OPEN_VISUAL_READY_EVENT_NAME, handleStartupOpenVisualReady, { once: true });
-    window.addEventListener(STARTUP_FAILED_EVENT_NAME, handleStartupFailed, { once: true });
+    window.addEventListener(APP_READY_EVENT_NAME, handleAppReady, {once: true});
+    window.addEventListener(STARTUP_OPEN_CLAIMED_EVENT_NAME, handleStartupOpenClaimed, {once: true});
+    window.addEventListener(STARTUP_OPEN_VISUAL_READY_EVENT_NAME, handleStartupOpenVisualReady, {once: true});
+    window.addEventListener(STARTUP_FAILED_EVENT_NAME, handleStartupFailed, {once: true});
 
     if (document.readyState === 'loading') {
-        window.addEventListener('DOMContentLoaded', () => {
-            deps.tracePreload('DOMContentLoaded observed');
-            mountOverlayIfActive();
-        }, { once: true });
+        window.addEventListener(
+            'DOMContentLoaded',
+            () => {
+                deps.tracePreload('DOMContentLoaded observed');
+                mountOverlayIfActive();
+            },
+            {once: true},
+        );
     }
 }

@@ -1,25 +1,12 @@
-import { createAbortError } from '@contracts/isAbortError';
-import { getErrorMessage } from '@electron/utils/error';
-import {
-    normalizeImageExportFileName, resolveImageExportFormat,
-} from '@pdf-core/imageExportFileName';
-import {
-    BrowserWindow,
-    dialog,
-    screen,
-    type IpcMainInvokeEvent,
-    type WebContents,
-} from 'electron';
-import { extname } from 'path';
-import { getAutomationSaveDialogPath } from '@electron/utils/dialogDefaultPaths';
+import {createAbortError} from '@contracts/isAbortError';
+import {getErrorMessage} from '@electron/utils/error';
+import {normalizeImageExportFileName, resolveImageExportFormat} from '@pdf-core/imageExportFileName';
+import {BrowserWindow, dialog, screen, type IpcMainInvokeEvent, type WebContents} from 'electron';
+import {extname} from 'path';
+import {getAutomationSaveDialogPath} from '@electron/utils/dialogDefaultPaths';
 import {requireOpenPath} from '@electron/file-access/openPathCapabilities';
-import {
-    getAdmittedDjvuViewingSource, isAllowedDjvuViewingPath,
-} from '@electron/features/djvu/public';
-import {
-    getWorkingCopyBackingEntry,
-    runWithWorkingCopyReadBacking,
-} from '@electron/file-access/documentStore';
+import {getAdmittedDjvuViewingSource, isAllowedDjvuViewingPath} from '@electron/features/djvu/public';
+import {getWorkingCopyBackingEntry, runWithWorkingCopyReadBacking} from '@electron/file-access/documentStore';
 import {
     IMAGE_EXPORT_OUTPUT_BUDGET_ERROR_NAME,
     ImageExportOutputBudgetError,
@@ -31,8 +18,8 @@ import {
     IMAGE_EXPORT_ROLLBACK_ERROR_NAME,
     validateImageExportPath,
 } from '@electron/features/image-export/main/export';
-import { te } from '@electron/te';
-import { isErrnoException } from '@contracts/runtimeGuards';
+import {te} from '@electron/te';
+import {isErrnoException} from '@contracts/runtimeGuards';
 import {
     IMAGE_EXPORT_PLATFORM_FEATURE,
     assertCaptureImageBudget,
@@ -40,28 +27,20 @@ import {
     type IImageExportProgress,
     type TImageExportProgressFormat,
 } from '@contracts/imageExportPlatformFeature';
-import type { TFeatureMainBindings } from '@contracts/platformFeature';
-import { clamp } from 'es-toolkit/math';
-import { createLogger } from '@electron/utils/createLogger';
-import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
-import {
-    createRequestId,
-    parseRequestId,
-} from '@contracts/shared';
-import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeCommand';
-import type { SetOptional } from 'type-fest';
-import {
-    exportDjvuAsMultiPageTiff,
-    exportDjvuPagesAsImages,
-} from '@electron/features/image-export/main/djvuImageExport';
-import {
-    createMainJobRegistry,
-    type IMainJobRunContext,
-} from '@electron/operation-lifecycle/createMainJobRegistry';
+import type {TFeatureMainBindings} from '@contracts/platformFeature';
+import {clamp} from 'es-toolkit/math';
+import {createLogger} from '@electron/utils/createLogger';
+import {normalizeOptionalIpcRequestId} from '@electron/utils/ipcLimits';
+import {createRequestId, parseRequestId} from '@contracts/shared';
+import {cancelNativeCommandGroup} from '@electron/native-tools/runNativeCommand';
+import type {SetOptional} from 'type-fest';
+import {exportDjvuAsMultiPageTiff, exportDjvuPagesAsImages} from '@electron/features/image-export/main/djvuImageExport';
+import {createMainJobRegistry, type IMainJobRunContext} from '@electron/operation-lifecycle/createMainJobRegistry';
 import type {ISerializableErrorEnvelope} from '@contracts/serializableError';
 
 const logger = createLogger('image-export');
-type TImageExportFailureReason = 'errors.export.permissionDenied' | 'errors.export.fileBusy' | 'errors.export.diskFull' | 'errors.export.writeFailed';
+type TImageExportFailureReason =
+    'errors.export.permissionDenied' | 'errors.export.fileBusy' | 'errors.export.diskFull' | 'errors.export.writeFailed';
 const IMAGE_EXPORT_FAILURE_REASONS: Partial<Record<string, TImageExportFailureReason>> = {
     EACCES: 'errors.export.permissionDenied',
     EPERM: 'errors.export.permissionDenied',
@@ -75,9 +54,13 @@ const IMAGE_EXPORT_FAILURE_REASONS: Partial<Record<string, TImageExportFailureRe
 function* walkErrors(error: unknown): Generator {
     yield error;
     if (error instanceof AggregateError) {
-        for (const inner of error.errors) yield* walkErrors(inner);
+        for (const inner of error.errors) {
+            yield* walkErrors(inner);
+        }
     }
-    if (error instanceof Error && error.cause !== undefined) yield* walkErrors(error.cause);
+    if (error instanceof Error && error.cause !== undefined) {
+        yield* walkErrors(error.cause);
+    }
 }
 
 // What a person reads (C4): why the export failed, in their language, and what
@@ -85,13 +68,12 @@ function* walkErrors(error: unknown): Generator {
 // temporary files, so it goes to the log only.
 function describeImageExportFailure(cause: unknown) {
     const errors = [...walkErrors(cause)];
-    logger.warn(`Image export failed: ${errors.map(error => getErrorMessage(error)).join(' <- ')}`);
-    const primary = errors.find(error => !(error instanceof AggregateError));
-    const fsCode = [...walkErrors(primary)].flatMap(error => (isErrnoException(error) && error.syscall ? [String(error.code)] : []))[0];
-    const reason = fsCode === undefined
-        ? getErrorMessage(primary)
-        : te(IMAGE_EXPORT_FAILURE_REASONS[fsCode] ?? 'errors.export.writeFailed');
-    const outcome = errors.find(error => error instanceof Error && error.name === IMAGE_EXPORT_ROLLBACK_ERROR_NAME);
+    logger.warn(`Image export failed: ${errors.map((error) => getErrorMessage(error)).join(' <- ')}`);
+    const primary = errors.find((error) => !(error instanceof AggregateError));
+    const fsCode = [...walkErrors(primary)].flatMap((error) => (isErrnoException(error) && error.syscall ? [String(error.code)] : []))[0];
+    const reason =
+        fsCode === undefined ? getErrorMessage(primary) : te(IMAGE_EXPORT_FAILURE_REASONS[fsCode] ?? 'errors.export.writeFailed');
+    const outcome = errors.find((error) => error instanceof Error && error.name === IMAGE_EXPORT_ROLLBACK_ERROR_NAME);
     return outcome instanceof Error ? `${reason} ${outcome.message}` : reason;
 }
 
@@ -118,17 +100,18 @@ const imageExportJobs = createMainJobRegistry<IImageExportProgress, IImageExport
     progress: {
         channel: IMAGE_EXPORT_PLATFORM_FEATURE.eventChannels.onProgress,
         intervalMs: imageExportReplay.intervalMs,
-        getEventKey: progress => imageExportReplay.key(progress) || null,
+        getEventKey: (progress) => imageExportReplay.key(progress) || null,
     },
     toError: (cause, kind) => ({
         code: kind === 'canceled' ? 'canceled' : kind,
-        message: kind === 'failed' ? describeImageExportFailure(cause ?? 'Image export failed') : getErrorMessage(cause ?? 'Image export failed'),
-        ...(cause instanceof ImageExportOutputBudgetError
-            ? {details: IMAGE_EXPORT_OUTPUT_BUDGET_ERROR_NAME}
-            : {}),
+        message:
+            kind === 'failed'
+                ? describeImageExportFailure(cause ?? 'Image export failed')
+                : getErrorMessage(cause ?? 'Image export failed'),
+        ...(cause instanceof ImageExportOutputBudgetError ? {details: IMAGE_EXPORT_OUTPUT_BUDGET_ERROR_NAME} : {}),
     }),
     terminalProgress: {
-        completed: latest => ({
+        completed: (latest) => ({
             ...latest,
             percent: 100,
             status: 'success',
@@ -165,10 +148,16 @@ function validateDjvuSourcePath(path: unknown, senderWebContentsId: number) {
         throw new Error('Invalid DjVu working copy path');
     }
     const normalizedPath = path.trim();
-    if (!/\.djvu?$/iu.test(normalizedPath)) throw new Error('Working file must be a DjVu document');
-    if (getWorkingCopyBackingEntry(normalizedPath, senderWebContentsId)) return normalizedPath;
+    if (!/\.djvu?$/iu.test(normalizedPath)) {
+        throw new Error('Working file must be a DjVu document');
+    }
+    if (getWorkingCopyBackingEntry(normalizedPath, senderWebContentsId)) {
+        return normalizedPath;
+    }
     const openPath = requireOpenPath(normalizedPath, senderWebContentsId);
-    if (!isAllowedDjvuViewingPath(openPath, senderWebContentsId)) throw new Error('DjVu viewing path is not active');
+    if (!isAllowedDjvuViewingPath(openPath, senderWebContentsId)) {
+        throw new Error('DjVu viewing path is not active');
+    }
     return openPath;
 }
 
@@ -176,19 +165,24 @@ function normalizeRequestedPageNumbers(pageNumbers: unknown): number[] | undefin
     if (pageNumbers === null || pageNumbers === undefined) {
         return undefined;
     }
-    if (!Array.isArray(pageNumbers)) throw new Error('pageNumbers must be an array when provided');
+    if (!Array.isArray(pageNumbers)) {
+        throw new Error('pageNumbers must be an array when provided');
+    }
     const normalized: number[] = [];
     const seen = new Set<number>();
-    for (const [
-        index,
-        page,
-    ] of pageNumbers.entries()) {
-        if (typeof page !== 'number' || !Number.isInteger(page) || page < 1) throw new Error(`Invalid page number at index ${index}`);
-        if (seen.has(page)) throw new Error(`Duplicate page number: ${page}`);
+    for (const [index, page] of pageNumbers.entries()) {
+        if (typeof page !== 'number' || !Number.isInteger(page) || page < 1) {
+            throw new Error(`Invalid page number at index ${index}`);
+        }
+        if (seen.has(page)) {
+            throw new Error(`Duplicate page number: ${page}`);
+        }
         seen.add(page);
         normalized.push(page);
     }
-    if (normalized.length === 0) throw new Error('At least one page number must be provided for scoped export');
+    if (normalized.length === 0) {
+        throw new Error('At least one page number must be provided for scoped export');
+    }
     return normalized.sort((left, right) => left - right);
 }
 
@@ -204,8 +198,10 @@ async function validateRequestedPageNumbersWithinPdf(
         return;
     }
     const pageCount = await getPdfPageCount(pdfPath, operationOptions);
-    const outOfRangePage = pageNumbers.find(pageNumber => pageNumber > pageCount);
-    if (outOfRangePage !== undefined) throw new Error(`Page number ${outOfRangePage} exceeds PDF page count (${pageCount})`);
+    const outOfRangePage = pageNumbers.find((pageNumber) => pageNumber > pageCount);
+    if (outOfRangePage !== undefined) {
+        throw new Error(`Page number ${outOfRangePage} exceeds PDF page count (${pageCount})`);
+    }
 }
 
 async function prepareImageExportSource(
@@ -218,29 +214,31 @@ async function prepareImageExportSource(
         signal?: AbortSignal;
     },
 ) {
-    const normalizedWorkingCopyPath = sourceKind === 'pdf'
-        ? validatePdfWorkingCopyRef(workingCopyPath, senderWebContentsId)
-        : validateDjvuSourcePath(workingCopyPath, senderWebContentsId);
+    const normalizedWorkingCopyPath =
+        sourceKind === 'pdf'
+            ? validatePdfWorkingCopyRef(workingCopyPath, senderWebContentsId)
+            : validateDjvuSourcePath(workingCopyPath, senderWebContentsId);
     const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
     type TReadOperation<T> = (physicalReadPath: string, assertOriginalUnchanged: () => Promise<void>) => Promise<T>;
     const readSource = getWorkingCopyBackingEntry(normalizedWorkingCopyPath, senderWebContentsId)
-        ? <T>(operation: TReadOperation<T>) => runWithWorkingCopyReadBacking(
-            normalizedWorkingCopyPath, operation, {ownerWebContentsId: senderWebContentsId},
-        )
+        ? <T>(operation: TReadOperation<T>) =>
+              runWithWorkingCopyReadBacking(normalizedWorkingCopyPath, operation, {ownerWebContentsId: senderWebContentsId})
         : async <T>(operation: TReadOperation<T>) => {
-            const assertOriginalUnchanged = async () => {
-                requireOpenPath(normalizedWorkingCopyPath, senderWebContentsId);
-                if (!await getAdmittedDjvuViewingSource(normalizedWorkingCopyPath, senderWebContentsId)) {
-                    throw new Error('DjVu viewing path is not active');
-                }
-            };
-            await assertOriginalUnchanged();
-            const result = await operation(normalizedWorkingCopyPath, assertOriginalUnchanged);
-            await assertOriginalUnchanged();
-            return result;
-        };
+              const assertOriginalUnchanged = async () => {
+                  requireOpenPath(normalizedWorkingCopyPath, senderWebContentsId);
+                  if (!(await getAdmittedDjvuViewingSource(normalizedWorkingCopyPath, senderWebContentsId))) {
+                      throw new Error('DjVu viewing path is not active');
+                  }
+              };
+              await assertOriginalUnchanged();
+              const result = await operation(normalizedWorkingCopyPath, assertOriginalUnchanged);
+              await assertOriginalUnchanged();
+              return result;
+          };
     if (sourceKind === 'pdf') {
-        await readSource(physicalReadPath => validateRequestedPageNumbersWithinPdf(physicalReadPath, normalizedPageNumbers, operationOptions));
+        await readSource((physicalReadPath) =>
+            validateRequestedPageNumbersWithinPdf(physicalReadPath, normalizedPageNumbers, operationOptions),
+        );
     }
     return {
         readSource,
@@ -260,12 +258,14 @@ function buildSuggestedName(pageNumbers: number[] | undefined, format: TImageExp
 }
 
 function normalizeExportRequestId(requestId: unknown) {
-    return parseRequestId(normalizeOptionalIpcRequestId(requestId))
-        ?? createRequestId('image-export');
+    return parseRequestId(normalizeOptionalIpcRequestId(requestId)) ?? createRequestId('image-export');
 }
 
 async function runImageExportJob(
-    context: IImageExportOperationContext, workingCopyPath: string, requestId: string | undefined, format: TImageExportProgressFormat,
+    context: IImageExportOperationContext,
+    workingCopyPath: string,
+    requestId: string | undefined,
+    format: TImageExportProgressFormat,
     run: (
         job: TImageExportJobContext,
         cancelGroup: string,
@@ -298,19 +298,20 @@ async function runImageExportJob(
             cancelNativeCommandGroup(`image-export:${handle.jobId}`);
             logger.warn(`Canceled image export operation ${handle.jobId}: ${reason}`);
         },
-        run: async job => run(job, `image-export:${job.jobId}`, progress => {
-            const total = Math.max(1, Math.trunc(progress.total));
-            const processed = clamp(Math.trunc(progress.processed), 0, total);
-            job.publish({
-                requestId: normalizedRequestId,
-                format,
-                phase: progress.phase,
-                processed,
-                total,
-                percent: clamp(progress.percent ?? ((processed / total) * 100), 0, 100),
-                status: 'running',
-            });
-        }),
+        run: async (job) =>
+            run(job, `image-export:${job.jobId}`, (progress) => {
+                const total = Math.max(1, Math.trunc(progress.total));
+                const processed = clamp(Math.trunc(progress.processed), 0, total);
+                job.publish({
+                    requestId: normalizedRequestId,
+                    format,
+                    phase: progress.phase,
+                    processed,
+                    total,
+                    percent: clamp(progress.percent ?? (processed / total) * 100, 0, 100),
+                    status: 'running',
+                });
+            }),
     });
     const terminal = await handle.terminal;
     await handle.settled;
@@ -348,28 +349,25 @@ async function showImageExportDialog(
     }
     const tiffFilter = {
         name: te('dialogs.tiffImages'),
-        extensions: [
-            'tif',
-            'tiff',
-        ],
+        extensions: ['tif', 'tiff'],
     };
     const dialogOptions = {
         title: te(format === 'images' ? 'dialogs.exportImages' : 'dialogs.exportMultiPageTiff'),
         defaultPath: normalizeImageExportFileName(defaultName, format === 'images' ? 'jpeg' : 'tiff'),
-        filters: format === 'images' ? [
-            {
-                name: te('dialogs.jpegImages'),
-                extensions: [
-                    'jpg',
-                    'jpeg',
-                ],
-            },
-            {
-                name: te('dialogs.pngImages'),
-                extensions: ['png'],
-            },
-            tiffFilter,
-        ] : [tiffFilter],
+        filters:
+            format === 'images'
+                ? [
+                      {
+                          name: te('dialogs.jpegImages'),
+                          extensions: ['jpg', 'jpeg'],
+                      },
+                      {
+                          name: te('dialogs.pngImages'),
+                          extensions: ['png'],
+                      },
+                      tiffFilter,
+                  ]
+                : [tiffFilter],
     };
 
     return parentWindow ? dialog.showSaveDialog(parentWindow, dialogOptions) : dialog.showSaveDialog(dialogOptions);
@@ -386,23 +384,18 @@ export async function handlePdfExportImages(
     canceled?: boolean;
     outputPaths?: string[];
 }> {
-    return runImageExportJob(context, workingCopyPath, requestId, 'images', async (
-        job,
-        cancelGroup,
-        reportProgress,
-    ) => {
-        const {
-            readSource,
-            normalizedPageNumbers,
-        } = await prepareImageExportSource(workingCopyPath, context.senderId, sourceKind, pageNumbers, {
-            cancelGroup,
-            signal: job.signal,
-        });
-        const result = await showImageExportDialog(
-            context.parentWindow,
-            buildSuggestedName(normalizedPageNumbers, 'images'),
-            'images',
+    return runImageExportJob(context, workingCopyPath, requestId, 'images', async (job, cancelGroup, reportProgress) => {
+        const {readSource, normalizedPageNumbers} = await prepareImageExportSource(
+            workingCopyPath,
+            context.senderId,
+            sourceKind,
+            pageNumbers,
+            {
+                cancelGroup,
+                signal: job.signal,
+            },
         );
+        const result = await showImageExportDialog(context.parentWindow, buildSuggestedName(normalizedPageNumbers, 'images'), 'images');
         if (result.canceled || !result.filePath || job.signal.aborted) {
             job.terminal.cancel(createAbortError('Image export canceled'));
             return {
@@ -415,21 +408,23 @@ export async function handlePdfExportImages(
         const normalizedPath = validateImageExportPath(result.filePath, imageFormat);
         const exportOptions = {
             cancelGroup,
-            ...(normalizedPageNumbers ? { pageNumbers: normalizedPageNumbers } : {}),
+            ...(normalizedPageNumbers ? {pageNumbers: normalizedPageNumbers} : {}),
             signal: job.signal,
             scratch: job.scratch,
             onProgress: reportProgress,
         };
-        const outputPaths = await readSource((physicalReadPath, assertOriginalUnchanged) => sourceKind === 'djvu'
-            ? exportDjvuPagesAsImages(physicalReadPath, normalizedPath, {
-                ...exportOptions,
-                format: imageFormat,
-                beforePublish: assertOriginalUnchanged,
-            })
-            : exportPdfPagesAsImages(physicalReadPath, normalizedPath, {
-                ...exportOptions,
-                beforePublish: assertOriginalUnchanged,
-            }));
+        const outputPaths = await readSource((physicalReadPath, assertOriginalUnchanged) =>
+            sourceKind === 'djvu'
+                ? exportDjvuPagesAsImages(physicalReadPath, normalizedPath, {
+                      ...exportOptions,
+                      format: imageFormat,
+                      beforePublish: assertOriginalUnchanged,
+                  })
+                : exportPdfPagesAsImages(physicalReadPath, normalizedPath, {
+                      ...exportOptions,
+                      beforePublish: assertOriginalUnchanged,
+                  }),
+        );
         if (job.signal.aborted) {
             job.terminal.cancel(job.signal.reason);
             return {
@@ -458,18 +453,17 @@ export async function handlePdfExportMultiPageTiff(
     outputPath?: string;
     outputPaths?: string[];
 }> {
-    return runImageExportJob(context, workingCopyPath, requestId, 'multipage-tiff', async (
-        job,
-        cancelGroup,
-        reportProgress,
-    ) => {
-        const {
-            readSource,
-            normalizedPageNumbers,
-        } = await prepareImageExportSource(workingCopyPath, context.senderId, sourceKind, pageNumbers, {
-            cancelGroup,
-            signal: job.signal,
-        });
+    return runImageExportJob(context, workingCopyPath, requestId, 'multipage-tiff', async (job, cancelGroup, reportProgress) => {
+        const {readSource, normalizedPageNumbers} = await prepareImageExportSource(
+            workingCopyPath,
+            context.senderId,
+            sourceKind,
+            pageNumbers,
+            {
+                cancelGroup,
+                signal: job.signal,
+            },
+        );
         const result = await showImageExportDialog(
             context.parentWindow,
             buildSuggestedName(normalizedPageNumbers, 'multipage-tiff'),
@@ -486,16 +480,18 @@ export async function handlePdfExportMultiPageTiff(
         const outputPath = validateImageExportPath(result.filePath, 'tiff');
         const exportOptions = {
             cancelGroup,
-            ...(normalizedPageNumbers ? { pageNumbers: normalizedPageNumbers } : {}),
+            ...(normalizedPageNumbers ? {pageNumbers: normalizedPageNumbers} : {}),
             signal: job.signal,
             scratch: job.scratch,
             onProgress: reportProgress,
         };
         const exportTiff = sourceKind === 'djvu' ? exportDjvuAsMultiPageTiff : exportPdfAsMultiPageTiff;
-        const outputPaths = await readSource((physicalReadPath, assertOriginalUnchanged) => exportTiff(physicalReadPath, outputPath, {
-            ...exportOptions,
-            beforePublish: assertOriginalUnchanged,
-        }));
+        const outputPaths = await readSource((physicalReadPath, assertOriginalUnchanged) =>
+            exportTiff(physicalReadPath, outputPath, {
+                ...exportOptions,
+                beforePublish: assertOriginalUnchanged,
+            }),
+        );
         if (job.signal.aborted) {
             job.terminal.cancel(job.signal.reason);
             return {
@@ -518,10 +514,7 @@ export async function handlePdfExportMultiPageTiff(
     });
 }
 
-function createImageExportOperationContext(context: {
-    sender: WebContents;
-    senderId: number;
-}): IImageExportOperationContext {
+function createImageExportOperationContext(context: {sender: WebContents; senderId: number}): IImageExportOperationContext {
     return {
         ...context,
         parentWindow: BrowserWindow.fromWebContents(context.sender),
@@ -531,33 +524,48 @@ function createImageExportOperationContext(context: {
 export const imageExportMainBindings = {
     captureCurrentView: async ({sender}, region) => {
         const window = BrowserWindow.fromWebContents(sender);
-        if (!window || sender.isDestroyed()) throw new Error('Capture view is unavailable');
+        if (!window || sender.isDestroyed()) {
+            throw new Error('Capture view is unavailable');
+        }
         const zoom = sender.getZoomFactor();
-        const [
-            width,
-            height,
-        ] = window.getContentSize();
+        const [width, height] = window.getContentSize();
         const scale = screen.getDisplayMatching(window.getBounds()).scaleFactor * zoom;
-        if (zoom !== 1 || width !== region.viewportWidth || height !== region.viewportHeight
-            || Math.abs(scale - region.pixelRatio) > 0.01) throw new Error('Capture viewport changed');
+        if (
+            zoom !== 1 ||
+            width !== region.viewportWidth ||
+            height !== region.viewportHeight ||
+            Math.abs(scale - region.pixelRatio) > 0.01
+        ) {
+            throw new Error('Capture viewport changed');
+        }
         assertCaptureImageBudget(Math.ceil(region.width * scale), Math.ceil(region.height * scale));
-        const image = await sender.capturePage({
-            x: region.x,
-            y: region.y,
-            width: region.width,
-            height: region.height,
-        }, {stayHidden: true});
-        if (image.isEmpty() || sender.isDestroyed() || sender.getZoomFactor() !== zoom
-            || window.getContentSize()[0] !== width || window.getContentSize()[1] !== height) throw new Error('Capture view changed');
+        const image = await sender.capturePage(
+            {
+                x: region.x,
+                y: region.y,
+                width: region.width,
+                height: region.height,
+            },
+            {stayHidden: true},
+        );
+        if (
+            image.isEmpty() ||
+            sender.isDestroyed() ||
+            sender.getZoomFactor() !== zoom ||
+            window.getContentSize()[0] !== width ||
+            window.getContentSize()[1] !== height
+        ) {
+            throw new Error('Capture view changed');
+        }
         assertCaptureImageBudget(image.getSize().width, image.getSize().height);
         const bytes = new Uint8Array(image.toPNG());
         const size = readCapturePngSize(bytes);
-        if (Math.abs(size.width - region.width * scale) > 1 || Math.abs(size.height - region.height * scale) > 1) throw new Error('Capture density changed');
+        if (Math.abs(size.width - region.width * scale) > 1 || Math.abs(size.height - region.height * scale) > 1) {
+            throw new Error('Capture density changed');
+        }
         return bytes;
     },
-    exportImages: (context, ...args) =>
-        handlePdfExportImages(createImageExportOperationContext(context), ...args),
-    exportMultiPageTiff: (context, ...args) =>
-        handlePdfExportMultiPageTiff(createImageExportOperationContext(context), ...args),
+    exportImages: (context, ...args) => handlePdfExportImages(createImageExportOperationContext(context), ...args),
+    exportMultiPageTiff: (context, ...args) => handlePdfExportMultiPageTiff(createImageExportOperationContext(context), ...args),
     subscribeProgress: ({sender}) => imageExportJobs.subscribeOwner({sender}),
 } satisfies TFeatureMainBindings<typeof IMAGE_EXPORT_PLATFORM_FEATURE, IpcMainInvokeEvent>;

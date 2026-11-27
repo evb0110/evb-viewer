@@ -18,9 +18,7 @@ function ensurePdfExtension(fileName: string) {
 }
 
 function ensureDocxExtension(fileName: string) {
-    return fileName.toLowerCase().endsWith('.docx')
-        ? fileName
-        : `${fileName}.docx`;
+    return fileName.toLowerCase().endsWith('.docx') ? fileName : `${fileName}.docx`;
 }
 
 /** Desktop's suggested name for an optimized copy: `<stem>-optimized.pdf`. */
@@ -29,11 +27,4 @@ function getOptimizedPdfName(fileName: string) {
     return `${extension ? fileName.slice(0, -extension.length) : fileName}-optimized.pdf`;
 }
 
-export {
-    getOptimizedPdfName,
-    ensureDocxExtension,
-    ensurePdfExtension,
-    getExtension,
-    isDjvuFileName,
-    isPdfFileName,
-};
+export {getOptimizedPdfName, ensureDocxExtension, ensurePdfExtension, getExtension, isDjvuFileName, isPdfFileName};

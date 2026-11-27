@@ -1,6 +1,8 @@
-import { createLogger } from '@electron/utils/createLogger';
+import {createLogger} from '@electron/utils/createLogger';
 
-interface IElectronPerfDetails { [key: string]: unknown; }
+interface IElectronPerfDetails {
+    [key: string]: unknown;
+}
 
 const perfLogger = createLogger('perf');
 

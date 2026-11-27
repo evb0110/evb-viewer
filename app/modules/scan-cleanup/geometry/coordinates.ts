@@ -6,10 +6,7 @@ import type {
     IScanCleanupPreviewMetadata,
     IScanCleanupPixelRect,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
-import {
-    SCAN_CLEANUP_MANUAL_SPLIT_MAX,
-    SCAN_CLEANUP_MANUAL_SPLIT_MIN,
-} from '@contracts/scan-cleanup/geometry';
+import {SCAN_CLEANUP_MANUAL_SPLIT_MAX, SCAN_CLEANUP_MANUAL_SPLIT_MIN} from '@contracts/scan-cleanup/geometry';
 
 export function scanCleanupAnalysisWidth(
     metadata: Pick<IScanCleanupPreviewPageMetadata, 'rotationDegrees'>,
@@ -27,10 +24,7 @@ export function scanCleanupCutterXFromRatio(ratio: number, analysisWidth: number
     return Math.min(SCAN_CLEANUP_MANUAL_SPLIT_MAX, Math.max(SCAN_CLEANUP_MANUAL_SPLIT_MIN, ratio)) * Math.max(1, analysisWidth);
 }
 
-export function resolveNormalizedManualSplitX(
-    split: IScanCleanupNormalizedSplit | null | undefined,
-    analysisWidth: number,
-) {
+export function resolveNormalizedManualSplitX(split: IScanCleanupNormalizedSplit | null | undefined, analysisWidth: number) {
     return split ? split.xNormalized * Math.max(1, analysisWidth) : null;
 }
 
@@ -52,12 +46,10 @@ export function resolveNormalizedContentBox(
     if (!rect || rect.rotationDegrees !== metadata.rotationDegrees) {
         return null;
     }
-    const analysisWidth = metadata.rotationDegrees === 90 || metadata.rotationDegrees === 270
-        ? metadata.inputHeightPx
-        : metadata.inputWidthPx;
-    const analysisHeight = metadata.rotationDegrees === 90 || metadata.rotationDegrees === 270
-        ? metadata.inputWidthPx
-        : metadata.inputHeightPx;
+    const analysisWidth =
+        metadata.rotationDegrees === 90 || metadata.rotationDegrees === 270 ? metadata.inputHeightPx : metadata.inputWidthPx;
+    const analysisHeight =
+        metadata.rotationDegrees === 90 || metadata.rotationDegrees === 270 ? metadata.inputWidthPx : metadata.inputHeightPx;
     return {
         xPx: rect.xNormalized * analysisWidth,
         yPx: rect.yNormalized * analysisHeight,
@@ -66,10 +58,7 @@ export function resolveNormalizedContentBox(
     };
 }
 
-export function expandPreviewRectByMargins(
-    rect: IScanCleanupPixelRect,
-    margins: IScanCleanupAppliedMargins,
-): IScanCleanupPixelRect {
+export function expandPreviewRectByMargins(rect: IScanCleanupPixelRect, margins: IScanCleanupAppliedMargins): IScanCleanupPixelRect {
     return {
         xPx: rect.xPx - margins.leftPx,
         yPx: rect.yPx - margins.topPx,
@@ -78,16 +67,11 @@ export function expandPreviewRectByMargins(
     };
 }
 
-export function normalizePreviewContentBox(
-    metadata: IScanCleanupPreviewMetadata,
-    rect: IScanCleanupPixelRect,
-): IScanCleanupNormalizedRect {
-    const analysisWidth = metadata.rotationDegrees === 90 || metadata.rotationDegrees === 270
-        ? metadata.inputHeightPx
-        : metadata.inputWidthPx;
-    const analysisHeight = metadata.rotationDegrees === 90 || metadata.rotationDegrees === 270
-        ? metadata.inputWidthPx
-        : metadata.inputHeightPx;
+export function normalizePreviewContentBox(metadata: IScanCleanupPreviewMetadata, rect: IScanCleanupPixelRect): IScanCleanupNormalizedRect {
+    const analysisWidth =
+        metadata.rotationDegrees === 90 || metadata.rotationDegrees === 270 ? metadata.inputHeightPx : metadata.inputWidthPx;
+    const analysisHeight =
+        metadata.rotationDegrees === 90 || metadata.rotationDegrees === 270 ? metadata.inputWidthPx : metadata.inputHeightPx;
     return {
         xNormalized: Math.min(1, Math.max(0, rect.xPx / Math.max(1, analysisWidth))),
         yNormalized: Math.min(1, Math.max(0, rect.yPx / Math.max(1, analysisHeight))),
@@ -117,21 +101,9 @@ function invertAffineMatrix(matrix: number[][]) {
         return null;
     }
     return [
-        [
-            e / determinant,
-            -b / determinant,
-            (b * f - e * c) / determinant,
-        ],
-        [
-            -d / determinant,
-            a / determinant,
-            (d * c - a * f) / determinant,
-        ],
-        [
-            0,
-            0,
-            1,
-        ],
+        [e / determinant, -b / determinant, (b * f - e * c) / determinant],
+        [-d / determinant, a / determinant, (d * c - a * f) / determinant],
+        [0, 0, 1],
     ];
 }
 
@@ -168,8 +140,8 @@ export function transformPreviewSourceHalfRectUnclamped(
         applyMatrix(matrix, x, y + rect.heightPx),
         applyMatrix(matrix, x + rect.widthPx, y + rect.heightPx),
     ];
-    const xs = corners.map(point => point.x);
-    const ys = corners.map(point => point.y);
+    const xs = corners.map((point) => point.x);
+    const ys = corners.map((point) => point.y);
     return {
         xPx: Math.min(...xs),
         yPx: Math.min(...ys),
@@ -178,14 +150,9 @@ export function transformPreviewSourceHalfRectUnclamped(
     };
 }
 
-export function transformPreviewSourceHalfRect(
-    metadata: IScanCleanupPreviewMetadata,
-    rect: IScanCleanupPixelRect | null | undefined,
-) {
+export function transformPreviewSourceHalfRect(metadata: IScanCleanupPreviewMetadata, rect: IScanCleanupPixelRect | null | undefined) {
     const transformed = transformPreviewSourceHalfRectUnclamped(metadata, rect);
-    return transformed
-        ? clampPreviewRect(transformed, metadata.outputWidthPx, metadata.outputHeightPx)
-        : null;
+    return transformed ? clampPreviewRect(transformed, metadata.outputWidthPx, metadata.outputHeightPx) : null;
 }
 
 export interface IScanCleanupPreviewContentBoxContainment {
@@ -219,7 +186,7 @@ export function measurePreviewContentBoxContainment(
     };
     const epsilon = 1e-6;
     return {
-        contained: Object.values(edgeOverrunPx).every(overrun => overrun <= epsilon),
+        contained: Object.values(edgeOverrunPx).every((overrun) => overrun <= epsilon),
         containment: Math.min(1, intersectionArea / (rect.widthPx * rect.heightPx)),
         edgeOverrunPx,
     };
@@ -229,7 +196,7 @@ export function previewPointToSourceHalf(
     metadata: IScanCleanupPreviewMetadata,
     point: {
         x: number;
-        y: number
+        y: number;
     },
 ) {
     const matrix = metadata.forwardTransform?.matrix;
@@ -244,10 +211,7 @@ export function previewPointToSourceHalf(
     };
 }
 
-export function unrotatePreviewRect(
-    rect: IScanCleanupPixelRect,
-    metadata: IScanCleanupPreviewMetadata,
-): IScanCleanupPixelRect {
+export function unrotatePreviewRect(rect: IScanCleanupPixelRect, metadata: IScanCleanupPreviewMetadata): IScanCleanupPixelRect {
     const points = [
         {
             x: rect.xPx,
@@ -265,7 +229,7 @@ export function unrotatePreviewRect(
             x: rect.xPx + rect.widthPx,
             y: rect.yPx + rect.heightPx,
         },
-    ].map(point => {
+    ].map((point) => {
         if (metadata.rotationDegrees === 90) {
             return {
                 x: point.y,
@@ -286,10 +250,10 @@ export function unrotatePreviewRect(
         }
         return point;
     });
-    const left = Math.min(...points.map(point => point.x));
-    const right = Math.max(...points.map(point => point.x));
-    const top = Math.min(...points.map(point => point.y));
-    const bottom = Math.max(...points.map(point => point.y));
+    const left = Math.min(...points.map((point) => point.x));
+    const right = Math.max(...points.map((point) => point.x));
+    const top = Math.min(...points.map((point) => point.y));
+    const bottom = Math.max(...points.map((point) => point.y));
     return {
         xPx: left,
         yPx: top,

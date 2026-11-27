@@ -1,5 +1,5 @@
-import type { Ref } from 'vue';
-import type { IUnencryptedSaveNoticeResult } from '@app/modules/workspace-shell/composables/file-operations/unencryptedSaveNoticeGate';
+import type {Ref} from 'vue';
+import type {IUnencryptedSaveNoticeResult} from '@app/modules/workspace-shell/composables/file-operations/unencryptedSaveNoticeGate';
 
 type TNoticeResolver = (result: IUnencryptedSaveNoticeResult) => void;
 

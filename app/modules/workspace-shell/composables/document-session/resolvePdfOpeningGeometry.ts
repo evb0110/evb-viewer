@@ -1,16 +1,10 @@
-import type { IPdfOpeningGeometry } from '@contracts/electronApiDocuments';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type {
-    IPdfSemanticAnchor,
-    IRecentReadingView,
-} from '@contracts/recentReadingView';
-import {
-    createPageNavigationRequest,
-    type IDocumentOpenSurfaceSession,
-} from '@app/modules/document-viewer/public';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { getErrorMessage } from '@app/utils/error';
-import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
+import type {IPdfOpeningGeometry} from '@contracts/electronApiDocuments';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {IPdfSemanticAnchor, IRecentReadingView} from '@contracts/recentReadingView';
+import {createPageNavigationRequest, type IDocumentOpenSurfaceSession} from '@app/modules/document-viewer/public';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getErrorMessage} from '@app/utils/error';
+import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
 
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 
@@ -30,14 +24,13 @@ export function readPdfPageShape(path: TDocumentRef | null | undefined): IPdfPag
     if (!path || !read || !/\.pdf$/iu.test(path)) {
         return null;
     }
-    const answer = read(path)
-        .catch((error: unknown) => {
-            BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'PDF opening geometry unavailable', {
-                path,
-                error: getErrorMessage(error),
-            });
-            return null;
+    const answer = read(path).catch((error: unknown) => {
+        BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'PDF opening geometry unavailable', {
+            path,
+            error: getErrorMessage(error),
         });
+        return null;
+    });
     return {
         path,
         answer,
@@ -63,15 +56,21 @@ export function beginOpenSurfaceWithPageShape(
     shape: IPdfOpeningGeometry | null,
     reading: IOpeningReadingSeed | null = null,
 ) {
-    const view = reading && shape ? shape.readingView ?? null : null;
+    const view = reading && shape ? (shape.readingView ?? null) : null;
     const retainedAnchor = typeof initialPlace === 'number' ? null : initialPlace;
     const initialPage = typeof initialPlace === 'number' ? initialPlace : initialPlace.page;
     const openingPage = retainedAnchor?.page ?? (shape && view ? shape.pageNumber : initialPage);
-    openSurface.begin(identity, shape?.pageNumber === openingPage ? {
-        documentId: identity.documentId,
-        ...shape,
-        readingView: reading?.shown ? null : view,
-    } : null, openingPage);
+    openSurface.begin(
+        identity,
+        shape?.pageNumber === openingPage
+            ? {
+                  documentId: identity.documentId,
+                  ...shape,
+                  readingView: reading?.shown ? null : view,
+              }
+            : null,
+        openingPage,
+    );
     if (retainedAnchor || view) {
         openSurface.navigate(createPageNavigationRequest(openingPage, 'restore', retainedAnchor ?? view?.anchor));
         if (view) {

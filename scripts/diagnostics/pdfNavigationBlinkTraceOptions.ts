@@ -1,4 +1,4 @@
-import { resolve } from 'node:path';
+import {resolve} from 'node:path';
 
 const DEFAULT_TARGET_PDF_PATH = process.env.EVB_DIAGNOSTIC_PDF_PATH?.length
     ? process.env.EVB_DIAGNOSTIC_PDF_PATH
@@ -112,17 +112,12 @@ export function readOptions(argv = process.argv.slice(2)): IPdfNavigationBlinkTr
     return options;
 }
 
-export function resolveVideoDirectory(
-    options: Pick<IPdfNavigationBlinkTraceOptions, 'out' | 'videoDir'>,
-    cwd = process.cwd(),
-) {
+export function resolveVideoDirectory(options: Pick<IPdfNavigationBlinkTraceOptions, 'out' | 'videoDir'>, cwd = process.cwd()) {
     if (options.videoDir) {
         return resolve(cwd, options.videoDir);
     }
 
     const outPath = resolve(cwd, options.out);
-    const withoutJsonExtension = outPath.endsWith('.json')
-        ? outPath.slice(0, -'.json'.length)
-        : outPath;
+    const withoutJsonExtension = outPath.endsWith('.json') ? outPath.slice(0, -'.json'.length) : outPath;
     return `${withoutJsonExtension}-video`;
 }

@@ -32,9 +32,7 @@ function createEmptyFileSystemWritableFileStream(): FileSystemWritableFileStream
     return writable satisfies FileSystemWritableFileStream;
 }
 
-export function createFileSystemFileHandle(
-    options: IFileSystemFileHandleFixtureOptions,
-): FileSystemFileHandle {
+export function createFileSystemFileHandle(options: IFileSystemFileHandleFixtureOptions): FileSystemFileHandle {
     const handle = {
         kind: 'file',
         name: options.name,
@@ -63,12 +61,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isIdbValidKey(value: unknown): value is IDBValidKey {
-    return typeof value === 'number'
-        || typeof value === 'string'
-        || value instanceof Date
-        || value instanceof ArrayBuffer
-        || ArrayBuffer.isView(value)
-        || (Array.isArray(value) && value.every(item => isIdbValidKey(item)));
+    return (
+        typeof value === 'number' ||
+        typeof value === 'string' ||
+        value instanceof Date ||
+        value instanceof ArrayBuffer ||
+        ArrayBuffer.isView(value) ||
+        (Array.isArray(value) && value.every((item) => isIdbValidKey(item)))
+    );
 }
 
 class FakeDomStringList implements DOMStringList {
@@ -177,12 +177,10 @@ class FakeIndex implements IDBIndex {
         const request = new FakeIdbRequest<IDBValidKey[]>();
         queueMicrotask(() => {
             request.result = Array.from(this.state.records.entries())
-                .filter(([
-                    , record,
-                ]) => (
-                    isRecord(record)
-                    && (value === undefined || value === null || String(record[this.keyPath]) === String(value))
-                ))
+                .filter(
+                    ([, record]) =>
+                        isRecord(record) && (value === undefined || value === null || String(record[this.keyPath]) === String(value)),
+                )
                 .map(([key]) => key);
             request.readyState = 'done';
             request.onsuccess?.(new Event('success'));
@@ -192,43 +190,42 @@ class FakeIndex implements IDBIndex {
 
     public openCursor(_query?: IDBValidKey | IDBKeyRange | null, direction?: IDBCursorDirection) {
         const request = new FakeIdbRequest<IDBCursorWithValue | null>();
-        const entries = Array.from(this.state.records.entries()).sort((first, second) => (
-            Number(isRecord(first[1]) ? first[1][this.keyPath] : Number.NaN)
-            - Number(isRecord(second[1]) ? second[1][this.keyPath] : Number.NaN)
-        ));
+        const entries = Array.from(this.state.records.entries()).sort(
+            (first, second) =>
+                Number(isRecord(first[1]) ? first[1][this.keyPath] : Number.NaN) -
+                Number(isRecord(second[1]) ? second[1][this.keyPath] : Number.NaN),
+        );
         if (direction === 'prev' || direction === 'prevunique') {
             entries.reverse();
         }
         let cursorIndex = 0;
-        const advance = () => queueMicrotask(() => {
-            const entry = entries[cursorIndex];
-            if (!entry) {
-                request.result = null;
+        const advance = () =>
+            queueMicrotask(() => {
+                const entry = entries[cursorIndex];
+                if (!entry) {
+                    request.result = null;
+                    request.onsuccess?.(new Event('success'));
+                    return;
+                }
+                const [key, value] = entry;
+                request.result = new FakeCursorWithValue(
+                    key,
+                    value,
+                    direction ?? 'next',
+                    request,
+                    this,
+                    () => {
+                        cursorIndex += 1;
+                        advance();
+                    },
+                    () => {
+                        this.state.records.delete(key);
+                        return new FakeIdbRequest<undefined>();
+                    },
+                );
+                request.readyState = 'done';
                 request.onsuccess?.(new Event('success'));
-                return;
-            }
-            const [
-                key,
-                value,
-            ] = entry;
-            request.result = new FakeCursorWithValue(
-                key,
-                value,
-                direction ?? 'next',
-                request,
-                this,
-                () => {
-                    cursorIndex += 1;
-                    advance();
-                },
-                () => {
-                    this.state.records.delete(key);
-                    return new FakeIdbRequest<undefined>();
-                },
-            );
-            request.readyState = 'done';
-            request.onsuccess?.(new Event('success'));
-        });
+            });
         advance();
         return request;
     }
@@ -301,11 +298,7 @@ class FakeObjectStore implements IDBObjectStore {
     public put(record: unknown, key?: IDBValidKey) {
         const request = new FakeIdbRequest<IDBValidKey>();
         queueMicrotask(() => {
-            const recordKey = key ?? (
-                isRecord(record)
-                    ? record[this.state.keyPath]
-                    : undefined
-            );
+            const recordKey = key ?? (isRecord(record) ? record[this.state.keyPath] : undefined);
             if (!isIdbValidKey(recordKey)) {
                 request.error = new DOMException('Fake IndexedDB record key is missing');
                 request.onerror?.(new Event('error'));
@@ -565,10 +558,13 @@ interface IFakeLock {
 
 export class FakeLockManager {
     private readonly held = new Map<string, Set<IFakeLock>>();
-    private readonly waiting = new Map<string, Array<{
-        lock: IFakeLock;
-        grant: () => void
-    }>>();
+    private readonly waiting = new Map<
+        string,
+        Array<{
+            lock: IFakeLock;
+            grant: () => void;
+        }>
+    >();
 
     public holdElsewhere(name: string, mode: LockMode = 'exclusive') {
         this.add({
@@ -579,7 +575,9 @@ export class FakeLockManager {
 
     public releaseElsewhere(name: string) {
         const lock = this.held.get(name)?.values().next().value;
-        if (lock) this.release(lock);
+        if (lock) {
+            this.release(lock);
+        }
     }
 
     // Required by the LockManager-shaped object consumed structurally by the browser lease store.
@@ -589,7 +587,7 @@ export class FakeLockManager {
         options: {
             mode?: LockMode;
             ifAvailable?: boolean;
-            signal?: AbortSignal
+            signal?: AbortSignal;
         },
         callback: (lock: IFakeLock | null) => Promise<T>,
     ): Promise<T> {
@@ -597,9 +595,13 @@ export class FakeLockManager {
             name,
             mode: options.mode ?? 'exclusive',
         };
-        if (options.signal?.aborted) throw new DOMException('The lock request was aborted.', 'AbortError');
+        if (options.signal?.aborted) {
+            throw new DOMException('The lock request was aborted.', 'AbortError');
+        }
         if (!this.canGrant(lock) || this.waiting.get(name)?.length) {
-            if (options.ifAvailable) return callback(null);
+            if (options.ifAvailable) {
+                return callback(null);
+            }
             await new Promise<void>((granted, withdrawn) => {
                 const queue = this.waiting.get(name) ?? [];
                 const waiter = {
@@ -631,12 +633,12 @@ export class FakeLockManager {
 
     // fallow-ignore-next-line unused-class-member
     public async query() {
-        return {held: Array.from(this.held.values()).flatMap(locks => [...locks])};
+        return {held: Array.from(this.held.values()).flatMap((locks) => [...locks])};
     }
 
     private canGrant(lock: IFakeLock) {
         const held = this.held.get(lock.name);
-        return !held?.size || lock.mode === 'shared' && Array.from(held).every(current => current.mode === 'shared');
+        return !held?.size || (lock.mode === 'shared' && Array.from(held).every((current) => current.mode === 'shared'));
     }
 
     private add(lock: IFakeLock) {
@@ -648,13 +650,19 @@ export class FakeLockManager {
     private release(lock: IFakeLock) {
         const held = this.held.get(lock.name);
         held?.delete(lock);
-        if (!held?.size) this.held.delete(lock.name);
+        if (!held?.size) {
+            this.held.delete(lock.name);
+        }
         this.pump(lock.name);
     }
 
     private pump(name: string) {
         const queue = this.waiting.get(name);
-        while (queue?.[0] && this.canGrant(queue[0].lock)) queue.shift()!.grant();
-        if (!queue?.length) this.waiting.delete(name);
+        while (queue?.[0] && this.canGrant(queue[0].lock)) {
+            queue.shift()!.grant();
+        }
+        if (!queue?.length) {
+            this.waiting.delete(name);
+        }
     }
 }

@@ -1,4 +1,4 @@
-import { getCliErrorMessage } from './lib/cli-error.mjs';
+import {getCliErrorMessage} from './lib/cli-error.mjs';
 import {spawnSync} from 'node:child_process';
 import {readFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
@@ -10,17 +10,11 @@ import {
     readAddsChecksTrailer,
     readCommitMetadata,
 } from './lib/added-checks.mjs';
-import {
-    describeFixChainRule,
-    findFixChainViolations,
-} from './lib/fix-chain.mjs';
+import {describeFixChainRule, findFixChainViolations} from './lib/fix-chain.mjs';
 
 const ZERO_OID = '0'.repeat(40);
 const OID_PATTERN = /^[0-9a-f]{40,64}$/u;
-const PUBLISHABLE_REF_PREFIXES = [
-    'refs/heads/',
-    'refs/tags/',
-];
+const PUBLISHABLE_REF_PREFIXES = ['refs/heads/', 'refs/tags/'];
 
 // Keep each `git` invocation well inside the platform argument limit while
 // still batching a full-history scan into a handful of processes.
@@ -68,7 +62,6 @@ function batches(items) {
     return result;
 }
 
-
 /** @param {string} input @returns {IPrePushUpdate[]} */
 export function parsePrePushUpdates(input) {
     return input
@@ -79,14 +72,8 @@ export function parsePrePushUpdates(input) {
             if (fields.length !== 4) {
                 throw new Error(`Invalid pre-push update: ${line}`);
             }
-            const [
-                localRef,
-                localOid,
-                remoteRef,
-                remoteOid,
-            ] = fields;
-            if (localRef === undefined || localOid === undefined
-                || remoteRef === undefined || remoteOid === undefined) {
+            const [localRef, localOid, remoteRef, remoteOid] = fields;
+            if (localRef === undefined || localOid === undefined || remoteRef === undefined || remoteOid === undefined) {
                 throw new Error(`Invalid pre-push update: ${line}`);
             }
             return {
@@ -100,23 +87,14 @@ export function parsePrePushUpdates(input) {
 
 /** @param {string[]} arguments_ @param {string} cwd @returns {string[]} */
 function listCommits(arguments_, cwd) {
-    return runGit([
-        'rev-list',
-        '--reverse',
-        ...arguments_,
-    ], cwd)
+    return runGit(['rev-list', '--reverse', ...arguments_], cwd)
         .split('\n')
         .filter(Boolean);
 }
 
 /** @param {string} revision @param {string} cwd @returns {boolean} */
 function commitExists(revision, cwd) {
-    return tryGit([
-        'rev-parse',
-        '--quiet',
-        '--verify',
-        `${revision}^{commit}`,
-    ], cwd) !== null;
+    return tryGit(['rev-parse', '--quiet', '--verify', `${revision}^{commit}`], cwd) !== null;
 }
 
 /**
@@ -133,12 +111,7 @@ export function readAdvertisedOids(remoteTargets, cwd = process.cwd()) {
         if (!target) {
             continue;
         }
-        const output = tryGit([
-            'ls-remote',
-            '--heads',
-            '--tags',
-            target,
-        ], cwd);
+        const output = tryGit(['ls-remote', '--heads', '--tags', target], cwd);
         if (output === null) {
             errors.push(target);
             continue;
@@ -146,13 +119,13 @@ export function readAdvertisedOids(remoteTargets, cwd = process.cwd()) {
         // `<oid>\t<ref>` plus a peeled `<oid>\t<ref>^{}` line per annotated tag.
         return output
             .split('\n')
-            .map(line => line.split('\t')[0]?.trim() ?? '')
-            .filter(oid => OID_PATTERN.test(oid));
+            .map((line) => line.split('\t')[0]?.trim() ?? '')
+            .filter((oid) => OID_PATTERN.test(oid));
     }
 
     throw new Error(
-        `Cannot read the remote ref advertisement (${errors.join(', ') || 'no remote given'}); `
-        + 'refusing to push without knowing what is already public.',
+        `Cannot read the remote ref advertisement (${errors.join(', ') || 'no remote given'}); ` +
+            'refusing to push without knowing what is already public.',
     );
 }
 
@@ -167,9 +140,7 @@ export function readAdvertisedOids(remoteTargets, cwd = process.cwd()) {
  */
 /** @param {string[]} advertisedOids @param {string} cwd @returns {string[]} */
 function publicExclusions(advertisedOids, cwd) {
-    return [...new Set(advertisedOids)]
-        .filter(oid => commitExists(oid, cwd))
-        .map(oid => `^${oid}`);
+    return [...new Set(advertisedOids)].filter((oid) => commitExists(oid, cwd)).map((oid) => `^${oid}`);
 }
 
 /**
@@ -187,19 +158,11 @@ function publicExclusions(advertisedOids, cwd) {
  */
 /** @param {string} oid @param {string} cwd @returns {IPushedTagObject | null} */
 function readPushedTagObject(oid, cwd) {
-    if (tryGit([
-        'cat-file',
-        '-t',
-        oid,
-    ], cwd)?.trim() !== 'tag') {
+    if (tryGit(['cat-file', '-t', oid], cwd)?.trim() !== 'tag') {
         return null;
     }
 
-    const content = runGit([
-        'cat-file',
-        'tag',
-        oid,
-    ], cwd);
+    const content = runGit(['cat-file', 'tag', oid], cwd);
 
     return {
         content,
@@ -230,7 +193,7 @@ export function collectPrePushWork(input, remoteTargets, cwd = process.cwd()) {
             // Deleting a ref publishes nothing.
             continue;
         }
-        if (!PUBLISHABLE_REF_PREFIXES.some(prefix => update.remoteRef.startsWith(prefix))) {
+        if (!PUBLISHABLE_REF_PREFIXES.some((prefix) => update.remoteRef.startsWith(prefix))) {
             rejectedRefs.push(update.remoteRef);
             continue;
         }
@@ -248,10 +211,10 @@ export function collectPrePushWork(input, remoteTargets, cwd = process.cwd()) {
     }
 
     return {
-        commits: localOids.length === 0 ? [] : listCommits([
-            ...localOids,
-            ...publicExclusions(readAdvertisedOids(remoteTargets, cwd), cwd),
-        ], cwd),
+        commits:
+            localOids.length === 0
+                ? []
+                : listCommits([...localOids, ...publicExclusions(readAdvertisedOids(remoteTargets, cwd), cwd)], cwd),
         nestedTagRefs,
         rejectedRefs,
     };
@@ -269,23 +232,17 @@ export function collectPrePushWork(input, remoteTargets, cwd = process.cwd()) {
 export function collectPushedRangeCommits(beforeOid, headOid, cwd = process.cwd()) {
     if (beforeOid === ZERO_OID) {
         const defaultBranch = 'refs/remotes/origin/main';
-        return listCommits(commitExists(defaultBranch, cwd)
-            ? [`${defaultBranch}..${headOid}`]
-            : [headOid], cwd);
+        return listCommits(commitExists(defaultBranch, cwd) ? [`${defaultBranch}..${headOid}`] : [headOid], cwd);
     }
 
-    const hasUsableBefore = typeof beforeOid === 'string' && beforeOid !== ''
-        && commitExists(beforeOid, cwd)
-        && tryGit([
-            'merge-base',
-            beforeOid,
-            headOid,
-        ], cwd) !== null;
+    const hasUsableBefore =
+        typeof beforeOid === 'string' &&
+        beforeOid !== '' &&
+        commitExists(beforeOid, cwd) &&
+        tryGit(['merge-base', beforeOid, headOid], cwd) !== null;
 
     return listCommits(hasUsableBefore ? [`${beforeOid}..${headOid}`] : [headOid], cwd);
 }
-
-
 
 /**
  * Groups `git diff-tree --stdin -z` output back into per-commit path lists.
@@ -320,20 +277,29 @@ export function parseDiffTreeRecords(output, requestedCommits) {
 
 /** @param {string[]} commits @param {string} cwd @returns {ICommitPaths[]} */
 function readCommitPaths(commits, cwd) {
-    return batches(commits).flatMap(batch => parseDiffTreeRecords(runGit([
-        'diff-tree',
-        '--stdin',
-        '-r',
-        '-z',
-        '--name-only',
-        '--no-renames',
-        // Include the initial commit of a resurrected or orphan history.
-        '--root',
-        '--diff-merges=first-parent',
-        // Deletions are the remedy, not the offense: only paths a commit adds
-        // or updates keep the artifact reachable in the published history.
-        '--diff-filter=d',
-    ], cwd, `${batch.join('\n')}\n`), batch));
+    return batches(commits).flatMap((batch) =>
+        parseDiffTreeRecords(
+            runGit(
+                [
+                    'diff-tree',
+                    '--stdin',
+                    '-r',
+                    '-z',
+                    '--name-only',
+                    '--no-renames',
+                    // Include the initial commit of a resurrected or orphan history.
+                    '--root',
+                    '--diff-merges=first-parent',
+                    // Deletions are the remedy, not the offense: only paths a commit adds
+                    // or updates keep the artifact reachable in the published history.
+                    '--diff-filter=d',
+                ],
+                cwd,
+                `${batch.join('\n')}\n`,
+            ),
+            batch,
+        ),
+    );
 }
 
 /** @param {string[]} commits @param {string} [cwd] @returns {IViolation[]} */
@@ -341,56 +307,42 @@ export function findHistoryArtifactViolations(commits, cwd = process.cwd()) {
     if (commits.length === 0) {
         return [];
     }
-    return readCommitPaths(commits, cwd).flatMap(({
-        commit,
-        paths,
-    }) => {
-        const matches = [...new Set(paths
-            .map(path => describeForbiddenArtifactPath(path))
-            .filter((match) => match !== null))];
-        return matches.length > 0 ? [{
-            matches,
-            subject: commit,
-        }] : [];
+    return readCommitPaths(commits, cwd).flatMap(({commit, paths}) => {
+        const matches = [...new Set(paths.map((path) => describeForbiddenArtifactPath(path)).filter((match) => match !== null))];
+        return matches.length > 0
+            ? [
+                  {
+                      matches,
+                      subject: commit,
+                  },
+              ]
+            : [];
     });
 }
-
 
 /** @param {IViolation[][]} violationGroups @returns {IViolation[]} */
 function mergeViolations(violationGroups) {
     const matchesBySubject = new Map();
 
-    for (const {
-        matches,
-        subject,
-    } of violationGroups.flat()) {
-        matchesBySubject.set(subject, [...new Set([
-            ...matchesBySubject.get(subject) ?? [],
-            ...matches,
-        ])]);
+    for (const {matches, subject} of violationGroups.flat()) {
+        matchesBySubject.set(subject, [...new Set([...(matchesBySubject.get(subject) ?? []), ...matches])]);
     }
 
-    return [...matchesBySubject].map(([
-        subject,
-        matches,
-    ]) => ({
+    return [...matchesBySubject].map(([subject, matches]) => ({
         matches,
         subject,
     }));
 }
 
 /** @param {string[]} commits @param {string} [cwd] @param {IPushPolicyOptions} [options] @returns {IViolation[]} */
-export function findPushPolicyViolations(commits, cwd = process.cwd(), {
-    nestedTagRefs = [],
-    rejectedRefs = [],
-} = {}) {
+export function findPushPolicyViolations(commits, cwd = process.cwd(), {nestedTagRefs = [], rejectedRefs = []} = {}) {
     const commitMetadata = readCommitMetadata(commits, cwd);
     return mergeViolations([
-        rejectedRefs.map(ref => ({
+        rejectedRefs.map((ref) => ({
             matches: ['destination outside refs/heads/* and refs/tags/*'],
             subject: ref,
         })),
-        nestedTagRefs.map(ref => ({
+        nestedTagRefs.map((ref) => ({
             matches: ['tag object points at another tag; this project publishes tags of commits only'],
             subject: ref,
         })),
@@ -406,15 +358,12 @@ function rejectViolations(violations) {
         return;
     }
     console.error('Push blocked: local-only artifacts, unexplained new checks, fix chains, or ref destinations were found.');
-    for (const {
-        matches,
-        subject,
-    } of violations) {
+    for (const {matches, subject} of violations) {
         console.error(`  ${subject}: ${matches.join(', ')}`);
     }
     console.error(
-        'Fix every listed unpublished commit, not only the tip (amend, rebase, or drop it), '
-        + 'and retry. Published history is not rewritten.',
+        'Fix every listed unpublished commit, not only the tip (amend, rebase, or drop it), ' +
+            'and retry. Published history is not rewritten.',
     );
     console.error(describeFixChainRule());
     process.exitCode = 1;
@@ -447,19 +396,12 @@ function readOptionValues(arguments_, option) {
 // the very first commit of a repository is checked like any other.
 /** @param {string} [cwd] @returns {string[]} */
 export function findStagedArtifactViolations(cwd = process.cwd()) {
-    const output = runGit([
-        'diff',
-        '--cached',
-        '--name-only',
-        '-z',
-        '--no-renames',
-        '--diff-filter=d',
-    ], cwd);
+    const output = runGit(['diff', '--cached', '--name-only', '-z', '--no-renames', '--diff-filter=d'], cwd);
 
     return output
         .split('\0')
         .filter(Boolean)
-        .map(path => describeForbiddenArtifactPath(path))
+        .map((path) => describeForbiddenArtifactPath(path))
         .filter((match) => match !== null);
 }
 
@@ -483,17 +425,12 @@ export function main(arguments_ = process.argv.slice(2), cwd = process.cwd()) {
     const stagedIndex = arguments_.indexOf('--staged');
     const prePushIndex = arguments_.indexOf('--pre-push');
     const pushedRangeIndex = arguments_.indexOf('--pushed-range');
-    const modeCount = [
-        messageFiles.length > 0,
-        stagedIndex !== -1,
-        prePushIndex !== -1,
-        pushedRangeIndex !== -1,
-    ].filter(Boolean).length;
+    const modeCount = [messageFiles.length > 0, stagedIndex !== -1, prePushIndex !== -1, pushedRangeIndex !== -1].filter(Boolean).length;
 
     if (modeCount !== 1) {
         throw new Error(
-            'Usage: check-publication-policy.mjs (--message-file <path> | --staged '
-            + '| --pushed-range <before> <head> | --pre-push <remote> [<url>])',
+            'Usage: check-publication-policy.mjs (--message-file <path> | --staged ' +
+                '| --pushed-range <before> <head> | --pre-push <remote> [<url>])',
         );
     }
 
@@ -524,10 +461,7 @@ export function main(arguments_ = process.argv.slice(2), cwd = process.cwd()) {
         if (!headOid) {
             throw new Error('--pushed-range requires the before and head revisions');
         }
-        rejectViolations(findPushPolicyViolations(
-            collectPushedRangeCommits(arguments_[pushedRangeIndex + 1], headOid, cwd),
-            cwd,
-        ));
+        rejectViolations(findPushPolicyViolations(collectPushedRangeCommits(arguments_[pushedRangeIndex + 1], headOid, cwd), cwd));
         return;
     }
 
@@ -535,10 +469,7 @@ export function main(arguments_ = process.argv.slice(2), cwd = process.cwd()) {
     if (!remoteName) {
         throw new Error('--pre-push requires the remote name');
     }
-    const work = collectPrePushWork(readFileSync(0, 'utf8'), [
-        remoteName,
-        arguments_[prePushIndex + 2],
-    ], cwd);
+    const work = collectPrePushWork(readFileSync(0, 'utf8'), [remoteName, arguments_[prePushIndex + 2]], cwd);
     rejectViolations(findPushPolicyViolations(work.commits, cwd, work));
 }
 

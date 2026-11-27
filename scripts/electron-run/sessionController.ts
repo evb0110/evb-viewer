@@ -1,53 +1,28 @@
-import { getErrorMessage } from '@contracts/getErrorMessage';
-import { join } from 'node:path';
-import { startSessionRecording } from '@scripts/electron-run/sessionRecording';
-import { logLauncher } from '@scripts/electron-run/terminalLog';
-import { APP_LOG_FILE_NAME } from '@contracts/logRecord';
-import { assertRecordingTools } from '@scripts/electron-run/recordingVideo';
-import { createServer } from 'node:http';
-import type { ChildProcess } from 'node:child_process';
-import {
-    existsSync,
-    mkdirSync,
-    rmSync,
-    unlinkSync,
-    writeFileSync,
-} from 'node:fs';
-import { delay } from 'es-toolkit/promise';
-import { safeJsonParse } from '@contracts/safeJsonParse';
-import { createCommandHandler } from '@scripts/electron-run/createCommandHandler';
-import { getNuxtPort } from '@scripts/electron-run/electronRunPortConfig';
-import { attachPageDiagnostics } from '@scripts/electron-run/attachPageDiagnostics';
-import {
-    emulateAutomationFocus,
-    shouldEmulateAutomationFocus,
-} from '@scripts/electron-run/emulateAutomationFocus';
-import { resolveAutomationWindowEnv } from '@scripts/electron-run/electronRunLaunchConfig';
-import { E2E_RUN_ID_ENV } from '@scripts/electron-run/electronRunRunId';
-import {
-    closeActiveDevServerOutputTee,
-    installDevServerOutputTee,
-    type IDevServerOutputTee,
-} from '@scripts/electron-run/devServerOutputTee';
-import {
-    hasOtherAliveSessionUsingNuxt,
-    readNuxtSessionShareMetadata,
-    startNuxtServer,
-} from '@scripts/electron-run/electronRunNuxtServer';
-import {
-    isProcessAlive,
-    killProcessTrees,
-    killSpawnedProcessTree,
-    waitForProcessExit,
-} from '@scripts/electron-run/electronRunProcessTree';
-import { createStartupLogger } from '@scripts/electron-run/createStartupLogger';
-import { usesBuiltRenderer } from '@scripts/electron-run/appRendererUrl';
-import {
-    findSessionOwnedElectronPids,
-    killVerifiedSessionProcess,
-} from '@scripts/electron-run/electronRunProcessIdentity';
-import { projectRoot } from '@scripts/electron-run/projectRoot';
-import { parseElectronRunCommandRequest } from '@scripts/electron-run/electronRunProtocol';
+import {getErrorMessage} from '@contracts/getErrorMessage';
+import {join} from 'node:path';
+import {startSessionRecording} from '@scripts/electron-run/sessionRecording';
+import {logLauncher} from '@scripts/electron-run/terminalLog';
+import {APP_LOG_FILE_NAME} from '@contracts/logRecord';
+import {assertRecordingTools} from '@scripts/electron-run/recordingVideo';
+import {createServer} from 'node:http';
+import type {ChildProcess} from 'node:child_process';
+import {existsSync, mkdirSync, rmSync, unlinkSync, writeFileSync} from 'node:fs';
+import {delay} from 'es-toolkit/promise';
+import {safeJsonParse} from '@contracts/safeJsonParse';
+import {createCommandHandler} from '@scripts/electron-run/createCommandHandler';
+import {getNuxtPort} from '@scripts/electron-run/electronRunPortConfig';
+import {attachPageDiagnostics} from '@scripts/electron-run/attachPageDiagnostics';
+import {emulateAutomationFocus, shouldEmulateAutomationFocus} from '@scripts/electron-run/emulateAutomationFocus';
+import {resolveAutomationWindowEnv} from '@scripts/electron-run/electronRunLaunchConfig';
+import {E2E_RUN_ID_ENV} from '@scripts/electron-run/electronRunRunId';
+import {closeActiveDevServerOutputTee, installDevServerOutputTee, type IDevServerOutputTee} from '@scripts/electron-run/devServerOutputTee';
+import {hasOtherAliveSessionUsingNuxt, readNuxtSessionShareMetadata, startNuxtServer} from '@scripts/electron-run/electronRunNuxtServer';
+import {isProcessAlive, killProcessTrees, killSpawnedProcessTree, waitForProcessExit} from '@scripts/electron-run/electronRunProcessTree';
+import {createStartupLogger} from '@scripts/electron-run/createStartupLogger';
+import {usesBuiltRenderer} from '@scripts/electron-run/appRendererUrl';
+import {findSessionOwnedElectronPids, killVerifiedSessionProcess} from '@scripts/electron-run/electronRunProcessIdentity';
+import {projectRoot} from '@scripts/electron-run/projectRoot';
+import {parseElectronRunCommandRequest} from '@scripts/electron-run/electronRunProtocol';
 import {
     allocateAutomationPorts,
     killElectronProcessesByCdpPort,
@@ -67,10 +42,7 @@ import {
     markSessionStarting,
     waitForSessionReady,
 } from '@scripts/electron-run/electronRunSessionArtifacts';
-import {
-    cleanupSessionAppTempIfUnowned,
-    hasWorkspaceRecoveryEvidence,
-} from '@scripts/electron-run/electronRunSessionCleanup';
+import {cleanupSessionAppTempIfUnowned, hasWorkspaceRecoveryEvidence} from '@scripts/electron-run/electronRunSessionCleanup';
 import {
     electronUserDataPath,
     getCurrentSessionName,
@@ -80,11 +52,8 @@ import {
     sessionKeepNuxtMarkerPath,
     sessionPreserveWorkspaceCheckpointMarkerPath,
 } from '@scripts/electron-run/electronRunSessionPaths';
-import type { ISessionState } from '@scripts/electron-run/electronRunSessionTypes';
-import {
-    clearAutomationWorkspaceCrashCheckpoint,
-    hasWorkspaceCrashCheckpoint,
-} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
+import type {ISessionState} from '@scripts/electron-run/electronRunSessionTypes';
+import {clearAutomationWorkspaceCrashCheckpoint, hasWorkspaceCrashCheckpoint} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 
 let sessionState: ISessionState | null = null;
 let sessionOwnerLost = false;
@@ -93,28 +62,15 @@ const handleCommand = createCommandHandler(() => sessionState);
 const ELECTRON_GRACEFUL_SHUTDOWN_TIMEOUT_MS = 10_000;
 
 export function shouldClearAutomationWorkspaceCrashCheckpointOnExit(exitCode: number) {
-    return [
-        0,
-        130,
-        143,
-    ].includes(exitCode);
+    return [0, 130, 143].includes(exitCode);
 }
 
-export function clearAutomationWorkspaceCrashCheckpointAfterSessionExit(
-    exitCode: number,
-    sessionName = getCurrentSessionName(),
-) {
-    return shouldClearAutomationWorkspaceCrashCheckpointOnExit(exitCode)
-        && clearAutomationWorkspaceCrashCheckpoint(sessionName);
+export function clearAutomationWorkspaceCrashCheckpointAfterSessionExit(exitCode: number, sessionName = getCurrentSessionName()) {
+    return shouldClearAutomationWorkspaceCrashCheckpointOnExit(exitCode) && clearAutomationWorkspaceCrashCheckpoint(sessionName);
 }
 
-export function shouldPreserveWorkspaceRecoveryArtifacts(
-    exitCode: number,
-    preserveMarkerExists: boolean,
-    checkpointExists: boolean,
-) {
-    return preserveMarkerExists
-        || (!shouldClearAutomationWorkspaceCrashCheckpointOnExit(exitCode) && checkpointExists);
+export function shouldPreserveWorkspaceRecoveryArtifacts(exitCode: number, preserveMarkerExists: boolean, checkpointExists: boolean) {
+    return preserveMarkerExists || (!shouldClearAutomationWorkspaceCrashCheckpointOnExit(exitCode) && checkpointExists);
 }
 
 async function ensureSessionCanStart() {
@@ -124,7 +80,9 @@ async function ensureSessionCanStart() {
     }
 
     if (await isSessionRunning()) {
-        console.log(`Session '${getCurrentSessionName()}' already running. Use \`pnpm electron:run stop --session=${getCurrentSessionName()}\` to stop it.`);
+        console.log(
+            `Session '${getCurrentSessionName()}' already running. Use \`pnpm electron:run stop --session=${getCurrentSessionName()}\` to stop it.`,
+        );
         return false;
     }
     if (!isSessionStarting()) {
@@ -141,7 +99,7 @@ async function ensureSessionCanStart() {
 }
 
 function resolveForceCleanStart(forceClean: boolean) {
-    const otherRunning = listRunningSessions().filter(name => name !== getCurrentSessionName());
+    const otherRunning = listRunningSessions().filter((name) => name !== getCurrentSessionName());
     if (forceClean && otherRunning.length > 0) {
         logLauncher('info', 'nuxt', `${otherRunning.length} other session(s) running (${otherRunning.join(', ')}), skipping Nuxt restart`);
         return {
@@ -229,23 +187,22 @@ async function stopSessionElectronProcess(state: ISessionState | null) {
         // CDP Browser.close reaches Electron as a person's Quit, which asks
         // every window with unsaved work for a close decision that a hidden
         // session cannot answer. This hook requests the coordinated quit.
-        void state.page.evaluate(() => {
-            const quit = (window as {__quitForAutomation?: () => Promise<void>}).__quitForAutomation;
-            if (typeof quit !== 'function') {
-                throw new Error('This session does not expose quit automation');
-            }
-            return quit();
-        }).catch(error => {
-            console.warn(`[Electron] Graceful app shutdown request failed: ${getErrorMessage(error)}`);
-        });
+        void state.page
+            .evaluate(() => {
+                const quit = (window as {__quitForAutomation?: () => Promise<void>}).__quitForAutomation;
+                if (typeof quit !== 'function') {
+                    throw new Error('This session does not expose quit automation');
+                }
+                return quit();
+            })
+            .catch((error) => {
+                console.warn(`[Electron] Graceful app shutdown request failed: ${getErrorMessage(error)}`);
+            });
     }
 
     if (electronPid) {
-        const remainingMs = Math.max(
-            0,
-            ELECTRON_GRACEFUL_SHUTDOWN_TIMEOUT_MS - (Date.now() - shutdownStartedAt),
-        );
-        if (remainingMs > 0 && await waitForProcessExit(electronPid, remainingMs)) {
+        const remainingMs = Math.max(0, ELECTRON_GRACEFUL_SHUTDOWN_TIMEOUT_MS - (Date.now() - shutdownStartedAt));
+        if (remainingMs > 0 && (await waitForProcessExit(electronPid, remainingMs))) {
             logLauncher('info', 'electron', 'Graceful app shutdown complete');
             return;
         }
@@ -269,15 +226,7 @@ async function stopSessionNuxtProcess(state: ISessionState | null, keepNuxtOnSto
         return;
     }
     const nuxtPid = state.nuxtProcess.pid ?? null;
-    if (
-        nuxtPid
-        && hasOtherAliveSessionUsingNuxt(
-            readNuxtSessionShareMetadata(),
-            getCurrentSessionName(),
-            nuxtPid,
-            getNuxtPort(),
-        )
-    ) {
+    if (nuxtPid && hasOtherAliveSessionUsingNuxt(readNuxtSessionShareMetadata(), getCurrentSessionName(), nuxtPid, getNuxtPort())) {
         logLauncher('info', 'nuxt', 'Left running (shared with other session)');
         return;
     }
@@ -308,7 +257,7 @@ async function cleanupSessionAndExit(exitCode: number, httpServer: ReturnType<ty
 
     httpServer?.close();
     if (sessionState?.recording) {
-        const evidence = await sessionState.recording.stop(exitCode).catch(error => {
+        const evidence = await sessionState.recording.stop(exitCode).catch((error) => {
             console.error(`[Recording] Finalization failed: ${getErrorMessage(error)}`);
             return null;
         });
@@ -316,7 +265,9 @@ async function cleanupSessionAndExit(exitCode: number, httpServer: ReturnType<ty
             status: evidence?.status ?? 'failed',
             review: sessionState.recording.manifest.reviewPath,
         });
-        if (evidence?.status !== 'complete') { exitCode = exitCode || 1; }
+        if (evidence?.status !== 'complete') {
+            exitCode = exitCode || 1;
+        }
     }
     await stopSessionElectronProcess(sessionState);
     clearRuntimeSessionFiles();
@@ -369,12 +320,16 @@ function installStartupSignalCleanup() {
             })
             .then((cleanupResult) => {
                 if (!cleanupResult.completed) {
-                    console.warn(`[Session] Startup cleanup retained its artifacts: ${cleanupResult.reason ?? 'ownership was unresolved.'}`);
+                    console.warn(
+                        `[Session] Startup cleanup retained its artifacts: ${cleanupResult.reason ?? 'ownership was unresolved.'}`,
+                    );
                     return;
                 }
                 try {
                     if (!hasWorkspaceRecoveryEvidence() && !cleanupSessionAppTempIfUnowned()) {
-                        console.warn('[Session] Startup app temp cleanup retained the namespace because a session-owned Electron process is still alive.');
+                        console.warn(
+                            '[Session] Startup app temp cleanup retained the namespace because a session-owned Electron process is still alive.',
+                        );
                     }
                 } catch (error) {
                     console.error(`[Session] Startup app temp cleanup failed: ${getErrorMessage(error)}`);
@@ -426,27 +381,34 @@ function createSessionCommandServer(onShutdownRequest: () => void) {
                     throw new Error('Malformed command payload');
                 }
                 if (requestPayload.command === 'shutdown') {
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({
-                        success: true,
-                        result: { accepted: true },
-                    }), () => {
-                        setImmediate(onShutdownRequest);
-                    });
+                    res.writeHead(200, {'Content-Type': 'application/json'});
+                    res.end(
+                        JSON.stringify({
+                            success: true,
+                            result: {accepted: true},
+                        }),
+                        () => {
+                            setImmediate(onShutdownRequest);
+                        },
+                    );
                     return;
                 }
                 const result = await handleCommand(requestPayload.command, requestPayload.args);
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    success: true,
-                    result,
-                }));
+                res.writeHead(200, {'Content-Type': 'application/json'});
+                res.end(
+                    JSON.stringify({
+                        success: true,
+                        result,
+                    }),
+                );
             } catch (error) {
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    success: false,
-                    error: getErrorMessage(error),
-                }));
+                res.writeHead(200, {'Content-Type': 'application/json'});
+                res.end(
+                    JSON.stringify({
+                        success: false,
+                        error: getErrorMessage(error),
+                    }),
+                );
             }
         });
     });
@@ -462,24 +424,31 @@ function listenForSessionCommands(options: {
     logTiming: (message: string) => void;
 }) {
     options.server.listen(options.serverPort, '127.0.0.1', () => {
-        mkdirSync(sessionDir(), { recursive: true });
-        writeFileSync(sessionFilePath(), JSON.stringify({
-            port: options.serverPort,
-            pid: process.pid,
-            cdpPort: options.cdpPort,
-            electronPid: options.electronProcess.pid ?? null,
-            nuxtPid: options.nuxtProcess?.pid ?? null,
-            nuxtPort: getNuxtPort(),
-            runId: process.env[E2E_RUN_ID_ENV] ?? null,
-            ...(sessionState?.recording ? {recording: sessionState.recording.manifest.manifestPath} : {}),
-            ...(options.outputTee ? {logs: {
-                manifestFile: options.outputTee.logManifestFile,
-                sessionLogFile: options.outputTee.sessionLogFile,
-                runDir: options.outputTee.runDir,
-                relativeRunDir: options.outputTee.relativeRunDir,
-                runCombinedLogFile: options.outputTee.runCombinedLogFile,
-            }} : {}),
-        }));
+        mkdirSync(sessionDir(), {recursive: true});
+        writeFileSync(
+            sessionFilePath(),
+            JSON.stringify({
+                port: options.serverPort,
+                pid: process.pid,
+                cdpPort: options.cdpPort,
+                electronPid: options.electronProcess.pid ?? null,
+                nuxtPid: options.nuxtProcess?.pid ?? null,
+                nuxtPort: getNuxtPort(),
+                runId: process.env[E2E_RUN_ID_ENV] ?? null,
+                ...(sessionState?.recording ? {recording: sessionState.recording.manifest.manifestPath} : {}),
+                ...(options.outputTee
+                    ? {
+                          logs: {
+                              manifestFile: options.outputTee.logManifestFile,
+                              sessionLogFile: options.outputTee.sessionLogFile,
+                              runDir: options.outputTee.runDir,
+                              relativeRunDir: options.outputTee.relativeRunDir,
+                              runCombinedLogFile: options.outputTee.runCombinedLogFile,
+                          },
+                      }
+                    : {}),
+            }),
+        );
         clearSessionStarting();
 
         console.log(`\n\u2713 Session '${getCurrentSessionName()}' ready on port ${options.serverPort}`);
@@ -502,7 +471,7 @@ export async function startControlledSession(forceClean = false, options: IStart
     }
 
     const logTiming = createStartupLogger();
-    if (!await ensureSessionCanStart()) {
+    if (!(await ensureSessionCanStart())) {
         closeActiveDevServerOutputTee();
         return;
     }
@@ -518,7 +487,9 @@ export async function startControlledSession(forceClean = false, options: IStart
     };
 
     try {
-        if (process.env.EVB_RECORD_SESSION === '1') { await assertRecordingTools(); }
+        if (process.env.EVB_RECORD_SESSION === '1') {
+            await assertRecordingTools();
+        }
         // A built-renderer session loads nuxt-output/public through the app
         // protocol, so it has no Nuxt server to start.
         const builtRenderer = usesBuiltRenderer(process.env);
@@ -546,10 +517,7 @@ export async function startControlledSession(forceClean = false, options: IStart
         if (await stopIfStartupInterrupted()) {
             return;
         }
-        const initialOpenPaths = normalizeInitialOpenPaths([
-            ...readInitialOpenPathsFromEnv(),
-            ...(options.initialOpenPaths ?? []),
-        ]);
+        const initialOpenPaths = normalizeInitialOpenPaths([...readInitialOpenPathsFromEnv(), ...(options.initialOpenPaths ?? [])]);
         if (initialOpenPaths.length > 0) {
             logLauncher('info', 'electron', `Initial open path(s): ${initialOpenPaths.length}`);
         }
@@ -647,7 +615,9 @@ export async function startControlledSession(forceClean = false, options: IStart
         } finally {
             try {
                 if (!hasWorkspaceRecoveryEvidence() && !cleanupSessionAppTempIfUnowned()) {
-                    console.warn('[Session] Failed-start app temp cleanup retained the namespace because a session-owned Electron process is still alive.');
+                    console.warn(
+                        '[Session] Failed-start app temp cleanup retained the namespace because a session-owned Electron process is still alive.',
+                    );
                 }
             } catch (cleanupError) {
                 console.error(`[Session] Failed-start app temp cleanup failed: ${getErrorMessage(cleanupError)}`);

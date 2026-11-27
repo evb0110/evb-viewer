@@ -1,18 +1,16 @@
 // fallow-ignore-file duplicate-export
 // The dynamic module shape keeps this facade coupled to the runtime exports
 // without creating the static import that this boundary exists to avoid.
-type TAgentAssistantRuntimeModule =
-    typeof import('@electron/features/agent/assistantService');
+type TAgentAssistantRuntimeModule = typeof import('@electron/features/agent/assistantService');
 
 let runtimeModulePromise: Promise<TAgentAssistantRuntimeModule> | null = null;
 let runtimeModule: TAgentAssistantRuntimeModule | null = null;
 
 function loadAgentAssistantRuntime() {
-    runtimeModulePromise ??=
-        import('@electron/features/agent/assistantService').then((loadedRuntime) => {
-            runtimeModule = loadedRuntime;
-            return loadedRuntime;
-        });
+    runtimeModulePromise ??= import('@electron/features/agent/assistantService').then((loadedRuntime) => {
+        runtimeModule = loadedRuntime;
+        return loadedRuntime;
+    });
     return runtimeModulePromise;
 }
 

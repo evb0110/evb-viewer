@@ -2,14 +2,7 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {nextTick} from 'vue';
 import {placeDocumentThumbnailRailsWithin} from '@app/modules/document-viewer/thumbnails/useDocumentThumbnailController';
 import {
@@ -39,7 +32,9 @@ function measureRailRows(padding = 0) {
     const fallback = vi.mocked(HTMLElement.prototype.getBoundingClientRect).getMockImplementation()!;
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
         const rail = this.closest<HTMLElement>('[data-document-thumbnail-rail]');
-        if (!rail || (this !== rail && !this.matches('[data-thumbnail-page]'))) return fallback.call(this);
+        if (!rail || (this !== rail && !this.matches('[data-thumbnail-page]'))) {
+            return fallback.call(this);
+        }
         const top = this === rail ? 0 : padding + Number.parseFloat(this.style.transform.slice(11)) - rail.scrollTop;
         const height = this === rail ? 600 : Number.parseFloat(this.style.height);
         return {
@@ -85,8 +80,9 @@ describe('DocumentThumbnailList virtualization', () => {
         expect(rows.length).toBeLessThan(30);
         expect(host.querySelector('[data-thumbnail-page="138000"]')).not.toBeNull();
         expect(host.querySelector('[data-thumbnail-page="1"]')).toBeNull();
-        expect(Number(host.querySelector('[data-thumbnail-scroll-segment]')?.getAttribute('data-thumbnail-scroll-segment')))
-            .toBeGreaterThan(0);
+        expect(
+            Number(host.querySelector('[data-thumbnail-scroll-segment]')?.getAttribute('data-thumbnail-scroll-segment')),
+        ).toBeGreaterThan(0);
     });
 
     it('places the source rail against the patched track after a clamp and geometry growth', async () => {
@@ -193,7 +189,7 @@ describe('DocumentThumbnailList virtualization', () => {
         const rail = mounted.host.querySelector<HTMLElement>('[data-document-thumbnail-rail]')!;
         const track = rail.querySelector<HTMLElement>('.document-thumbnail-list__content')!;
         const heightBefore = Number.parseFloat(track.style.height);
-        const anchorRow = Array.from(rail.querySelectorAll<HTMLElement>('[data-thumbnail-page]')).find(row => {
+        const anchorRow = Array.from(rail.querySelectorAll<HTMLElement>('[data-thumbnail-page]')).find((row) => {
             const rect = row.getBoundingClientRect();
             return rect.top <= 300 && rect.bottom >= 300;
         })!;

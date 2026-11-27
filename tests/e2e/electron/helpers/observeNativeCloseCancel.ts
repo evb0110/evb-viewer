@@ -21,15 +21,17 @@ export async function waitForNativeCloseCancel(session: IElectronE2ESession, req
     const evaluate = async (expression: string) => {
         const id = ++commandId;
         const reply = once(socket, 'message', {signal: AbortSignal.timeout(5_000)});
-        socket.send(JSON.stringify({
-            id,
-            method: 'Runtime.evaluate',
-            params: {
-                expression,
-                awaitPromise: true,
-                returnByValue: true,
-            },
-        }));
+        socket.send(
+            JSON.stringify({
+                id,
+                method: 'Runtime.evaluate',
+                params: {
+                    expression,
+                    awaitPromise: true,
+                    returnByValue: true,
+                },
+            }),
+        );
         const [event] = await reply;
         const response = JSON.parse(String(event.data));
         if (response.id !== id || response.error || response.result?.exceptionDetails) {

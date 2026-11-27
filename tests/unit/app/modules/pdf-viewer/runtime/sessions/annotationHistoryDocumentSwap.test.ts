@@ -1,29 +1,15 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    computed,
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    ref,
-    shallowRef,
-} from 'vue';
-import type { ComputedRef } from 'vue';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {computed, createApp, defineComponent, h, nextTick, ref, shallowRef} from 'vue';
+import type {ComputedRef} from 'vue';
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {INoteEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {TPdfDocumentView} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import type {TPdfViewportSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import type {TPdfRenderingSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession';
-import { cast } from '@tests/helpers/cast';
+import {cast} from '@tests/helpers/cast';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
 import {requireDocumentRef} from '@contracts/documentRef';
@@ -37,14 +23,12 @@ import type {TPdfDocumentAnnotations} from '@app/modules/pdf-viewer/runtime/sess
 
 vi.mock('@app/composables/useFailureToast', () => ({useFailureToast: () => ({presentNoticeToast: vi.fn()})}));
 
-const { createPdfAnnotationSession } = await import(
-    '@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession'
-);
+const {createPdfAnnotationSession} = await import('@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession');
 
 const mountedSessions: Array<() => void> = [];
 
 afterEach(() => {
-    mountedSessions.splice(0).forEach(unmount => unmount());
+    mountedSessions.splice(0).forEach((unmount) => unmount());
 });
 
 function note(id: string): INoteEntity {
@@ -93,72 +77,74 @@ function mountAnnotationSession(mountOptions: IMountAnnotationSessionOptions = {
     let session: ReturnType<typeof createPdfAnnotationSession> | undefined;
     const host = document.createElement('div');
     document.body.append(host);
-    const AnnotationSessionHost = defineComponent({ setup() {
-        session = createPdfAnnotationSession({
-            // Only the three sibling sessions are cast: each is a wide surface
-            // this fixture has no reason to stub whole. The options themselves
-            // stay typed so a renamed or retyped option fails to compile here.
-            document: cast<TPdfDocumentView>({
-                pdfDocument,
-                numPages: ref(1),
-                registerDisposable: vi.fn(),
-                subscribe: vi.fn(() => vi.fn()),
-                captureFence: vi.fn(() => ({
-                    loadToken: 0,
-                    documentVersion: 0,
-                    documentRevision: mountOptions.loadedRevision?.value ?? null,
-                    openSurfaceGeneration: 0,
+    const AnnotationSessionHost = defineComponent({
+        setup() {
+            session = createPdfAnnotationSession({
+                // Only the three sibling sessions are cast: each is a wide surface
+                // this fixture has no reason to stub whole. The options themselves
+                // stay typed so a renamed or retyped option fails to compile here.
+                document: cast<TPdfDocumentView>({
+                    pdfDocument,
+                    numPages: ref(1),
+                    registerDisposable: vi.fn(),
+                    subscribe: vi.fn(() => vi.fn()),
+                    captureFence: vi.fn(() => ({
+                        loadToken: 0,
+                        documentVersion: 0,
+                        documentRevision: mountOptions.loadedRevision?.value ?? null,
+                        openSurfaceGeneration: 0,
+                    })),
+                    isCurrent: vi.fn(() => true),
+                }),
+                viewport: cast<TPdfViewportSession>({
+                    currentPage: ref(1),
+                    visibleRange: computed(() => ({
+                        start: 1,
+                        end: 1,
+                    })),
+                    scale: {effectiveScale: computed(() => 1)},
+                    scroll: {updateVisibleRange: vi.fn()},
+                    singlePageScroll: {scrollToPage: vi.fn()},
+                }),
+                rendering: cast<TPdfRenderingSession>({
+                    attachAnnotationProjection: vi.fn(() => vi.fn()),
+                    hideManagedAnnotationEditors: vi.fn(),
+                    isPageRendered: vi.fn(() => false),
+                    renderAnnotationEditorLayerForPage: vi.fn(),
+                    renderVisiblePages: vi.fn(),
+                    renderedPageStateVersion: ref(0),
+                }),
+                viewerContainer: ref(null),
+                originalPath: computed(() => requireDocumentRef('/documents/original.pdf')),
+                src: computed(() => ({
+                    kind: 'path',
+                    path: requireDocumentRef('/managed/working.pdf'),
+                    size: 4,
                 })),
-                isCurrent: vi.fn(() => true),
-            }),
-            viewport: cast<TPdfViewportSession>({
-                currentPage: ref(1),
-                visibleRange: computed(() => ({
-                    start: 1,
-                    end: 1,
-                })),
-                scale: {effectiveScale: computed(() => 1)},
-                scroll: {updateVisibleRange: vi.fn()},
-                singlePageScroll: {scrollToPage: vi.fn()},
-            }),
-            rendering: cast<TPdfRenderingSession>({
-                attachAnnotationProjection: vi.fn(() => vi.fn()),
-                hideManagedAnnotationEditors: vi.fn(),
-                isPageRendered: vi.fn(() => false),
-                renderAnnotationEditorLayerForPage: vi.fn(),
-                renderVisiblePages: vi.fn(),
-                renderedPageStateVersion: ref(0),
-            }),
-            viewerContainer: ref(null),
-            originalPath: computed(() => requireDocumentRef('/documents/original.pdf')),
-            src: computed(() => ({
-                kind: 'path',
-                path: requireDocumentRef('/managed/working.pdf'),
-                size: 4,
-            })),
-            sourcePdfData: computed(() => null),
-            workingCopyPath: computed(() => requireDocumentRef('/managed/working.pdf')),
-            documentRevisionToken: mountOptions.documentRevisionToken ?? computed(() => null),
-            isAnySaving: mountOptions.isAnySaving ?? computed(() => false),
-            isActive: computed(() => true),
-            bufferPages: computed(() => 1),
-            annotationTool: computed(() => 'none'),
-            annotationCursorMode: computed(() => false),
-            annotationKeepActive: computed(() => false),
-            annotationSettings: computed(() => null),
-            authorName: computed(() => null),
-            clearPendingImagePlacement: vi.fn(),
-            emitAnnotationModified: vi.fn(),
-            emitAnnotationState: vi.fn(),
-            emitAnnotationOpenNote: vi.fn(),
-            emitAnnotationContextMenu: vi.fn(),
-            emitAnnotationToolAutoReset: vi.fn(),
-            emitAnnotationSetting: vi.fn(),
-            emitAnnotationCommentClick: vi.fn(),
-            emitShapeContextMenu: vi.fn(),
-        });
-        return () => h('div');
-    } });
+                sourcePdfData: computed(() => null),
+                workingCopyPath: computed(() => requireDocumentRef('/managed/working.pdf')),
+                documentRevisionToken: mountOptions.documentRevisionToken ?? computed(() => null),
+                isAnySaving: mountOptions.isAnySaving ?? computed(() => false),
+                isActive: computed(() => true),
+                bufferPages: computed(() => 1),
+                annotationTool: computed(() => 'none'),
+                annotationCursorMode: computed(() => false),
+                annotationKeepActive: computed(() => false),
+                annotationSettings: computed(() => null),
+                authorName: computed(() => null),
+                clearPendingImagePlacement: vi.fn(),
+                emitAnnotationModified: vi.fn(),
+                emitAnnotationState: vi.fn(),
+                emitAnnotationOpenNote: vi.fn(),
+                emitAnnotationContextMenu: vi.fn(),
+                emitAnnotationToolAutoReset: vi.fn(),
+                emitAnnotationSetting: vi.fn(),
+                emitAnnotationCommentClick: vi.fn(),
+                emitShapeContextMenu: vi.fn(),
+            });
+            return () => h('div');
+        },
+    });
     const app = createApp(AnnotationSessionHost);
     if (mountOptions.documentAnnotations) {
         app.provide(pdfDocumentAnnotationsKey, mountOptions.documentAnnotations);
@@ -180,9 +166,7 @@ function mountAnnotationSession(mountOptions: IMountAnnotationSessionOptions = {
         canUndo: () => activeSession.appAnnotationHistory.canUndo.value,
         canRedo: () => activeSession.appAnnotationHistory.canRedo.value,
         application: () => activeSession.annotationApplication.value,
-        canonicalAnnotationIds: () => activeSession.annotationApplication.value.store
-            .list()
-            .map(entity => entity.identity.id),
+        canonicalAnnotationIds: () => activeSession.annotationApplication.value.store.list().map((entity) => entity.identity.id),
     };
 }
 
@@ -307,7 +291,7 @@ describe('annotation history shared by two views of one document', () => {
         expect(left.application()).toBe(right.application());
     });
 
-    it('keeps the store and its undo when a save\'s reloads land after the save let the document go', async () => {
+    it("keeps the store and its undo when a save's reloads land after the save let the document go", async () => {
         const shared = createSharedDocument();
         const left = shared.mountView();
         const right = shared.mountView();

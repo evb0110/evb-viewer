@@ -1,7 +1,4 @@
-import {
-    useMutationObserver,
-    useTimeoutFn,
-} from '@vueuse/core';
+import {useMutationObserver, useTimeoutFn} from '@vueuse/core';
 
 interface IWorkspaceHostTeleportAvailability {
     toolbarHostId: string;
@@ -19,10 +16,7 @@ export const useWorkspaceHostTeleportAvailability = (options: IWorkspaceHostTele
         stopObserverTimeout();
     }
 
-    const {
-        start: startObserverTimeout,
-        stop: stopObserverTimeout,
-    } = useTimeoutFn(stopObservation, 5_000, { immediate: false });
+    const {start: startObserverTimeout, stop: stopObserverTimeout} = useTimeoutFn(stopObservation, 5_000, {immediate: false});
 
     function refreshTeleportHosts() {
         if (typeof document === 'undefined') {

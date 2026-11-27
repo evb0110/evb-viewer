@@ -1,8 +1,8 @@
 {
-    "name": "@evb/agent-core",
-    "private": true,
-    "type": "module",
-    "exports": {
-        "./*": "./*.ts"
-    }
+  "name": "@evb/agent-core",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": "./*.ts"
+  }
 }

@@ -1,9 +1,9 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
-import type { TPageNumber } from '@contracts/pageNumbers';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 
-import { getPageRowBoundsForViewMode } from '@app/modules/document-viewer/public';
-import type { TPdfViewMode } from '@app/types/pdfContracts';
-import type { IRenderedSpreadHorizontalBounds } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/pdfHorizontalScrollClampTypes';
+import {getPageRowBoundsForViewMode} from '@app/modules/document-viewer/public';
+import type {TPdfViewMode} from '@app/types/pdfContracts';
+import type {IRenderedSpreadHorizontalBounds} from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/pdfHorizontalScrollClampTypes';
 
 export function getCurrentSpreadRenderedBoundsFromMetrics(options: {
     container: HTMLElement;
@@ -30,11 +30,7 @@ export function getCurrentSpreadRenderedBoundsFromMetrics(options: {
     const rowPageCount = Math.max(1, rowBounds.end - rowBounds.start + 1);
     let baseSpreadWidth = 0;
     let renderedSpreadWidth = 0;
-    for (
-        let pageNumber = Number(rowBounds.start);
-        pageNumber <= rowBounds.end;
-        pageNumber += 1
-    ) {
+    for (let pageNumber = Number(rowBounds.start); pageNumber <= rowBounds.end; pageNumber += 1) {
         const normalizedPageNumber = requirePageNumber(pageNumber, options.numPages);
         const pageWidth = options.pageWidths[pageNumber - 1];
         baseSpreadWidth += pageWidth ?? 0;
@@ -55,10 +51,7 @@ export function getCurrentSpreadRenderedBoundsFromMetrics(options: {
     }
 
     return {
-        left: Math.max(
-            options.scaledMargin,
-            (options.container.clientWidth - renderedSpreadWidth) / 2,
-        ),
+        left: Math.max(options.scaledMargin, (options.container.clientWidth - renderedSpreadWidth) / 2),
         width: renderedSpreadWidth,
     };
 }

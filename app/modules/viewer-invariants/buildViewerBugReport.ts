@@ -1,8 +1,8 @@
-import type { IWorkspaceCheckpointTab } from '@contracts/workspaceCheckpoint';
-import { checkViewerInvariants } from '@app/modules/viewer-invariants/checkViewerInvariants';
-import { readViewerSurface } from '@app/modules/viewer-invariants/readViewerSurface';
-import { readViewerUserActions } from '@app/modules/viewer-invariants/viewerActionLog';
-import type { IViewerInvariantReport } from '@app/modules/viewer-invariants/viewerInvariantTypes';
+import type {IWorkspaceCheckpointTab} from '@contracts/workspaceCheckpoint';
+import {checkViewerInvariants} from '@app/modules/viewer-invariants/checkViewerInvariants';
+import {readViewerSurface} from '@app/modules/viewer-invariants/readViewerSurface';
+import {readViewerUserActions} from '@app/modules/viewer-invariants/viewerActionLog';
+import type {IViewerInvariantReport} from '@app/modules/viewer-invariants/viewerInvariantTypes';
 
 const BUG_REPORT_SCHEMA_VERSION = 2;
 const ZOOM_DISPLAY_SELECTOR = '#editor-global-toolbar-host .zoom-controls-display-value';
@@ -13,10 +13,7 @@ const SOURCE_PATH_SELECTOR = '.status-bar-path';
  * ids, file names and document refs are deliberately reduced to presence
  * booleans so a bundle can be attached to an issue as it is.
  */
-type TRedactedCheckpointTab = Pick<
-    IWorkspaceCheckpointTab,
-    'currentPage' | 'isDirty' | 'zoom' | 'zoomMode'
-> & {
+type TRedactedCheckpointTab = Pick<IWorkspaceCheckpointTab, 'currentPage' | 'isDirty' | 'zoom' | 'zoomMode'> & {
     isActive: boolean;
     paneIndex: number;
 };
@@ -94,18 +91,18 @@ function readCheckpointShape(root: Document): IViewerBugReportCheckpointShape {
     const {surface} = readViewerSurface(root);
     const zoom = readRenderedZoom(root);
     return {
-        activeTabIndex: tabElements.findIndex(tab => tab.classList.contains('is-active')),
+        activeTabIndex: tabElements.findIndex((tab) => tab.classList.contains('is-active')),
         paneCount: panes.length,
         tabCount: tabElements.length,
         tabs: tabElements.map((tab): TRedactedCheckpointTab => {
             const isActive = tab.classList.contains('is-active');
             return {
-                currentPage: isActive ? surface?.toolbarPageNumber ?? null : null,
+                currentPage: isActive ? (surface?.toolbarPageNumber ?? null) : null,
                 isActive,
                 isDirty: tab.classList.contains('is-dirty'),
-                paneIndex: panes.findIndex(pane => pane.contains(tab)),
+                paneIndex: panes.findIndex((pane) => pane.contains(tab)),
                 zoom: isActive ? zoom : null,
-                zoomMode: isActive ? surface?.zoomMode ?? null : null,
+                zoomMode: isActive ? (surface?.zoomMode ?? null) : null,
             };
         }),
         version: 1,

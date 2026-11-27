@@ -1,30 +1,16 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {
     getViewportVisibility,
     getViewportVisibilityFromDom,
 } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getViewportVisibilityFromDom';
-import {
-    buildPageLayoutMetrics,
-    type IPdfPageLayoutMetrics,
-} from '@app/modules/document-viewer/public';
+import {buildPageLayoutMetrics, type IPdfPageLayoutMetrics} from '@app/modules/document-viewer/public';
 
-function createPageElement(options: {
-    height: number;
-    left: number;
-    page: number;
-    top: number;
-    width: number;
-}) {
+function createPageElement(options: {height: number; left: number; page: number; top: number; width: number}) {
     // This helper supplies only the layout fields read by the pure visibility
     // calculator. It is intentionally a structural HTMLElement shim.
     return Object.assign(Object.create(null), {
-        classList: { contains: vi.fn(() => false) },
-        dataset: { page: String(options.page) },
+        classList: {contains: vi.fn(() => false)},
+        dataset: {page: String(options.page)},
         offsetHeight: options.height,
         offsetLeft: options.left,
         offsetTop: options.top,
@@ -84,10 +70,7 @@ function createElementShim(shape: Record<string, unknown>): HTMLElement {
     return Object.assign(Object.create(null), shape);
 }
 
-function createContainerStub(options?: {
-    clientWidth?: number;
-    scrollLeft?: number;
-}) {
+function createContainerStub(options?: {clientWidth?: number; scrollLeft?: number}) {
     let scrollTop = 0;
     let scrollLeft = options?.scrollLeft ?? 0;
 
@@ -133,38 +116,40 @@ function createPageElementStub(
 ) {
     const width = options?.width ?? 200;
     return createElementShim({
-        dataset: { page: String(pageNumber) },
+        dataset: {page: String(pageNumber)},
         offsetLeft: options?.left ?? 0,
         offsetTop: top,
         offsetWidth: width,
         offsetHeight: height,
         clientWidth: width,
         clientHeight: height,
-        classList: { contains: (className: string) => buffered && className === 'page_container--buffered' },
+        classList: {contains: (className: string) => buffered && className === 'page_container--buffered'},
     });
 }
 
 describe('viewport visibility page layout fallback', () => {
     it('reports unmeasured visibility when neither DOM nor layout describes a page', () => {
-        const { container } = createContainerStub();
+        const {container} = createContainerStub();
         const scroll = createVisibilityProbe();
 
         expect(scroll.getViewportVisibility(container, 10).range).toBeNull();
         expect(scroll.getViewportVisibility(null, 10).range).toBeNull();
         expect(scroll.getViewportVisibility(container, 0).range).toBeNull();
 
-        scroll.setPageLayoutMetrics(buildPageLayoutMetrics({
-            pageMetrics: Array.from({length: 10}, () => ({
-                width: 200,
-                height: 100,
-            })),
-            totalPages: 10,
-            viewMode: 'single',
-            scale: 1,
-            gap: 0,
-            paddingTop: 0,
-            paddingBottom: 0,
-        }));
+        scroll.setPageLayoutMetrics(
+            buildPageLayoutMetrics({
+                pageMetrics: Array.from({length: 10}, () => ({
+                    width: 200,
+                    height: 100,
+                })),
+                totalPages: 10,
+                viewMode: 'single',
+                scale: 1,
+                gap: 0,
+                paddingTop: 0,
+                paddingBottom: 0,
+            }),
+        );
         container.scrollTop = 400;
         expect(scroll.getViewportVisibility(container, 10).range).toEqual({
             start: 5,
@@ -188,18 +173,20 @@ describe('viewport visibility page layout fallback', () => {
             querySelectorAll: () => [mountedPage],
         });
         const scroll = createVisibilityProbe();
-        scroll.setPageLayoutMetrics(buildPageLayoutMetrics({
-            pageMetrics: Array.from({ length: 10 }, () => ({
-                width: 200,
-                height: 100,
-            })),
-            totalPages: 10,
-            viewMode: 'single',
-            scale: 1,
-            gap: 0,
-            paddingTop: 0,
-            paddingBottom: 0,
-        }));
+        scroll.setPageLayoutMetrics(
+            buildPageLayoutMetrics({
+                pageMetrics: Array.from({length: 10}, () => ({
+                    width: 200,
+                    height: 100,
+                })),
+                totalPages: 10,
+                viewMode: 'single',
+                scale: 1,
+                gap: 0,
+                paddingTop: 0,
+                paddingBottom: 0,
+            }),
+        );
 
         expect(scroll.getViewportVisibility(container, 10).range).toEqual({
             start: 5,
@@ -219,10 +206,7 @@ describe('viewport visibility page layout fallback', () => {
             scrollLeft: 0,
             scrollTop: 0,
             querySelector: () => null,
-            querySelectorAll: () => [
-                bufferedPage,
-                activePage,
-            ],
+            querySelectorAll: () => [bufferedPage, activePage],
         });
         const scroll = createVisibilityProbe();
 
@@ -250,10 +234,7 @@ describe('viewport visibility page layout fallback', () => {
             scrollLeft: 200,
             scrollTop: 0,
             querySelector: () => null,
-            querySelectorAll: () => [
-                leftPage,
-                rightPage,
-            ],
+            querySelectorAll: () => [leftPage, rightPage],
         });
         const scroll = createVisibilityProbe();
 
@@ -265,29 +246,31 @@ describe('viewport visibility page layout fallback', () => {
     });
 
     it('uses horizontal layout overlap when fallback spread pages share the same row', () => {
-        const { container } = createContainerStub({
+        const {container} = createContainerStub({
             clientWidth: 200,
             scrollLeft: 200,
         });
         const scroll = createVisibilityProbe();
-        scroll.setPageLayoutMetrics(buildPageLayoutMetrics({
-            pageMetrics: [
-                {
-                    width: 200,
-                    height: 200,
-                },
-                {
-                    width: 200,
-                    height: 200,
-                },
-            ],
-            totalPages: 2,
-            viewMode: 'facing',
-            scale: 1,
-            gap: 20,
-            paddingTop: 0,
-            paddingBottom: 0,
-        }));
+        scroll.setPageLayoutMetrics(
+            buildPageLayoutMetrics({
+                pageMetrics: [
+                    {
+                        width: 200,
+                        height: 200,
+                    },
+                    {
+                        width: 200,
+                        height: 200,
+                    },
+                ],
+                totalPages: 2,
+                viewMode: 'facing',
+                scale: 1,
+                gap: 20,
+                paddingTop: 0,
+                paddingBottom: 0,
+            }),
+        );
 
         expect(scroll.getViewportVisibility(container, 2).range).toEqual({
             start: 2,
@@ -297,33 +280,32 @@ describe('viewport visibility page layout fallback', () => {
     });
 
     it('keeps visible tall spread siblings in the layout fallback range', () => {
-        const {
-            container,
-            getScrollTop,
-        } = createContainerStub({ clientWidth: 600 });
+        const {container, getScrollTop} = createContainerStub({clientWidth: 600});
         const scroll = createVisibilityProbe();
-        scroll.setPageLayoutMetrics(buildPageLayoutMetrics({
-            pageMetrics: [
-                {
-                    width: 200,
-                    height: 500,
-                },
-                {
-                    width: 200,
-                    height: 100,
-                },
-                {
-                    width: 200,
-                    height: 100,
-                },
-            ],
-            totalPages: 3,
-            viewMode: 'facing',
-            scale: 1,
-            gap: 20,
-            paddingTop: 0,
-            paddingBottom: 0,
-        }));
+        scroll.setPageLayoutMetrics(
+            buildPageLayoutMetrics({
+                pageMetrics: [
+                    {
+                        width: 200,
+                        height: 500,
+                    },
+                    {
+                        width: 200,
+                        height: 100,
+                    },
+                    {
+                        width: 200,
+                        height: 100,
+                    },
+                ],
+                totalPages: 3,
+                viewMode: 'facing',
+                scale: 1,
+                gap: 20,
+                paddingTop: 0,
+                paddingBottom: 0,
+            }),
+        );
 
         container.scrollTop = 250;
 

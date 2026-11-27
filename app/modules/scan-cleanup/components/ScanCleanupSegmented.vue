@@ -15,7 +15,7 @@
             :aria-label="item.ariaLabel ?? item.label"
             :aria-checked="item.value === modelValue"
             :disabled="disabled"
-            :tabindex="item.value === modelValue || !hasSelectedItem && index === 0 ? 0 : -1"
+            :tabindex="item.value === modelValue || (!hasSelectedItem && index === 0) ? 0 : -1"
             @click="select(item.value)"
             @keydown="handleKeydown($event, index)"
         >
@@ -43,9 +43,9 @@ const {
     modelValue: string;
 }>();
 
-const emit = defineEmits<{'update:modelValue': [value: string];}>();
+const emit = defineEmits<{'update:modelValue': [value: string]}>();
 const group = ref<HTMLElement | null>(null);
-const hasSelectedItem = computed(() => items.some(item => item.value === modelValue));
+const hasSelectedItem = computed(() => items.some((item) => item.value === modelValue));
 
 function select(value: string) {
     if (disabled) {

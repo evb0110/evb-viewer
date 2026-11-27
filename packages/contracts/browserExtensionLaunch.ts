@@ -11,14 +11,8 @@ export const BROWSER_EXTENSION_VIEWER_PAGE = 'index.html';
 export const BROWSER_EXTENSION_OPEN_NATIVELY_MESSAGE = 'evb-viewer:open-natively';
 
 const DOCUMENT_URL_PARAM = 'file';
-const WEB_PROTOCOLS = new Set([
-    'http:',
-    'https:',
-]);
-const VIEWER_PROTOCOLS = new Set([
-    ...WEB_PROTOCOLS,
-    'file:',
-]);
+const WEB_PROTOCOLS = new Set(['http:', 'https:']);
+const VIEWER_PROTOCOLS = new Set([...WEB_PROTOCOLS, 'file:']);
 
 export interface IBrowserExtensionOpenNativelyRequest {
     type: typeof BROWSER_EXTENSION_OPEN_NATIVELY_MESSAGE;
@@ -49,10 +43,12 @@ const DOCUMENT_URL_QUERY = new RegExp(`(?:^|&)${DOCUMENT_URL_PARAM}=(.*)$`, 'u')
 
 function readDocumentUrlQuery(viewerUrl: URL) {
     const match = DOCUMENT_URL_QUERY.exec(viewerUrl.search.slice(1));
-    return match ? {
-        index: match.index,
-        value: match[1] ?? '',
-    } : null;
+    return match
+        ? {
+              index: match.index,
+              value: match[1] ?? '',
+          }
+        : null;
 }
 
 /**
@@ -80,9 +76,8 @@ export function readBrowserExtensionOpenPageDocumentUrl(openPageUrl: string) {
 
 /** The web or local document the viewer page was asked to open, if any. */
 export function readBrowserExtensionDocumentUrl(viewerUrl: string) {
-    const value = readDocumentUrlQuery(new URL(viewerUrl))?.value.replaceAll(
-        ESCAPED_HASH,
-        (_escape, extra: string) => (extra ? `%${extra.slice(2)}23` : '#'),
+    const value = readDocumentUrlQuery(new URL(viewerUrl))?.value.replaceAll(ESCAPED_HASH, (_escape, extra: string) =>
+        extra ? `%${extra.slice(2)}23` : '#',
     );
     return parseDocumentUrl(value, VIEWER_PROTOCOLS);
 }
@@ -102,7 +97,9 @@ export function isBrowserExtensionOpenNativelyRequest(value: unknown): value is 
         return false;
     }
     const url: unknown = Reflect.get(value, 'url');
-    return Reflect.get(value, 'type') === BROWSER_EXTENSION_OPEN_NATIVELY_MESSAGE
-        && typeof url === 'string'
-        && parseDocumentUrl(url, VIEWER_PROTOCOLS) !== null;
+    return (
+        Reflect.get(value, 'type') === BROWSER_EXTENSION_OPEN_NATIVELY_MESSAGE &&
+        typeof url === 'string' &&
+        parseDocumentUrl(url, VIEWER_PROTOCOLS) !== null
+    );
 }

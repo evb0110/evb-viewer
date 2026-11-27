@@ -1,10 +1,6 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { collectMarkupSubtypeHints } from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/collectMarkupSubtypeHints';
+import {describe, expect, it} from 'vitest';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
+import {collectMarkupSubtypeHints} from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/collectMarkupSubtypeHints';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary>): IAnnotationCommentSummary {
     return {
@@ -136,19 +132,21 @@ describe('pdfSerializationSubtypeHints', () => {
     });
 
     it('does not persist passive colors sampled from existing PDF markup', () => {
-        const hints = collectMarkupSubtypeHints([createComment({
-            subtype: 'Highlight',
-            pageIndex: 0,
-            source: 'pdf',
-            annotationId: '12R',
-            color: '#facc15',
-            markerRect: {
-                left: 1,
-                top: 2,
-                width: 3,
-                height: 4,
-            },
-        })]);
+        const hints = collectMarkupSubtypeHints([
+            createComment({
+                subtype: 'Highlight',
+                pageIndex: 0,
+                source: 'pdf',
+                annotationId: '12R',
+                color: '#facc15',
+                markerRect: {
+                    left: 1,
+                    top: 2,
+                    width: 3,
+                    height: 4,
+                },
+            }),
+        ]);
 
         expect(hints).toHaveLength(1);
         expect(hints[0]).toMatchObject({
@@ -219,10 +217,7 @@ describe('pdfSerializationSubtypeHints', () => {
             }),
         ]);
 
-        expect(hints.map(hint => hint.subtype)).toEqual([
-            'Highlight',
-            'StrikeOut',
-        ]);
+        expect(hints.map((hint) => hint.subtype)).toEqual(['Highlight', 'StrikeOut']);
     });
 
     it('ignores malformed marker rectangles', () => {

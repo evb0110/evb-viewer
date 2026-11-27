@@ -1,12 +1,6 @@
 import type * as TViMockOriginalModule from '@app/constants/storageKeys';
 
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 
 vi.mock('@app/constants/storageKeys', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
@@ -15,13 +9,8 @@ vi.mock('@app/constants/storageKeys', async (importOriginal) => ({
     },
 }));
 
-const {
-    clearHighlightAPIForLayer,
-    createCssHighlightState,
-    updateHighlightAPI,
-    registerHighlightRange,
-    getHighlightMode,
-} = await import('@app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss');
+const {clearHighlightAPIForLayer, createCssHighlightState, updateHighlightAPI, registerHighlightRange, getHighlightMode} =
+    await import('@app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss');
 
 beforeEach(() => {
     vi.unstubAllGlobals();
@@ -29,7 +18,10 @@ beforeEach(() => {
 
 function stubHighlightApi() {
     vi.stubGlobal('CSS', {highlights: new Map()});
-    vi.stubGlobal('Highlight', vi.fn(() => ({enabled: true})));
+    vi.stubGlobal(
+        'Highlight',
+        vi.fn(() => ({enabled: true})),
+    );
 }
 
 describe('createCssHighlightState', () => {
@@ -77,10 +69,15 @@ describe('registerHighlightRange', () => {
         registerHighlightRange(state, container, range1, false, 'r1');
         registerHighlightRange(state, container, range2, true, 'r2');
 
-        const ids = (state.layerRangeIds as WeakMap<object, {
-            normal: Set<string>;
-            current: Set<string>
-        }>).get(container);
+        const ids = (
+            state.layerRangeIds as WeakMap<
+                object,
+                {
+                    normal: Set<string>;
+                    current: Set<string>;
+                }
+            >
+        ).get(container);
         expect(ids).toBeDefined();
         expect(ids!.normal.has('r1')).toBe(true);
         expect(ids!.current.has('r2')).toBe(true);
@@ -94,10 +91,7 @@ describe('registerHighlightRange', () => {
         registerHighlightRange(state, container, {} as Range, false, 'b');
 
         const ids = state.layerRangeIds.get(container);
-        expect(ids?.normal).toEqual(new Set([
-            'a',
-            'b',
-        ]));
+        expect(ids?.normal).toEqual(new Set(['a', 'b']));
         expect(ids?.current.size).toBe(0);
         expect(state.highlightRanges.size).toBe(2);
         expect(state.layerRangeIds.get(container)).toBe(ids);
@@ -108,9 +102,14 @@ describe('linked-view CSS registry ownership', () => {
     it('retains both viewers and removes only the clearing layer contribution', () => {
         const registry = new Map<string, Highlight>();
         vi.stubGlobal('CSS', {highlights: registry});
-        vi.stubGlobal('Highlight', class extends Set<Range> {
-            constructor(...ranges: Range[]) { super(ranges); }
-        });
+        vi.stubGlobal(
+            'Highlight',
+            class extends Set<Range> {
+                constructor(...ranges: Range[]) {
+                    super(ranges);
+                }
+            },
+        );
         const first = createCssHighlightState();
         const second = createCssHighlightState();
         const firstLayer = {} as HTMLElement;
@@ -122,10 +121,7 @@ describe('linked-view CSS registry ownership', () => {
         registerHighlightRange(second, secondLayer, secondRange, true, 'same-id');
         updateHighlightAPI(first, 'normal', 'current');
         updateHighlightAPI(second, 'normal', 'current');
-        expect([...registry.get('current')!]).toEqual([
-            firstRange,
-            secondRange,
-        ]);
+        expect([...registry.get('current')!]).toEqual([firstRange, secondRange]);
         clearHighlightAPIForLayer(first, firstLayer, 'normal', 'current');
         expect([...registry.get('current')!]).toEqual([secondRange]);
         clearHighlightAPIForLayer(second, secondLayer, 'normal', 'current');
@@ -140,16 +136,20 @@ describe('getHighlightMode', () => {
 
     it('returns css when highlight API and storage flag are available', () => {
         stubHighlightApi();
-        vi.stubGlobal('window', { localStorage: {getItem: vi.fn((key: string) => key === 'pdfHighlightMode' ? 'css' : null)} });
+        vi.stubGlobal('window', {localStorage: {getItem: vi.fn((key: string) => (key === 'pdfHighlightMode' ? 'css' : null))}});
 
         expect(getHighlightMode()).toBe('css');
     });
 
     it('falls back to dom when reading highlight mode throws', () => {
         stubHighlightApi();
-        vi.stubGlobal('window', { localStorage: {getItem: vi.fn(() => {
-            throw new Error('storage blocked');
-        })} });
+        vi.stubGlobal('window', {
+            localStorage: {
+                getItem: vi.fn(() => {
+                    throw new Error('storage blocked');
+                }),
+            },
+        });
 
         expect(getHighlightMode()).toBe('dom');
     });

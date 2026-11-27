@@ -1,18 +1,8 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    h,
-} from 'vue';
-import { useAssistantPanelResize } from '@app/modules/workspace-shell/composables/useAssistantPanelResize';
+import {afterEach, beforeEach, describe, expect, it} from 'vitest';
+import {createApp, defineComponent, h} from 'vue';
+import {useAssistantPanelResize} from '@app/modules/workspace-shell/composables/useAssistantPanelResize';
 
 const PANEL_WIDTH_STORAGE_KEY = 'evb-viewer:assistant:panel-width';
 
@@ -22,10 +12,14 @@ function mountPanelResize() {
     let api: ReturnType<typeof useAssistantPanelResize> | null = null;
     const host = document.createElement('div');
     document.body.append(host);
-    const app = createApp(defineComponent({setup: () => {
-        api = useAssistantPanelResize();
-        return () => h('div');
-    }}));
+    const app = createApp(
+        defineComponent({
+            setup: () => {
+                api = useAssistantPanelResize();
+                return () => h('div');
+            },
+        }),
+    );
     app.mount(host);
     unmountHost = () => {
         app.unmount();
@@ -40,7 +34,7 @@ function pointerEvent(type: string, clientX: number) {
 }
 
 async function nextFrame() {
-    await new Promise(resolve => requestAnimationFrame(() => resolve(null)));
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
 }
 
 beforeEach(() => {

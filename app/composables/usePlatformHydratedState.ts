@@ -1,6 +1,6 @@
-import { useTimeoutFn } from '@vueuse/core';
-import { createDisposalFlag } from '@app/utils/createDisposalFlag';
-import { getErrorMessage } from '@app/utils/error';
+import {useTimeoutFn} from '@vueuse/core';
+import {createDisposalFlag} from '@app/utils/createDisposalFlag';
+import {getErrorMessage} from '@app/utils/error';
 
 interface IUsePlatformHydratedStateOptions<T> {
     key: string;
@@ -27,9 +27,7 @@ interface IPlatformHydratedLoadFailure {
     error: unknown;
 }
 
-type TPlatformHydratedLoadResult<T> =
-    | IPlatformHydratedLoadSuccess<T>
-    | IPlatformHydratedLoadFailure;
+type TPlatformHydratedLoadResult<T> = IPlatformHydratedLoadSuccess<T> | IPlatformHydratedLoadFailure;
 
 interface IPlatformHydratedLoadRecord {
     promise: Promise<TPlatformHydratedLoadResult<unknown>> | null;
@@ -76,9 +74,7 @@ function getLoadRecord(appKey: object, key: string) {
     return record;
 }
 
-export const usePlatformHydratedState = <T>(
-    options: IUsePlatformHydratedStateOptions<T>,
-) => {
+export const usePlatformHydratedState = <T>(options: IUsePlatformHydratedStateOptions<T>) => {
     const state = useState<T>(`${options.key}:data`, options.initialValue);
     const isLoading = useState(`${options.key}:is-loading`, () => false);
     const isResolved = useState(`${options.key}:is-resolved`, () => options.initialResolved);
@@ -104,24 +100,23 @@ export const usePlatformHydratedState = <T>(
             applyInitialValue();
         }
     }
-    const retry = useTimeoutFn(() => {
-        if (lifecycle.isDisposed()) {
-            return;
-        }
-        void load();
-    }, () => options.retryDelayMs ?? 0, { immediate: false });
+    const retry = useTimeoutFn(
+        () => {
+            if (lifecycle.isDisposed()) {
+                return;
+            }
+            void load();
+        },
+        () => options.retryDelayMs ?? 0,
+        {immediate: false},
+    );
 
     function clearRetryTimer() {
         retry.stop();
     }
 
     function scheduleRetry() {
-        if (
-            lifecycle.isDisposed()
-            || retry.isPending.value
-            || typeof options.retryDelayMs !== 'number'
-            || options.retryDelayMs <= 0
-        ) {
+        if (lifecycle.isDisposed() || retry.isPending.value || typeof options.retryDelayMs !== 'number' || options.retryDelayMs <= 0) {
             return;
         }
 
@@ -152,8 +147,7 @@ export const usePlatformHydratedState = <T>(
                 } satisfies IPlatformHydratedLoadSuccess<T>;
             } catch (loadError) {
                 loadRecord.consecutiveFailures += 1;
-                error.value = options.getErrorMessage?.(loadError)
-                    ?? getErrorMessage(loadError);
+                error.value = options.getErrorMessage?.(loadError) ?? getErrorMessage(loadError);
                 if (options.markResolvedOnError?.(loadError) ?? false) {
                     isResolved.value = true;
                 }
@@ -192,17 +186,12 @@ export const usePlatformHydratedState = <T>(
         options.onError?.(result.error);
         const wantsRetry = options.shouldRetry?.(result.error) ?? false;
         const maxAutomaticRetries = options.maxAutomaticRetries;
-        const automaticRetriesExhausted = wantsRetry
-            && typeof maxAutomaticRetries === 'number'
-            && loadRecord.consecutiveFailures > Math.max(0, Math.floor(maxAutomaticRetries));
+        const automaticRetriesExhausted =
+            wantsRetry &&
+            typeof maxAutomaticRetries === 'number' &&
+            loadRecord.consecutiveFailures > Math.max(0, Math.floor(maxAutomaticRetries));
         const shouldRetry = wantsRetry && !automaticRetriesExhausted;
-        if (
-            !shouldRetry
-            && (
-                automaticRetriesExhausted
-                || (options.markResolvedOnError?.(result.error) ?? false)
-            )
-        ) {
+        if (!shouldRetry && (automaticRetriesExhausted || (options.markResolvedOnError?.(result.error) ?? false))) {
             isResolved.value = true;
         }
         if (shouldRetry) {

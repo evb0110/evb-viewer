@@ -1,12 +1,5 @@
 import {resolve} from 'node:path';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 // The endpoint reads nothing off the event beyond the cookie helpers these
 // tests stub, so one stand-in serves every invocation.
@@ -73,7 +66,10 @@ describe('latest release endpoint policy', () => {
             releaseCanaryPercent: '0',
         }));
         vi.stubGlobal('setHeader', setHeader);
-        vi.stubGlobal('getCookie', vi.fn(() => undefined));
+        vi.stubGlobal(
+            'getCookie',
+            vi.fn(() => undefined),
+        );
         vi.stubGlobal('setCookie', setCookie);
         vi.stubGlobal('$fetch', fetch);
         vi.stubGlobal('createError', (details: {statusMessage: string}) => new Error(details.statusMessage));
@@ -102,10 +98,11 @@ describe('latest release endpoint policy', () => {
         });
         const responseAssets = response.assets as Array<{
             name: string;
-            mirrorDownloadUrl?: string
+            mirrorDownloadUrl?: string;
         }>;
-        expect(responseAssets.find((asset: {name: string}) => asset.name.endsWith('x64.exe'))?.mirrorDownloadUrl)
-            .toBe('https://mirror.example.test/releases/v2.0.0/EVB-Viewer-2.0.0-x64.exe');
+        expect(responseAssets.find((asset: {name: string}) => asset.name.endsWith('x64.exe'))?.mirrorDownloadUrl).toBe(
+            'https://mirror.example.test/releases/v2.0.0/EVB-Viewer-2.0.0-x64.exe',
+        );
         expect(responseAssets.find((asset: {name: string}) => asset.name.endsWith('arm64-setup.exe'))?.mirrorDownloadUrl).toBeUndefined();
         expect(fetch).toHaveBeenCalledTimes(1);
         expect(probedMirrorUrls).toEqual([
@@ -130,7 +127,10 @@ describe('latest release endpoint policy', () => {
             releaseCanaryPercent: '0',
         }));
         vi.stubGlobal('setHeader', vi.fn());
-        vi.stubGlobal('getCookie', vi.fn(() => undefined));
+        vi.stubGlobal(
+            'getCookie',
+            vi.fn(() => undefined),
+        );
         vi.stubGlobal('setCookie', vi.fn());
         vi.stubGlobal('$fetch', fetch);
         vi.stubGlobal('fetch', mirrorProbe);
@@ -143,10 +143,11 @@ describe('latest release endpoint policy', () => {
 
         const responseAssets = response.assets as Array<{
             name: string;
-            mirrorDownloadUrl?: string
+            mirrorDownloadUrl?: string;
         }>;
-        expect(responseAssets.find(asset => asset.name.endsWith('arm64-setup.exe'))?.mirrorDownloadUrl)
-            .toBe('https://mirror.example.test/releases/v2.0.0/EVB-Viewer-2.0.0-arm64-setup.exe');
+        expect(responseAssets.find((asset) => asset.name.endsWith('arm64-setup.exe'))?.mirrorDownloadUrl).toBe(
+            'https://mirror.example.test/releases/v2.0.0/EVB-Viewer-2.0.0-arm64-setup.exe',
+        );
         expect(repeated.assets).toEqual(response.assets);
         // Each installer is probed once; an object that answered is not probed again.
         expect(mirrorProbe).toHaveBeenCalledTimes(2);
@@ -169,7 +170,10 @@ describe('latest release endpoint policy', () => {
             releaseCanaryPercent: '0',
         }));
         vi.stubGlobal('setHeader', vi.fn());
-        vi.stubGlobal('getCookie', vi.fn(() => undefined));
+        vi.stubGlobal(
+            'getCookie',
+            vi.fn(() => undefined),
+        );
         vi.stubGlobal('setCookie', vi.fn());
         vi.stubGlobal('$fetch', fetch);
         vi.stubGlobal('fetch', mirrorProbe);
@@ -184,12 +188,13 @@ describe('latest release endpoint policy', () => {
             const responseAssets = response.assets as Array<{
                 name: string;
                 downloadUrl: string;
-                mirrorDownloadUrl?: string
+                mirrorDownloadUrl?: string;
             }>;
-            expect(responseAssets.find(asset => asset.name.endsWith('x64.exe'))?.mirrorDownloadUrl).toBeUndefined();
-            expect(responseAssets.find(asset => asset.name.endsWith('arm64-setup.exe'))?.mirrorDownloadUrl).toBeUndefined();
-            expect(responseAssets.find(asset => asset.name.endsWith('x64.exe'))?.downloadUrl)
-                .toBe('https://github.com/evb0110/evb-viewer/releases/download/v2.0.0/EVB-Viewer-2.0.0-x64.exe');
+            expect(responseAssets.find((asset) => asset.name.endsWith('x64.exe'))?.mirrorDownloadUrl).toBeUndefined();
+            expect(responseAssets.find((asset) => asset.name.endsWith('arm64-setup.exe'))?.mirrorDownloadUrl).toBeUndefined();
+            expect(responseAssets.find((asset) => asset.name.endsWith('x64.exe'))?.downloadUrl).toBe(
+                'https://github.com/evb0110/evb-viewer/releases/download/v2.0.0/EVB-Viewer-2.0.0-x64.exe',
+            );
             expect(consoleWarn).toHaveBeenCalledWith(
                 'Unable to probe the release mirror',
                 expect.objectContaining({outcome: 'mirror-link-omitted'}),
@@ -205,13 +210,9 @@ describe('latest release endpoint policy', () => {
         const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const upstreamError = {response: {status: 503}};
         const fetch = vi.fn().mockRejectedValue(upstreamError);
-        const createError = vi.fn((details: {
-            statusCode: number;
-            statusMessage: string;
-        }) => Object.assign(
-            new Error(details.statusMessage),
-            details,
-        ));
+        const createError = vi.fn((details: {statusCode: number; statusMessage: string}) =>
+            Object.assign(new Error(details.statusMessage), details),
+        );
 
         vi.stubGlobal('defineEventHandler', (handler: unknown) => handler);
         vi.stubGlobal('useRuntimeConfig', () => ({
@@ -226,7 +227,10 @@ describe('latest release endpoint policy', () => {
             releaseCanaryPercent: '0',
         }));
         vi.stubGlobal('setHeader', vi.fn());
-        vi.stubGlobal('getCookie', vi.fn(() => undefined));
+        vi.stubGlobal(
+            'getCookie',
+            vi.fn(() => undefined),
+        );
         vi.stubGlobal('setCookie', vi.fn());
         vi.stubGlobal('$fetch', fetch);
         vi.stubGlobal('createError', createError);
@@ -243,10 +247,13 @@ describe('latest release endpoint policy', () => {
             await vi.runAllTimersAsync();
 
             await rejection;
-            expect(consoleWarn).toHaveBeenCalledWith('Unable to fetch release catalog', expect.objectContaining({
-                outcome: 'temporarily-unavailable',
-                statusCode: 503,
-            }));
+            expect(consoleWarn).toHaveBeenCalledWith(
+                'Unable to fetch release catalog',
+                expect.objectContaining({
+                    outcome: 'temporarily-unavailable',
+                    statusCode: 503,
+                }),
+            );
             expect(consoleError).not.toHaveBeenCalled();
             expect(fetch).toHaveBeenCalledTimes(3);
         } finally {

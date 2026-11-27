@@ -1,5 +1,8 @@
 <template>
-    <aside class="zone-editor-controls" :aria-label="t('scanCleanup.zones.controlsLabel')">
+    <aside
+        class="zone-editor-controls"
+        :aria-label="t('scanCleanup.zones.controlsLabel')"
+    >
         <div class="zone-editor-controls-row">
             <strong>{{ t('scanCleanup.zones.title') }}</strong>
             <ScanCleanupSegmented
@@ -10,7 +13,10 @@
             />
         </div>
 
-        <p v-if="zoneCount === 0" class="zone-editor-hint">
+        <p
+            v-if="zoneCount === 0"
+            class="zone-editor-hint"
+        >
             {{ t('scanCleanup.zones.emptyHint') }}
         </p>
         <p class="zone-editor-note">
@@ -26,7 +32,10 @@
             />
         </p>
 
-        <details v-if="selectedLayer" class="zone-editor-advanced">
+        <details
+            v-if="selectedLayer"
+            class="zone-editor-advanced"
+        >
             <summary>{{ t('scanCleanup.zones.advanced.title') }}</summary>
             <UFormField :label="t('scanCleanup.zones.advanced.layerLabel')">
                 <USelect
@@ -42,19 +51,11 @@
 </template>
 
 <script setup lang="ts">
-import type {
-    TScanCleanupOutputMode,
-    TScanCleanupPictureZoneLayer,
-} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import type {TScanCleanupOutputMode, TScanCleanupPictureZoneLayer} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import ScanCleanupSegmented from '@app/modules/scan-cleanup/components/ScanCleanupSegmented.vue';
 import type {TScanCleanupZoneKind} from '@app/modules/scan-cleanup/geometry/zoneGeometry';
 
-const {
-    outputMode,
-    selectedLayer,
-    zoneCount,
-    zoneKind,
-} = defineProps<{
+const {outputMode, selectedLayer, zoneCount, zoneKind} = defineProps<{
     outputMode: TScanCleanupOutputMode;
     selectedLayer: TScanCleanupPictureZoneLayer | null;
     zoneCount: number;
@@ -76,14 +77,12 @@ const kindItems = computed(() => [
         value: 'fill' as const,
     },
 ]);
-const layerItems = computed(() => ([
-    'eraser1',
-    'painter2',
-    'eraser3',
-] as const).map(value => ({
-    label: t(`scanCleanup.zones.advanced.layers.${value}`),
-    value,
-})));
+const layerItems = computed(() =>
+    (['eraser1', 'painter2', 'eraser3'] as const).map((value) => ({
+        label: t(`scanCleanup.zones.advanced.layers.${value}`),
+        value,
+    })),
+);
 
 function updateLayer(value: string | number) {
     if (value === 'eraser1' || value === 'painter2' || value === 'eraser3') {
@@ -99,10 +98,7 @@ function updateLayer(value: string | number) {
     inset-inline-start: var(--app-space-16xl);
     inset-block-start: var(--app-space-16xl);
     display: flex;
-    width: min(
-        var(--app-scan-zone-controls-width),
-        calc(100% - var(--app-space-16xl) - var(--app-space-16xl))
-    );
+    width: min(var(--app-scan-zone-controls-width), calc(100% - var(--app-space-16xl) - var(--app-space-16xl)));
     flex-direction: column;
     gap: var(--app-space-5xl);
     border: var(--app-hairline-height) solid var(--ui-border);

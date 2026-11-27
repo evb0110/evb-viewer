@@ -1,39 +1,14 @@
 import {execFile} from 'node:child_process';
-import {
-    statSync,
-    type BigIntStats,
-} from 'node:fs';
-import {
-    open,
-    rename,
-    rm,
-    truncate,
-    type FileHandle,
-} from 'node:fs/promises';
-import {
-    basename,
-    dirname,
-    join,
-} from 'node:path';
+import {statSync, type BigIntStats} from 'node:fs';
+import {open, rename, rm, truncate, type FileHandle} from 'node:fs/promises';
+import {basename, dirname, join} from 'node:path';
 import {promisify} from 'node:util';
-import {
-    contentWitness,
-    sameWitness,
-} from '@document-store/contentWitness';
-import type {
-    IPendingPublish,
-    IPublicationPort,
-    IPublishSource,
-} from '@document-store/documentDirectory';
+import {contentWitness, sameWitness} from '@document-store/contentWitness';
+import type {IPendingPublish, IPublicationPort, IPublishSource} from '@document-store/documentDirectory';
 import {copyNewFile} from '@document-store/nodeStorePort';
 import {isErrnoException} from '@contracts/runtimeGuards';
 import {resolveNativeProcessSupervisorPath} from '@electron/native-tools/resolveNativeToolsBase';
-import {
-    atomicReplace,
-    fsyncParentDirectory,
-    makeSiblingTempPath,
-    moveFileToMissingPath,
-} from '@electron/utils/atomicReplace';
+import {atomicReplace, fsyncParentDirectory, makeSiblingTempPath, moveFileToMissingPath} from '@electron/utils/atomicReplace';
 import {keepOriginalBeside} from '@electron/utils/boundedPathComponent';
 import {isSameFile} from '@electron/utils/fileIdentity';
 import {rememberKeptOriginal} from '@electron/file-access/keptOriginalNotices';
@@ -50,7 +25,9 @@ function statOrNull(path: string) {
     try {
         return statSync(path, {bigint: true});
     } catch (error) {
-        if (isMissing(error)) return null;
+        if (isMissing(error)) {
+            return null;
+        }
         throw error;
     }
 }
@@ -82,7 +59,9 @@ function handleContent(handle: FileHandle, size: number) {
         let done = 0;
         while (done < length) {
             const {bytesRead} = await handle.read(bytes, done, length - done, offset + done);
-            if (bytesRead === 0) break;
+            if (bytesRead === 0) {
+                break;
+            }
             done += bytesRead;
         }
         return bytes.subarray(0, done);
@@ -102,7 +81,9 @@ async function pathContent(path: string, size: number) {
 /** The metadata fact of the file at `path` and, with `content`, its content witness (one full read); `null` when missing. */
 async function fileWitness(path: string, content = false) {
     const stats = statOrNull(path);
-    if (!stats || !content) return stats && metadataFact(stats);
+    if (!stats || !content) {
+        return stats && metadataFact(stats);
+    }
     return `${metadataFact(stats)} ${await pathContent(path, Number(stats.size))}`;
 }
 
@@ -128,8 +109,12 @@ interface ICheckedDestination {
  */
 async function isVersionBefore(displaced: string, stats: BigIntStats, baseline: string | null, checked?: ICheckedDestination) {
     const fact = metadataFact(stats);
-    if (sameWitness(fact, checked?.fact) || sameWitness(fact, baseline)) return true;
-    if (!checked?.content || !renumbered(fact, checked.fact)) return false;
+    if (sameWitness(fact, checked?.fact) || sameWitness(fact, baseline)) {
+        return true;
+    }
+    if (!checked?.content || !renumbered(fact, checked.fact)) {
+        return false;
+    }
     const size = Number(stats.size);
     const [accepted, found] = await Promise.all([
         checked.content(size).catch(() => undefined),
@@ -147,19 +132,21 @@ async function isVersionBefore(displaced: string, stats: BigIntStats, baseline: 
 async function settleDisplacedOriginal(destination: string, baseline: string | null, installed = true, checked?: ICheckedDestination) {
     const displaced = displacedPath(destination);
     const found = statOrNull(displaced);
-    if (!found) return undefined;
+    if (!found) {
+        return undefined;
+    }
     if (!statOrNull(destination)) {
         await rename(displaced, destination);
         await fsyncParentDirectory(destination);
         return undefined;
     }
-    if (installed && await isVersionBefore(displaced, found, baseline, checked)) {
+    if (installed && (await isVersionBefore(displaced, found, baseline, checked))) {
         // Where a delete is not immediate (FAT, exFAT under Windows), an open handle would keep the name until closed.
         await checked?.release?.();
         await rm(displaced, {force: true});
         return undefined;
     }
-    return keepOriginalBeside(displaced, destination, keptPath => rememberKeptOriginal(destination, keptPath));
+    return keepOriginalBeside(displaced, destination, (keptPath) => rememberKeptOriginal(destination, keptPath));
 }
 
 /** A file name `makeSiblingTempPath` gives: the only kind of file beside a PDF that settling a save removes. */
@@ -184,13 +171,21 @@ function holdsOnlyStagedCopy(temp: string, staged: string | undefined) {
 function settleInterruptedPublish({destination, witness: published, temp}: IPendingPublish, baseline: string | null) {
     return withOriginalPathMutationLock(destination, async () => {
         if (temp !== undefined && dirname(temp) === dirname(destination) && SIBLING_TEMP_NAME.test(basename(temp))) {
-            if (holdsOnlyStagedCopy(temp, published)) await rm(temp, {force: true});
-            else await moveFileToMissingPath(temp, displacedPath(destination)).catch(async (error: unknown) => {
-                if (!isErrnoException(error) || error.code !== 'EEXIST') throw error;
-                // A move a crash cut short after its link left the displaced version at both names.
-                if (await isSameFile(displacedPath(destination), temp)) await rm(temp, {force: true});
-                else await keepOriginalBeside(temp, destination, keptPath => rememberKeptOriginal(destination, keptPath));
-            });
+            if (holdsOnlyStagedCopy(temp, published)) {
+                await rm(temp, {force: true});
+            } else {
+                await moveFileToMissingPath(temp, displacedPath(destination)).catch(async (error: unknown) => {
+                    if (!isErrnoException(error) || error.code !== 'EEXIST') {
+                        throw error;
+                    }
+                    // A move a crash cut short after its link left the displaced version at both names.
+                    if (await isSameFile(displacedPath(destination), temp)) {
+                        await rm(temp, {force: true});
+                    } else {
+                        await keepOriginalBeside(temp, destination, (keptPath) => rememberKeptOriginal(destination, keptPath));
+                    }
+                });
+            }
         }
         await settleDisplacedOriginal(destination, baseline, sameWitness(await fileWitness(destination), published));
         return fileWitness(destination);
@@ -220,7 +215,9 @@ async function exchangeIntoPlace(temp: string, destination: string) {
             outcome = getErrorMessage(error);
         }
     }
-    if (metadataFact(statSync(temp, {bigint: true})) !== staged) return true;
+    if (metadataFact(statSync(temp, {bigint: true})) !== staged) {
+        return true;
+    }
     logger.warn(`Saving "${destination}" without an atomic exchange: ${outcome}`);
     return false;
 }
@@ -229,7 +226,9 @@ class DestinationChanged extends Error {}
 
 async function copyRevision(source: IPublishSource, absolutePath: string, target: string) {
     await copyNewFile(absolutePath, target);
-    if (statSync(target).size !== source.length) await truncate(target, source.length);
+    if (statSync(target).size !== source.length) {
+        await truncate(target, source.length);
+    }
 }
 
 /**
@@ -247,62 +246,84 @@ export function createDesktopPublication(absolute: (storePath: string) => string
     return {
         witness: fileWitness,
         settle: settleInterruptedPublish,
-        source: async destination => destination,
-        publish: (destination, source, expected, stage, reserve) => withOriginalPathMutationLock(destination, async () => {
-            await settleDisplacedOriginal(destination, expected);
-            const temp = makeSiblingTempPath(destination);
-            // Named in the pending publish before it exists, so recovery after a crash removes it.
-            await reserve?.(temp);
-            let staged: string | undefined;
-            let held: FileHandle | undefined;
-            const release = async () => {
-                await held?.close().catch(() => undefined);
-                held = undefined;
-            };
-            try {
-                await copyRevision(source, absolute(source.path), temp);
-                staged = metadataFact(statSync(temp, {bigint: true}));
-                await stage(staged);
-                let checked: ICheckedDestination | undefined;
+        source: async (destination) => destination,
+        publish: (destination, source, expected, stage, reserve) =>
+            withOriginalPathMutationLock(destination, async () => {
+                await settleDisplacedOriginal(destination, expected);
+                const temp = makeSiblingTempPath(destination);
+                // Named in the pending publish before it exists, so recovery after a crash removes it.
+                await reserve?.(temp);
+                let staged: string | undefined;
+                let held: FileHandle | undefined;
+                const release = async () => {
+                    await held?.close().catch(() => undefined);
+                    held = undefined;
+                };
                 try {
-                    await atomicReplace(temp, destination, expected === null ? {} : {
-                        destinationBackupPath: displacedPath(destination),
-                        exchange: exchangeIntoPlace,
-                        assertDestinationCurrent: async () => {
-                            // Opened before the check reads the metadata, so the bytes of the file it accepts stay
-                            // readable after a rename that renumbers it. A handle on any other file, or none, proves
-                            // nothing by bytes.
-                            await release();
-                            held = await open(destination, 'r').catch(() => undefined);
-                            const before = statOrNull(destination);
-                            const fact = before ? metadataFact(before) : undefined;
-                            if (!fact || !sameWitness(fact, expected)) throw new DestinationChanged();
-                            const opened = await held?.stat({bigint: true}).catch(() => undefined);
-                            if (!opened || metadataFact(opened) !== fact) await release();
-                            const accepted = held;
-                            checked = {fact, content: accepted && (size => handleContent(accepted, size)), release};
-                        },
-                    });
-                } catch (error) {
-                    if (error instanceof DestinationChanged) return {status: 'conflict'};
-                    throw error;
+                    await copyRevision(source, absolute(source.path), temp);
+                    staged = metadataFact(statSync(temp, {bigint: true}));
+                    await stage(staged);
+                    let checked: ICheckedDestination | undefined;
+                    try {
+                        await atomicReplace(
+                            temp,
+                            destination,
+                            expected === null
+                                ? {}
+                                : {
+                                      destinationBackupPath: displacedPath(destination),
+                                      exchange: exchangeIntoPlace,
+                                      assertDestinationCurrent: async () => {
+                                          // Opened before the check reads the metadata, so the bytes of the file it accepts stay
+                                          // readable after a rename that renumbers it. A handle on any other file, or none, proves
+                                          // nothing by bytes.
+                                          await release();
+                                          held = await open(destination, 'r').catch(() => undefined);
+                                          const before = statOrNull(destination);
+                                          const fact = before ? metadataFact(before) : undefined;
+                                          if (!fact || !sameWitness(fact, expected)) {
+                                              throw new DestinationChanged();
+                                          }
+                                          const opened = await held?.stat({bigint: true}).catch(() => undefined);
+                                          if (!opened || metadataFact(opened) !== fact) {
+                                              await release();
+                                          }
+                                          const accepted = held;
+                                          checked = {fact, content: accepted && ((size) => handleContent(accepted, size)), release};
+                                      },
+                                  },
+                        );
+                    } catch (error) {
+                        if (error instanceof DestinationChanged) {
+                            return {status: 'conflict'};
+                        }
+                        throw error;
+                    }
+                    // The PDF holds the staged copy when it has its metadata, or after a rename that renumbered it, its bytes
+                    // while the destination still has that exact metadata (so a concurrent append cannot slip past a prefix hash).
+                    const after = await fileWitness(destination);
+                    const installed =
+                        after !== null &&
+                        (after === staged ||
+                            (renumbered(after, staged) &&
+                                (await Promise.all([
+                                    pathContent(destination, source.length),
+                                    contentWitness(source.length, (offset, length) => source.file.readAt(offset, length)),
+                                ]).then(
+                                    async ([found, published]) => found === published && (await fileWitness(destination)) === after,
+                                    () => false,
+                                ))));
+                    const keptOriginal = await settleDisplacedOriginal(destination, expected, installed, checked);
+                    const kept = keptOriginal === undefined ? {} : {keptOriginal};
+                    // The new baseline is the PDF's own metadata, which a renumbering rename changed from the staged copy's.
+                    return installed ? {status: 'published', witness: after, ...kept} : {status: 'conflict', ...kept};
+                } finally {
+                    await release();
+                    // A displaced version left at the staging name stays for `settleInterruptedPublish`.
+                    if (holdsOnlyStagedCopy(temp, staged)) {
+                        await rm(temp, {force: true});
+                    }
                 }
-                // The PDF holds the staged copy when it has its metadata, or after a rename that renumbered it, its bytes
-                // while the destination still has that exact metadata (so a concurrent append cannot slip past a prefix hash).
-                const after = await fileWitness(destination);
-                const installed = after !== null && (after === staged || (renumbered(after, staged) && await Promise.all([
-                    pathContent(destination, source.length),
-                    contentWitness(source.length, (offset, length) => source.file.readAt(offset, length)),
-                ]).then(async ([found, published]) => found === published && await fileWitness(destination) === after, () => false)));
-                const keptOriginal = await settleDisplacedOriginal(destination, expected, installed, checked);
-                const kept = keptOriginal === undefined ? {} : {keptOriginal};
-                // The new baseline is the PDF's own metadata, which a renumbering rename changed from the staged copy's.
-                return installed ? {status: 'published', witness: after, ...kept} : {status: 'conflict', ...kept};
-            } finally {
-                await release();
-                // A displaced version left at the staging name stays for `settleInterruptedPublish`.
-                if (holdsOnlyStagedCopy(temp, staged)) await rm(temp, {force: true});
-            }
-        }),
+            }),
     };
 }

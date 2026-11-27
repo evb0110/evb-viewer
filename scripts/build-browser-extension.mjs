@@ -8,20 +8,9 @@
 //
 // --skip-app-build repackages the last workspace build, for extension-only edits.
 
-import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import {
-    cpSync,
-    existsSync,
-    lstatSync,
-    mkdirSync,
-    readdirSync,
-    readFileSync,
-    readlinkSync,
-    rmSync,
-    statSync,
-    writeFileSync,
-} from 'node:fs';
+import {spawnSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
+import {cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import esbuild from 'esbuild';
 
@@ -54,24 +43,22 @@ const EXCLUDED_WORKSPACE_ENTRIES = new Set([
 ]);
 /** @type {Record<string, string>} */
 const CHROME_LOCALE_BY_APP_LOCALE = {
-    'de': 'de',
-    'en': 'en',
-    'es': 'es',
-    'fr': 'fr',
-    'it': 'it',
-    'nl': 'nl',
-    'pt': 'pt_PT',
+    de: 'de',
+    en: 'en',
+    es: 'es',
+    fr: 'fr',
+    it: 'it',
+    nl: 'nl',
+    pt: 'pt_PT',
     'pt-BR': 'pt_BR',
-    'ru': 'ru',
+    ru: 'ru',
 };
 const MAX_DESCRIPTION_LENGTH = 132;
 const INLINE_SCRIPT_PATTERN = /<script\b([^>]*)>([\s\S]*?)<\/script>/giu;
 const NON_EXECUTABLE_SCRIPT_TYPE = /\btype\s*=\s*["']?application\/(?:ld\+)?json\b/iu;
 
 /** @param {string} command @param {string[]} args @param {{cwd?: string, env?: NodeJS.ProcessEnv}} [options] */
-function run(command, args, {
-    cwd = projectRoot, env = process.env, 
-} = {}) {
+function run(command, args, {cwd = projectRoot, env = process.env} = {}) {
     const result = spawnSync(command, args, {
         cwd,
         env,
@@ -80,7 +67,7 @@ function run(command, args, {
     if (result.error) {
         const code = 'code' in result.error ? String(result.error.code) : '';
         const detail = code === 'ENOENT' ? ': it is not installed' : code ? ` (${code})` : '';
-        throw new Error(`${command} could not run${detail}`, { cause: result.error });
+        throw new Error(`${command} could not run${detail}`, {cause: result.error});
     }
     if (result.status !== 0) {
         throw new Error(`${path.basename(command)} ${args.join(' ')} exited with ${String(result.status)}`);
@@ -89,27 +76,25 @@ function run(command, args, {
 
 function buildWorkspace() {
     run(process.execPath, ['scripts/ensure-wasm-artifacts.mjs']);
-    run(process.execPath, [
-        '--import',
-        'tsx',
-        'scripts/generateBuildArtifacts.ts',
-    ]);
+    run(process.execPath, ['--import', 'tsx', 'scripts/generateBuildArtifacts.ts']);
     try {
-        run(process.execPath, [
-            path.join(projectRoot, 'node_modules/nuxt/bin/nuxt.mjs'),
-            'generate',
-        ], {env: {
-            ...process.env,
-            EVB_BROWSER_EXTENSION_BUILD: '1',
-            EVB_NUXT_BUILD_DIR: path.join(cacheRoot, 'nuxt-build'),
-            EVB_NUXT_OUTPUT_DIR: nuxtOutputRoot,
-            EVB_NUXT_VITE_CACHE_DIR: path.join(cacheRoot, 'vite'),
-        }});
+        run(process.execPath, [path.join(projectRoot, 'node_modules/nuxt/bin/nuxt.mjs'), 'generate'], {
+            env: {
+                ...process.env,
+                EVB_BROWSER_EXTENSION_BUILD: '1',
+                EVB_NUXT_BUILD_DIR: path.join(cacheRoot, 'nuxt-build'),
+                EVB_NUXT_OUTPUT_DIR: nuxtOutputRoot,
+                EVB_NUXT_VITE_CACHE_DIR: path.join(cacheRoot, 'vite'),
+            },
+        });
     } finally {
         // `nuxi generate` links dist/ to the static output it wrote.
         const distLink = path.join(projectRoot, 'dist');
-        if (existsSync(distLink) && lstatSync(distLink).isSymbolicLink()
-            && path.resolve(projectRoot, readlinkSync(distLink)) === nuxtPublicRoot) {
+        if (
+            existsSync(distLink) &&
+            lstatSync(distLink).isSymbolicLink() &&
+            path.resolve(projectRoot, readlinkSync(distLink)) === nuxtPublicRoot
+        ) {
             rmSync(distLink);
         }
     }
@@ -126,17 +111,20 @@ function isPackagedName(name) {
  */
 function externalizeInlineScripts(htmlPath) {
     const html = readFileSync(htmlPath, 'utf8');
-    const rewritten = html.replace(INLINE_SCRIPT_PATTERN, (/** @type {string} */ tag, /** @type {string} */ attributes, /** @type {string} */ source) => {
-        if (/\bsrc\s*=/iu.test(attributes) || NON_EXECUTABLE_SCRIPT_TYPE.test(attributes)) {
-            return tag;
-        }
-        if (/\btype\s*=\s*["']?importmap\b/iu.test(attributes)) {
-            throw new Error(`${path.relative(unpackedRoot, htmlPath)} has an inline import map, which an extension page cannot run`);
-        }
-        const fileName = `inline-${createHash('sha256').update(source).digest('hex').slice(0, 16)}.js`;
-        writeFileSync(path.join(unpackedRoot, 'assets', fileName), source);
-        return `<script${attributes} src="/assets/${fileName}"></script>`;
-    });
+    const rewritten = html.replace(
+        INLINE_SCRIPT_PATTERN,
+        (/** @type {string} */ tag, /** @type {string} */ attributes, /** @type {string} */ source) => {
+            if (/\bsrc\s*=/iu.test(attributes) || NON_EXECUTABLE_SCRIPT_TYPE.test(attributes)) {
+                return tag;
+            }
+            if (/\btype\s*=\s*["']?importmap\b/iu.test(attributes)) {
+                throw new Error(`${path.relative(unpackedRoot, htmlPath)} has an inline import map, which an extension page cannot run`);
+            }
+            const fileName = `inline-${createHash('sha256').update(source).digest('hex').slice(0, 16)}.js`;
+            writeFileSync(path.join(unpackedRoot, 'assets', fileName), source);
+            return `<script${attributes} src="/assets/${fileName}"></script>`;
+        },
+    );
     writeFileSync(htmlPath, rewritten);
 }
 
@@ -144,29 +132,24 @@ function externalizeInlineScripts(htmlPath) {
 
 /** @returns {Promise<Record<string, IExtensionLocaleStrings>>} */
 async function readLocaleStrings() {
-    const { tsImport } = await import('tsx/esm/api');
+    const {tsImport} = await import('tsx/esm/api');
     /** @type {{LOCALE_DEFINITIONS: ReadonlyArray<{code: string, file: string}>}} */
-    const { LOCALE_DEFINITIONS } = await tsImport('../packages/i18n-core/localeDefinitions.ts', import.meta.url);
+    const {LOCALE_DEFINITIONS} = await tsImport('../packages/i18n-core/localeDefinitions.ts', import.meta.url);
     /** @type {Record<string, IExtensionLocaleStrings>} */
     const locales = {};
-    for (const {
-        code, file, 
-    } of LOCALE_DEFINITIONS) {
+    for (const {code, file} of LOCALE_DEFINITIONS) {
         const chromeLocale = CHROME_LOCALE_BY_APP_LOCALE[code];
         if (!chromeLocale) {
             throw new Error(`No Chrome locale for the app locale ${code}`);
         }
         /** @type {{default: {app: {title: unknown}, browserExtension: {description: unknown, openViewer: unknown}}}} */
-        const { default: messages } = await tsImport(`../packages/i18n-app/messages/${file}`, import.meta.url);
+        const {default: messages} = await tsImport(`../packages/i18n-app/messages/${file}`, import.meta.url);
         const strings = {
             extensionName: messages.app.title,
             extensionDescription: messages.browserExtension.description,
             openViewer: messages.browserExtension.openViewer,
         };
-        for (const [
-            key,
-            value,
-        ] of Object.entries(strings)) {
+        for (const [key, value] of Object.entries(strings)) {
             if (typeof value !== 'string' || !value) {
                 throw new Error(`The ${code} messages have no ${key} for the extension`);
             }
@@ -189,8 +172,8 @@ function createManifest() {
         ? envVersion.replace(/^v/u, '')
         : String(JSON.parse(readFileSync(path.join(projectRoot, 'package.json'), 'utf8')).version).trim();
     const release = /^(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?(?:$|[-+])/u.exec(rawVersion);
-    const parts = release?.slice(1).filter(part => part !== undefined);
-    if (!parts || parts.some(part => (part.length > 1 && part.startsWith('0')) || Number(part) > 65_535)) {
+    const parts = release?.slice(1).filter((part) => part !== undefined);
+    if (!parts || parts.some((part) => (part.length > 1 && part.startsWith('0')) || Number(part) > 65_535)) {
         throw new Error(`${versionSource} ${rawVersion} cannot be a Chrome extension version`);
     }
     manifest.version = parts.join('.');
@@ -205,7 +188,7 @@ async function bundleExtensionScripts() {
         absWorkingDir: projectRoot,
         bundle: true,
         entryPoints: {
-            'open': path.join(extensionSourceRoot, 'src/openPage.ts'),
+            open: path.join(extensionSourceRoot, 'src/openPage.ts'),
             'service-worker': path.join(extensionSourceRoot, 'src/serviceWorker.ts'),
         },
         format: 'esm',
@@ -223,7 +206,7 @@ async function bundleExtensionScripts() {
  * @param {string} root
  */
 function assertLoadableNames(root) {
-    const reserved = readdirSync(root).filter(name => name.startsWith('_') && name !== '_locales');
+    const reserved = readdirSync(root).filter((name) => name.startsWith('_') && name !== '_locales');
     if (reserved.length > 0) {
         throw new Error(`Chrome reserves root names that start with "_": ${reserved.join(', ')}`);
     }
@@ -231,9 +214,9 @@ function assertLoadableNames(root) {
 
 /** @param {string} root */
 function directorySize(root) {
-    return readdirSync(root, { recursive: true })
-        .map(entry => path.join(root, String(entry)))
-        .filter(entry => statSync(entry).isFile())
+    return readdirSync(root, {recursive: true})
+        .map((entry) => path.join(root, String(entry)))
+        .filter((entry) => statSync(entry).isFile())
         .reduce((total, entry) => total + statSync(entry).size, 0);
 }
 
@@ -247,53 +230,38 @@ async function main() {
 
     rmSync(outputRoot, {
         force: true,
-        recursive: true, 
+        recursive: true,
     });
-    mkdirSync(unpackedRoot, { recursive: true });
+    mkdirSync(unpackedRoot, {recursive: true});
     cpSync(nuxtPublicRoot, unpackedRoot, {
         recursive: true,
-        filter: source => {
+        filter: (source) => {
             const relative = path.relative(nuxtPublicRoot, source);
-            return relative === ''
-                || (isPackagedName(path.basename(source)) && !EXCLUDED_WORKSPACE_ENTRIES.has(relative));
+            return relative === '' || (isPackagedName(path.basename(source)) && !EXCLUDED_WORKSPACE_ENTRIES.has(relative));
         },
     });
     externalizeInlineScripts(path.join(unpackedRoot, 'index.html'));
 
-    cpSync(path.join(extensionSourceRoot, 'static'), unpackedRoot, { recursive: true });
-    cpSync(path.join(extensionSourceRoot, 'icons'), path.join(unpackedRoot, 'icons'), { recursive: true });
+    cpSync(path.join(extensionSourceRoot, 'static'), unpackedRoot, {recursive: true});
+    cpSync(path.join(extensionSourceRoot, 'icons'), path.join(unpackedRoot, 'icons'), {recursive: true});
     await bundleExtensionScripts();
-    for (const [
-        locale,
-        strings,
-    ] of Object.entries(await readLocaleStrings())) {
+    for (const [locale, strings] of Object.entries(await readLocaleStrings())) {
         const localeRoot = path.join(unpackedRoot, '_locales', locale);
-        mkdirSync(localeRoot, { recursive: true });
-        writeFileSync(path.join(localeRoot, 'messages.json'), `${JSON.stringify(
-            Object.fromEntries(Object.entries(strings).map(([
-                key,
-                message,
-            ]) => [
-                key,
-                { message },
-            ])),
-            null,
-            4,
-        )}\n`);
+        mkdirSync(localeRoot, {recursive: true});
+        writeFileSync(
+            path.join(localeRoot, 'messages.json'),
+            `${JSON.stringify(Object.fromEntries(Object.entries(strings).map(([key, message]) => [key, {message}])), null, 4)}\n`,
+        );
     }
     const manifest = createManifest();
     writeFileSync(path.join(unpackedRoot, 'manifest.json'), `${JSON.stringify(manifest, null, 4)}\n`);
     assertLoadableNames(unpackedRoot);
 
     const zipPath = path.join(outputRoot, `evb-viewer-chrome-${manifest.version_name ?? manifest.version}.zip`);
-    run('zip', [
-        '-q',
-        '-r',
-        '-X',
-        zipPath,
-        '.',
-    ], { cwd: unpackedRoot });
-    console.log(`Chrome extension ${manifest.version}: ${path.relative(projectRoot, unpackedRoot)} (${(directorySize(unpackedRoot) / 1_048_576).toFixed(1)} MiB), ${path.relative(projectRoot, zipPath)} (${(statSync(zipPath).size / 1_048_576).toFixed(1)} MiB)`);
+    run('zip', ['-q', '-r', '-X', zipPath, '.'], {cwd: unpackedRoot});
+    console.log(
+        `Chrome extension ${manifest.version}: ${path.relative(projectRoot, unpackedRoot)} (${(directorySize(unpackedRoot) / 1_048_576).toFixed(1)} MiB), ${path.relative(projectRoot, zipPath)} (${(statSync(zipPath).size / 1_048_576).toFixed(1)} MiB)`,
+    );
 }
 
 await main();

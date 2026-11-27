@@ -1,21 +1,9 @@
 import {EventEmitter} from 'node:events';
 import type * as TFsModule from 'node:fs';
-import {
-    existsSync,
-    mkdtempSync,
-    rmSync,
-    writeFileSync,
-} from 'node:fs';
+import {existsSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import type {TPdfSearchWorkerCommand} from '@electron/features/search/pdfSearchWorkerOps';
 
 interface IMockWorkerMessage {
@@ -55,7 +43,7 @@ const mockState = vi.hoisted(() => ({
     peakLiveWorkers: 0,
 }));
 
-vi.mock('node:fs', async importOriginal => {
+vi.mock('node:fs', async (importOriginal) => {
     const actual = await importOriginal<typeof TFsModule>();
     return {
         ...actual,
@@ -70,7 +58,7 @@ vi.mock('node:worker_threads', () => ({
                 (worker, message) => {
                     mockState.onPost?.(worker, message);
                 },
-                worker => mockState.onTerminate?.(worker) ?? Promise.resolve(0),
+                (worker) => mockState.onTerminate?.(worker) ?? Promise.resolve(0),
             );
             mockState.workers.push(this);
             mockState.liveWorkers += 1;
@@ -79,20 +67,15 @@ vi.mock('node:worker_threads', () => ({
     },
 }));
 
-vi.mock('@electron/features/search/pdfSearchWasmRunner', async importOriginal => {
+vi.mock('@electron/features/search/pdfSearchWasmRunner', async (importOriginal) => {
     const actual = await importOriginal<typeof import('@electron/features/search/pdfSearchWasmRunner')>();
     return {
         ...actual,
-        loadPdfSearchWasmModule: () => mockState.loadWasmImpl
-            ? mockState.loadWasmImpl()
-            : Promise.resolve({} as WebAssembly.Module),
+        loadPdfSearchWasmModule: () => (mockState.loadWasmImpl ? mockState.loadWasmImpl() : Promise.resolve({} as WebAssembly.Module)),
     };
 });
 
-const {
-    runPdfSearchWorkerCommand,
-    shutdownPdfSearchWorkers,
-} = await import('@electron/features/search/pdfSearchWorkerClient');
+const {runPdfSearchWorkerCommand, shutdownPdfSearchWorkers} = await import('@electron/features/search/pdfSearchWorkerClient');
 
 function makeStatCommand(indexPath: string): TPdfSearchWorkerCommand {
     return {
@@ -119,7 +102,7 @@ describe('pdfSearchWorkerClient pool limits and execution deadline', () => {
                 });
             });
         };
-        mockState.onTerminate = worker => {
+        mockState.onTerminate = (worker) => {
             if (!worker.exited) {
                 worker.exited = true;
                 mockState.liveWorkers = Math.max(0, mockState.liveWorkers - 1);
@@ -137,8 +120,7 @@ describe('pdfSearchWorkerClient pool limits and execution deadline', () => {
         const wasmGate = Promise.withResolvers<WebAssembly.Module>();
         mockState.loadWasmImpl = () => wasmGate.promise;
 
-        const requests = Array.from({length: 6}, (_, index) =>
-            runPdfSearchWorkerCommand(makeStatCommand(`/tmp/doc-${index}.idx`)));
+        const requests = Array.from({length: 6}, (_, index) => runPdfSearchWorkerCommand(makeStatCommand(`/tmp/doc-${index}.idx`)));
 
         await Promise.resolve();
         expect(mockState.workers).toHaveLength(0);
@@ -146,9 +128,11 @@ describe('pdfSearchWorkerClient pool limits and execution deadline', () => {
         wasmGate.resolve({} as WebAssembly.Module);
         const results = await Promise.all(requests);
 
-        expect(results).toEqual(Array.from({length: 6}, (_, index) => ({
-            echo: `/tmp/doc-${index}.idx`,
-        })));
+        expect(results).toEqual(
+            Array.from({length: 6}, (_, index) => ({
+                echo: `/tmp/doc-${index}.idx`,
+            })),
+        );
         expect(mockState.workers.length).toBeLessThanOrEqual(2);
         expect(mockState.peakLiveWorkers).toBeLessThanOrEqual(2);
     });
@@ -159,8 +143,12 @@ describe('pdfSearchWorkerClient pool limits and execution deadline', () => {
         let loadCalls = 0;
         mockState.loadWasmImpl = () => {
             loadCalls += 1;
-            if (loadCalls === 1) return firstGate.promise;
-            if (loadCalls === 2) return secondGate.promise;
+            if (loadCalls === 1) {
+                return firstGate.promise;
+            }
+            if (loadCalls === 2) {
+                return secondGate.promise;
+            }
             return Promise.resolve({} as WebAssembly.Module);
         };
 
@@ -179,13 +167,7 @@ describe('pdfSearchWorkerClient pool limits and execution deadline', () => {
 
         await expect(first).rejects.toThrow('wasm compile failed');
         await expect(second).rejects.toBe(abortError);
-        await expect(Promise.all([
-            third,
-            fourth,
-        ])).resolves.toEqual([
-            {echo: '/tmp/queued-1.idx'},
-            {echo: '/tmp/queued-2.idx'},
-        ]);
+        await expect(Promise.all([third, fourth])).resolves.toEqual([{echo: '/tmp/queued-1.idx'}, {echo: '/tmp/queued-2.idx'}]);
         expect(mockState.workers.length).toBeLessThanOrEqual(2);
         expect(mockState.peakLiveWorkers).toBeLessThanOrEqual(2);
     });
@@ -210,7 +192,7 @@ describe('pdfSearchWorkerClient pool limits and execution deadline', () => {
                 });
             });
         };
-        mockState.onTerminate = worker => {
+        mockState.onTerminate = (worker) => {
             if (!stalledWorkers.has(worker)) {
                 if (!worker.exited) {
                     worker.exited = true;
@@ -220,7 +202,7 @@ describe('pdfSearchWorkerClient pool limits and execution deadline', () => {
             }
             const gate = Promise.withResolvers<number>();
             terminateGates.set(worker, gate);
-            return gate.promise.then(code => {
+            return gate.promise.then((code) => {
                 if (!worker.exited) {
                     worker.exited = true;
                     mockState.liveWorkers = Math.max(0, mockState.liveWorkers - 1);
@@ -235,7 +217,7 @@ describe('pdfSearchWorkerClient pool limits and execution deadline', () => {
             const queuedThree = runPdfSearchWorkerCommand(makeStatCommand('/tmp/recovery-3.idx'));
 
             const stalledOneOutcome = stalledOne.then(
-                value => ({
+                (value) => ({
                     ok: true as const,
                     value,
                 }),
@@ -245,7 +227,7 @@ describe('pdfSearchWorkerClient pool limits and execution deadline', () => {
                 }),
             );
             const stalledTwoOutcome = stalledTwo.then(
-                value => ({
+                (value) => ({
                     ok: true as const,
                     value,
                 }),
@@ -262,7 +244,7 @@ describe('pdfSearchWorkerClient pool limits and execution deadline', () => {
             expect(mockState.liveWorkers).toBe(2);
 
             // 1 ms before the 15-minute deadline: neither worker may be terminated yet.
-            await vi.advanceTimersByTimeAsync((15 * 60 * 1_000) - 1);
+            await vi.advanceTimersByTimeAsync(15 * 60 * 1_000 - 1);
             expect(mockState.workers[0]!.terminateCalls).toBe(0);
             expect(mockState.workers[1]!.terminateCalls).toBe(0);
 
@@ -272,13 +254,7 @@ describe('pdfSearchWorkerClient pool limits and execution deadline', () => {
             expect(mockState.workers[1]!.terminateCalls).toBe(1);
 
             // Callers reject promptly at the deadline even while worker exit is pending.
-            const [
-                firstResult,
-                secondResult,
-            ] = await Promise.all([
-                stalledOneOutcome,
-                stalledTwoOutcome,
-            ]);
+            const [firstResult, secondResult] = await Promise.all([stalledOneOutcome, stalledTwoOutcome]);
             expect(firstResult.ok).toBe(false);
             expect(firstResult.ok ? '' : (firstResult.error as Error).message).toMatch(/timed out after 900000ms/u);
             expect(secondResult.ok).toBe(false);
@@ -340,7 +316,7 @@ describe('pdfSearchWorkerClient pool limits and execution deadline', () => {
                     });
                 });
             };
-            mockState.onTerminate = worker => {
+            mockState.onTerminate = (worker) => {
                 if (rejectTerminateOnce) {
                     rejectTerminateOnce = false;
                     return Promise.reject(new Error('terminate rpc failed'));
@@ -353,14 +329,18 @@ describe('pdfSearchWorkerClient pool limits and execution deadline', () => {
             };
 
             const indexPath = join(tempDir, 'doc.evb-search-index');
-            const stalledIndex = runPdfSearchWorkerCommand({
-                op: 'index',
-                indexPath,
-                documentRevision: 'rev-1',
-                maxPageTextBytes: 1024,
-                maxTotalTextBytes: 4096,
-                pagesBuffer: new Uint8Array([1, 2, 3]),
-            }, undefined, {timeoutMs: 30});
+            const stalledIndex = runPdfSearchWorkerCommand(
+                {
+                    op: 'index',
+                    indexPath,
+                    documentRevision: 'rev-1',
+                    maxPageTextBytes: 1024,
+                    maxTotalTextBytes: 4096,
+                    pagesBuffer: new Uint8Array([1, 2, 3]),
+                },
+                undefined,
+                {timeoutMs: 30},
+            );
             const secondBusy = runPdfSearchWorkerCommand(makeStatCommand('/tmp/hold-slot.idx'));
             const queuedThird = runPdfSearchWorkerCommand(makeStatCommand('/tmp/after-rejected-terminate.idx'));
 
@@ -413,13 +393,14 @@ describe('pdfSearchWorkerClient pool limits and execution deadline', () => {
                     }
                 }
             };
-            mockState.onTerminate = worker => terminateGate.promise.then(code => {
-                if (!worker.exited) {
-                    worker.exited = true;
-                    mockState.liveWorkers = Math.max(0, mockState.liveWorkers - 1);
-                }
-                return code;
-            });
+            mockState.onTerminate = (worker) =>
+                terminateGate.promise.then((code) => {
+                    if (!worker.exited) {
+                        worker.exited = true;
+                        mockState.liveWorkers = Math.max(0, mockState.liveWorkers - 1);
+                    }
+                    return code;
+                });
 
             const indexPath = join(tempDir, 'doc.evb-search-index');
             const activeIndex = runPdfSearchWorkerCommand({
@@ -473,17 +454,13 @@ describe('pdfSearchWorkerClient pool limits and execution deadline', () => {
             });
         };
 
-        await expect(runPdfSearchWorkerCommand(
-            makeStatCommand('/tmp/stall-short.idx'),
-            undefined,
-            {timeoutMs: 40},
-        )).rejects.toThrow(/timed out after 40ms/u);
+        await expect(runPdfSearchWorkerCommand(makeStatCommand('/tmp/stall-short.idx'), undefined, {timeoutMs: 40})).rejects.toThrow(
+            /timed out after 40ms/u,
+        );
 
-        await expect(runPdfSearchWorkerCommand(
-            makeStatCommand('/tmp/after-timeout.idx'),
-            undefined,
-            {timeoutMs: 500},
-        )).resolves.toEqual({echo: '/tmp/after-timeout.idx'});
+        await expect(runPdfSearchWorkerCommand(makeStatCommand('/tmp/after-timeout.idx'), undefined, {timeoutMs: 500})).resolves.toEqual({
+            echo: '/tmp/after-timeout.idx',
+        });
         expect(mockState.peakLiveWorkers).toBeLessThanOrEqual(2);
     });
 });

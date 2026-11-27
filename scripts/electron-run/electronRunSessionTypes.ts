@@ -1,10 +1,6 @@
-import type { ChildProcess } from 'node:child_process';
-import type { TSessionRecording } from '@scripts/electron-run/sessionRecording';
-import type {
-    Browser,
-    ConsoleMessage,
-    Page,
-} from 'puppeteer-core';
+import type {ChildProcess} from 'node:child_process';
+import type {TSessionRecording} from '@scripts/electron-run/sessionRecording';
+import type {Browser, ConsoleMessage, Page} from 'puppeteer-core';
 
 type TConsoleMessageType = ReturnType<ConsoleMessage['type']>;
 
@@ -14,7 +10,9 @@ interface IConsoleMessage {
     timestamp: number;
 }
 
-interface IDevtoolsEventBase {timestamp: number;}
+interface IDevtoolsEventBase {
+    timestamp: number;
+}
 
 interface IConsoleDevtoolsEvent extends IDevtoolsEventBase {
     kind: 'console';

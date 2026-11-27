@@ -1,19 +1,16 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { resolveWorkspaceResourcePressureLevel } from '@app/modules/workspace-shell/memory/resolveWorkspaceResourcePressureLevel';
+import {describe, expect, it} from 'vitest';
+import {resolveWorkspaceResourcePressureLevel} from '@app/modules/workspace-shell/memory/resolveWorkspaceResourcePressureLevel';
 
 describe('workspace memory pressure', () => {
-    const sample = (availableBytes: number) => resolveWorkspaceResourcePressureLevel({
-        memoryInfo: {
-            availableBytes,
-            totalBytes: 8_000,
-            freeBytes: availableBytes,
-        },
-        systemFreeReserveBytes: 1_000,
-    });
+    const sample = (availableBytes: number) =>
+        resolveWorkspaceResourcePressureLevel({
+            memoryInfo: {
+                availableBytes,
+                totalBytes: 8_000,
+                freeBytes: availableBytes,
+            },
+            systemFreeReserveBytes: 1_000,
+        });
 
     it('resolves three levels from host headroom against the free-memory reserve', () => {
         expect(sample(2_000)).toBe('none');
@@ -25,20 +22,24 @@ describe('workspace memory pressure', () => {
     });
 
     it('reports no pressure when the host does not report memory', () => {
-        expect(resolveWorkspaceResourcePressureLevel({
-            memoryInfo: null,
-            systemFreeReserveBytes: 1_000,
-        })).toBe('none');
+        expect(
+            resolveWorkspaceResourcePressureLevel({
+                memoryInfo: null,
+                systemFreeReserveBytes: 1_000,
+            }),
+        ).toBe('none');
     });
 
     it('uses reclaimable host memory instead of raw free pages', () => {
-        expect(resolveWorkspaceResourcePressureLevel({
-            memoryInfo: {
-                availableBytes: 6_000,
-                totalBytes: 8_000,
-                freeBytes: 100,
-            },
-            systemFreeReserveBytes: 1_000,
-        })).toBe('none');
+        expect(
+            resolveWorkspaceResourcePressureLevel({
+                memoryInfo: {
+                    availableBytes: 6_000,
+                    totalBytes: 8_000,
+                    freeBytes: 100,
+                },
+                systemFreeReserveBytes: 1_000,
+            }),
+        ).toBe('none');
     });
 });

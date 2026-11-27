@@ -133,7 +133,9 @@
             </i18n-t>
             <li>{{ t('docs.unsigned.li2') }}</li>
           </ul>
-          <p><strong>{{ t('docs.unsigned.macosHeading') }}</strong></p>
+          <p
+            ><strong>{{ t('docs.unsigned.macosHeading') }}</strong></p
+          >
           <ul class="docs-list">
             <li>{{ t('docs.unsigned.macosLi1') }}</li>
             <i18n-t
@@ -151,7 +153,9 @@
               <template #openAnyway><code>Open Anyway</code></template>
             </i18n-t>
           </ul>
-          <p><strong>{{ t('docs.unsigned.windowsHeading') }}</strong></p>
+          <p
+            ><strong>{{ t('docs.unsigned.windowsHeading') }}</strong></p
+          >
           <ul class="docs-list">
             <li>{{ t('docs.unsigned.windowsLi1') }}</li>
             <i18n-t
@@ -164,7 +168,9 @@
             </i18n-t>
             <li>{{ t('docs.unsigned.windowsLi3') }}</li>
           </ul>
-          <p><strong>{{ t('docs.unsigned.linuxHeading') }}</strong></p>
+          <p
+            ><strong>{{ t('docs.unsigned.linuxHeading') }}</strong></p
+          >
           <ul class="docs-list">
             <li>{{ t('docs.unsigned.linuxLi1') }}</li>
             <i18n-t
@@ -386,183 +392,183 @@
 </template>
 
 <script setup lang="ts">
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 const localePath = useLocalePath();
 const pageDescription = computed(() => t('docs.seo.ogDescription'));
 
 const bookmarks = computed(() => [
-    {
-        id: 'browser-quickstart',
-        title: t('docs.bookmarks.browserQuickstart'),
-    },
-    {
-        id: 'workspace-overview',
-        title: t('docs.bookmarks.workspaceOverview'),
-    },
-    {
-        id: 'unsigned-installation',
-        title: t('docs.bookmarks.unsignedInstallation'),
-    },
-    {
-        id: 'open-and-combine',
-        title: t('docs.bookmarks.openAndCombine'),
-    },
-    {
-        id: 'tabs-and-splits',
-        title: t('docs.bookmarks.tabsAndSplits'),
-    },
-    {
-        id: 'annotations-notes',
-        title: t('docs.bookmarks.annotationsNotes'),
-    },
-    {
-        id: 'ocr-export',
-        title: t('docs.bookmarks.ocrExport'),
-    },
-    {
-        id: 'menus-shortcuts',
-        title: t('docs.bookmarks.menusShortcuts'),
-    },
-    {
-        id: 'license',
-        title: t('docs.bookmarks.license'),
-    },
+  {
+    id: 'browser-quickstart',
+    title: t('docs.bookmarks.browserQuickstart'),
+  },
+  {
+    id: 'workspace-overview',
+    title: t('docs.bookmarks.workspaceOverview'),
+  },
+  {
+    id: 'unsigned-installation',
+    title: t('docs.bookmarks.unsignedInstallation'),
+  },
+  {
+    id: 'open-and-combine',
+    title: t('docs.bookmarks.openAndCombine'),
+  },
+  {
+    id: 'tabs-and-splits',
+    title: t('docs.bookmarks.tabsAndSplits'),
+  },
+  {
+    id: 'annotations-notes',
+    title: t('docs.bookmarks.annotationsNotes'),
+  },
+  {
+    id: 'ocr-export',
+    title: t('docs.bookmarks.ocrExport'),
+  },
+  {
+    id: 'menus-shortcuts',
+    title: t('docs.bookmarks.menusShortcuts'),
+  },
+  {
+    id: 'license',
+    title: t('docs.bookmarks.license'),
+  },
 ]);
 
 const guideCards = computed(() => [
-    {
-        id: 'browser-quickstart',
-        icon: 'i-ph-globe',
-        title: t('docs.bookmarks.browserQuickstart'),
-        description: t('docs.browserQuickstart.intro'),
-    },
-    {
-        id: 'workspace-overview',
-        icon: 'i-ph-sidebar',
-        title: t('docs.bookmarks.workspaceOverview'),
-        description: t('docs.workspace.intro'),
-    },
-    {
-        id: 'ocr-export',
-        icon: 'i-ph-folder-open',
-        title: t('docs.bookmarks.ocrExport'),
-        description: t('docs.ocrExport.intro'),
-    },
+  {
+    id: 'browser-quickstart',
+    icon: 'i-ph-globe',
+    title: t('docs.bookmarks.browserQuickstart'),
+    description: t('docs.browserQuickstart.intro'),
+  },
+  {
+    id: 'workspace-overview',
+    icon: 'i-ph-sidebar',
+    title: t('docs.bookmarks.workspaceOverview'),
+    description: t('docs.workspace.intro'),
+  },
+  {
+    id: 'ocr-export',
+    icon: 'i-ph-folder-open',
+    title: t('docs.bookmarks.ocrExport'),
+    description: t('docs.ocrExport.intro'),
+  },
 ]);
 
 const shortcuts = computed(() => [
-    {
-        action: t('docs.menusShortcuts.shortcutOpenFile'),
-        keys: 'Cmd/Ctrl + O',
-    },
-    {
-        action: t('docs.menusShortcuts.shortcutSave'),
-        keys: 'Cmd/Ctrl + S',
-    },
-    {
-        action: t('docs.menusShortcuts.shortcutSaveAs'),
-        keys: 'Cmd/Ctrl + Shift + S',
-    },
-    {
-        action: t('docs.menusShortcuts.shortcutExportDocx'),
-        keys: 'Cmd/Ctrl + Shift + E',
-    },
-    {
-        action: t('docs.menusShortcuts.shortcutNewTab'),
-        keys: 'Cmd/Ctrl + T',
-    },
-    {
-        action: t('docs.menusShortcuts.shortcutCloseTab'),
-        keys: 'Cmd/Ctrl + W',
-    },
-    {
-        action: t('docs.menusShortcuts.shortcutUndo'),
-        keys: 'Cmd/Ctrl + Z',
-    },
-    {
-        action: t('docs.menusShortcuts.shortcutRedo'),
-        keys: 'Cmd + Shift + Z (macOS) / Ctrl + Y (Windows/Linux)',
-    },
-    {
-        action: t('docs.menusShortcuts.shortcutZoomIn'),
-        keys: 'Cmd/Ctrl + =',
-    },
-    {
-        action: t('docs.menusShortcuts.shortcutZoomOut'),
-        keys: 'Cmd/Ctrl + -',
-    },
-    {
-        action: t('docs.menusShortcuts.shortcutActualSize'),
-        keys: 'Cmd/Ctrl + 0',
-    },
-    {
-        action: t('docs.menusShortcuts.shortcutFitWidth'),
-        keys: 'Cmd/Ctrl + 1',
-    },
-    {
-        action: t('docs.menusShortcuts.shortcutFitHeight'),
-        keys: 'Cmd/Ctrl + 2',
-    },
-    {
-        action: t('docs.menusShortcuts.shortcutSplitEditor'),
-        keys: 'Cmd/Ctrl + \\',
-    },
-    {
-        action: t('docs.menusShortcuts.shortcutFind'),
-        keys: 'Cmd/Ctrl + F',
-    },
-    {
-        action: t('docs.menusShortcuts.shortcutCycleTabs'),
-        keys: 'Ctrl + Tab / Ctrl + Shift + Tab',
-    },
+  {
+    action: t('docs.menusShortcuts.shortcutOpenFile'),
+    keys: 'Cmd/Ctrl + O',
+  },
+  {
+    action: t('docs.menusShortcuts.shortcutSave'),
+    keys: 'Cmd/Ctrl + S',
+  },
+  {
+    action: t('docs.menusShortcuts.shortcutSaveAs'),
+    keys: 'Cmd/Ctrl + Shift + S',
+  },
+  {
+    action: t('docs.menusShortcuts.shortcutExportDocx'),
+    keys: 'Cmd/Ctrl + Shift + E',
+  },
+  {
+    action: t('docs.menusShortcuts.shortcutNewTab'),
+    keys: 'Cmd/Ctrl + T',
+  },
+  {
+    action: t('docs.menusShortcuts.shortcutCloseTab'),
+    keys: 'Cmd/Ctrl + W',
+  },
+  {
+    action: t('docs.menusShortcuts.shortcutUndo'),
+    keys: 'Cmd/Ctrl + Z',
+  },
+  {
+    action: t('docs.menusShortcuts.shortcutRedo'),
+    keys: 'Cmd + Shift + Z (macOS) / Ctrl + Y (Windows/Linux)',
+  },
+  {
+    action: t('docs.menusShortcuts.shortcutZoomIn'),
+    keys: 'Cmd/Ctrl + =',
+  },
+  {
+    action: t('docs.menusShortcuts.shortcutZoomOut'),
+    keys: 'Cmd/Ctrl + -',
+  },
+  {
+    action: t('docs.menusShortcuts.shortcutActualSize'),
+    keys: 'Cmd/Ctrl + 0',
+  },
+  {
+    action: t('docs.menusShortcuts.shortcutFitWidth'),
+    keys: 'Cmd/Ctrl + 1',
+  },
+  {
+    action: t('docs.menusShortcuts.shortcutFitHeight'),
+    keys: 'Cmd/Ctrl + 2',
+  },
+  {
+    action: t('docs.menusShortcuts.shortcutSplitEditor'),
+    keys: 'Cmd/Ctrl + \\',
+  },
+  {
+    action: t('docs.menusShortcuts.shortcutFind'),
+    keys: 'Cmd/Ctrl + F',
+  },
+  {
+    action: t('docs.menusShortcuts.shortcutCycleTabs'),
+    keys: 'Ctrl + Tab / Ctrl + Shift + Tab',
+  },
 ]);
 
 const menuMap = computed(() => [
-    {
-        menu: t('docs.menusShortcuts.menuFile'),
-        actions: t('docs.menusShortcuts.menuFileActions'),
-    },
-    {
-        menu: t('docs.menusShortcuts.menuActions'),
-        actions: t('docs.menusShortcuts.menuActionsActions'),
-    },
-    {
-        menu: t('docs.menusShortcuts.menuPages'),
-        actions: t('docs.menusShortcuts.menuPagesActions'),
-    },
-    {
-        menu: t('docs.menusShortcuts.menuView'),
-        actions: t('docs.menusShortcuts.menuViewActions'),
-    },
-    {
-        menu: t('docs.menusShortcuts.menuWindow'),
-        actions: t('docs.menusShortcuts.menuWindowActions'),
-    },
-    {
-        menu: t('docs.menusShortcuts.menuHelp'),
-        actions: t('docs.menusShortcuts.menuHelpActions'),
-    },
+  {
+    menu: t('docs.menusShortcuts.menuFile'),
+    actions: t('docs.menusShortcuts.menuFileActions'),
+  },
+  {
+    menu: t('docs.menusShortcuts.menuActions'),
+    actions: t('docs.menusShortcuts.menuActionsActions'),
+  },
+  {
+    menu: t('docs.menusShortcuts.menuPages'),
+    actions: t('docs.menusShortcuts.menuPagesActions'),
+  },
+  {
+    menu: t('docs.menusShortcuts.menuView'),
+    actions: t('docs.menusShortcuts.menuViewActions'),
+  },
+  {
+    menu: t('docs.menusShortcuts.menuWindow'),
+    actions: t('docs.menusShortcuts.menuWindowActions'),
+  },
+  {
+    menu: t('docs.menusShortcuts.menuHelp'),
+    actions: t('docs.menusShortcuts.menuHelpActions'),
+  },
 ]);
 
 useLandingPageSeo({
-    title: () => t('docs.seo.title'),
-    description: () => pageDescription.value,
-    ogTitle: () => t('docs.seo.ogTitle'),
+  title: () => t('docs.seo.title'),
+  description: () => pageDescription.value,
+  ogTitle: () => t('docs.seo.ogTitle'),
 });
 
 function scrollToBookmark(id: string) {
-    const target = document.getElementById(id);
-    if (!target) {
-        return;
-    }
+  const target = document.getElementById(id);
+  if (!target) {
+    return;
+  }
 
-    try {
-        target.scrollIntoView({
-            behavior: 'smooth',
-            block: 'start',
-        });
-    } catch {
-        target.scrollIntoView();
-    }
+  try {
+    target.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    });
+  } catch {
+    target.scrollIntoView();
+  }
 }
 </script>

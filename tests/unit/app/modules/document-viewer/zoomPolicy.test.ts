@@ -1,13 +1,6 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { ZOOM } from '@app/constants/pdfLayout';
-import {
-    clampDocumentFitScale,
-    clampDocumentManualZoom,
-} from '@app/modules/document-viewer/zoomPolicy';
+import {describe, expect, it} from 'vitest';
+import {ZOOM} from '@app/constants/pdfLayout';
+import {clampDocumentFitScale, clampDocumentManualZoom} from '@app/modules/document-viewer/zoomPolicy';
 
 describe('document zoom policy', () => {
     it('applies the central manual bounds to every viewer', () => {

@@ -1,18 +1,14 @@
+import {describe, it, expect, afterEach, vi} from 'vitest';
 import {
-    describe, it, expect, afterEach, vi,
-} from 'vitest';
-import {
-    defaultDependencies, scanCleanupPreviewLifecycle, type IScanCleanupPreviewService,
+    defaultDependencies,
+    scanCleanupPreviewLifecycle,
+    type IScanCleanupPreviewService,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
 import {scanCleanupRasterRetention} from '@electron/features/scan-cleanup/scanCleanupRasterRetention';
 import {createArrayBackedPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
-import {
-    readdir, readFile, rm, stat, truncate, writeFile,
-} from 'fs/promises';
+import {readdir, readFile, rm, stat, truncate, writeFile} from 'fs/promises';
 import {existsSync} from 'fs';
-import {
-    join, sep,
-} from 'path';
+import {join, sep} from 'path';
 import type {IScanCleanupPreviewRequest} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requireRequestId} from '@contracts/shared';
 import {requirePageNumber} from '@contracts/pageNumbers';
@@ -30,7 +26,6 @@ import {
     sender,
 } from '@tests/unit/electron/scanCleanupPreviewHarness';
 
-
 // pdftoppm rasterizes the same pixels whichever container it is asked for, so
 // the fake renderers write one deterministic pattern in either format.
 const dirs: string[] = [];
@@ -40,10 +35,12 @@ interface ICapturedPreviewManifest {
         widthPoints: number;
         heightPoints: number;
     };
-    pages: Array<{options: {
-        sourceDpi: number;
-        dpi: number;
-    }}>;
+    pages: Array<{
+        options: {
+            sourceDpi: number;
+            dpi: number;
+        };
+    }>;
 }
 
 function isCapturedPreviewManifest(value: unknown): value is ICapturedPreviewManifest {
@@ -64,22 +61,24 @@ async function previewDependencies() {
 }
 
 afterEach(async () => {
-    await Promise.all(dirs.splice(0).map(dir => rm(dir, {
-        recursive: true,
-        force: true,
-    })));
+    await Promise.all(
+        dirs.splice(0).map((dir) =>
+            rm(dir, {
+                recursive: true,
+                force: true,
+            }),
+        ),
+    );
 });
 
 export async function scenarioDoesNotReadTheFullRetainedPNGWhenAProcessingRasterIsPathOnly(): Promise<void> {
-
     const {deps} = await previewDependencies();
-    deps.detectRasterPages = vi.fn(async () => createScanCleanupPageRasterSource({
-        pages: [1],
-        sourceDpiByPage: new Map([[
-            1,
-            300,
-        ]]),
-    }));
+    deps.detectRasterPages = vi.fn(async () =>
+        createScanCleanupPageRasterSource({
+            pages: [1],
+            sourceDpiByPage: new Map([[1, 300]]),
+        }),
+    );
     let processingPath: string | undefined;
     const originalSidecar = deps.runSidecar;
     deps.runSidecar = vi.fn(async (...args: Parameters<typeof originalSidecar>) => {
@@ -110,28 +109,21 @@ export async function scenarioDoesNotReadTheFullRetainedPNGWhenAProcessingRaster
             pageNumber: 1,
             outputs: [{metadata: expect.any(Object)}],
         });
-        expect(vi.mocked(deps.renderPage).mock.calls.map(call => call[5])).toEqual([
-            150,
-            300,
-            300,
-        ]);
+        expect(vi.mocked(deps.renderPage).mock.calls.map((call) => call[5])).toEqual([150, 300, 300]);
         expect(processingPath).toBe(retainedProcessingPath);
         await expect(stat(retainedProcessingPath!)).resolves.toMatchObject({size: PNG.byteLength});
         expect(vi.mocked(deps.readFile!).mock.calls.some(([path]) => path === retainedProcessingPath)).toBe(false);
     }
-
 }
 
 export async function scenarioSurfacesACorruptRetainedPathOnlyRasterWithoutSilentlyRerenderingIt(): Promise<void> {
-
     const {deps} = await previewDependencies();
-    deps.detectRasterPages = vi.fn(async () => createScanCleanupPageRasterSource({
-        pages: [1],
-        sourceDpiByPage: new Map([[
-            1,
-            300,
-        ]]),
-    }));
+    deps.detectRasterPages = vi.fn(async () =>
+        createScanCleanupPageRasterSource({
+            pages: [1],
+            sourceDpiByPage: new Map([[1, 300]]),
+        }),
+    );
     let processingPath: string | undefined;
     const originalSidecar = deps.runSidecar;
     deps.runSidecar = vi.fn(async (...args: Parameters<typeof originalSidecar>) => {
@@ -151,29 +143,28 @@ export async function scenarioSurfacesACorruptRetainedPathOnlyRasterWithoutSilen
     vi.mocked(deps.readFile!).mockClear();
 
     {
-        await expect(previewOf(service, sender(), {
-            ...request,
-            requestId: requireRequestId('path-only-corrupt-repeat'),
-            layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
-            layoutDetectionComplete: true,
-        })).rejects.toThrow();
+        await expect(
+            previewOf(service, sender(), {
+                ...request,
+                requestId: requireRequestId('path-only-corrupt-repeat'),
+                layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
+                layoutDetectionComplete: true,
+            }),
+        ).rejects.toThrow();
 
         expect(deps.renderPage).toHaveBeenCalledTimes(renderCallsBeforeRetry);
         expect(vi.mocked(deps.readFile!).mock.calls.some(([path]) => path === processingPath)).toBe(false);
     }
-
 }
 
 export async function scenarioRemovesAPathOnlyRasterCanceledAfterRenderingAndBeforeRetention(): Promise<void> {
-
     const {deps} = await previewDependencies();
-    deps.detectRasterPages = vi.fn(async () => createScanCleanupPageRasterSource({
-        pages: [1],
-        sourceDpiByPage: new Map([[
-            1,
-            300,
-        ]]),
-    }));
+    deps.detectRasterPages = vi.fn(async () =>
+        createScanCleanupPageRasterSource({
+            pages: [1],
+            sourceDpiByPage: new Map([[1, 300]]),
+        }),
+    );
     const previewSender = sender();
     let canceled = false;
     let canceledScratchPath: string | undefined;
@@ -191,32 +182,30 @@ export async function scenarioRemovesAPathOnlyRasterCanceledAfterRenderingAndBef
     });
     const service: IScanCleanupPreviewService = scanCleanupPreviewLifecycle(deps);
 
-    await expect(service.preview(previewSender, {
-        ...request,
-        layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
-        layoutDetectionComplete: true,
-    })).resolves.toEqual({canceled: true});
+    await expect(
+        service.preview(previewSender, {
+            ...request,
+            layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
+            layoutDetectionComplete: true,
+        }),
+    ).resolves.toEqual({canceled: true});
 
     expect(canceled).toBe(true);
     expect(canceledScratchPath).toBeDefined();
     await vi.waitFor(async () => {
         await expect(stat(canceledScratchPath!)).rejects.toMatchObject({code: 'ENOENT'});
     });
-
 }
 
 export async function scenarioNeverUnlinksAnAdoptedRasterHoweverOftenItsSlotIsGivenBack(): Promise<void> {
-
-    const {
-        dir, deps,
-    } = await previewDependencies();
+    const {dir, deps} = await previewDependencies();
     const retention = scanCleanupRasterRetention(deps);
     const document = await retention.openDocument({
         sourcePdfPath: join(dir, 'source.pdf'),
         documentRevision: 'revision-1',
     });
-        // What detection's bounded window does for one page: render into a
-        // private scratch file, then publish it at the page's stable path.
+    // What detection's bounded window does for one page: render into a
+    // private scratch file, then publish it at the page's stable path.
     const stagePageOne = async () => {
         const scratchPath = await retention.rasterScratchPath(document, 1, 150);
         await writeFile(scratchPath, PNG);
@@ -253,15 +242,10 @@ export async function scenarioNeverUnlinksAnAdoptedRasterHoweverOftenItsSlotIsGi
     expect(existsSync(staged.path)).toBe(false);
     expect((await retention.retainedPaths(document, [1], 150)).size).toBe(0);
     await retention.dispose();
-
 }
 
 export async function scenarioServesRasterPageReadsFromAForkedPageSizeStoreWithoutTouchingTheParentCursor(): Promise<void> {
-
-    const {
-        dir,
-        deps,
-    } = await previewDependencies();
+    const {dir, deps} = await previewDependencies();
     const pageSizes = [
         {
             ...DOCUMENT_PAGE_SIZES[0]!,
@@ -274,9 +258,10 @@ export async function scenarioServesRasterPageReadsFromAForkedPageSizeStoreWitho
     ];
     const createStore = (): IPdfPageSizeStore => ({
         pageCount: pageSizes.length,
-        getPage: vi.fn(async pageNumber => pageSizes[pageNumber - 1]!),
+        getPage: vi.fn(async (pageNumber) => pageSizes[pageNumber - 1]!),
         readRange: vi.fn(async (firstPageNumber, lastPageNumberExclusive) =>
-            pageSizes.slice(firstPageNumber - 1, lastPageNumberExclusive - 1)),
+            pageSizes.slice(firstPageNumber - 1, lastPageNumberExclusive - 1),
+        ),
         forEachChunk: vi.fn(async () => undefined),
         close: vi.fn(async () => undefined),
     });
@@ -297,28 +282,17 @@ export async function scenarioServesRasterPageReadsFromAForkedPageSizeStoreWitho
     });
 
     const rasterSource = await retention.rasterPageSource(document, new AbortController().signal);
-    const [
-        first,
-        second,
-    ] = await Promise.all([
-        rasterSource.getPageRaster(1),
-        rasterSource.getPageRaster(2),
-    ]);
+    const [first, second] = await Promise.all([rasterSource.getPageRaster(1), rasterSource.getPageRaster(2)]);
     expect(first).toMatchObject({dpi: 300});
     expect(second).toBeUndefined();
     expect(store.fork).toHaveBeenCalledOnce();
     expect(forkedStore.getPage).toHaveBeenCalledTimes(2);
     expect(parent.getPage).not.toHaveBeenCalled();
     await retention.dispose();
-
 }
 
 export async function scenarioSerializesConcurrentRasterPageReadsOnACursorOnlyPageSizeStore(): Promise<void> {
-
-    const {
-        dir,
-        deps,
-    } = await previewDependencies();
+    const {dir, deps} = await previewDependencies();
     const pageSizes = [
         {
             ...DOCUMENT_PAGE_SIZES[0]!,
@@ -344,7 +318,8 @@ export async function scenarioSerializesConcurrentRasterPageReadsOnACursorOnlyPa
             return pageSizes[pageNumber - 1]!;
         }),
         readRange: vi.fn(async (firstPageNumber, lastPageNumberExclusive) =>
-            pageSizes.slice(firstPageNumber - 1, lastPageNumberExclusive - 1)),
+            pageSizes.slice(firstPageNumber - 1, lastPageNumberExclusive - 1),
+        ),
         forEachChunk: vi.fn(async () => undefined),
         close: vi.fn(async () => undefined),
     };
@@ -359,38 +334,22 @@ export async function scenarioSerializesConcurrentRasterPageReadsOnACursorOnlyPa
     });
 
     const rasterSource = await retention.rasterPageSource(document, new AbortController().signal);
-    const reads = Promise.all([
-        rasterSource.getPageRaster(1),
-        rasterSource.getPageRaster(2),
-    ]);
+    const reads = Promise.all([rasterSource.getPageRaster(1), rasterSource.getPageRaster(2)]);
     await vi.waitFor(() => {
         expect(releaseFirstRead).toBeDefined();
     });
     // The second read must not start while the first holds the shared cursor.
     expect(order).toEqual(['start 1']);
     releaseFirstRead!();
-    const [
-        first,
-        second,
-    ] = await reads;
+    const [first, second] = await reads;
     expect(first).toMatchObject({dpi: 300});
     expect(second).toBeUndefined();
-    expect(order).toEqual([
-        'start 1',
-        'end 1',
-        'start 2',
-        'end 2',
-    ]);
+    expect(order).toEqual(['start 1', 'end 1', 'start 2', 'end 2']);
     await retention.dispose();
-
 }
 
 export async function scenarioCoalescesSerializedRasterFactsIntoBoundedNativeBatches(): Promise<void> {
-
-    const {
-        dir,
-        deps,
-    } = await previewDependencies();
+    const {dir, deps} = await previewDependencies();
     const pageCount = 96;
     const pages = Array.from({length: pageCount}, (_, index) => ({
         ...DOCUMENT_PAGE_SIZES[0]!,
@@ -399,14 +358,15 @@ export async function scenarioCoalescesSerializedRasterFactsIntoBoundedNativeBat
     let readTail = Promise.resolve();
     const store: IPdfPageSizeStore = {
         pageCount,
-        getPage: vi.fn(pageNumber => {
+        getPage: vi.fn((pageNumber) => {
             const read = readTail.then(() => pages[pageNumber - 1]!);
-            readTail = read.then(() => undefined, () => undefined);
+            readTail = read.then(
+                () => undefined,
+                () => undefined,
+            );
             return read;
         }),
-        readRange: vi.fn(async (firstPageNumber, lastPageNumberExclusive) => (
-            pages.slice(firstPageNumber - 1, lastPageNumberExclusive - 1)
-        )),
+        readRange: vi.fn(async (firstPageNumber, lastPageNumberExclusive) => pages.slice(firstPageNumber - 1, lastPageNumberExclusive - 1)),
         forEachChunk: vi.fn(async () => undefined),
         close: vi.fn(async () => undefined),
         fork: vi.fn(() => store),
@@ -422,22 +382,15 @@ export async function scenarioCoalescesSerializedRasterFactsIntoBoundedNativeBat
     });
     const rasterSource = await retention.rasterPageSource(document, new AbortController().signal);
 
-    await Promise.all(pages.map(page => Promise.resolve(rasterSource.getPageRaster(page.pageNumber))));
+    await Promise.all(pages.map((page) => Promise.resolve(rasterSource.getPageRaster(page.pageNumber))));
 
     expect(deps.detectRasterPages).toHaveBeenCalledOnce();
-    expect(vi.mocked(deps.detectRasterPages).mock.calls[0]?.[2]).toEqual(
-        pages.map(page => page.pageNumber),
-    );
+    expect(vi.mocked(deps.detectRasterPages).mock.calls[0]?.[2]).toEqual(pages.map((page) => page.pageNumber));
     await retention.dispose();
-
 }
 
 export async function scenarioRejectsRasterFactReadsWhenTheNativeProbeFails(): Promise<void> {
-
-    const {
-        dir,
-        deps,
-    } = await previewDependencies();
+    const {dir, deps} = await previewDependencies();
     const page = {
         ...DOCUMENT_PAGE_SIZES[0]!,
         pageNumber: 1,
@@ -454,15 +407,15 @@ export async function scenarioRejectsRasterFactReadsWhenTheNativeProbeFails(): P
     deps.getPageSizeStore = vi.fn(() => store);
     deps.isRasterDetectionAvailable = () => true;
     // A document closed while its raster facts are probed rejects the probe.
-    deps.detectRasterPages = vi.fn()
+    deps.detectRasterPages = vi
+        .fn()
         .mockRejectedValueOnce(new Error('document closed during the raster probe'))
-        .mockResolvedValue(createScanCleanupPageRasterSource({
-            pages: [1],
-            sourceDpiByPage: new Map([[
-                1,
-                300,
-            ]]),
-        }));
+        .mockResolvedValue(
+            createScanCleanupPageRasterSource({
+                pages: [1],
+                sourceDpiByPage: new Map([[1, 300]]),
+            }),
+        );
     const retention = scanCleanupRasterRetention(deps);
     const document = await retention.openDocument({
         sourcePdfPath: join(dir, 'source.pdf'),
@@ -470,22 +423,15 @@ export async function scenarioRejectsRasterFactReadsWhenTheNativeProbeFails(): P
     });
     const rasterSource = await retention.rasterPageSource(document, new AbortController().signal);
 
-    await expect(Promise.resolve(rasterSource.getPageRaster(1)))
-        .rejects.toThrow('document closed during the raster probe');
+    await expect(Promise.resolve(rasterSource.getPageRaster(1))).rejects.toThrow('document closed during the raster probe');
     // The failed read leaves the cache, so asking again probes again.
-    await expect(Promise.resolve(rasterSource.getPageRaster(1)))
-        .resolves.toMatchObject({dpi: 300});
+    await expect(Promise.resolve(rasterSource.getPageRaster(1))).resolves.toMatchObject({dpi: 300});
     expect(deps.detectRasterPages).toHaveBeenCalledTimes(2);
     await retention.dispose();
-
 }
 
 export async function scenarioKeepsMeasuredRasterFactsWhenTheStructureProbeFails(): Promise<void> {
-
-    const {
-        dir,
-        deps,
-    } = await previewDependencies();
+    const {dir, deps} = await previewDependencies();
     // 2,550 px across 612 pt is a measured 300 dpi page image.
     const page = {
         ...DOCUMENT_PAGE_SIZES[0]!,
@@ -526,15 +472,10 @@ export async function scenarioKeepsMeasuredRasterFactsWhenTheStructureProbeFails
     });
     expect(raster?.hasBilevelLayer).not.toBe(true);
     await retention.dispose();
-
 }
 
 export async function scenarioOpensBoundedPageGeometryAndRasterFactsWithoutTheLegacyArrays(): Promise<void> {
-
-    const {
-        dir,
-        deps,
-    } = await previewDependencies();
+    const {dir, deps} = await previewDependencies();
     const pageSizes = [
         {
             ...DOCUMENT_PAGE_SIZES[0]!,
@@ -548,10 +489,11 @@ export async function scenarioOpensBoundedPageGeometryAndRasterFactsWithoutTheLe
     const close = vi.fn(async () => undefined);
     const store: IPdfPageSizeStore = {
         pageCount: pageSizes.length,
-        getPage: vi.fn(async pageNumber => pageSizes[pageNumber - 1]!),
+        getPage: vi.fn(async (pageNumber) => pageSizes[pageNumber - 1]!),
         readRange: vi.fn(async (firstPageNumber, lastPageNumberExclusive) =>
-            pageSizes.slice(firstPageNumber - 1, lastPageNumberExclusive - 1)),
-        forEachChunk: vi.fn(async onChunk => {
+            pageSizes.slice(firstPageNumber - 1, lastPageNumberExclusive - 1),
+        ),
+        forEachChunk: vi.fn(async (onChunk) => {
             await onChunk({
                 pageCount: pageSizes.length,
                 chunkIndex: 0,
@@ -591,15 +533,10 @@ export async function scenarioOpensBoundedPageGeometryAndRasterFactsWithoutTheLe
     await retention.release(document);
     expect(close).toHaveBeenCalled();
     await retention.dispose();
-
 }
 
 export async function scenarioBoundsSourceDPIMeasurementsWhilePreservingRecentPageValues(): Promise<void> {
-
-    const {
-        dir,
-        deps,
-    } = await previewDependencies();
+    const {dir, deps} = await previewDependencies();
     const detectSourceDpi = vi.fn(async (_sourcePdfPath: string, pageNumber: number) => pageNumber);
     deps.detectSourceDpi = detectSourceDpi;
     const retention = scanCleanupRasterRetention(deps);
@@ -619,13 +556,11 @@ export async function scenarioBoundsSourceDPIMeasurementsWhilePreservingRecentPa
     expect(detectSourceDpi).toHaveBeenCalledTimes(301);
     await retention.release(document);
     await retention.dispose();
-
 }
 
 export async function scenarioReadsDocumentGeometryOncePerSettingsAcrossPreviews(): Promise<void> {
-
     const {deps} = await previewDependencies();
-    const pageSizes = DOCUMENT_PAGE_SIZES.map(page => ({
+    const pageSizes = DOCUMENT_PAGE_SIZES.map((page) => ({
         ...page,
         dominantImageWidthPx: 2_550,
         dominantImageHeightPx: 3_300,
@@ -635,10 +570,11 @@ export async function scenarioReadsDocumentGeometryOncePerSettingsAcrossPreviews
     let documentPasses = 0;
     const store: IPdfPageSizeStore = {
         pageCount: pageSizes.length,
-        getPage: vi.fn(async pageNumber => pageSizes[pageNumber - 1]!),
+        getPage: vi.fn(async (pageNumber) => pageSizes[pageNumber - 1]!),
         readRange: vi.fn(async (firstPageNumber, lastPageNumberExclusive) =>
-            pageSizes.slice(firstPageNumber - 1, lastPageNumberExclusive - 1)),
-        forEachChunk: vi.fn(async onChunk => {
+            pageSizes.slice(firstPageNumber - 1, lastPageNumberExclusive - 1),
+        ),
+        forEachChunk: vi.fn(async (onChunk) => {
             documentPasses += 1;
             await onChunk({
                 pageCount: pageSizes.length,
@@ -679,11 +615,9 @@ export async function scenarioReadsDocumentGeometryOncePerSettingsAcrossPreviews
     expect(second.pageNumber).toBe(2);
     expect(documentPasses).toBe(passesAfterFirstPreview);
     await service.dispose();
-
 }
 
 export async function scenarioPlansABoundedMatchedPreviewFromChunkedGeometryAndPageRasterMetadata(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const pageSizes = [
         {
@@ -725,14 +659,12 @@ export async function scenarioPlansABoundedMatchedPreviewFromChunkedGeometryAndP
     const createStore = (): IPdfPageSizeStore => {
         const store: IPdfPageSizeStore = {
             pageCount: pageSizes.length,
-            getPage: vi.fn(async pageNumber => pageSizes[pageNumber - 1]!),
+            getPage: vi.fn(async (pageNumber) => pageSizes[pageNumber - 1]!),
             readRange: vi.fn(async (firstPageNumber, lastPageNumberExclusive) =>
-                pageSizes.slice(firstPageNumber - 1, lastPageNumberExclusive - 1)),
-            forEachChunk: vi.fn(async onChunk => {
-                for (const [
-                    chunkIndex,
-                    page,
-                ] of pageSizes.entries()) {
+                pageSizes.slice(firstPageNumber - 1, lastPageNumberExclusive - 1),
+            ),
+            forEachChunk: vi.fn(async (onChunk) => {
+                for (const [chunkIndex, page] of pageSizes.entries()) {
                     await onChunk({
                         pageCount: pageSizes.length,
                         chunkIndex,
@@ -818,42 +750,32 @@ export async function scenarioPlansABoundedMatchedPreviewFromChunkedGeometryAndP
         sourceDpi: 300,
     });
     await service.dispose();
-    expect(stores.every(store => vi.mocked(store.close).mock.calls.length === 1)).toBe(true);
-
+    expect(stores.every((store) => vi.mocked(store.close).mock.calls.length === 1)).toBe(true);
 }
 
 export async function scenarioCoalescesFallbackRasterProbesIntoBoundedStreamingWindows(): Promise<void> {
-
-    const {
-        dir, deps,
-    } = await previewDependencies();
+    const {dir, deps} = await previewDependencies();
     const pageSizes = Array.from({length: 1_025}, (_, index) => ({
         ...DOCUMENT_PAGE_SIZES[0]!,
         pageNumber: index + 1,
     }));
     const store: IPdfPageSizeStore = {
         pageCount: pageSizes.length,
-        getPage: vi.fn(async pageNumber => pageSizes[pageNumber - 1]!),
+        getPage: vi.fn(async (pageNumber) => pageSizes[pageNumber - 1]!),
         readRange: vi.fn(async (firstPageNumber, lastPageNumberExclusive) =>
-            pageSizes.slice(firstPageNumber - 1, lastPageNumberExclusive - 1)),
+            pageSizes.slice(firstPageNumber - 1, lastPageNumberExclusive - 1),
+        ),
         forEachChunk: vi.fn(async () => undefined),
         close: vi.fn(async () => undefined),
     };
     const probeCalls: number[][] = [];
     deps.getPageSizeStore = vi.fn(() => store);
     deps.isRasterDetectionAvailable = () => true;
-    deps.detectRasterPages = vi.fn(async (
-        _sourcePdfPath: string,
-        _signal: AbortSignal,
-        pageNumbers: readonly number[] = [],
-    ) => {
+    deps.detectRasterPages = vi.fn(async (_sourcePdfPath: string, _signal: AbortSignal, pageNumbers: readonly number[] = []) => {
         probeCalls.push([...pageNumbers]);
         return createScanCleanupPageRasterSource({
             pages: pageNumbers,
-            sourceDpiByPage: new Map(pageNumbers.map(pageNumber => [
-                pageNumber,
-                280,
-            ] as const)),
+            sourceDpiByPage: new Map(pageNumbers.map((pageNumber) => [pageNumber, 280] as const)),
         });
     });
     const retention = scanCleanupRasterRetention(deps);
@@ -862,32 +784,24 @@ export async function scenarioCoalescesFallbackRasterProbesIntoBoundedStreamingW
         documentRevision: 'revision-1',
     });
     const source = await retention.rasterPageSource(document, new AbortController().signal);
-    const rasters = await Promise.all(Array.from({length: pageSizes.length}, (_, index) =>
-        Promise.resolve(source.getPageRaster(index + 1))));
+    const rasters = await Promise.all(
+        Array.from({length: pageSizes.length}, (_, index) => Promise.resolve(source.getPageRaster(index + 1))),
+    );
 
-    expect(rasters.every(raster => raster?.dpi === 280)).toBe(true);
+    expect(rasters.every((raster) => raster?.dpi === 280)).toBe(true);
     expect(source.documentDpi).toBe(280);
     expect(probeCalls).toHaveLength(2);
-    expect(probeCalls.every(pageNumbers => pageNumbers.length <= 1_024)).toBe(true);
+    expect(probeCalls.every((pageNumbers) => pageNumbers.length <= 1_024)).toBe(true);
     const probedPages = probeCalls.flat().sort((left, right) => left - right);
     expect(new Set(probedPages).size).toBe(pageSizes.length);
-    expect(probedPages).toEqual(pageSizes.map(page => page.pageNumber));
+    expect(probedPages).toEqual(pageSizes.map((page) => page.pageNumber));
     await retention.release(document);
     await retention.dispose();
-
 }
 
 export async function scenarioKeepsConcurrentRasterPageWindowsIsolatedForACursorOnlyPageSizeStore(): Promise<void> {
-
-    const {
-        dir, deps,
-    } = await previewDependencies();
-    const pageSizes = [
-        1,
-        2,
-        3,
-        4,
-    ].map(pageNumber => ({
+    const {dir, deps} = await previewDependencies();
+    const pageSizes = [1, 2, 3, 4].map((pageNumber) => ({
         ...DOCUMENT_PAGE_SIZES[0]!,
         pageNumber,
         dominantImageWidthPx: pageNumber * 100,
@@ -901,14 +815,15 @@ export async function scenarioKeepsConcurrentRasterPageWindowsIsolatedForACursor
         // This models a bounded reader that keeps one mutable current
         // chunk but predates the optional fork() capability. Two windows
         // must not observe whichever page resumed last.
-        getPage: vi.fn(async pageNumber => {
+        getPage: vi.fn(async (pageNumber) => {
             currentPageNumber = pageNumber;
             await Promise.resolve();
             return pageSizes[currentPageNumber - 1]!;
         }),
         readRange: vi.fn(async (firstPageNumber, lastPageNumberExclusive) =>
-            pageSizes.slice(firstPageNumber - 1, lastPageNumberExclusive - 1)),
-        forEachChunk: vi.fn(async onChunk => {
+            pageSizes.slice(firstPageNumber - 1, lastPageNumberExclusive - 1),
+        ),
+        forEachChunk: vi.fn(async (onChunk) => {
             await onChunk({
                 pageCount: pageSizes.length,
                 chunkIndex: 0,
@@ -928,13 +843,7 @@ export async function scenarioKeepsConcurrentRasterPageWindowsIsolatedForACursor
     });
     const source = await retention.rasterPageSource(document, new AbortController().signal);
 
-    const [
-        first,
-        last,
-    ] = await Promise.all([
-        source.getPageRaster(1),
-        source.getPageRaster(pageSizes.length),
-    ]);
+    const [first, last] = await Promise.all([source.getPageRaster(1), source.getPageRaster(pageSizes.length)]);
 
     expect(first).toMatchObject({
         width: 100,
@@ -946,11 +855,9 @@ export async function scenarioKeepsConcurrentRasterPageWindowsIsolatedForACursor
     });
     await retention.release(document);
     await retention.dispose();
-
 }
 
 export async function scenarioUsesBoundedGeometryWithoutTheLegacyArrayReaderForMillionPagePreviews(): Promise<void> {
-
     const {deps} = await previewDependencies();
     deps.getPageCount = vi.fn(async () => 1_000_000);
     deps.getPageSizes = vi.fn(async () => {
@@ -968,14 +875,10 @@ export async function scenarioUsesBoundedGeometryWithoutTheLegacyArrayReaderForM
     await expect(previewOf(service, sender(), request)).resolves.toMatchObject({pageNumber: 1});
     expect(deps.getPageSizes).not.toHaveBeenCalled();
     await service.dispose();
-
 }
 
 export async function scenarioStopsProtectingAnAdoptedRasterOnceTheIndexHasForgottenIt(): Promise<void> {
-
-    const {
-        dir, deps,
-    } = await previewDependencies();
+    const {dir, deps} = await previewDependencies();
     const retention = scanCleanupRasterRetention(deps);
     const document = await retention.openDocument({
         sourcePdfPath: join(dir, 'source.pdf'),
@@ -1005,25 +908,22 @@ export async function scenarioStopsProtectingAnAdoptedRasterOnceTheIndexHasForgo
     await retention.releaseRaster(document, 2, 150);
     expect(existsSync(staged.path)).toBe(false);
     await retention.dispose();
-
 }
 
 export async function scenarioKeepsAStagedRasterAPreviewAdoptedWhileDetectionRecyclesItsSlot(): Promise<void> {
-
-    const {
-        dir,
-        deps,
-    } = await previewDependencies();
+    const {dir, deps} = await previewDependencies();
     const pageCount = 12;
     deps.getPageCount = vi.fn(async () => pageCount);
-    deps.getPageSizes = vi.fn(async () => Array.from({length: pageCount}, (_, index) => ({
-        pageNumber: index + 1,
-        xPoints: 0,
-        yPoints: 0,
-        widthPoints: 612,
-        heightPoints: 792,
-        rotation: 0,
-    })));
+    deps.getPageSizes = vi.fn(async () =>
+        Array.from({length: pageCount}, (_, index) => ({
+            pageNumber: index + 1,
+            xPoints: 0,
+            yPoints: 0,
+            widthPoints: 612,
+            heightPoints: 792,
+            rotation: 0,
+        })),
+    );
     deps.runWithDetectionLease = vi.fn((_ownerId, _signal, _policy, _options, work) => work());
     const previewSidecar = deps.runSidecar;
     const pageOneAdopted = Promise.withResolvers<undefined>();
@@ -1039,7 +939,7 @@ export async function scenarioKeepsAStagedRasterAPreviewAdoptedWhileDetectionRec
             stagedInputWindow?: number;
             pages: Array<{
                 inputPath: string;
-                sourcePageIndex: number
+                sourcePageIndex: number;
             }>;
         };
         if (manifest.operation !== 'analyze') {
@@ -1109,8 +1009,7 @@ export async function scenarioKeepsAStagedRasterAPreviewAdoptedWhileDetectionRec
 
     // Renders of page 1 only: detection keeps staging later pages while the
     // preview runs, and those are not what this assertion is about.
-    const pageOneRenders = () => vi.mocked(deps.renderPage).mock.calls
-        .filter(call => call[2] === 1).length;
+    const pageOneRenders = () => vi.mocked(deps.renderPage).mock.calls.filter((call) => call[2] === 1).length;
     await pageOneHeld.promise;
     let adopted: string[] = [];
     try {
@@ -1121,8 +1020,7 @@ export async function scenarioKeepsAStagedRasterAPreviewAdoptedWhileDetectionRec
         await previewOf(service, sender(), request);
         // The preview read the raster detection staged rather than making one.
         expect(pageOneRenders()).toBe(renderedBeforePreview);
-        adopted = (await readdir(dir, {recursive: true}))
-            .filter(entry => entry.endsWith(`${sep}page-1-150.png`));
+        adopted = (await readdir(dir, {recursive: true})).filter((entry) => entry.endsWith(`${sep}page-1-150.png`));
         expect(adopted).toHaveLength(1);
     } finally {
         // The sidecar is parked on this promise, so a failure above has to
@@ -1130,11 +1028,7 @@ export async function scenarioKeepsAStagedRasterAPreviewAdoptedWhileDetectionRec
         pageOneAdopted.resolve(undefined);
     }
 
-    await vi.waitFor(() => expect(service.getDetectionJobState(
-        owner,
-        started.jobId,
-        detectionRequest,
-    )?.status).toBe('completed'));
+    await vi.waitFor(() => expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.status).toBe('completed'));
 
     // The whole point of the run: detection staged a window narrower than
     // the document rather than every page at once.
@@ -1142,13 +1036,10 @@ export async function scenarioKeepsAStagedRasterAPreviewAdoptedWhileDetectionRec
     expect(observedWindow!).toBeLessThan(pageCount);
     // Detection recycled that slot for later pages, but the file stays:
     // a preview named it in a manifest of its own.
-    expect((await readdir(dir, {recursive: true}))
-        .filter(entry => entry.endsWith(`${sep}page-1-150.png`))).toEqual(adopted);
-
+    expect((await readdir(dir, {recursive: true})).filter((entry) => entry.endsWith(`${sep}page-1-150.png`))).toEqual(adopted);
 }
 
 export async function scenarioKeepsARasterItsSidecarIsReadingWhenTheSamePageIsRetainedAgain(): Promise<void> {
-
     const {deps} = await previewDependencies();
     deps.getPageCount = vi.fn(async () => 2);
     deps.runWithDetectionLease = vi.fn((_ownerId, _signal, _policy, _options, work) => work());
@@ -1160,7 +1051,9 @@ export async function scenarioKeepsARasterItsSidecarIsReadingWhenTheSamePageIsRe
     deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) => {
         if (args[2] === 1) {
             coldRenders += 1;
-            if (coldRenders >= 2) bothRendering.resolve(undefined);
+            if (coldRenders >= 2) {
+                bothRendering.resolve(undefined);
+            }
             await bothRendering.promise;
         }
         await originalRenderPage(...args);
@@ -1172,34 +1065,33 @@ export async function scenarioKeepsARasterItsSidecarIsReadingWhenTheSamePageIsRe
     const readable: Record<string, boolean> = {};
     const originalSidecar = deps.runSidecar;
     const allExist = async (paths: readonly string[]) => {
-        const found = await Promise.all(paths.map(async path => {
-            try {
-                await stat(path);
-                return true;
-            } catch {
-                return false;
-            }
-        }));
+        const found = await Promise.all(
+            paths.map(async (path) => {
+                try {
+                    await stat(path);
+                    return true;
+                } catch {
+                    return false;
+                }
+            }),
+        );
         return found.every(Boolean);
     };
     deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
         const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{inputPath: string}>};
         const detecting = manifest.pages.length > 1;
         entered += 1;
-        if (entered >= 2) bothPublished.resolve(undefined);
+        if (entered >= 2) {
+            bothPublished.resolve(undefined);
+        }
         await bothPublished.promise;
-        readable[detecting ? 'detection' : 'preview'] = await allExist(
-            manifest.pages.map(page => page.inputPath),
-        );
+        readable[detecting ? 'detection' : 'preview'] = await allExist(manifest.pages.map((page) => page.inputPath));
         if (!detecting) {
             await originalSidecar(binary, manifestPath, signal, log, onProgress);
             return;
         }
         await writeDetectionMetadata(manifestPath);
-        for (const pageNumber of [
-            1,
-            2,
-        ]) {
+        for (const pageNumber of [1, 2]) {
             await onProgress({
                 stage: 'page-complete',
                 completedPages: pageNumber,
@@ -1216,23 +1108,17 @@ export async function scenarioKeepsARasterItsSidecarIsReadingWhenTheSamePageIsRe
     const previewed = previewOf(service, owner, request);
     const started = await service.detectAll(owner, detectionRequest);
     await previewed;
-    await vi.waitFor(() => expect(
-        service.getDetectionJobState(owner, started.jobId, detectionRequest)?.status,
-    ).toBe('completed'));
+    await vi.waitFor(() => expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.status).toBe('completed'));
 
     expect(coldRenders).toBe(2);
     expect(readable).toEqual({
         detection: true,
         preview: true,
     });
-
 }
 
 export async function scenarioProtectsPageReleaseAcrossOwnerClaimsAndHeldReads(): Promise<void> {
-    const {
-        dir,
-        deps,
-    } = await previewDependencies();
+    const {dir, deps} = await previewDependencies();
     const readGate = Promise.withResolvers<Uint8Array>();
     const readStarted = Promise.withResolvers<undefined>();
     const sourceRead = deps.readFile!;
@@ -1247,25 +1133,34 @@ export async function scenarioProtectsPageReleaseAcrossOwnerClaimsAndHeldReads()
     }
     deps.readFile = delayedReadFile;
     const retention = scanCleanupRasterRetention(deps);
-    const document = await retention.openDocument({
-        sourcePdfPath: join(dir, 'source.pdf'),
-        documentRevision: 'revision-1',
-    }, 'owner-1');
-    await retention.openDocument({
-        sourcePdfPath: document.sourcePdfPath,
-        documentRevision: document.documentRevision,
-    }, 'owner-2');
+    const document = await retention.openDocument(
+        {
+            sourcePdfPath: join(dir, 'source.pdf'),
+            documentRevision: 'revision-1',
+        },
+        'owner-1',
+    );
+    await retention.openDocument(
+        {
+            sourcePdfPath: document.sourcePdfPath,
+            documentRevision: document.documentRevision,
+        },
+        'owner-2',
+    );
     const scratchPath = await retention.rasterScratchPath(document, 1, 150);
     await writeFile(scratchPath, PNG);
-    const retained = await retention.retain({
-        document,
-        dpi: 150,
-        height: 1,
-        pageNumber: 1,
-        scratchPath,
-        sizeBytes: PNG.byteLength,
-        width: 1,
-    }, 'owner-2');
+    const retained = await retention.retain(
+        {
+            document,
+            dpi: 150,
+            height: 1,
+            pageNumber: 1,
+            scratchPath,
+            sizeBytes: PNG.byteLength,
+            width: 1,
+        },
+        'owner-2',
+    );
 
     await retention.releaseRaster(document, 1, 150, 'owner-1');
     expect(existsSync(retained.path)).toBe(true);
@@ -1283,27 +1178,31 @@ export async function scenarioProtectsPageReleaseAcrossOwnerClaimsAndHeldReads()
 }
 
 export async function scenarioEvictsEachStagedRasterWhenItsOwnerIsTheOnlyHolder(): Promise<void> {
-    const {
-        dir, deps,
-    } = await previewDependencies();
+    const {dir, deps} = await previewDependencies();
     const retention = scanCleanupRasterRetention(deps);
-    const document = await retention.openDocument({
-        sourcePdfPath: join(dir, 'source.pdf'),
-        documentRevision: 'revision-1',
-    }, 'detection-owner');
+    const document = await retention.openDocument(
+        {
+            sourcePdfPath: join(dir, 'source.pdf'),
+            documentRevision: 'revision-1',
+        },
+        'detection-owner',
+    );
     const pageCount = 300;
     for (let pageNumber = 1; pageNumber <= pageCount; pageNumber++) {
         const scratchPath = await retention.rasterScratchPath(document, pageNumber, 150);
         await writeFile(scratchPath, PNG);
-        await retention.retain({
-            document,
-            dpi: 150,
-            height: 1,
-            pageNumber,
-            scratchPath,
-            sizeBytes: PNG.byteLength,
-            width: 1,
-        }, 'detection-owner');
+        await retention.retain(
+            {
+                document,
+                dpi: 150,
+                height: 1,
+                pageNumber,
+                scratchPath,
+                sizeBytes: PNG.byteLength,
+                width: 1,
+            },
+            'detection-owner',
+        );
         await retention.evictRaster(document, pageNumber, 150, 'detection-owner');
         expect((await retention.retainedPaths(document, [pageNumber], 150)).size).toBe(0);
     }
@@ -1313,26 +1212,30 @@ export async function scenarioEvictsEachStagedRasterWhenItsOwnerIsTheOnlyHolder(
 }
 
 export async function scenarioProtectsDetectionClaimFromUnscopedInvalidation(): Promise<void> {
-    const {
-        dir, deps,
-    } = await previewDependencies();
+    const {dir, deps} = await previewDependencies();
     const retention = scanCleanupRasterRetention(deps);
     const sourcePdfPath = join(dir, 'source.pdf');
-    const document = await retention.openDocument({
-        sourcePdfPath,
-        documentRevision: 'revision-1',
-    }, 'detection-owner');
+    const document = await retention.openDocument(
+        {
+            sourcePdfPath,
+            documentRevision: 'revision-1',
+        },
+        'detection-owner',
+    );
     const scratchPath = await retention.rasterScratchPath(document, 1, 150);
     await writeFile(scratchPath, PNG);
-    const retained = await retention.retain({
-        document,
-        dpi: 150,
-        height: 1,
-        pageNumber: 1,
-        scratchPath,
-        sizeBytes: PNG.byteLength,
-        width: 1,
-    }, 'detection-owner');
+    const retained = await retention.retain(
+        {
+            document,
+            dpi: 150,
+            height: 1,
+            pageNumber: 1,
+            scratchPath,
+            sizeBytes: PNG.byteLength,
+            width: 1,
+        },
+        'detection-owner',
+    );
 
     retention.invalidate(sourcePdfPath, 'revision-1');
 
@@ -1345,9 +1248,7 @@ export async function scenarioProtectsDetectionClaimFromUnscopedInvalidation(): 
 }
 
 export async function scenarioPreservesAnotherOwnersRasterWhenPublicationIsCanceled(): Promise<void> {
-    const {
-        dir, deps,
-    } = await previewDependencies();
+    const {dir, deps} = await previewDependencies();
     const originalPublish = deps.publishRaster;
     const publicationWritten = Promise.withResolvers<undefined>();
     const publicationContinue = Promise.withResolvers<undefined>();
@@ -1368,28 +1269,34 @@ export async function scenarioPreservesAnotherOwnersRasterWhenPublicationIsCance
     const ownerTwo = await retention.openDocument(documentRequest, 'owner-2');
     const ownerTwoScratch = await retention.rasterScratchPath(ownerTwo, 1, 150);
     await writeFile(ownerTwoScratch, PNG);
-    const ownerTwoRaster = await retention.retain({
-        document: ownerTwo,
-        dpi: 150,
-        height: 1,
-        pageNumber: 1,
-        scratchPath: ownerTwoScratch,
-        sizeBytes: PNG.byteLength,
-        width: 1,
-    }, 'owner-2');
+    const ownerTwoRaster = await retention.retain(
+        {
+            document: ownerTwo,
+            dpi: 150,
+            height: 1,
+            pageNumber: 1,
+            scratchPath: ownerTwoScratch,
+            sizeBytes: PNG.byteLength,
+            width: 1,
+        },
+        'owner-2',
+    );
     const ownerOne = await retention.openDocument(documentRequest, 'owner-1');
     const ownerOneScratch = await retention.rasterScratchPath(ownerOne, 1, 150);
     await writeFile(ownerOneScratch, PNG);
     holdPublication = true;
-    const ownerOnePublication = retention.retain({
-        document: ownerOne,
-        dpi: 150,
-        height: 1,
-        pageNumber: 1,
-        scratchPath: ownerOneScratch,
-        sizeBytes: PNG.byteLength,
-        width: 1,
-    }, 'owner-1');
+    const ownerOnePublication = retention.retain(
+        {
+            document: ownerOne,
+            dpi: 150,
+            height: 1,
+            pageNumber: 1,
+            scratchPath: ownerOneScratch,
+            sizeBytes: PNG.byteLength,
+            width: 1,
+        },
+        'owner-1',
+    );
 
     await publicationWritten.promise;
     retention.invalidate(sourcePdfPath, 'revision-1', 'owner-1');
@@ -1405,12 +1312,7 @@ export async function scenarioPreservesAnotherOwnersRasterWhenPublicationIsCance
 
     expect(existsSync(ownerOneScratch)).toBe(false);
     expect(existsSync(ownerTwoRaster.path)).toBe(true);
-    expect(await retention.retainedPaths(ownerTwo, [1], 150)).toEqual(
-        new Map([[
-            1,
-            ownerTwoRaster,
-        ]]),
-    );
+    expect(await retention.retainedPaths(ownerTwo, [1], 150)).toEqual(new Map([[1, ownerTwoRaster]]));
     expect(retention.claimRaster(ownerTwo, 1, 150, 'owner-2')).toBe(true);
     expect(await retention.readPath(ownerTwo, 1, 150)).toMatchObject({path: ownerTwoRaster.path});
     await expect(readFile(ownerTwoRaster.path)).resolves.toEqual(Buffer.from(PNG));
@@ -1422,43 +1324,56 @@ export async function scenarioPreservesAnotherOwnersRasterWhenPublicationIsCance
 }
 
 export async function scenarioRetiresSupersededDocumentsForSameSourcePath(): Promise<void> {
-    const {
-        dir, deps,
-    } = await previewDependencies();
+    const {dir, deps} = await previewDependencies();
     const retention = scanCleanupRasterRetention(deps);
     const sourcePdfPath = join(dir, 'source.pdf');
-    const unpinned = await retention.openDocument({
-        sourcePdfPath,
-        documentRevision: 'revision-1',
-    }, 'owner-1');
+    const unpinned = await retention.openDocument(
+        {
+            sourcePdfPath,
+            documentRevision: 'revision-1',
+        },
+        'owner-1',
+    );
     await retention.release(unpinned, 'owner-1');
 
-    const current = await retention.openDocument({
-        sourcePdfPath,
-        documentRevision: 'revision-2',
-    }, 'owner-2');
+    const current = await retention.openDocument(
+        {
+            sourcePdfPath,
+            documentRevision: 'revision-2',
+        },
+        'owner-2',
+    );
     expect(unpinned.lifetime.signal.aborted).toBe(true);
 
-    const pinned = await retention.openDocument({
-        sourcePdfPath,
-        documentRevision: 'revision-3',
-    }, 'owner-3');
+    const pinned = await retention.openDocument(
+        {
+            sourcePdfPath,
+            documentRevision: 'revision-3',
+        },
+        'owner-3',
+    );
     const pinnedScratch = await retention.rasterScratchPath(pinned, 1, 150);
     await writeFile(pinnedScratch, PNG);
-    const pinnedRaster = await retention.retain({
-        document: pinned,
-        dpi: 150,
-        height: 1,
-        pageNumber: 1,
-        scratchPath: pinnedScratch,
-        sizeBytes: PNG.byteLength,
-        width: 1,
-    }, 'owner-3');
+    const pinnedRaster = await retention.retain(
+        {
+            document: pinned,
+            dpi: 150,
+            height: 1,
+            pageNumber: 1,
+            scratchPath: pinnedScratch,
+            sizeBytes: PNG.byteLength,
+            width: 1,
+        },
+        'owner-3',
+    );
 
-    const replacement = await retention.openDocument({
-        sourcePdfPath,
-        documentRevision: 'revision-4',
-    }, 'owner-4');
+    const replacement = await retention.openDocument(
+        {
+            sourcePdfPath,
+            documentRevision: 'revision-4',
+        },
+        'owner-4',
+    );
     expect(pinned.removeWhenIdle).toBe(true);
     expect(pinned.lifetime.signal.aborted).toBe(false);
     expect(existsSync(pinnedRaster.path)).toBe(true);
@@ -1471,12 +1386,8 @@ export async function scenarioRetiresSupersededDocumentsForSameSourcePath(): Pro
     expect(existsSync(pinnedRaster.path)).toBe(false);
 }
 
-async function scenarioReleasesClaimAfterExceptionalRetainedRead(
-    mode: 'bytes' | 'metadata',
-): Promise<void> {
-    const {
-        dir, deps,
-    } = await previewDependencies();
+async function scenarioReleasesClaimAfterExceptionalRetainedRead(mode: 'bytes' | 'metadata'): Promise<void> {
+    const {dir, deps} = await previewDependencies();
     const retention = scanCleanupRasterRetention(deps);
     const documentRequest = {
         sourcePdfPath: join(dir, 'source.pdf'),
@@ -1485,34 +1396,45 @@ async function scenarioReleasesClaimAfterExceptionalRetainedRead(
     const ownerTwo = await retention.openDocument(documentRequest, 'owner-2');
     const scratchPath = await retention.rasterScratchPath(ownerTwo, 1, 150);
     await writeFile(scratchPath, PNG);
-    const retained = await retention.retain({
-        document: ownerTwo,
-        dpi: 150,
-        height: 1,
-        pageNumber: 1,
-        scratchPath,
-        sizeBytes: PNG.byteLength,
-        width: 1,
-    }, 'owner-2');
+    const retained = await retention.retain(
+        {
+            document: ownerTwo,
+            dpi: 150,
+            height: 1,
+            pageNumber: 1,
+            scratchPath,
+            sizeBytes: PNG.byteLength,
+            width: 1,
+        },
+        'owner-2',
+    );
     const ownerOne = await retention.openDocument(documentRequest, 'owner-1');
     const failure = new Error(`forced retained ${mode} read failure`);
 
     if (mode === 'bytes') {
         const sourceRead = deps.fileSystem?.readFile ?? deps.readFile;
-        if (sourceRead === undefined) throw new Error('fixture readFile is unavailable');
+        if (sourceRead === undefined) {
+            throw new Error('fixture readFile is unavailable');
+        }
         const readFile = sourceRead;
         async function throwingReadFile(path: string): Promise<Uint8Array>;
         async function throwingReadFile(path: string, encoding: 'utf8'): Promise<string>;
         async function throwingReadFile(path: string, encoding?: 'utf8') {
-            if (path === retained.path && encoding === undefined) throw failure;
+            if (path === retained.path && encoding === undefined) {
+                throw failure;
+            }
             return encoding === 'utf8' ? readFile(path, 'utf8') : readFile(path);
         }
         deps.readFile = throwingReadFile;
     } else {
         const sourceOpen = deps.open;
-        if (sourceOpen === undefined) throw new Error('fixture open is unavailable');
+        if (sourceOpen === undefined) {
+            throw new Error('fixture open is unavailable');
+        }
         deps.open = async (path, flags) => {
-            if (path === retained.path) throw failure;
+            if (path === retained.path) {
+                throw failure;
+            }
             return sourceOpen(path, flags);
         };
     }
@@ -1520,52 +1442,31 @@ async function scenarioReleasesClaimAfterExceptionalRetainedRead(
     const releaseEvents: string[] = [];
     const releaseRaster = retention.releaseRaster;
     retention.releaseRaster = async (...args: Parameters<typeof releaseRaster>) => {
-        if (args[0] === ownerOne) releaseEvents.push('raster');
+        if (args[0] === ownerOne) {
+            releaseEvents.push('raster');
+        }
         return releaseRaster(...args);
     };
     const releaseDocument = retention.release;
     retention.release = async (...args: Parameters<typeof releaseDocument>) => {
-        if (args[0] === ownerOne) releaseEvents.push('document');
+        if (args[0] === ownerOne) {
+            releaseEvents.push('document');
+        }
         return releaseDocument(...args);
     };
 
-    const exceptionalRead = mode === 'bytes'
-        ? retention.materializeRawRaster(
-            ownerOne,
-            1,
-            new AbortController().signal,
-            deps,
-            1,
-            150,
-            undefined,
-            'owner-1',
-        )
-        : retention.materializeRawRasterPath(
-            ownerOne,
-            1,
-            new AbortController().signal,
-            deps,
-            1,
-            150,
-            undefined,
-            'owner-1',
-        );
+    const exceptionalRead =
+        mode === 'bytes'
+            ? retention.materializeRawRaster(ownerOne, 1, new AbortController().signal, deps, 1, 150, undefined, 'owner-1')
+            : retention.materializeRawRasterPath(ownerOne, 1, new AbortController().signal, deps, 1, 150, undefined, 'owner-1');
     await expect(exceptionalRead).rejects.toBe(failure);
 
     // The first failed materialization has settled its read lifecycle and
     // released its claim before the document release. Owner two can still
     // inspect and release the raster.
     await retention.release(ownerOne, 'owner-1');
-    expect(releaseEvents).toEqual([
-        'raster',
-        'document',
-    ]);
-    expect(await retention.retainedPaths(ownerTwo, [1], 150)).toEqual(
-        new Map([[
-            1,
-            retained,
-        ]]),
-    );
+    expect(releaseEvents).toEqual(['raster', 'document']);
+    expect(await retention.retainedPaths(ownerTwo, [1], 150)).toEqual(new Map([[1, retained]]));
     expect(existsSync(retained.path)).toBe(true);
     await retention.releaseRaster(ownerTwo, 1, 150, 'owner-2');
     await retention.release(ownerTwo, 'owner-2');
@@ -1582,9 +1483,7 @@ export async function scenarioReleasesClaimAfterExceptionalRetainedMetadataRead(
 }
 describe('scanCleanupRasterRetentionTest', () => {
     it('settles every pending raster read when an evicted page is requested again before the batch flush', async () => {
-        const {
-            dir, deps,
-        } = await previewDependencies();
+        const {dir, deps} = await previewDependencies();
         const pages = Array.from({length: 96}, (_, index) => ({
             ...DOCUMENT_PAGE_SIZES[0]!,
             pageNumber: index + 1,
@@ -1600,10 +1499,12 @@ describe('scanCleanupRasterRetentionTest', () => {
             const settledPages: number[] = [];
             // Both consumers enter in one turn, before the scheduled batch
             // flush. Page 1 is already outside the completed-fact cache size.
-            const reads = pages.map(page => Promise.resolve(source.getPageRaster(page.pageNumber)).then(raster => {
-                settledPages.push(page.pageNumber);
-                return raster;
-            }));
+            const reads = pages.map((page) =>
+                Promise.resolve(source.getPageRaster(page.pageNumber)).then((raster) => {
+                    settledPages.push(page.pageNumber);
+                    return raster;
+                }),
+            );
             const replacement = await source.getPageRaster(1);
             await Promise.all(reads.slice(1));
 
@@ -1620,110 +1521,32 @@ describe('scanCleanupRasterRetentionTest', () => {
         await expect(owner.dispose()).resolves.toBeUndefined();
     });
     const scenarios = [
-        [
-            'avoid reading path-only processing PNGs',
-            scenarioDoesNotReadTheFullRetainedPNGWhenAProcessingRasterIsPathOnly,
-        ],
-        [
-            'surface corrupt path-only rasters',
-            scenarioSurfacesACorruptRetainedPathOnlyRasterWithoutSilentlyRerenderingIt,
-        ],
-        [
-            'remove a canceled path-only raster',
-            scenarioRemovesAPathOnlyRasterCanceledAfterRenderingAndBeforeRetention,
-        ],
-        [
-            'preserve adopted rasters across slot release',
-            scenarioNeverUnlinksAnAdoptedRasterHoweverOftenItsSlotIsGivenBack,
-        ],
-        [
-            'read document geometry once per settings across previews',
-            scenarioReadsDocumentGeometryOncePerSettingsAcrossPreviews,
-        ],
-        [
-            'reject raster fact reads when the native probe fails',
-            scenarioRejectsRasterFactReadsWhenTheNativeProbeFails,
-        ],
-        [
-            'keep measured raster facts when the structure probe fails',
-            scenarioKeepsMeasuredRasterFactsWhenTheStructureProbeFails,
-        ],
-        [
-            'serve forked page-size reads',
-            scenarioServesRasterPageReadsFromAForkedPageSizeStoreWithoutTouchingTheParentCursor,
-        ],
-        [
-            'serialize cursor-only page reads',
-            scenarioSerializesConcurrentRasterPageReadsOnACursorOnlyPageSizeStore,
-        ],
-        [
-            'coalesce bounded native raster batches',
-            scenarioCoalescesSerializedRasterFactsIntoBoundedNativeBatches,
-        ],
-        [
-            'open bounded geometry without legacy arrays',
-            scenarioOpensBoundedPageGeometryAndRasterFactsWithoutTheLegacyArrays,
-        ],
-        [
-            'bound source-DPI measurements',
-            scenarioBoundsSourceDPIMeasurementsWhilePreservingRecentPageValues,
-        ],
-        [
-            'plan bounded matched previews',
-            scenarioPlansABoundedMatchedPreviewFromChunkedGeometryAndPageRasterMetadata,
-        ],
-        [
-            'coalesce fallback raster probes',
-            scenarioCoalescesFallbackRasterProbesIntoBoundedStreamingWindows,
-        ],
-        [
-            'isolate concurrent page windows',
-            scenarioKeepsConcurrentRasterPageWindowsIsolatedForACursorOnlyPageSizeStore,
-        ],
-        [
-            'use bounded geometry for a million-page preview',
-            scenarioUsesBoundedGeometryWithoutTheLegacyArrayReaderForMillionPagePreviews,
-        ],
-        [
-            'stop protecting forgotten adopted rasters',
-            scenarioStopsProtectingAnAdoptedRasterOnceTheIndexHasForgottenIt,
-        ],
-        [
-            'preserve a preview-adopted staged raster',
-            scenarioKeepsAStagedRasterAPreviewAdoptedWhileDetectionRecyclesItsSlot,
-        ],
-        [
-            'preserve a raster held by a sidecar',
-            scenarioKeepsARasterItsSidecarIsReadingWhenTheSamePageIsRetainedAgain,
-        ],
-        [
-            'protect page release across owner claims',
-            scenarioProtectsPageReleaseAcrossOwnerClaimsAndHeldReads,
-        ],
-        [
-            'protect a detection claim from unscoped invalidation',
-            scenarioProtectsDetectionClaimFromUnscopedInvalidation,
-        ],
-        [
-            'evict each staged raster when its owner is the only holder',
-            scenarioEvictsEachStagedRasterWhenItsOwnerIsTheOnlyHolder,
-        ],
-        [
-            'preserve another owner during canceled publication',
-            scenarioPreservesAnotherOwnersRasterWhenPublicationIsCanceled,
-        ],
-        [
-            'retire superseded documents for one source path',
-            scenarioRetiresSupersededDocumentsForSameSourcePath,
-        ],
-        [
-            'release claims after byte-read failure',
-            scenarioReleasesClaimAfterExceptionalRetainedByteRead,
-        ],
-        [
-            'release claims after metadata-read failure',
-            scenarioReleasesClaimAfterExceptionalRetainedMetadataRead,
-        ],
+        ['avoid reading path-only processing PNGs', scenarioDoesNotReadTheFullRetainedPNGWhenAProcessingRasterIsPathOnly],
+        ['surface corrupt path-only rasters', scenarioSurfacesACorruptRetainedPathOnlyRasterWithoutSilentlyRerenderingIt],
+        ['remove a canceled path-only raster', scenarioRemovesAPathOnlyRasterCanceledAfterRenderingAndBeforeRetention],
+        ['preserve adopted rasters across slot release', scenarioNeverUnlinksAnAdoptedRasterHoweverOftenItsSlotIsGivenBack],
+        ['read document geometry once per settings across previews', scenarioReadsDocumentGeometryOncePerSettingsAcrossPreviews],
+        ['reject raster fact reads when the native probe fails', scenarioRejectsRasterFactReadsWhenTheNativeProbeFails],
+        ['keep measured raster facts when the structure probe fails', scenarioKeepsMeasuredRasterFactsWhenTheStructureProbeFails],
+        ['serve forked page-size reads', scenarioServesRasterPageReadsFromAForkedPageSizeStoreWithoutTouchingTheParentCursor],
+        ['serialize cursor-only page reads', scenarioSerializesConcurrentRasterPageReadsOnACursorOnlyPageSizeStore],
+        ['coalesce bounded native raster batches', scenarioCoalescesSerializedRasterFactsIntoBoundedNativeBatches],
+        ['open bounded geometry without legacy arrays', scenarioOpensBoundedPageGeometryAndRasterFactsWithoutTheLegacyArrays],
+        ['bound source-DPI measurements', scenarioBoundsSourceDPIMeasurementsWhilePreservingRecentPageValues],
+        ['plan bounded matched previews', scenarioPlansABoundedMatchedPreviewFromChunkedGeometryAndPageRasterMetadata],
+        ['coalesce fallback raster probes', scenarioCoalescesFallbackRasterProbesIntoBoundedStreamingWindows],
+        ['isolate concurrent page windows', scenarioKeepsConcurrentRasterPageWindowsIsolatedForACursorOnlyPageSizeStore],
+        ['use bounded geometry for a million-page preview', scenarioUsesBoundedGeometryWithoutTheLegacyArrayReaderForMillionPagePreviews],
+        ['stop protecting forgotten adopted rasters', scenarioStopsProtectingAnAdoptedRasterOnceTheIndexHasForgottenIt],
+        ['preserve a preview-adopted staged raster', scenarioKeepsAStagedRasterAPreviewAdoptedWhileDetectionRecyclesItsSlot],
+        ['preserve a raster held by a sidecar', scenarioKeepsARasterItsSidecarIsReadingWhenTheSamePageIsRetainedAgain],
+        ['protect page release across owner claims', scenarioProtectsPageReleaseAcrossOwnerClaimsAndHeldReads],
+        ['protect a detection claim from unscoped invalidation', scenarioProtectsDetectionClaimFromUnscopedInvalidation],
+        ['evict each staged raster when its owner is the only holder', scenarioEvictsEachStagedRasterWhenItsOwnerIsTheOnlyHolder],
+        ['preserve another owner during canceled publication', scenarioPreservesAnotherOwnersRasterWhenPublicationIsCanceled],
+        ['retire superseded documents for one source path', scenarioRetiresSupersededDocumentsForSameSourcePath],
+        ['release claims after byte-read failure', scenarioReleasesClaimAfterExceptionalRetainedByteRead],
+        ['release claims after metadata-read failure', scenarioReleasesClaimAfterExceptionalRetainedMetadataRead],
     ] as const;
     it.each(scenarios)('%s', async (_name, scenario) => {
         await scenario();

@@ -1,15 +1,8 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    ref,
-    shallowRef,
-} from 'vue';
-import { useWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
-import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
+import {describe, expect, it} from 'vitest';
+import {ref, shallowRef} from 'vue';
+import {useWorkspaceShellState} from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
+import {createWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {createDefaultWorkspaceToolbarSnapshot} from '@app/types/workspaceExpose';
 
 function createAssignedSession() {
     return createWorkspaceDocumentController({

@@ -1,19 +1,17 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { isErrnoException } from '@contracts/runtimeGuards';
+import {describe, expect, it} from 'vitest';
+import {isErrnoException} from '@contracts/runtimeGuards';
 
 describe('isErrnoException', () => {
     it('accepts native errors and serialized errno records with typed fields', () => {
         expect(isErrnoException(Object.assign(new Error('missing'), {code: 'ENOENT'}))).toBe(true);
-        expect(isErrnoException({
-            code: 'ENOENT',
-            errno: -2,
-            path: '/tmp/missing.pdf',
-            syscall: 'open',
-        })).toBe(true);
+        expect(
+            isErrnoException({
+                code: 'ENOENT',
+                errno: -2,
+                path: '/tmp/missing.pdf',
+                syscall: 'open',
+            }),
+        ).toBe(true);
         expect(isErrnoException({code: 2})).toBe(true);
     });
 

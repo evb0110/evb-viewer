@@ -340,7 +340,7 @@ async function pruneOutputRoot(
 
     let removed = 0;
     for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
+        if (!entry.isDirectory()) {continue;}
         const directoryPath = join(outputRoot, entry.name);
         const resolvedDirectory = resolve(directoryPath);
         const relativeDirectory = relative(resolvedRoot, resolvedDirectory);
@@ -356,13 +356,13 @@ async function pruneOutputRoot(
         const outputPdfPaths = files
             .filter(file => file.isFile() && extname(file.name).toLowerCase() === '.pdf')
             .map(file => join(directoryPath, file.name));
-        if (containsLiveOutput(outputPdfPaths, isOutputLive)) continue;
+        if (containsLiveOutput(outputPdfPaths, isOutputLive)) {continue;}
         const metadata = await stat(directoryPath).catch(() => null);
-        if (!metadata || nowMs - metadata.mtimeMs < SCAN_CLEANUP_OUTPUT_MAX_AGE_MS) continue;
+        if (!metadata || nowMs - metadata.mtimeMs < SCAN_CLEANUP_OUTPUT_MAX_AGE_MS) {continue;}
         // Liveness can change while directory metadata is being read. Check
         // the main-owned registry again at the last synchronous decision point
         // before rm is submitted, so an output opened during a prune survives.
-        if (containsLiveOutput(outputPdfPaths, isOutputLive)) continue;
+        if (containsLiveOutput(outputPdfPaths, isOutputLive)) {continue;}
         await rm(directoryPath, {
             recursive: true,
             force: true,

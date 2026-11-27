@@ -1,18 +1,9 @@
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
-import {
-    tryOnScopeDispose,
-    useEventListener,
-} from '@vueuse/core';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type {
-    IShutdownSaveFlushResponse,
-    ISystemCapability,
-} from '@contracts/systemPlatformFeature';
-import { getSystemCapability } from '@app/utils/getSystemCapability';
-import { BrowserLogger } from '@app/utils/browserLogger';
+import type {ComputedRef, Ref} from 'vue';
+import {tryOnScopeDispose, useEventListener} from '@vueuse/core';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {IShutdownSaveFlushResponse, ISystemCapability} from '@contracts/systemPlatformFeature';
+import {getSystemCapability} from '@app/utils/getSystemCapability';
+import {BrowserLogger} from '@app/utils/browserLogger';
 
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 
@@ -23,10 +14,7 @@ interface IShutdownSaveFlushReportingDeps {
     systemCapability?: Pick<ISystemCapability, 'onShutdownSaveFlushRequest'>;
 }
 
-export function preventBrowserUnloadWhenDirty(
-    event: BeforeUnloadEvent,
-    hasPendingUnsavedChanges: boolean,
-) {
+export function preventBrowserUnloadWhenDirty(event: BeforeUnloadEvent, hasPendingUnsavedChanges: boolean) {
     if (!hasPendingUnsavedChanges) {
         return false;
     }
@@ -44,12 +32,16 @@ export const useBrowserDirtyUnloadGuard = (hasPendingUnsavedChanges: () => boole
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
         preventBrowserUnloadWhenDirty(event, hasPendingUnsavedChanges());
     };
-    watch(hasPendingUnsavedChanges, (isDirty, _, onCleanup) => {
-        if (!isDirty) {
-            return;
-        }
-        onCleanup(useEventListener(targetWindow, 'beforeunload', handleBeforeUnload));
-    }, {immediate: true});
+    watch(
+        hasPendingUnsavedChanges,
+        (isDirty, _, onCleanup) => {
+            if (!isDirty) {
+                return;
+            }
+            onCleanup(useEventListener(targetWindow, 'beforeunload', handleBeforeUnload));
+        },
+        {immediate: true},
+    );
 };
 
 export const useShutdownSaveFlushReporting = (deps: IShutdownSaveFlushReportingDeps) => {
@@ -60,7 +52,9 @@ export const useShutdownSaveFlushReporting = (deps: IShutdownSaveFlushReportingD
         if (!capturedWorkingCopyPath || !deps.hasPendingUnsavedChanges.value) {
             return {};
         }
-        BrowserLogger.info('workspace', 'Leaving dirty document for checkpoint recovery during shutdown', {workingCopyPath: capturedWorkingCopyPath});
+        BrowserLogger.info('workspace', 'Leaving dirty document for checkpoint recovery during shutdown', {
+            workingCopyPath: capturedWorkingCopyPath,
+        });
         return {dirtyWorkingCopyPaths: [capturedWorkingCopyPath]};
     });
 

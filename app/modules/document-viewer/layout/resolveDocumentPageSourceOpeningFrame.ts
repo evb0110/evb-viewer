@@ -1,15 +1,9 @@
-import { clamp } from 'es-toolkit/math';
-import type { IPdfSemanticAnchor } from '@contracts/recentReadingView';
-import type { IDocumentOpenSurfacePageGeometry } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
-import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/documentPageGutterPx';
-import {
-    clampDocumentFitScale,
-    clampDocumentManualZoom,
-} from '@app/modules/document-viewer/zoomPolicy';
-import {
-    resolveDocumentPageLeft,
-    resolveDocumentZoomAnchorScroll,
-} from '@app/modules/document-viewer/zoomAnchor';
+import {clamp} from 'es-toolkit/math';
+import type {IPdfSemanticAnchor} from '@contracts/recentReadingView';
+import type {IDocumentOpenSurfacePageGeometry} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import {DOCUMENT_PAGE_GUTTER_PX} from '@app/modules/document-viewer/layout/documentPageGutterPx';
+import {clampDocumentFitScale, clampDocumentManualZoom} from '@app/modules/document-viewer/zoomPolicy';
+import {resolveDocumentPageLeft, resolveDocumentZoomAnchorScroll} from '@app/modules/document-viewer/zoomAnchor';
 
 export interface IDocumentPageSourceOpeningFrameInput {
     /** The open's restore point; the frame places the page where that restore puts it. */
@@ -58,62 +52,48 @@ export function resolveAnchoredViewportHeight(
  * the viewport brings back. Otherwise the live client box already holds that
  * bar, and a renderer that locks the horizontal axis shows none.
  */
-export function readArrivedViewportClientSize(
-    viewport: HTMLElement,
-    isHorizontalScrollLocked = false,
-) {
+export function readArrivedViewportClientSize(viewport: HTMLElement, isHorizontalScrollLocked = false) {
     const live = {
         width: viewport.clientWidth,
         height: viewport.clientHeight,
     };
-    if (
-        viewport.style.overflow !== 'hidden'
-        || isHorizontalScrollLocked
-        || viewport.scrollWidth <= viewport.clientWidth
-    ) {
+    if (viewport.style.overflow !== 'hidden' || isHorizontalScrollLocked || viewport.scrollWidth <= viewport.clientWidth) {
         return live;
     }
     const style = getComputedStyle(viewport);
     const px = (value: string) => Number.parseFloat(value) || 0;
     // The stable gutter is one bar thick, or one on each side with both-edges.
-    const gutter = viewport.offsetWidth - viewport.clientWidth
-        - px(style.borderLeftWidth) - px(style.borderRightWidth);
+    const gutter = viewport.offsetWidth - viewport.clientWidth - px(style.borderLeftWidth) - px(style.borderRightWidth);
     const bar = Math.max(0, gutter / (style.getPropertyValue('scrollbar-gutter').includes('both-edges') ? 2 : 1));
     // Only the part of the bar not shown yet takes height from the live box.
-    const shown = Math.max(0, viewport.offsetHeight - viewport.clientHeight
-        - px(style.borderTopWidth) - px(style.borderBottomWidth));
+    const shown = Math.max(0, viewport.offsetHeight - viewport.clientHeight - px(style.borderTopWidth) - px(style.borderBottomWidth));
     return {
         width: live.width,
         height: Math.max(0, live.height - Math.max(0, bar - shown)),
     };
 }
 
-export function resolveDocumentPageSourceOpeningFrame(
-    input: IDocumentPageSourceOpeningFrameInput,
-): IDocumentPageSourceOpeningFrame | null {
+export function resolveDocumentPageSourceOpeningFrame(input: IDocumentPageSourceOpeningFrameInput): IDocumentPageSourceOpeningFrame | null {
     const {viewport} = input;
     if (
-        !Number.isFinite(viewport.width)
-        || !Number.isFinite(viewport.height)
-        || viewport.width <= DOCUMENT_PAGE_GUTTER_PX * 2
-        || viewport.height <= DOCUMENT_PAGE_GUTTER_PX * 2
-        || !Number.isFinite(input.geometry.width)
-        || !Number.isFinite(input.geometry.height)
-        || input.geometry.width <= 0
-        || input.geometry.height <= 0
+        !Number.isFinite(viewport.width) ||
+        !Number.isFinite(viewport.height) ||
+        viewport.width <= DOCUMENT_PAGE_GUTTER_PX * 2 ||
+        viewport.height <= DOCUMENT_PAGE_GUTTER_PX * 2 ||
+        !Number.isFinite(input.geometry.width) ||
+        !Number.isFinite(input.geometry.height) ||
+        input.geometry.width <= 0 ||
+        input.geometry.height <= 0
     ) {
         return null;
     }
 
-    const scale = input.zoomMode === 'custom'
-        ? clampDocumentManualZoom(input.zoom)
-        : input.zoomMode === 'fit-height'
-            ? clampDocumentFitScale(
-                (viewport.height - DOCUMENT_PAGE_GUTTER_PX * 2) / input.geometry.height,
-            )
-            : clampDocumentFitScale(
-                (viewport.width - DOCUMENT_PAGE_GUTTER_PX * 2) / input.geometry.width,
-            );
+    const scale =
+        input.zoomMode === 'custom'
+            ? clampDocumentManualZoom(input.zoom)
+            : input.zoomMode === 'fit-height'
+              ? clampDocumentFitScale((viewport.height - DOCUMENT_PAGE_GUTTER_PX * 2) / input.geometry.height)
+              : clampDocumentFitScale((viewport.width - DOCUMENT_PAGE_GUTTER_PX * 2) / input.geometry.width);
     const width = input.geometry.width * scale;
     const height = input.geometry.height * scale;
     if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
@@ -143,25 +123,27 @@ export function resolveDocumentPageSourceOpeningFrame(
         const outerWidth = viewport.width + (viewport.scrollbar ?? 0);
         const layout = {
             left: resolveDocumentPageLeft(viewport.width, pageWidth),
-            top: input.continuousScroll
-                ? gutter + (input.geometry.pageNumber - 1) * (pageHeight + gutter)
-                : gutter,
+            top: input.continuousScroll ? gutter + (input.geometry.pageNumber - 1) * (pageHeight + gutter) : gutter,
             width: pageWidth,
             height: pageHeight,
         };
         const clientHeight = resolveAnchoredViewportHeight(pageWidth, viewport);
-        const scroll = resolveDocumentZoomAnchorScroll({
-            clientWidth: outerWidth,
-            clientHeight,
-            scrollLeft: 0,
-            scrollTop: 0,
-        }, [layout], {
-            pageIndex: 0,
-            xRatio: input.anchor.pageXFraction,
-            yRatio: input.anchor.pageYFraction,
-            viewportXRatio: input.anchor.viewportXFraction,
-            viewportYRatio: input.anchor.viewportYFraction,
-        });
+        const scroll = resolveDocumentZoomAnchorScroll(
+            {
+                clientWidth: outerWidth,
+                clientHeight,
+                scrollLeft: 0,
+                scrollTop: 0,
+            },
+            [layout],
+            {
+                pageIndex: 0,
+                xRatio: input.anchor.pageXFraction,
+                yRatio: input.anchor.pageYFraction,
+                viewportXRatio: input.anchor.viewportXFraction,
+                viewportYRatio: input.anchor.viewportYFraction,
+            },
+        );
         if (!scroll) {
             return null;
         }

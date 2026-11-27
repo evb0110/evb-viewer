@@ -1,5 +1,5 @@
-import type { TPageIndex } from '@contracts/pageNumbers';
-import type { TEpochMs } from '@contracts/timestamps';
+import type {TPageIndex} from '@contracts/pageNumbers';
+import type {TEpochMs} from '@contracts/timestamps';
 
 import type {
     IAnnotationMarkerRect,
@@ -11,15 +11,12 @@ import type {
     TLineEndStyle,
     TMarkupSubtype,
 } from '@app/types/annotations';
-import type {
-    IPdfAnnotationNoteReply,
-    IPdfAnnotationStampImageReference,
-} from '@contracts/pdfAnnotationParseTypes';
+import type {IPdfAnnotationNoteReply, IPdfAnnotationStampImageReference} from '@contracts/pdfAnnotationParseTypes';
 
 declare const annotationIdBrand: unique symbol;
 
 // Domain language from the annotation blueprint intentionally omits the T prefix.
-export type AnnotationId = string & { readonly [annotationIdBrand]: 'AnnotationId' };
+export type AnnotationId = string & {readonly [annotationIdBrand]: 'AnnotationId'};
 
 export type TAnnotationRotation = 0 | 90 | 180 | 270;
 
@@ -169,9 +166,7 @@ export function toLegacyShapeStableKey(id: AnnotationId): string {
  * model and no viewer consumer accepts the legacy record.
  */
 export function toLegacyShapeAnnotation(entity: IShapeEntity): IShapeAnnotation {
-    const lineEndpoints = entity.tool === 'line' || entity.tool === 'arrow'
-        ? toLegacyLineEndpoints(entity)
-        : null;
+    const lineEndpoints = entity.tool === 'line' || entity.tool === 'arrow' ? toLegacyLineEndpoints(entity) : null;
     return {
         id: entity.identity.id,
         author: entity.author,
@@ -181,16 +176,18 @@ export function toLegacyShapeAnnotation(entity: IShapeEntity): IShapeAnnotation 
         y: lineEndpoints?.y ?? entity.rect.top,
         width: entity.rect.width,
         height: entity.rect.height,
-        ...(lineEndpoints ? {
-            x2: lineEndpoints.x2,
-            y2: lineEndpoints.y2,
-        } : {}),
+        ...(lineEndpoints
+            ? {
+                  x2: lineEndpoints.x2,
+                  y2: lineEndpoints.y2,
+              }
+            : {}),
         color: entity.strokeColor,
         ...(entity.fill === null ? {} : {fillColor: entity.fill}),
         opacity: entity.opacity,
         strokeWidth: entity.strokeWidth,
-        points: entity.points?.map(point => ({...point})),
-        strokes: entity.strokes?.map(stroke => stroke.map(point => ({...point}))),
+        points: entity.points?.map((point) => ({...point})),
+        strokes: entity.strokes?.map((stroke) => stroke.map((point) => ({...point}))),
         annotationId: entity.identity.pdfRef ?? null,
         pdfSubtype: entity.pdfSubtype ?? toLegacyShapeSubtype(entity.tool),
         lineStartStyle: entity.lineStartStyle ?? 'none',
@@ -201,12 +198,7 @@ export function toLegacyShapeAnnotation(entity: IShapeEntity): IShapeAnnotation 
     };
 }
 
-export type AnnotationEntity =
-    | ITextBoxEntity
-    | INoteEntity
-    | ITextMarkupEntity
-    | IPlacedImageEntity
-    | IShapeEntity;
+export type AnnotationEntity = ITextBoxEntity | INoteEntity | ITextMarkupEntity | IPlacedImageEntity | IShapeEntity;
 
 export interface ISavedSemanticEntry {
     readonly kind: AnnotationEntity['kind'];
@@ -235,7 +227,9 @@ interface ITextMarkupReplacement {
 
 export function asAnnotationId(value: string): AnnotationId {
     const normalized = value.trim();
-    if (!normalized) throw new Error('AnnotationId must not be empty');
+    if (!normalized) {
+        throw new Error('AnnotationId must not be empty');
+    }
     return normalized as AnnotationId;
 }
 
@@ -332,15 +326,11 @@ function parseColorComponent(value: string) {
     if (!Number.isFinite(numeric)) {
         return null;
     }
-    return clampByte(trimmed.endsWith('%') ? numeric * 255 / 100 : numeric);
+    return clampByte(trimmed.endsWith('%') ? (numeric * 255) / 100 : numeric);
 }
 
 function byteColor(red: number, green: number, blue: number) {
-    return `#${[
-        red,
-        green,
-        blue,
-    ].map(value => value.toString(16).padStart(2, '0')).join('')}`;
+    return `#${[red, green, blue].map((value) => value.toString(16).padStart(2, '0')).join('')}`;
 }
 
 /**
@@ -451,7 +441,7 @@ function canonicalSemanticEntity(entity: AnnotationEntity) {
                 lineEndStyle: entity.lineEndStyle ?? (entity.tool === 'arrow' ? 'closedArrow' : 'none'),
                 rect: quantizeRect(entity.rect),
                 points: entity.points?.map(quantizePoint) ?? null,
-                strokes: entity.strokes?.map(stroke => stroke.map(quantizePoint)) ?? null,
+                strokes: entity.strokes?.map((stroke) => stroke.map(quantizePoint)) ?? null,
                 strokeColor: normalizeColor(entity.strokeColor),
                 strokeWidth: entity.strokeWidth,
                 fill: normalizeColor(entity.fill),
@@ -480,57 +470,50 @@ export function semanticFieldsUnchangedSince(entity: AnnotationEntity, fingerpri
     const base = JSON.parse(fingerprint) as Record<string, unknown>;
     const current: Record<string, unknown> = canonicalSemanticEntity(entity);
     const notAuthored = new Set(Object.keys(semanticBase(entity)));
-    return Object.keys(current).filter(key => !notAuthored.has(key) && JSON.stringify(current[key]) === JSON.stringify(base[key]));
+    return Object.keys(current).filter((key) => !notAuthored.has(key) && JSON.stringify(current[key]) === JSON.stringify(base[key]));
 }
 
 export function semanticSnapshot(entities: Iterable<AnnotationEntity>) {
-    return new Map(Array.from(entities, entity => (
-        [
-            entity.identity.id,
-            {
-                kind: entity.kind,
-                deleted: entity.deleted,
-                fingerprint: semanticEntityFingerprint(entity),
-            },
-        ] as const
-    )));
+    return new Map(
+        Array.from(
+            entities,
+            (entity) =>
+                [
+                    entity.identity.id,
+                    {
+                        kind: entity.kind,
+                        deleted: entity.deleted,
+                        fingerprint: semanticEntityFingerprint(entity),
+                    },
+                ] as const,
+        ),
+    );
 }
 
-export function snapshotOfKind(
-    snapshot: ReadonlyMap<AnnotationId, ISavedSemanticEntry>,
-    kind: AnnotationEntity['kind'] | undefined,
-) {
+export function snapshotOfKind(snapshot: ReadonlyMap<AnnotationId, ISavedSemanticEntry>, kind: AnnotationEntity['kind'] | undefined) {
     if (!kind) {
         return snapshot;
     }
-    return new Map(Array.from(snapshot).filter(([
-        , entry,
-    ]) => entry.kind === kind));
+    return new Map(Array.from(snapshot).filter(([, entry]) => entry.kind === kind));
 }
 
 export function saveFrontierEntityBaseline(entities: readonly AnnotationEntity[]) {
-    return JSON.stringify(entities.map(entity => [
-        entity.identity.id,
-        entity.revision,
-        entity.deleted,
-        entity.pageIndex,
-    ]));
+    return JSON.stringify(entities.map((entity) => [entity.identity.id, entity.revision, entity.deleted, entity.pageIndex]));
 }
 
-export function remapSavedSemanticFingerprint(
-    fingerprint: string,
-    nextPageIndex: number | undefined,
-) {
+export function remapSavedSemanticFingerprint(fingerprint: string, nextPageIndex: number | undefined) {
     const saved = JSON.parse(fingerprint) as Record<string, unknown>;
-    return JSON.stringify(nextPageIndex === undefined
-        ? {
-            ...saved,
-            deleted: true,
-        }
-        : {
-            ...saved,
-            pageIndex: nextPageIndex,
-        });
+    return JSON.stringify(
+        nextPageIndex === undefined
+            ? {
+                  ...saved,
+                  deleted: true,
+              }
+            : {
+                  ...saved,
+                  pageIndex: nextPageIndex,
+              },
+    );
 }
 
 export function semanticSnapshotsEqual(
@@ -539,33 +522,21 @@ export function semanticSnapshotsEqual(
 ) {
     // Tombstones retain history targets, but contribute no annotation to the
     // saved document. Their presence or former content cannot make it dirty.
-    const liveLeft = Array.from(left).filter(([
-        , entry,
-    ]) => !entry.deleted);
-    const liveRight = Array.from(right).filter(([
-        , entry,
-    ]) => !entry.deleted);
-    return liveLeft.length === liveRight.length
-        && liveLeft.every(([
-            id,
-            entry,
-        ]) => {
+    const liveLeft = Array.from(left).filter(([, entry]) => !entry.deleted);
+    const liveRight = Array.from(right).filter(([, entry]) => !entry.deleted);
+    return (
+        liveLeft.length === liveRight.length &&
+        liveLeft.every(([id, entry]) => {
             const other = right.get(id);
             return other !== undefined && !other.deleted && other.fingerprint === entry.fingerprint;
-        });
+        })
+    );
 }
 
-function subtractRect(
-    source: IAnnotationMarkerRect,
-    replacements: readonly IAnnotationMarkerRect[],
-) {
-    const intervals: Array<[number, number]> = [[
-        source.left,
-        source.left + source.width,
-    ]];
+function subtractRect(source: IAnnotationMarkerRect, replacements: readonly IAnnotationMarkerRect[]) {
+    const intervals: Array<[number, number]> = [[source.left, source.left + source.width]];
     replacements.forEach((replacement) => {
-        if (Math.min(source.top + source.height, replacement.top + replacement.height)
-            <= Math.max(source.top, replacement.top)) {
+        if (Math.min(source.top + source.height, replacement.top + replacement.height) <= Math.max(source.top, replacement.top)) {
             return;
         }
         const overlapLeft = Math.max(source.left, replacement.left);
@@ -578,57 +549,45 @@ function subtractRect(
             if (!interval) {
                 continue;
             }
-            const [
-                left,
-                right,
-            ] = interval;
+            const [left, right] = interval;
             if (overlapRight <= left || overlapLeft >= right) {
                 continue;
             }
             intervals.splice(index, 1);
-            if (overlapRight < right) intervals.splice(index, 0, [
-                overlapRight,
-                right,
-            ]);
-            if (overlapLeft > left) intervals.splice(index, 0, [
-                left,
-                overlapLeft,
-            ]);
+            if (overlapRight < right) {
+                intervals.splice(index, 0, [overlapRight, right]);
+            }
+            if (overlapLeft > left) {
+                intervals.splice(index, 0, [left, overlapLeft]);
+            }
         }
     });
     return intervals
-        .filter(([
-            left,
-            right,
-        ]) => right - left >= 0.0005)
-        .map(([
-            left,
-            right,
-        ]) => ({
+        .filter(([left, right]) => right - left >= 0.0005)
+        .map(([left, right]) => ({
             ...source,
             left,
             width: right - left,
         }));
 }
 
-function subtractGeometry(
-    source: readonly IAnnotationMarkerRect[],
-    replacements: readonly IAnnotationMarkerRect[],
-) {
-    return source.flatMap(rect => subtractRect(rect, replacements));
+function subtractGeometry(source: readonly IAnnotationMarkerRect[], replacements: readonly IAnnotationMarkerRect[]) {
+    return source.flatMap((rect) => subtractRect(rect, replacements));
 }
 
-function geometryEqual(
-    left: readonly IAnnotationMarkerRect[],
-    right: readonly IAnnotationMarkerRect[],
-) {
-    return left.length === right.length && left.every((rect, index) => {
-        const candidate = right[index];
-        return candidate?.left === rect.left
-            && candidate.top === rect.top
-            && candidate.width === rect.width
-            && candidate.height === rect.height;
-    });
+function geometryEqual(left: readonly IAnnotationMarkerRect[], right: readonly IAnnotationMarkerRect[]) {
+    return (
+        left.length === right.length &&
+        left.every((rect, index) => {
+            const candidate = right[index];
+            return (
+                candidate?.left === rect.left &&
+                candidate.top === rect.top &&
+                candidate.width === rect.width &&
+                candidate.height === rect.height
+            );
+        })
+    );
 }
 
 function rectBounds(rect: IAnnotationMarkerRect) {
@@ -739,9 +698,7 @@ function mergeIndexRanges(ranges: ReadonlyArray<readonly [number, number]>): Arr
  * intersecting rectangles in the saved annotation would still darken the
  * overlap even when the browser renderer paints one SVG union.
  */
-function unionTextMarkupGeometry(
-    geometries: ReadonlyArray<readonly IAnnotationMarkerRect[]>,
-) {
+function unionTextMarkupGeometry(geometries: ReadonlyArray<readonly IAnnotationMarkerRect[]>) {
     const epsilon = 1e-9;
     const sources: Array<{
         left: number;
@@ -845,14 +802,7 @@ function unionTextMarkupGeometry(
         }
     };
 
-    const updateCoverage = (
-        node: number,
-        lo: number,
-        hi: number,
-        qL: number,
-        qR: number,
-        delta: 1 | -1,
-    ) => {
+    const updateCoverage = (node: number, lo: number, hi: number, qL: number, qR: number, delta: 1 | -1) => {
         if (qL <= lo && hi <= qR) {
             coverCount[node] = coverCount[node]! + delta;
             refreshCoveredState(node, lo, hi);
@@ -868,13 +818,7 @@ function unionTextMarkupGeometry(
         refreshCoveredState(node, lo, hi);
     };
 
-    const findFirstCoveredAtOrAfter = (
-        node: number,
-        lo: number,
-        hi: number,
-        qL: number,
-        qR: number,
-    ): number => {
+    const findFirstCoveredAtOrAfter = (node: number, lo: number, hi: number, qL: number, qR: number): number => {
         const state = coveredState[node]!;
         if (state === 0 || qR <= lo || hi <= qL) {
             return -1;
@@ -895,12 +839,7 @@ function unionTextMarkupGeometry(
         return -1;
     };
 
-    const findLastUncoveredBefore = (
-        node: number,
-        lo: number,
-        hi: number,
-        limit: number,
-    ): number => {
+    const findLastUncoveredBefore = (node: number, lo: number, hi: number, limit: number): number => {
         const state = coveredState[node]!;
         if (state === 2 || limit <= lo) {
             return -1;
@@ -918,12 +857,7 @@ function unionTextMarkupGeometry(
         return findLastUncoveredBefore(node << 1, lo, mid, limit);
     };
 
-    const findFirstUncoveredAtOrAfter = (
-        node: number,
-        lo: number,
-        hi: number,
-        start: number,
-    ): number => {
+    const findFirstUncoveredAtOrAfter = (node: number, lo: number, hi: number, start: number): number => {
         const state = coveredState[node]!;
         if (state === 2 || hi <= start) {
             return yIntervalCount;
@@ -944,10 +878,7 @@ function unionTextMarkupGeometry(
     const collectCoveredRuns = (ranges: ReadonlyArray<readonly [number, number]>) => {
         const runs: Array<[number, number]> = [];
         let lastRunEnd = -1;
-        for (const [
-            qL,
-            qR,
-        ] of ranges) {
+        for (const [qL, qR] of ranges) {
             let cursor = qL > lastRunEnd ? qL : lastRunEnd;
             while (cursor < qR) {
                 const coveredIndex = findFirstCoveredAtOrAfter(1, 0, yIntervalCount, cursor, qR);
@@ -956,10 +887,7 @@ function unionTextMarkupGeometry(
                 }
                 const runStart = findLastUncoveredBefore(1, 0, yIntervalCount, coveredIndex) + 1;
                 const runEnd = findFirstUncoveredAtOrAfter(1, 0, yIntervalCount, coveredIndex);
-                runs.push([
-                    runStart,
-                    runEnd,
-                ]);
+                runs.push([runStart, runEnd]);
                 lastRunEnd = runEnd;
                 cursor = runEnd;
             }
@@ -979,10 +907,7 @@ function unionTextMarkupGeometry(
         const touchedRanges: Array<[number, number]> = [];
         while (eventIndex < events.length && events[eventIndex]!.x === x) {
             const event = events[eventIndex]!;
-            touchedRanges.push([
-                event.y0 > 0 ? event.y0 - 1 : 0,
-                event.y1 < yIntervalCount ? event.y1 + 1 : yIntervalCount,
-            ]);
+            touchedRanges.push([event.y0 > 0 ? event.y0 - 1 : 0, event.y1 < yIntervalCount ? event.y1 + 1 : yIntervalCount]);
             eventIndex += 1;
         }
         const mergedTouched = mergeIndexRanges(touchedRanges);
@@ -993,23 +918,14 @@ function unionTextMarkupGeometry(
             updateCoverage(1, 0, yIntervalCount, event.y0, event.y1, event.delta);
         }
 
-        const afterQueryRanges: Array<[number, number]> = [
-            ...mergedTouched,
-            ...beforeRuns,
-        ];
+        const afterQueryRanges: Array<[number, number]> = [...mergedTouched, ...beforeRuns];
         const afterRuns = collectCoveredRuns(mergeIndexRanges(afterQueryRanges));
         const afterKeys = new Set<string>();
-        for (const [
-            runStart,
-            runEnd,
-        ] of afterRuns) {
+        for (const [runStart, runEnd] of afterRuns) {
             afterKeys.add(`${runStart}:${runEnd}`);
         }
         const beforeKeys = new Set<string>();
-        for (const [
-            runStart,
-            runEnd,
-        ] of beforeRuns) {
+        for (const [runStart, runEnd] of beforeRuns) {
             const key = `${runStart}:${runEnd}`;
             beforeKeys.add(key);
             if (!afterKeys.has(key)) {
@@ -1027,10 +943,7 @@ function unionTextMarkupGeometry(
                 }
             }
         }
-        for (const [
-            runStart,
-            runEnd,
-        ] of afterRuns) {
+        for (const [runStart, runEnd] of afterRuns) {
             const key = `${runStart}:${runEnd}`;
             if (!beforeKeys.has(key)) {
                 openBandStart.set(key, x);
@@ -1073,18 +986,16 @@ function markupGeometryArea(entity: ITextMarkupEntity) {
 }
 
 function firstDerivedSelectedText(entities: readonly ITextMarkupEntity[]) {
-    const candidates = entities.filter(entity => (
-        entity.selectedText !== undefined
-        && entity.selectedText !== null
-        && entity.selectedText.trim().length > 0
-    ));
+    const candidates = entities.filter(
+        (entity) => entity.selectedText !== undefined && entity.selectedText !== null && entity.selectedText.trim().length > 0,
+    );
     if (candidates.length > 0) {
         // A newly selected range can expand a persisted preview. Keep one
         // derived preview, choosing the text tied to the widest covered area,
         // instead of concatenating overlapping fragments.
         return [...candidates].sort((left, right) => markupGeometryArea(right) - markupGeometryArea(left))[0]!.selectedText!;
     }
-    return entities.find(entity => entity.selectedText !== undefined && entity.selectedText !== null)?.selectedText ?? null;
+    return entities.find((entity) => entity.selectedText !== undefined && entity.selectedText !== null)?.selectedText ?? null;
 }
 
 function preferredHighlightIdentity(left: ITextMarkupEntity, right: ITextMarkupEntity) {
@@ -1101,10 +1012,7 @@ function preferredHighlightIdentity(left: ITextMarkupEntity, right: ITextMarkupE
     return left.identity.id.localeCompare(right.identity.id);
 }
 
-function connectedHighlightEntities(
-    created: ITextMarkupEntity,
-    candidates: readonly ITextMarkupEntity[],
-) {
+function connectedHighlightEntities(created: ITextMarkupEntity, candidates: readonly ITextMarkupEntity[]) {
     if (candidates.length === 0 || created.quadPoints.length === 0) {
         return [];
     }
@@ -1183,14 +1091,7 @@ function connectedHighlightEntities(
     const coverLists: Array<number[] | undefined> = new Array(xTreeSize);
     const descLists: Array<number[] | undefined> = new Array(xTreeSize);
 
-    const addRectToXTree = (
-        node: number,
-        lo: number,
-        hi: number,
-        x0: number,
-        x1: number,
-        rectIndex: number,
-    ) => {
+    const addRectToXTree = (node: number, lo: number, hi: number, x0: number, x1: number, rectIndex: number) => {
         if (x0 <= lo && hi <= x1) {
             let bucket = coverLists[node];
             if (!bucket) {
@@ -1217,14 +1118,7 @@ function connectedHighlightEntities(
 
     for (let rectIndex = 0; rectIndex < candidateRects.length; rectIndex += 1) {
         const rect = candidateRects[rectIndex]!;
-        addRectToXTree(
-            1,
-            0,
-            xIntervalCount,
-            xIndexByValue.get(rect.left)!,
-            xIndexByValue.get(rect.right)!,
-            rectIndex,
-        );
+        addRectToXTree(1, 0, xIntervalCount, xIndexByValue.get(rect.left)!, xIndexByValue.get(rect.right)!, rectIndex);
     }
 
     interface IYMaxBottomTree {
@@ -1260,16 +1154,8 @@ function connectedHighlightEntities(
         };
     };
 
-    const queryAndDeleteYTree = (
-        tree: IYMaxBottomTree,
-        qTop: number,
-        qBottom: number,
-        onHit: (candidateIndex: number) => void,
-    ) => {
-        const {
-            rectIndices,
-            maxBottom,
-        } = tree;
+    const queryAndDeleteYTree = (tree: IYMaxBottomTree, qTop: number, qBottom: number, onHit: (candidateIndex: number) => void) => {
+        const {rectIndices, maxBottom} = tree;
         const count = rectIndices.length;
         if (count === 0 || maxBottom[1]! <= qTop) {
             return;
@@ -1413,22 +1299,17 @@ function connectedHighlightEntities(
     return connected;
 }
 
-function buildHighlightSelectionPlan(input: {
-    created: ITextMarkupEntity;
-    entities: readonly AnnotationEntity[];
-}) {
-    const matching = input.entities.filter((entity): entity is ITextMarkupEntity => (
-        !entity.deleted
-        && entity.kind === 'text-markup'
-        && entity.pageIndex === input.created.pageIndex
-        && entity.subtype === 'Highlight'
-        && normalizeColor(entity.color) === normalizeColor(input.created.color)
-    ));
+function buildHighlightSelectionPlan(input: {created: ITextMarkupEntity; entities: readonly AnnotationEntity[]}) {
+    const matching = input.entities.filter(
+        (entity): entity is ITextMarkupEntity =>
+            !entity.deleted &&
+            entity.kind === 'text-markup' &&
+            entity.pageIndex === input.created.pageIndex &&
+            entity.subtype === 'Highlight' &&
+            normalizeColor(entity.color) === normalizeColor(input.created.color),
+    );
     const connected = connectedHighlightEntities(input.created, matching);
-    const mergedGeometry = unionTextMarkupGeometry([
-        ...connected.map(entity => entity.quadPoints),
-        input.created.quadPoints,
-    ]);
+    const mergedGeometry = unionTextMarkupGeometry([...connected.map((entity) => entity.quadPoints), input.created.quadPoints]);
     if (!connected.length) {
         if (geometryEqual(mergedGeometry, input.created.quadPoints)) {
             return null;
@@ -1448,46 +1329,39 @@ function buildHighlightSelectionPlan(input: {
         return null;
     }
     const canonical = [...connected].sort(preferredHighlightIdentity)[0]!;
-    const ordered = [
-        canonical,
-        ...connected.filter(entity => entity.identity.id !== canonical.identity.id),
-        input.created,
-    ];
+    const ordered = [canonical, ...connected.filter((entity) => entity.identity.id !== canonical.identity.id), input.created];
     const mergedContents = firstAuthoredText(ordered);
     const mergedSelectedText = firstDerivedSelectedText(ordered);
     const modifiedAt = input.created.modifiedAt ?? canonical.modifiedAt;
     const replacements = connected.map((entity): ITextMarkupReplacement => {
-        const after = entity.identity.id === canonical.identity.id
-            ? {
-                ...entity,
-                color: input.created.color,
-                opacity: input.created.opacity,
-                contents: mergedContents,
-                quadPoints: mergedGeometry,
-                selectedText: mergedSelectedText,
-                revision: entity.revision + 1,
-                modifiedAt,
-            }
-            : {
-                ...entity,
-                deleted: true,
-                revision: entity.revision + 1,
-                modifiedAt,
-            };
+        const after =
+            entity.identity.id === canonical.identity.id
+                ? {
+                      ...entity,
+                      color: input.created.color,
+                      opacity: input.created.opacity,
+                      contents: mergedContents,
+                      quadPoints: mergedGeometry,
+                      selectedText: mergedSelectedText,
+                      revision: entity.revision + 1,
+                      modifiedAt,
+                  }
+                : {
+                      ...entity,
+                      deleted: true,
+                      revision: entity.revision + 1,
+                      modifiedAt,
+                  };
         return {
             before: entity,
             after,
         };
     });
-    const changedReplacements = replacements.filter(({
-        before, after,
-    }) => (
-        semanticEntityFingerprint(before) !== semanticEntityFingerprint(after)
-        || before.selectedText !== after.selectedText
-    ));
-    const changedCanonical = changedReplacements.find(replacement => (
-        replacement.after.identity.id === canonical.identity.id
-    ));
+    const changedReplacements = replacements.filter(
+        ({before, after}) =>
+            semanticEntityFingerprint(before) !== semanticEntityFingerprint(after) || before.selectedText !== after.selectedText,
+    );
+    const changedCanonical = changedReplacements.find((replacement) => replacement.after.identity.id === canonical.identity.id);
     const afterCanonical = changedCanonical?.after ?? canonical;
     return {
         replacements: changedReplacements,
@@ -1507,10 +1381,7 @@ export function buildTextMarkupSelectionPlan(input: {
     overlapCandidates: readonly ITextMarkupOverlapCandidate[];
     entities: readonly AnnotationEntity[];
 }) {
-    const byId = new Map(input.entities.map(entity => [
-        entity.identity.id,
-        entity,
-    ]));
+    const byId = new Map(input.entities.map((entity) => [entity.identity.id, entity]));
     const seen = new Set<AnnotationId>();
     const replacements: ITextMarkupReplacement[] = [];
     if (input.created.subtype === 'Highlight') {
@@ -1526,11 +1397,13 @@ export function buildTextMarkupSelectionPlan(input: {
             }
             seen.add(candidate.annotationId);
             const current = byId.get(candidate.annotationId);
-            if (!current
-                || current.deleted
-                || current.kind !== 'text-markup'
-                || current.pageIndex !== input.created.pageIndex
-                || current.subtype !== input.created.subtype) {
+            if (
+                !current ||
+                current.deleted ||
+                current.kind !== 'text-markup' ||
+                current.pageIndex !== input.created.pageIndex ||
+                current.subtype !== input.created.subtype
+            ) {
                 return;
             }
             const quadPoints = subtractGeometry(candidate.observedQuadPoints, input.created.quadPoints);

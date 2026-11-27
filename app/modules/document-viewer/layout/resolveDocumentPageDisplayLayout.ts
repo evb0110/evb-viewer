@@ -1,15 +1,14 @@
-import type { TZoomMode } from '@contracts/shared';
-import {
-    clampDocumentFitScale,
-    clampDocumentManualZoom,
-} from '@app/modules/document-viewer/zoomPolicy';
+import type {TZoomMode} from '@contracts/shared';
+import {clampDocumentFitScale, clampDocumentManualZoom} from '@app/modules/document-viewer/zoomPolicy';
 
 export interface IDocumentPageDisplaySize {
     readonly height: number;
     readonly width: number;
 }
 
-export interface IDocumentPageDisplayLayout extends IDocumentPageDisplaySize {readonly scale: number;}
+export interface IDocumentPageDisplayLayout extends IDocumentPageDisplaySize {
+    readonly scale: number;
+}
 
 interface IDocumentPageDisplayScaleInput {
     availableHeight: number;
@@ -45,9 +44,7 @@ export function resolveDocumentPageDisplayScale(input: IDocumentPageDisplayScale
     return manualZoom;
 }
 
-export function resolveDocumentPageDisplayLayouts(
-    input: IDocumentPageDisplayLayoutsInput,
-): IDocumentPageDisplayLayout[] {
+export function resolveDocumentPageDisplayLayouts(input: IDocumentPageDisplayLayoutsInput): IDocumentPageDisplayLayout[] {
     const fitWidthPageWidth = input.continuousScroll
         ? input.pageSizes.reduce((widest, pageSize) => Math.max(widest, pageSize.width), 0)
         : undefined;

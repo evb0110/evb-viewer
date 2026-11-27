@@ -1,14 +1,10 @@
-import { writeFile } from 'fs/promises';
-import { join } from 'path';
+import {writeFile} from 'fs/promises';
+import {join} from 'path';
 import * as v from 'valibot';
 import {REPLACE_PAGE_IMAGES_REPORT_SCHEMA} from '@contracts/browserPageOpsWriters';
-import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import { resolveNativePageOpsPath } from '@electron/features/page-ops/public';
-import {
-    MAX_BYTE_RATIO,
-    PDF_OPTIMIZE_PASS_TIMEOUT_MS,
-    type IPdfImageRecompression,
-} from '@pdf-core/pdfOptimization';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import {resolveNativePageOpsPath} from '@electron/features/page-ops/public';
+import {MAX_BYTE_RATIO, PDF_OPTIMIZE_PASS_TIMEOUT_MS, type IPdfImageRecompression} from '@pdf-core/pdfOptimization';
 
 /**
  * The in-place passes of a raster optimization. Each rewrites what pages
@@ -29,7 +25,6 @@ export interface IReplacementPage {
     replacement: string;
     replacementPageNumber: number;
 }
-
 
 interface IPassCancellation {
     signal?: AbortSignal;
@@ -53,25 +48,25 @@ async function runPageOpsPass(
         throw new Error('Native PDF page tool is unavailable');
     }
     const instructionsPath = join(paths.scratchDir, `${command}.json`);
-    await writeFile(instructionsPath, JSON.stringify({
-        maxByteRatio: MAX_BYTE_RATIO,
-        ...instructions,
-    }), 'utf8');
-    const result = await runNativeToolCommand(pageOpsPath, [
-        command,
-        '--input',
-        paths.input,
-        '--output',
-        paths.output,
-        '--instructions-file',
+    await writeFile(
         instructionsPath,
-    ], {
-        commandLabel: `evb-pdf-page-ops(${command})`,
-        timeoutMs: PDF_OPTIMIZE_PASS_TIMEOUT_MS,
-        maxStdoutBytes: PASS_MAX_STDOUT_BYTES,
-        rejectOnStdoutTruncation: true,
-        ...cancellation,
-    });
+        JSON.stringify({
+            maxByteRatio: MAX_BYTE_RATIO,
+            ...instructions,
+        }),
+        'utf8',
+    );
+    const result = await runNativeToolCommand(
+        pageOpsPath,
+        [command, '--input', paths.input, '--output', paths.output, '--instructions-file', instructionsPath],
+        {
+            commandLabel: `evb-pdf-page-ops(${command})`,
+            timeoutMs: PDF_OPTIMIZE_PASS_TIMEOUT_MS,
+            maxStdoutBytes: PASS_MAX_STDOUT_BYTES,
+            rejectOnStdoutTruncation: true,
+            ...cancellation,
+        },
+    );
     return JSON.parse(result.stdout);
 }
 
@@ -80,18 +75,9 @@ async function runPageOpsPass(
  * bytes. A page keeps its own content otherwise, and when it shows text or
  * vector content that its image would flatten.
  */
-export async function replacePageImages(
-    paths: IPassPaths,
-    pages: IReplacementPage[],
-    cancellation: IPassCancellation,
-) {
-    const report = v.parse(
-        REPLACE_PAGE_IMAGES_REPORT_SCHEMA,
-        await runPageOpsPass('replace-page-images', paths, {pages}, cancellation),
-    );
-    return report.pages
-        .filter(page => page.outcome === 'replaced')
-        .map(page => page.pageNumber);
+export async function replacePageImages(paths: IPassPaths, pages: IReplacementPage[], cancellation: IPassCancellation) {
+    const report = v.parse(REPLACE_PAGE_IMAGES_REPORT_SCHEMA, await runPageOpsPass('replace-page-images', paths, {pages}, cancellation));
+    return report.pages.filter((page) => page.outcome === 'replaced').map((page) => page.pageNumber);
 }
 
 /**
@@ -106,11 +92,16 @@ export async function recompressImages(
 ) {
     const report = v.parse(
         RECOMPRESS_IMAGES_REPORT_SCHEMA,
-        await runPageOpsPass('recompress-images', paths, {
-            targetDpi: images.dpi,
-            quality: images.quality,
-            skipPages,
-        }, cancellation),
+        await runPageOpsPass(
+            'recompress-images',
+            paths,
+            {
+                targetDpi: images.dpi,
+                quality: images.quality,
+                skipPages,
+            },
+            cancellation,
+        ),
     );
     return report.pages;
 }

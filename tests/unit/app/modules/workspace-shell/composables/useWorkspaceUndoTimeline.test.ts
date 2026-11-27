@@ -1,9 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {useWorkspaceCommandLedger} from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
 
 function createDeferred<T>() {
@@ -24,11 +19,7 @@ describe('useWorkspaceCommandLedger', () => {
     it('uses direct producer registration as the natural cross-source order', async () => {
         const ledger = useWorkspaceCommandLedger();
         const calls: string[] = [];
-        for (const source of [
-            'file',
-            'annotation',
-            'metadata',
-        ] as const) {
+        for (const source of ['file', 'annotation', 'metadata'] as const) {
             ledger.registerCommand({
                 source,
                 undo: () => {
@@ -49,14 +40,7 @@ describe('useWorkspaceCommandLedger', () => {
         await ledger.redoTimeline();
         await ledger.redoTimeline();
         await ledger.redoTimeline();
-        expect(calls).toEqual([
-            'undo:metadata',
-            'undo:annotation',
-            'undo:file',
-            'redo:file',
-            'redo:annotation',
-            'redo:metadata',
-        ]);
+        expect(calls).toEqual(['undo:metadata', 'undo:annotation', 'undo:file', 'redo:file', 'redo:annotation', 'redo:metadata']);
     });
 
     it('resets one producer without disturbing commands from other sources', async () => {

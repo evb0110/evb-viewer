@@ -8,18 +8,9 @@ import {
     type TBrowserOcrRecognizeRequest,
 } from '@contracts/browserOcrEngine';
 import type {TOcrScanCleanupMode} from '@contracts/scan-cleanup/ocrPreprocessing';
-import {
-    BrowserWorkerClient,
-    BrowserWorkerRequestOwner,
-} from '@app/platform/browser-api/browserWorkerClient';
-import {
-    settleBrowserWorkerResult,
-    type ITypedPendingBrowserWorkerRequest,
-} from '@app/platform/browser-api/settleBrowserWorkerResult';
-import {
-    BROWSER_SCAN_CLEANUP_THREADS_WASM_PATH,
-    BROWSER_SCAN_CLEANUP_WASM_PATH,
-} from '@contracts/scan-cleanup/browserScanCleanupWasm';
+import {BrowserWorkerClient, BrowserWorkerRequestOwner} from '@app/platform/browser-api/browserWorkerClient';
+import {settleBrowserWorkerResult, type ITypedPendingBrowserWorkerRequest} from '@app/platform/browser-api/settleBrowserWorkerResult';
+import {BROWSER_SCAN_CLEANUP_THREADS_WASM_PATH, BROWSER_SCAN_CLEANUP_WASM_PATH} from '@contracts/scan-cleanup/browserScanCleanupWasm';
 import {readScanCleanupEngineWorkerThreads} from '@app/platform/browser-api/scanCleanupEngineWorkerName';
 import {
     observeScanCleanupEngineReply,
@@ -50,7 +41,7 @@ type TPendingEngineRequest = ITypedPendingBrowserWorkerRequest<TBrowserOcrEngine
  * paid once per preprocessing worker rather than once per recognition lane.
  */
 const CLEANUP_BYTES_PER_PIXEL: Record<TOcrScanCleanupMode, number> = {
-    'clean': 40,
+    clean: 40,
     'polarity-only': 16,
 };
 
@@ -61,7 +52,7 @@ const CLEANUP_BYTES_PER_PIXEL: Record<TOcrScanCleanupMode, number> = {
  * preprocessing workers for none of its Tesseract lanes to wait on one.
  */
 const PREPROCESS_TIME_SHARE: Record<TOcrScanCleanupMode, number> = {
-    'clean': 0.5,
+    clean: 0.5,
     'polarity-only': 0.25,
 };
 
@@ -82,15 +73,15 @@ export interface IBrowserOcrLanes {
  */
 export function resolveBrowserOcrLanes(pagePixels = 0, modelBytes = 0, cleanup?: TOcrScanCleanupMode): IBrowserOcrLanes {
     const cores = typeof navigator === 'undefined' ? 2 : navigator.hardwareConcurrency || 2;
-    const memoryGb = typeof navigator === 'undefined'
-        ? undefined
-        : (navigator as Navigator & {deviceMemory?: number}).deviceMemory;
+    const memoryGb = typeof navigator === 'undefined' ? undefined : (navigator as Navigator & {deviceMemory?: number}).deviceMemory;
     const single = {
         lanes: 1,
         preprocessLanes: cleanup ? 1 : 0,
     };
-    if (memoryGb !== undefined && memoryGb <= 4) return single;
-    const totalBudget = (memoryGb ?? 4) * 1024 ** 3 / 2;
+    if (memoryGb !== undefined && memoryGb <= 4) {
+        return single;
+    }
+    const totalBudget = ((memoryGb ?? 4) * 1024 ** 3) / 2;
     const perLane = 192 * 1024 * 1024 + pagePixels * 12 + modelBytes * 3;
     if (!cleanup) {
         return {
@@ -105,7 +96,9 @@ export function resolveBrowserOcrLanes(pagePixels = 0, modelBytes = 0, cleanup?:
     for (let lanes = cores > 2 ? cores - 2 : 1; lanes >= 1; lanes -= 1) {
         const affordable = Math.min(lanes, Math.floor((totalBudget - lanes * perLane) / perPreprocess));
         const fedLanes = Math.min(lanes, affordable / share);
-        if (affordable < 1 || fedLanes <= bestFedLanes) continue;
+        if (affordable < 1 || fedLanes <= bestFedLanes) {
+            continue;
+        }
         bestFedLanes = fedLanes;
         best = {
             lanes,
@@ -135,11 +128,12 @@ function createWorkerClient(
         idleTtlMs,
         createWorker,
         ...engine,
-        createError: event => new BrowserOcrEngineUnavailableError(
-            event.error instanceof Error ? event.error.message : event.message || fallbackMessage,
-        ),
+        createError: (event) =>
+            new BrowserOcrEngineUnavailableError(event.error instanceof Error ? event.error.message : event.message || fallbackMessage),
         handleMessage: (pendingRequests, response, onSettled) => {
-            if (engine) observeScanCleanupEngineReply(response);
+            if (engine) {
+                observeScanCleanupEngineReply(response);
+            }
             settleBrowserWorkerResult(pendingRequests, response, onSettled);
         },
     });
@@ -150,11 +144,12 @@ let preprocessOwner: BrowserWorkerRequestOwner<TPendingEngineRequest> | null = n
 
 function getRecognizeOwner() {
     recognizeOwner ??= new BrowserWorkerRequestOwner(
-        () => createWorkerClient(
-            () => new Worker(new URL('./browserOcrEngine.worker.ts', import.meta.url), {type: 'module'}),
-            ENGINE_IDLE_TTL_MS,
-            'The OCR engine stopped',
-        ),
+        () =>
+            createWorkerClient(
+                () => new Worker(new URL('./browserOcrEngine.worker.ts', import.meta.url), {type: 'module'}),
+                ENGINE_IDLE_TTL_MS,
+                'The OCR engine stopped',
+            ),
         resolveBrowserOcrLanes().lanes,
     );
     return recognizeOwner;
@@ -163,23 +158,25 @@ function getRecognizeOwner() {
 function getPreprocessOwner() {
     if (preprocessOwner === null) {
         const pool = new BrowserWorkerRequestOwner(
-            () => createWorkerClient(
-                // The worker's name tells it which cleanup engine to run, on how many threads.
-                name => new Worker(new URL('./browserOcrPreprocess.worker.ts', import.meta.url), {
-                    type: 'module',
-                    name: name ?? '',
-                }),
-                PREPROCESS_IDLE_TTL_MS,
-                'The OCR preprocessing engine stopped',
-                {
-                    budget: threadedScanCleanupEngineBudget,
-                    preloadWasmPaths: name => [
-                        readScanCleanupEngineWorkerThreads(name) !== null
-                            ? BROWSER_SCAN_CLEANUP_THREADS_WASM_PATH
-                            : BROWSER_SCAN_CLEANUP_WASM_PATH,
-                    ],
-                },
-            ),
+            () =>
+                createWorkerClient(
+                    // The worker's name tells it which cleanup engine to run, on how many threads.
+                    (name) =>
+                        new Worker(new URL('./browserOcrPreprocess.worker.ts', import.meta.url), {
+                            type: 'module',
+                            name: name ?? '',
+                        }),
+                    PREPROCESS_IDLE_TTL_MS,
+                    'The OCR preprocessing engine stopped',
+                    {
+                        budget: threadedScanCleanupEngineBudget,
+                        preloadWasmPaths: (name) => [
+                            readScanCleanupEngineWorkerThreads(name) !== null
+                                ? BROWSER_SCAN_CLEANUP_THREADS_WASM_PATH
+                                : BROWSER_SCAN_CLEANUP_WASM_PATH,
+                        ],
+                    },
+                ),
             // A job preprocesses on as many of these as its own page size affords.
             resolveBrowserOcrLanes().lanes,
             threadedScanCleanupEngineBudget,
@@ -201,47 +198,66 @@ function runWorkerRequest<TResult>(
     readResult: (data: unknown) => TResult | null,
     timeout: {
         ms: number;
-        message: string
+        message: string;
     },
     admission: IBrowserWorkerAdmission = {},
 ): Promise<TResult> {
     const {payload} = request;
     const closeTiles = () => {
-        if (!(payload.image instanceof Uint8Array)) payload.image.tiles.forEach(tile => tile.close());
+        if (!(payload.image instanceof Uint8Array)) {
+            payload.image.tiles.forEach((tile) => tile.close());
+        }
     };
     // A page that waited for a worker may arrive after its job was canceled.
-    if (signal.aborted) closeTiles();
+    if (signal.aborted) {
+        closeTiles();
+    }
     signal.throwIfAborted();
     const requestId = pool.createRequestId();
-    const onAbort = () => pool.cancel(
-        requestId,
-        signal.reason instanceof Error ? signal.reason : new DOMException('OCR was canceled', 'AbortError'),
-    );
+    const onAbort = () =>
+        pool.cancel(requestId, signal.reason instanceof Error ? signal.reason : new DOMException('OCR was canceled', 'AbortError'));
     signal.addEventListener('abort', onAbort, {once: true});
-    return pool.run(requestId, (client, isAdmitted, workerKey) => new Promise<TResult>((resolve, reject) => {
-        if (!isAdmitted()) {
-            reject(new DOMException('OCR was canceled', 'AbortError'));
-            return;
-        }
-        const worker = client.getWorker(workerKey);
-        client.registerPendingRequest(requestId, {
-            requestType: request.type,
-            reject,
-            resolveData: (data) => {
-                const result = readResult(data);
-                if (result === null) return false;
-                resolve(result);
-                return true;
-            },
-        }, () => new Error(timeout.message), timeout.ms);
-        worker.postMessage({
-            ...request,
-            id: requestId,
-        }, payload.image instanceof Uint8Array ? [payload.image.buffer] : payload.image.tiles);
-    }), admission).finally(() => {
-        signal.removeEventListener('abort', onAbort);
-        closeTiles();
-    });
+    return pool
+        .run(
+            requestId,
+            (client, isAdmitted, workerKey) =>
+                new Promise<TResult>((resolve, reject) => {
+                    if (!isAdmitted()) {
+                        reject(new DOMException('OCR was canceled', 'AbortError'));
+                        return;
+                    }
+                    const worker = client.getWorker(workerKey);
+                    client.registerPendingRequest(
+                        requestId,
+                        {
+                            requestType: request.type,
+                            reject,
+                            resolveData: (data) => {
+                                const result = readResult(data);
+                                if (result === null) {
+                                    return false;
+                                }
+                                resolve(result);
+                                return true;
+                            },
+                        },
+                        () => new Error(timeout.message),
+                        timeout.ms,
+                    );
+                    worker.postMessage(
+                        {
+                            ...request,
+                            id: requestId,
+                        },
+                        payload.image instanceof Uint8Array ? [payload.image.buffer] : payload.image.tiles,
+                    );
+                }),
+            admission,
+        )
+        .finally(() => {
+            signal.removeEventListener('abort', onAbort);
+            closeTiles();
+        });
 }
 
 /** Runs one page's Tesseract passes on the dedicated Tesseract worker pool. */
@@ -249,16 +265,22 @@ export function runBrowserOcrEngine(
     payload: TBrowserOcrRecognizeRequest['payload'],
     signal: AbortSignal,
 ): Promise<IBrowserOcrEngineResult> {
-    return runWorkerRequest(getRecognizeOwner(), {
-        type: 'recognize',
-        payload,
-    }, signal, (data) => {
-        const parsed = v.safeParse(BROWSER_OCR_ENGINE_RESULT_SCHEMA, data, {abortEarly: true});
-        return parsed.success && parsed.output.passes.length === payload.passes.length ? parsed.output : null;
-    }, {
-        ms: PASS_TIMEOUT_MS * payload.passes.length,
-        message: 'Tesseract did not finish within its time limit',
-    });
+    return runWorkerRequest(
+        getRecognizeOwner(),
+        {
+            type: 'recognize',
+            payload,
+        },
+        signal,
+        (data) => {
+            const parsed = v.safeParse(BROWSER_OCR_ENGINE_RESULT_SCHEMA, data, {abortEarly: true});
+            return parsed.success && parsed.output.passes.length === payload.passes.length ? parsed.output : null;
+        },
+        {
+            ms: PASS_TIMEOUT_MS * payload.passes.length,
+            message: 'Tesseract did not finish within its time limit',
+        },
+    );
 }
 
 /**
@@ -273,14 +295,23 @@ export function preprocessBrowserOcrRaster(
     signal: AbortSignal,
     concurrency?: number,
 ): Promise<IBrowserOcrPreprocessResult> {
-    return runWithScanCleanupEngineFailover(payload, attempt => runWorkerRequest(getPreprocessOwner(), {
-        type: 'preprocess',
-        payload: attempt,
-    }, signal, (data) => {
-        const parsed = v.safeParse(BROWSER_OCR_PREPROCESS_RESULT_SCHEMA, data, {abortEarly: true});
-        return parsed.success ? parsed.output : null;
-    }, {
-        ms: PASS_TIMEOUT_MS,
-        message: 'OCR preprocessing did not finish within its time limit',
-    }, scanCleanupEngineAdmission(concurrency)));
+    return runWithScanCleanupEngineFailover(payload, (attempt) =>
+        runWorkerRequest(
+            getPreprocessOwner(),
+            {
+                type: 'preprocess',
+                payload: attempt,
+            },
+            signal,
+            (data) => {
+                const parsed = v.safeParse(BROWSER_OCR_PREPROCESS_RESULT_SCHEMA, data, {abortEarly: true});
+                return parsed.success ? parsed.output : null;
+            },
+            {
+                ms: PASS_TIMEOUT_MS,
+                message: 'OCR preprocessing did not finish within its time limit',
+            },
+            scanCleanupEngineAdmission(concurrency),
+        ),
+    );
 }

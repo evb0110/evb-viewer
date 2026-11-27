@@ -1,8 +1,5 @@
-import {
-    mainJobBroker,
-    type IJobBrokerRunContext,
-} from '@electron/resources/jobBroker';
-import { resolvePdfImageCombineResidentBytes } from '@electron/native-tools/pdfImageCombineBudget';
+import {mainJobBroker, type IJobBrokerRunContext} from '@electron/resources/jobBroker';
+import {resolvePdfImageCombineResidentBytes} from '@electron/native-tools/pdfImageCombineBudget';
 
 /**
  * Runs one compact DjVu stage under a main broker lease. The task passes the
@@ -16,19 +13,22 @@ export function withCompactDjvuResourceLease<T>(options: {
     task: (brokerRun: IJobBrokerRunContext) => Promise<T>;
 }) {
     const isPage = options.kind === 'page';
-    return mainJobBroker.run({
-        ownerId: options.jobId,
-        kind: `djvu-compact-${options.kind}`,
-        priority: 'user',
-        resources: {
-            cpuTokens: 1,
-            estimatedResidentBytes: isPage
-                ? 192 * 1024 * 1024
-                : resolvePdfImageCombineResidentBytes(mainJobBroker.getSnapshot().capacity),
-            nativeProcesses: 1,
-            ioWeight: 2,
+    return mainJobBroker.run(
+        {
+            ownerId: options.jobId,
+            kind: `djvu-compact-${options.kind}`,
+            priority: 'user',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: isPage
+                    ? 192 * 1024 * 1024
+                    : resolvePdfImageCombineResidentBytes(mainJobBroker.getSnapshot().capacity),
+                nativeProcesses: 1,
+                ioWeight: 2,
+            },
+            ...(isPage ? {perOwnerLimit: 2} : {}),
+            ...(options.signal ? {signal: options.signal} : {}),
         },
-        ...(isPage ? {perOwnerLimit: 2} : {}),
-        ...(options.signal ? {signal: options.signal} : {}),
-    }, brokerRun => options.task(brokerRun));
+        (brokerRun) => options.task(brokerRun),
+    );
 }

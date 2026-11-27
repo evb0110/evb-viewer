@@ -1,9 +1,6 @@
-import { createHash } from 'node:crypto';
-import {
-    mkdir,
-    writeFile,
-} from 'node:fs/promises';
-import { join } from 'node:path';
+import {createHash} from 'node:crypto';
+import {mkdir, writeFile} from 'node:fs/promises';
+import {join} from 'node:path';
 import {
     AbortMultipartUploadCommand,
     CompleteMultipartUploadCommand,
@@ -17,12 +14,7 @@ import {
     S3Client,
     UploadPartCommand,
 } from '@aws-sdk/client-s3';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {
     compareReleaseTags,
     contentTypeFor,
@@ -76,24 +68,36 @@ describe('release mirror publisher', () => {
             channelKey: 'evb-viewer/channels/stable.json',
             releasePrefix: 'evb-viewer/releases/',
         });
-        expect(() => resolveMirrorPaths({
-            ...environment,
-            MIRROR_RELEASE_PREFIX: 'evb-viewer/drill/123/releases/',
-            MIRROR_CHANNEL_KEY: 'evb-viewer/drill/123/channels/stable.json',
-        })).toThrow('Production mirror publication requires');
-        expect(resolveMirrorPaths({
-            ...environment,
-            MIRROR_RELEASE_PREFIX: 'evb-viewer/drill/123/releases/',
-            MIRROR_CHANNEL_KEY: 'evb-viewer/drill/123/channels/stable.json',
-        }, {drill: true})).toEqual({
+        expect(() =>
+            resolveMirrorPaths({
+                ...environment,
+                MIRROR_RELEASE_PREFIX: 'evb-viewer/drill/123/releases/',
+                MIRROR_CHANNEL_KEY: 'evb-viewer/drill/123/channels/stable.json',
+            }),
+        ).toThrow('Production mirror publication requires');
+        expect(
+            resolveMirrorPaths(
+                {
+                    ...environment,
+                    MIRROR_RELEASE_PREFIX: 'evb-viewer/drill/123/releases/',
+                    MIRROR_CHANNEL_KEY: 'evb-viewer/drill/123/channels/stable.json',
+                },
+                {drill: true},
+            ),
+        ).toEqual({
             channelKey: 'evb-viewer/drill/123/channels/stable.json',
             releasePrefix: 'evb-viewer/drill/123/releases/',
         });
-        expect(() => resolveMirrorPaths({
-            ...environment,
-            MIRROR_RELEASE_PREFIX: 'evb-viewer/releases/',
-            MIRROR_CHANNEL_KEY: 'evb-viewer/channels/stable.json',
-        }, {drill: true})).toThrow('evb-viewer/drill/');
+        expect(() =>
+            resolveMirrorPaths(
+                {
+                    ...environment,
+                    MIRROR_RELEASE_PREFIX: 'evb-viewer/releases/',
+                    MIRROR_CHANNEL_KEY: 'evb-viewer/channels/stable.json',
+                },
+                {drill: true},
+            ),
+        ).toThrow('evb-viewer/drill/');
     });
 
     it('publishes a drill tag only into its configured isolated channel', async () => {
@@ -106,48 +110,49 @@ describe('release mirror publisher', () => {
         };
         const stored = new Map<string, Buffer>();
         const puts: PutObjectCommand[] = [];
-        const client = {send: vi.fn(async (command: unknown) => {
-            const key = command instanceof HeadObjectCommand
-                || command instanceof GetObjectCommand
-                || command instanceof PutObjectCommand
-                ? command.input.Key!
-                : '';
-            if (command instanceof HeadObjectCommand) {
-                const bytes = stored.get(key);
-                return bytes
-                    ? {ContentLength: bytes.byteLength}
-                    : {$metadata: {httpStatusCode: 404}};
-            }
-            if (command instanceof GetObjectCommand) {
-                const bytes = stored.get(key);
-                if (!bytes) {
-                    const missing = new Error('missing');
-                    Object.assign(missing, {$metadata: {httpStatusCode: 404}});
-                    throw missing;
+        const client = {
+            send: vi.fn(async (command: unknown) => {
+                const key =
+                    command instanceof HeadObjectCommand || command instanceof GetObjectCommand || command instanceof PutObjectCommand
+                        ? command.input.Key!
+                        : '';
+                if (command instanceof HeadObjectCommand) {
+                    const bytes = stored.get(key);
+                    return bytes ? {ContentLength: bytes.byteLength} : {$metadata: {httpStatusCode: 404}};
                 }
-                return {Body: objectBody(bytes)};
-            }
-            if (command instanceof PutObjectCommand) {
-                puts.push(command);
-                const bytes = await commandBodyBytes(command.input.Body);
-                stored.set(key, bytes);
-                return {};
-            }
-            if (command instanceof ListObjectsV2Command) {
-                return {Contents: []};
-            }
-            throw new Error(`Unexpected drill command: ${String(command)}`);
-        })};
+                if (command instanceof GetObjectCommand) {
+                    const bytes = stored.get(key);
+                    if (!bytes) {
+                        const missing = new Error('missing');
+                        Object.assign(missing, {$metadata: {httpStatusCode: 404}});
+                        throw missing;
+                    }
+                    return {Body: objectBody(bytes)};
+                }
+                if (command instanceof PutObjectCommand) {
+                    puts.push(command);
+                    const bytes = await commandBodyBytes(command.input.Body);
+                    stored.set(key, bytes);
+                    return {};
+                }
+                if (command instanceof ListObjectsV2Command) {
+                    return {Contents: []};
+                }
+                throw new Error(`Unexpected drill command: ${String(command)}`);
+            }),
+        };
 
-        await expect(publishReleaseMirror({
-            artifactDirectory,
-            drill: true,
-            environment: drillEnvironment,
-            releaseTag: 'v0.0.0-drill.123',
-            client,
-        })).resolves.toMatchObject({assets: [{name: 'asset.zip'}]});
+        await expect(
+            publishReleaseMirror({
+                artifactDirectory,
+                drill: true,
+                environment: drillEnvironment,
+                releaseTag: 'v0.0.0-drill.123',
+                client,
+            }),
+        ).resolves.toMatchObject({assets: [{name: 'asset.zip'}]});
 
-        expect(puts.map(command => command.input.Key)).toEqual([
+        expect(puts.map((command) => command.input.Key)).toEqual([
             'evb-viewer/drill/123/releases/v0.0.0-drill.123/asset.zip',
             'evb-viewer/drill/123/releases/v0.0.0-drill.123/manifest.json',
             'evb-viewer/drill/123/channels/stable.json',
@@ -174,37 +179,37 @@ describe('release mirror publisher', () => {
     function createRetryFixture(failure: (attempt: number) => Error | undefined) {
         const stored = new Map<string, Buffer>();
         const putBodies: Buffer[] = [];
-        const client = {send: vi.fn(async (command: unknown) => {
-            if (command instanceof HeadObjectCommand) {
-                const bytes = stored.get(command.input.Key!);
-                return bytes
-                    ? {ContentLength: bytes.byteLength}
-                    : {$metadata: {httpStatusCode: 404}};
-            }
-            if (command instanceof GetObjectCommand) {
-                const bytes = stored.get(command.input.Key!);
-                if (!bytes) {
-                    throw Object.assign(new Error('missing'), {$metadata: {httpStatusCode: 404}});
+        const client = {
+            send: vi.fn(async (command: unknown) => {
+                if (command instanceof HeadObjectCommand) {
+                    const bytes = stored.get(command.input.Key!);
+                    return bytes ? {ContentLength: bytes.byteLength} : {$metadata: {httpStatusCode: 404}};
                 }
-                return {Body: objectBody(bytes)};
-            }
-            if (command instanceof PutObjectCommand) {
-                const bytes = await commandBodyBytes(command.input.Body);
-                if (command.input.Key!.endsWith('/asset.zip')) {
-                    putBodies.push(bytes);
-                    const error = failure(putBodies.length);
-                    if (error) {
-                        throw error;
+                if (command instanceof GetObjectCommand) {
+                    const bytes = stored.get(command.input.Key!);
+                    if (!bytes) {
+                        throw Object.assign(new Error('missing'), {$metadata: {httpStatusCode: 404}});
                     }
+                    return {Body: objectBody(bytes)};
                 }
-                stored.set(command.input.Key!, bytes);
-                return {};
-            }
-            if (command instanceof ListObjectsV2Command) {
-                return {Contents: []};
-            }
-            throw new Error(`Unexpected command: ${String(command)}`);
-        })};
+                if (command instanceof PutObjectCommand) {
+                    const bytes = await commandBodyBytes(command.input.Body);
+                    if (command.input.Key!.endsWith('/asset.zip')) {
+                        putBodies.push(bytes);
+                        const error = failure(putBodies.length);
+                        if (error) {
+                            throw error;
+                        }
+                    }
+                    stored.set(command.input.Key!, bytes);
+                    return {};
+                }
+                if (command instanceof ListObjectsV2Command) {
+                    return {Contents: []};
+                }
+                throw new Error(`Unexpected command: ${String(command)}`);
+            }),
+        };
 
         return {
             client,
@@ -230,28 +235,19 @@ describe('release mirror publisher', () => {
 
     it('retries a timed-out artifact upload with the whole body', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-        const {
-            publish,
-            putBodies,
-        } = createRetryFixture(attempt => (attempt === 1
-            ? Object.assign(new Error('socket timed out after 60000 ms of inactivity'), {name: 'TimeoutError'})
-            : undefined));
+        const {publish, putBodies} = createRetryFixture((attempt) =>
+            attempt === 1 ? Object.assign(new Error('socket timed out after 60000 ms of inactivity'), {name: 'TimeoutError'}) : undefined,
+        );
 
         await expect(publish()).resolves.toMatchObject({assets: [{name: 'asset.zip'}]});
 
-        expect(putBodies.map(bytes => bytes.toString('utf8'))).toEqual([
-            'drill',
-            'drill',
-        ]);
+        expect(putBodies.map((bytes) => bytes.toString('utf8'))).toEqual(['drill', 'drill']);
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('retrying (2/3)'));
         warn.mockRestore();
     });
 
     it('does not retry an upload the mirror rejected', async () => {
-        const {
-            publish,
-            putBodies,
-        } = createRetryFixture(() => Object.assign(new Error('AccessDenied'), {$metadata: {httpStatusCode: 403}}));
+        const {publish, putBodies} = createRetryFixture(() => Object.assign(new Error('AccessDenied'), {$metadata: {httpStatusCode: 403}}));
 
         await expect(publish()).rejects.toThrow('AccessDenied');
 
@@ -260,10 +256,7 @@ describe('release mirror publisher', () => {
 
     it('gives up after three transient upload failures', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-        const {
-            publish,
-            putBodies,
-        } = createRetryFixture(() => Object.assign(new Error('read ECONNRESET'), {code: 'ECONNRESET'}));
+        const {publish, putBodies} = createRetryFixture(() => Object.assign(new Error('read ECONNRESET'), {code: 'ECONNRESET'}));
 
         await expect(publish()).rejects.toThrow('ECONNRESET');
 
@@ -283,105 +276,110 @@ describe('release mirror publisher', () => {
         partDelayMs?: number;
     } = {}) {
         const stored = new Map<string, Buffer>();
-        const openUploads = new Map<string, {
-            key: string;
-            parts: Map<number, Buffer>
-        }>();
+        const openUploads = new Map<
+            string,
+            {
+                key: string;
+                parts: Map<number, Buffer>;
+            }
+        >();
         const commands: unknown[] = [];
         let createdUploads = 0;
         let completions = 0;
         let reads = 0;
         let inFlight = 0;
         let maxInFlight = 0;
-        const client = {send: vi.fn(async (command: unknown) => {
-            commands.push(command);
-            if (command instanceof HeadObjectCommand) {
-                const bytes = stored.get(command.input.Key!);
-                return bytes
-                    ? {ContentLength: bytes.byteLength}
-                    : {$metadata: {httpStatusCode: 404}};
-            }
-            if (command instanceof GetObjectCommand) {
-                const bytes = stored.get(command.input.Key!);
-                if (!bytes) {
-                    throw Object.assign(new Error('missing'), {$metadata: {httpStatusCode: 404}});
+        const client = {
+            send: vi.fn(async (command: unknown) => {
+                commands.push(command);
+                if (command instanceof HeadObjectCommand) {
+                    const bytes = stored.get(command.input.Key!);
+                    return bytes ? {ContentLength: bytes.byteLength} : {$metadata: {httpStatusCode: 404}};
                 }
-                reads += 1;
-                const error = failRead(command.input.Key!, reads);
-                if (error) {
-                    throw error;
-                }
-                return {Body: objectBody(bytes)};
-            }
-            if (command instanceof PutObjectCommand) {
-                stored.set(command.input.Key!, await commandBodyBytes(command.input.Body));
-                return {};
-            }
-            if (command instanceof CreateMultipartUploadCommand) {
-                createdUploads += 1;
-                const uploadId = `upload-${createdUploads}`;
-                openUploads.set(uploadId, {
-                    key: command.input.Key!,
-                    parts: new Map(),
-                });
-                return {UploadId: uploadId};
-            }
-            if (command instanceof UploadPartCommand) {
-                inFlight += 1;
-                maxInFlight = Math.max(maxInFlight, inFlight);
-                try {
-                    await new Promise(resolve => setTimeout(resolve, partDelayMs));
-                    const upload = openUploads.get(command.input.UploadId!);
-                    if (!upload) {
-                        throw new Error(`Part for unknown upload ${command.input.UploadId}`);
+                if (command instanceof GetObjectCommand) {
+                    const bytes = stored.get(command.input.Key!);
+                    if (!bytes) {
+                        throw Object.assign(new Error('missing'), {$metadata: {httpStatusCode: 404}});
                     }
-                    const error = failPart(command.input.PartNumber!, command.input.UploadId!);
+                    reads += 1;
+                    const error = failRead(command.input.Key!, reads);
                     if (error) {
                         throw error;
                     }
-                    const bytes = await commandBodyBytes(command.input.Body);
-                    if (bytes.byteLength !== command.input.ContentLength) {
-                        throw new Error(`Part ${command.input.PartNumber} declared ${command.input.ContentLength} bytes but carried ${bytes.byteLength}`);
+                    return {Body: objectBody(bytes)};
+                }
+                if (command instanceof PutObjectCommand) {
+                    stored.set(command.input.Key!, await commandBodyBytes(command.input.Body));
+                    return {};
+                }
+                if (command instanceof CreateMultipartUploadCommand) {
+                    createdUploads += 1;
+                    const uploadId = `upload-${createdUploads}`;
+                    openUploads.set(uploadId, {
+                        key: command.input.Key!,
+                        parts: new Map(),
+                    });
+                    return {UploadId: uploadId};
+                }
+                if (command instanceof UploadPartCommand) {
+                    inFlight += 1;
+                    maxInFlight = Math.max(maxInFlight, inFlight);
+                    try {
+                        await new Promise((resolve) => setTimeout(resolve, partDelayMs));
+                        const upload = openUploads.get(command.input.UploadId!);
+                        if (!upload) {
+                            throw new Error(`Part for unknown upload ${command.input.UploadId}`);
+                        }
+                        const error = failPart(command.input.PartNumber!, command.input.UploadId!);
+                        if (error) {
+                            throw error;
+                        }
+                        const bytes = await commandBodyBytes(command.input.Body);
+                        if (bytes.byteLength !== command.input.ContentLength) {
+                            throw new Error(
+                                `Part ${command.input.PartNumber} declared ${command.input.ContentLength} bytes but carried ${bytes.byteLength}`,
+                            );
+                        }
+                        upload.parts.set(command.input.PartNumber!, bytes);
+                        return {ETag: `"${command.input.UploadId}-${command.input.PartNumber}"`};
+                    } finally {
+                        inFlight -= 1;
                     }
-                    upload.parts.set(command.input.PartNumber!, bytes);
-                    return {ETag: `"${command.input.UploadId}-${command.input.PartNumber}"`};
-                } finally {
-                    inFlight -= 1;
                 }
-            }
-            if (command instanceof CompleteMultipartUploadCommand) {
-                const upload = openUploads.get(command.input.UploadId!);
-                if (!upload) {
-                    throw new Error(`Completion for unknown upload ${command.input.UploadId}`);
-                }
-                completions += 1;
-                const error = failCompletion(command.input.UploadId!, completions);
-                if (error) {
-                    throw error;
-                }
-                const listed = command.input.MultipartUpload?.Parts ?? [];
-                if (listed.length !== upload.parts.size) {
-                    throw new Error(`Completion listed ${listed.length} of ${upload.parts.size} parts`);
-                }
-                const assembled = listed.map((part, index) => {
-                    if (part.PartNumber !== index + 1 || part.ETag !== `"${command.input.UploadId}-${index + 1}"`) {
-                        throw new Error(`Completion part ${index + 1} is out of order or mislabelled`);
+                if (command instanceof CompleteMultipartUploadCommand) {
+                    const upload = openUploads.get(command.input.UploadId!);
+                    if (!upload) {
+                        throw new Error(`Completion for unknown upload ${command.input.UploadId}`);
                     }
-                    return upload.parts.get(index + 1) ?? Buffer.alloc(0);
-                });
-                stored.set(upload.key, Buffer.concat(assembled));
-                openUploads.delete(command.input.UploadId!);
-                return {};
-            }
-            if (command instanceof AbortMultipartUploadCommand) {
-                openUploads.delete(command.input.UploadId!);
-                return {};
-            }
-            if (command instanceof ListObjectsV2Command) {
-                return {Contents: []};
-            }
-            throw new Error(`Unexpected command: ${String(command)}`);
-        })};
+                    completions += 1;
+                    const error = failCompletion(command.input.UploadId!, completions);
+                    if (error) {
+                        throw error;
+                    }
+                    const listed = command.input.MultipartUpload?.Parts ?? [];
+                    if (listed.length !== upload.parts.size) {
+                        throw new Error(`Completion listed ${listed.length} of ${upload.parts.size} parts`);
+                    }
+                    const assembled = listed.map((part, index) => {
+                        if (part.PartNumber !== index + 1 || part.ETag !== `"${command.input.UploadId}-${index + 1}"`) {
+                            throw new Error(`Completion part ${index + 1} is out of order or mislabelled`);
+                        }
+                        return upload.parts.get(index + 1) ?? Buffer.alloc(0);
+                    });
+                    stored.set(upload.key, Buffer.concat(assembled));
+                    openUploads.delete(command.input.UploadId!);
+                    return {};
+                }
+                if (command instanceof AbortMultipartUploadCommand) {
+                    openUploads.delete(command.input.UploadId!);
+                    return {};
+                }
+                if (command instanceof ListObjectsV2Command) {
+                    return {Contents: []};
+                }
+                throw new Error(`Unexpected command: ${String(command)}`);
+            }),
+        };
 
         return {
             client,
@@ -415,12 +413,16 @@ describe('release mirror publisher', () => {
         const artifact = Buffer.from('multipart drill payload');
         const fixture = createMultipartFixture();
 
-        await expect(fixture.publish(artifact, 8)).resolves.toMatchObject({assets: [{
-            name: 'asset.zip',
-            size: artifact.byteLength,
-        }]});
+        await expect(fixture.publish(artifact, 8)).resolves.toMatchObject({
+            assets: [
+                {
+                    name: 'asset.zip',
+                    size: artifact.byteLength,
+                },
+            ],
+        });
 
-        const creates = fixture.commands.filter(command => command instanceof CreateMultipartUploadCommand);
+        const creates = fixture.commands.filter((command) => command instanceof CreateMultipartUploadCommand);
         expect(creates).toHaveLength(1);
         expect(creates[0]?.input).toMatchObject({
             Bucket: 'releases',
@@ -430,31 +432,20 @@ describe('release mirror publisher', () => {
             Metadata: {sha256: createHash('sha256').update(artifact).digest('hex')},
         });
         const parts = fixture.commands
-            .filter(command => command instanceof UploadPartCommand)
-            .map(command => [
-                command.input.PartNumber,
-                command.input.ContentLength,
-            ])
+            .filter((command) => command instanceof UploadPartCommand)
+            .map((command) => [command.input.PartNumber, command.input.ContentLength])
             .sort((left, right) => (left[0] ?? 0) - (right[0] ?? 0));
         expect(parts).toEqual([
-            [
-                1,
-                8,
-            ],
-            [
-                2,
-                8,
-            ],
-            [
-                3,
-                7,
-            ],
+            [1, 8],
+            [2, 8],
+            [3, 7],
         ]);
-        const completes = fixture.commands.filter(command => command instanceof CompleteMultipartUploadCommand);
+        const completes = fixture.commands.filter((command) => command instanceof CompleteMultipartUploadCommand);
         expect(completes).toHaveLength(1);
         expect(completes[0]?.input.IfNoneMatch).toBe('*');
-        expect(fixture.commands.some(command => command instanceof PutObjectCommand
-            && command.input.Key === multipartAssetKey)).toBe(false);
+        expect(fixture.commands.some((command) => command instanceof PutObjectCommand && command.input.Key === multipartAssetKey)).toBe(
+            false,
+        );
         expect(fixture.stored.get(multipartAssetKey)?.equals(artifact)).toBe(true);
         expect(fixture.openUploads.size).toBe(0);
     });
@@ -464,7 +455,7 @@ describe('release mirror publisher', () => {
 
         await expect(fixture.publish(Buffer.from('0123456789'), 1)).resolves.toMatchObject({assets: [{name: 'asset.zip'}]});
 
-        expect(fixture.commands.filter(command => command instanceof UploadPartCommand)).toHaveLength(10);
+        expect(fixture.commands.filter((command) => command instanceof UploadPartCommand)).toHaveLength(10);
         expect(fixture.maxInFlight()).toBeLessThanOrEqual(4);
         expect(fixture.maxInFlight()).toBeGreaterThan(1);
     });
@@ -473,20 +464,25 @@ describe('release mirror publisher', () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         const artifact = Buffer.from('multipart drill payload');
         let stalls = 0;
-        const fixture = createMultipartFixture({failPart: (partNumber, uploadId) => {
-            if (uploadId === 'upload-1' && partNumber === 2 && stalls === 0) {
-                stalls += 1;
-                return Object.assign(new Error('a request has exceeded the configured 120000 ms requestTimeout'), {name: 'TimeoutError'});
-            }
-            return undefined;
-        }});
+        const fixture = createMultipartFixture({
+            failPart: (partNumber, uploadId) => {
+                if (uploadId === 'upload-1' && partNumber === 2 && stalls === 0) {
+                    stalls += 1;
+                    return Object.assign(new Error('a request has exceeded the configured 120000 ms requestTimeout'), {
+                        name: 'TimeoutError',
+                    });
+                }
+                return undefined;
+            },
+        });
 
         await expect(fixture.publish(artifact, 8)).resolves.toMatchObject({assets: [{name: 'asset.zip'}]});
 
-        expect(fixture.commands.filter(command => command instanceof AbortMultipartUploadCommand)).toHaveLength(0);
-        expect(fixture.commands.filter(command => command instanceof CreateMultipartUploadCommand)).toHaveLength(1);
-        expect(fixture.commands.filter(command => command instanceof UploadPartCommand
-            && command.input.PartNumber === 2)).toHaveLength(2);
+        expect(fixture.commands.filter((command) => command instanceof AbortMultipartUploadCommand)).toHaveLength(0);
+        expect(fixture.commands.filter((command) => command instanceof CreateMultipartUploadCommand)).toHaveLength(1);
+        expect(fixture.commands.filter((command) => command instanceof UploadPartCommand && command.input.PartNumber === 2)).toHaveLength(
+            2,
+        );
         expect(fixture.stored.get(multipartAssetKey)?.equals(artifact)).toBe(true);
         expect(fixture.openUploads.size).toBe(0);
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('Part 2 of asset.zip'));
@@ -497,17 +493,24 @@ describe('release mirror publisher', () => {
     it('aborts the multipart upload and restarts the artifact once a part keeps stalling', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         const artifact = Buffer.from('multipart drill payload');
-        const fixture = createMultipartFixture({failPart: (partNumber, uploadId) => (uploadId === 'upload-1' && partNumber === 2
-            ? Object.assign(new Error('a request has exceeded the configured 120000 ms requestTimeout'), {name: 'TimeoutError'})
-            : undefined)});
+        const fixture = createMultipartFixture({
+            failPart: (partNumber, uploadId) =>
+                uploadId === 'upload-1' && partNumber === 2
+                    ? Object.assign(new Error('a request has exceeded the configured 120000 ms requestTimeout'), {name: 'TimeoutError'})
+                    : undefined,
+        });
 
         await expect(fixture.publish(artifact, 8)).resolves.toMatchObject({assets: [{name: 'asset.zip'}]});
 
-        const aborts = fixture.commands.filter(command => command instanceof AbortMultipartUploadCommand);
-        expect(aborts.map(command => command.input.UploadId)).toEqual(['upload-1']);
-        expect(fixture.commands.filter(command => command instanceof CreateMultipartUploadCommand)).toHaveLength(2);
-        expect(fixture.commands.filter(command => command instanceof UploadPartCommand
-            && command.input.UploadId === 'upload-1' && command.input.PartNumber === 2)).toHaveLength(3);
+        const aborts = fixture.commands.filter((command) => command instanceof AbortMultipartUploadCommand);
+        expect(aborts.map((command) => command.input.UploadId)).toEqual(['upload-1']);
+        expect(fixture.commands.filter((command) => command instanceof CreateMultipartUploadCommand)).toHaveLength(2);
+        expect(
+            fixture.commands.filter(
+                (command) =>
+                    command instanceof UploadPartCommand && command.input.UploadId === 'upload-1' && command.input.PartNumber === 2,
+            ),
+        ).toHaveLength(3);
         expect(fixture.stored.get(multipartAssetKey)?.equals(artifact)).toBe(true);
         expect(fixture.openUploads.size).toBe(0);
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('retrying (2/3)'));
@@ -517,16 +520,21 @@ describe('release mirror publisher', () => {
     it('repeats a stalled completion on the same multipart upload', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         const artifact = Buffer.from('multipart drill payload');
-        const fixture = createMultipartFixture({failCompletion: (uploadId, attempt) => (uploadId === 'upload-1' && attempt === 1
-            ? Object.assign(new Error('@smithy/node-http-handler - the request socket timed out after 60000 ms of inactivity'), {name: 'TimeoutError'})
-            : undefined)});
+        const fixture = createMultipartFixture({
+            failCompletion: (uploadId, attempt) =>
+                uploadId === 'upload-1' && attempt === 1
+                    ? Object.assign(new Error('@smithy/node-http-handler - the request socket timed out after 60000 ms of inactivity'), {
+                          name: 'TimeoutError',
+                      })
+                    : undefined,
+        });
 
         await expect(fixture.publish(artifact, 8)).resolves.toMatchObject({assets: [{name: 'asset.zip'}]});
 
-        expect(fixture.commands.filter(command => command instanceof AbortMultipartUploadCommand)).toHaveLength(0);
-        expect(fixture.commands.filter(command => command instanceof CreateMultipartUploadCommand)).toHaveLength(1);
-        expect(fixture.commands.filter(command => command instanceof UploadPartCommand)).toHaveLength(3);
-        expect(fixture.commands.filter(command => command instanceof CompleteMultipartUploadCommand)).toHaveLength(2);
+        expect(fixture.commands.filter((command) => command instanceof AbortMultipartUploadCommand)).toHaveLength(0);
+        expect(fixture.commands.filter((command) => command instanceof CreateMultipartUploadCommand)).toHaveLength(1);
+        expect(fixture.commands.filter((command) => command instanceof UploadPartCommand)).toHaveLength(3);
+        expect(fixture.commands.filter((command) => command instanceof CompleteMultipartUploadCommand)).toHaveLength(2);
         expect(fixture.stored.get(multipartAssetKey)?.equals(artifact)).toBe(true);
         expect(fixture.openUploads.size).toBe(0);
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('Completion of asset.zip'));
@@ -537,17 +545,19 @@ describe('release mirror publisher', () => {
     it('re-reads a stalled verification instead of uploading the artifact again', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         const artifact = Buffer.from('multipart drill payload');
-        const fixture = createMultipartFixture({failRead: (key, attempt) => (key === multipartAssetKey && attempt === 1
-            ? Object.assign(new Error('read ECONNRESET'), {code: 'ECONNRESET'})
-            : undefined)});
+        const fixture = createMultipartFixture({
+            failRead: (key, attempt) =>
+                key === multipartAssetKey && attempt === 1 ? Object.assign(new Error('read ECONNRESET'), {code: 'ECONNRESET'}) : undefined,
+        });
 
         await expect(fixture.publish(artifact, 8)).resolves.toMatchObject({assets: [{name: 'asset.zip'}]});
 
-        expect(fixture.commands.filter(command => command instanceof CreateMultipartUploadCommand)).toHaveLength(1);
-        expect(fixture.commands.filter(command => command instanceof UploadPartCommand)).toHaveLength(3);
-        expect(fixture.commands.filter(command => command instanceof CompleteMultipartUploadCommand)).toHaveLength(1);
-        expect(fixture.commands.filter(command => command instanceof GetObjectCommand
-            && command.input.Key === multipartAssetKey)).toHaveLength(2);
+        expect(fixture.commands.filter((command) => command instanceof CreateMultipartUploadCommand)).toHaveLength(1);
+        expect(fixture.commands.filter((command) => command instanceof UploadPartCommand)).toHaveLength(3);
+        expect(fixture.commands.filter((command) => command instanceof CompleteMultipartUploadCommand)).toHaveLength(1);
+        expect(
+            fixture.commands.filter((command) => command instanceof GetObjectCommand && command.input.Key === multipartAssetKey),
+        ).toHaveLength(2);
         expect(fixture.stored.get(multipartAssetKey)?.equals(artifact)).toBe(true);
         expect(warn).toHaveBeenCalledWith(expect.stringContaining(`Verification read of ${multipartAssetKey}`));
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('re-reading it (2/3)'));
@@ -555,50 +565,52 @@ describe('release mirror publisher', () => {
     });
 
     it('does not retry a multipart upload the mirror rejected', async () => {
-        const fixture = createMultipartFixture({failPart: () => Object.assign(new Error('AccessDenied'), {$metadata: {httpStatusCode: 403}})});
+        const fixture = createMultipartFixture({
+            failPart: () => Object.assign(new Error('AccessDenied'), {$metadata: {httpStatusCode: 403}}),
+        });
 
         await expect(fixture.publish(Buffer.from('multipart drill payload'), 8)).rejects.toThrow('AccessDenied');
 
-        expect(fixture.commands.filter(command => command instanceof CreateMultipartUploadCommand)).toHaveLength(1);
-        expect(fixture.commands.filter(command => command instanceof AbortMultipartUploadCommand)).toHaveLength(1);
+        expect(fixture.commands.filter((command) => command instanceof CreateMultipartUploadCommand)).toHaveLength(1);
+        expect(fixture.commands.filter((command) => command instanceof AbortMultipartUploadCommand)).toHaveLength(1);
         expect(fixture.stored.has(multipartAssetKey)).toBe(false);
         expect(fixture.openUploads.size).toBe(0);
     });
 
     it('deletes only drill mirror prefixes', async () => {
         const deletions: DeleteObjectsCommand[] = [];
-        const client = {send: vi.fn(async (command: unknown) => {
-            if (command instanceof ListObjectsV2Command) {
-                expect(command.input.Prefix).toBe('evb-viewer/drill/123/');
-                return {Contents: [
-                    {Key: 'evb-viewer/drill/123/releases/asset'},
-                    {Key: 'evb-viewer/drill/123/channels/stable.json'},
-                ]};
-            }
-            if (command instanceof DeleteObjectsCommand) {
-                deletions.push(command);
-                return {};
-            }
-            throw new Error(`Unexpected cleanup command: ${String(command)}`);
-        })};
+        const client = {
+            send: vi.fn(async (command: unknown) => {
+                if (command instanceof ListObjectsV2Command) {
+                    expect(command.input.Prefix).toBe('evb-viewer/drill/123/');
+                    return {Contents: [{Key: 'evb-viewer/drill/123/releases/asset'}, {Key: 'evb-viewer/drill/123/channels/stable.json'}]};
+                }
+                if (command instanceof DeleteObjectsCommand) {
+                    deletions.push(command);
+                    return {};
+                }
+                throw new Error(`Unexpected cleanup command: ${String(command)}`);
+            }),
+        };
 
-        await expect(cleanupMirrorPrefix({
-            environment,
-            prefix: 'evb-viewer/drill/123/',
-            client,
-        })).resolves.toMatchObject({deletedKeys: [
-            'evb-viewer/drill/123/releases/asset',
-            'evb-viewer/drill/123/channels/stable.json',
-        ]});
+        await expect(
+            cleanupMirrorPrefix({
+                environment,
+                prefix: 'evb-viewer/drill/123/',
+                client,
+            }),
+        ).resolves.toMatchObject({deletedKeys: ['evb-viewer/drill/123/releases/asset', 'evb-viewer/drill/123/channels/stable.json']});
         expect(deletions[0]?.input.Delete?.Objects).toEqual([
             {Key: 'evb-viewer/drill/123/releases/asset'},
             {Key: 'evb-viewer/drill/123/channels/stable.json'},
         ]);
-        await expect(cleanupMirrorPrefix({
-            environment,
-            prefix: 'evb-viewer/releases/',
-            client,
-        })).rejects.toThrow('non-drill mirror prefix');
+        await expect(
+            cleanupMirrorPrefix({
+                environment,
+                prefix: 'evb-viewer/releases/',
+                client,
+            }),
+        ).rejects.toThrow('non-drill mirror prefix');
     });
 
     it('uploads verified artifacts and JSON pointers before pruning stale releases', async () => {
@@ -610,59 +622,62 @@ describe('release mirror publisher', () => {
 
         const puts: PutObjectCommand[] = [];
         const deletions: DeleteObjectsCommand[] = [];
-        const stored = new Map<string, {
-            bytes: Buffer;
-            sha256: string
-        }>();
+        const stored = new Map<
+            string,
+            {
+                bytes: Buffer;
+                sha256: string;
+            }
+        >();
         let listPage = 0;
-        const client = {send: vi.fn(async (command: unknown) => {
-            if (command instanceof PutObjectCommand) {
-                puts.push(command);
-                stored.set(command.input.Key!, {
-                    bytes: await commandBodyBytes(command.input.Body),
-                    sha256: command.input.Metadata!.sha256!,
-                });
-                return {};
-            }
-            if (command instanceof HeadObjectCommand) {
-                const object = stored.get(command.input.Key!);
-                return {
-                    ContentLength: object?.bytes.byteLength,
-                    Metadata: {sha256: object?.sha256},
-                };
-            }
-            if (command instanceof ListObjectsV2Command) {
-                listPage += 1;
-                return listPage === 1
-                    ? {
-                        Contents: [
-                            'v1.0.0',
-                            'v1.1.0',
-                            'v1.2.0',
-                        ].map(tag => ({Key: `evb-viewer/releases/${tag}/asset`})),
-                        NextContinuationToken: 'page-2',
-                    }
-                    : {Contents: [
-                        {Key: 'evb-viewer/releases/v1.3.0/asset'},
-                        {Key: 'evb-viewer/releases/v2.0.0/asset'},
-                        {Key: 'evb-viewer/releases/not-a-version/asset'},
-                    ]};
-            }
-            if (command instanceof GetObjectCommand) {
-                const object = stored.get(command.input.Key!);
-                if (object) {
-                    return {Body: objectBody(object.bytes)};
+        const client = {
+            send: vi.fn(async (command: unknown) => {
+                if (command instanceof PutObjectCommand) {
+                    puts.push(command);
+                    stored.set(command.input.Key!, {
+                        bytes: await commandBodyBytes(command.input.Body),
+                        sha256: command.input.Metadata!.sha256!,
+                    });
+                    return {};
                 }
-                const missing = new Error('missing');
-                Object.assign(missing, {$metadata: {httpStatusCode: 404}});
-                throw missing;
-            }
-            if (command instanceof DeleteObjectsCommand) {
-                deletions.push(command);
-                return {};
-            }
-            throw new Error(`Unexpected command: ${String(command)}`);
-        })};
+                if (command instanceof HeadObjectCommand) {
+                    const object = stored.get(command.input.Key!);
+                    return {
+                        ContentLength: object?.bytes.byteLength,
+                        Metadata: {sha256: object?.sha256},
+                    };
+                }
+                if (command instanceof ListObjectsV2Command) {
+                    listPage += 1;
+                    return listPage === 1
+                        ? {
+                              Contents: ['v1.0.0', 'v1.1.0', 'v1.2.0'].map((tag) => ({Key: `evb-viewer/releases/${tag}/asset`})),
+                              NextContinuationToken: 'page-2',
+                          }
+                        : {
+                              Contents: [
+                                  {Key: 'evb-viewer/releases/v1.3.0/asset'},
+                                  {Key: 'evb-viewer/releases/v2.0.0/asset'},
+                                  {Key: 'evb-viewer/releases/not-a-version/asset'},
+                              ],
+                          };
+                }
+                if (command instanceof GetObjectCommand) {
+                    const object = stored.get(command.input.Key!);
+                    if (object) {
+                        return {Body: objectBody(object.bytes)};
+                    }
+                    const missing = new Error('missing');
+                    Object.assign(missing, {$metadata: {httpStatusCode: 404}});
+                    throw missing;
+                }
+                if (command instanceof DeleteObjectsCommand) {
+                    deletions.push(command);
+                    return {};
+                }
+                throw new Error(`Unexpected command: ${String(command)}`);
+            }),
+        };
 
         const result = await publishReleaseMirror({
             artifactDirectory,
@@ -671,12 +686,9 @@ describe('release mirror publisher', () => {
             client,
         });
 
-        expect(result.assets.map(asset => asset.name)).toEqual([
-            'EVB Viewer.exe',
-            'latest.yml',
-        ]);
+        expect(result.assets.map((asset) => asset.name)).toEqual(['EVB Viewer.exe', 'latest.yml']);
         expect(result.prunedTags).toEqual(['v1.0.0']);
-        expect(puts.map(command => command.input.Key)).toEqual([
+        expect(puts.map((command) => command.input.Key)).toEqual([
             'evb-viewer/releases/v2.0.0/EVB Viewer.exe',
             'evb-viewer/releases/v2.0.0/latest.yml',
             'evb-viewer/releases/v2.0.0/manifest.json',
@@ -701,38 +713,43 @@ describe('release mirror publisher', () => {
         const artifactDirectory = await createTestTemporaryDirectory('evb-mirror-stage-');
         await writeFile(join(artifactDirectory, 'asset.zip'), 'staged');
         const puts: PutObjectCommand[] = [];
-        const stored = new Map<string, {
-            bytes: Buffer;
-            sha256: string
-        }>();
-        const client = {send: vi.fn(async (command: unknown) => {
-            if (command instanceof PutObjectCommand) {
-                puts.push(command);
-                stored.set(command.input.Key!, {
-                    bytes: await commandBodyBytes(command.input.Body),
-                    sha256: command.input.Metadata!.sha256!,
-                });
-                return {};
+        const stored = new Map<
+            string,
+            {
+                bytes: Buffer;
+                sha256: string;
             }
-            if (command instanceof HeadObjectCommand) {
-                const object = stored.get(command.input.Key!);
-                if (!object) {
-                    return {$metadata: {httpStatusCode: 404}};
+        >();
+        const client = {
+            send: vi.fn(async (command: unknown) => {
+                if (command instanceof PutObjectCommand) {
+                    puts.push(command);
+                    stored.set(command.input.Key!, {
+                        bytes: await commandBodyBytes(command.input.Body),
+                        sha256: command.input.Metadata!.sha256!,
+                    });
+                    return {};
                 }
-                return {
-                    ContentLength: object.bytes.byteLength,
-                    Metadata: {sha256: object.sha256},
-                };
-            }
-            if (command instanceof GetObjectCommand) {
-                const object = stored.get(command.input.Key!);
-                if (!object) {
-                    throw new Error('Unexpected missing staged object');
+                if (command instanceof HeadObjectCommand) {
+                    const object = stored.get(command.input.Key!);
+                    if (!object) {
+                        return {$metadata: {httpStatusCode: 404}};
+                    }
+                    return {
+                        ContentLength: object.bytes.byteLength,
+                        Metadata: {sha256: object.sha256},
+                    };
                 }
-                return {Body: objectBody(object.bytes)};
-            }
-            throw new Error(`Unexpected staging command: ${String(command)}`);
-        })};
+                if (command instanceof GetObjectCommand) {
+                    const object = stored.get(command.input.Key!);
+                    if (!object) {
+                        throw new Error('Unexpected missing staged object');
+                    }
+                    return {Body: objectBody(object.bytes)};
+                }
+                throw new Error(`Unexpected staging command: ${String(command)}`);
+            }),
+        };
 
         const result = await publishReleaseMirror({
             artifactDirectory,
@@ -742,7 +759,7 @@ describe('release mirror publisher', () => {
             client,
         });
 
-        expect(puts.map(command => command.input.Key)).toEqual([
+        expect(puts.map((command) => command.input.Key)).toEqual([
             'evb-viewer/releases/v2.1.0/asset.zip',
             'evb-viewer/releases/v2.1.0/manifest.json',
         ]);
@@ -754,38 +771,43 @@ describe('release mirror publisher', () => {
     it('keeps same-tag mirror repair byte-identical with Windows ARM64 in the core set', async () => {
         const artifactDirectory = await createTestTemporaryDirectory('evb-mirror-repair-');
         await writeFile(join(artifactDirectory, 'core.zip'), 'core');
-        const stored = new Map<string, {
-            bytes: Buffer;
-            sha256: string
-        }>();
+        const stored = new Map<
+            string,
+            {
+                bytes: Buffer;
+                sha256: string;
+            }
+        >();
         const puts: PutObjectCommand[] = [];
-        const client = {send: vi.fn(async (command: unknown) => {
-            if (command instanceof PutObjectCommand) {
-                puts.push(command);
-                stored.set(command.input.Key!, {
-                    bytes: await commandBodyBytes(command.input.Body),
-                    sha256: command.input.Metadata!.sha256!,
-                });
-                return {};
-            }
-            if (command instanceof HeadObjectCommand) {
-                const object = stored.get(command.input.Key!);
-                return object
-                    ? {
-                        ContentLength: object.bytes.byteLength,
-                        Metadata: {sha256: object.sha256},
-                    }
-                    : {$metadata: {httpStatusCode: 404}};
-            }
-            if (command instanceof GetObjectCommand) {
-                const object = stored.get(command.input.Key!);
-                if (!object) {
-                    throw new Error('Unexpected missing repair object');
+        const client = {
+            send: vi.fn(async (command: unknown) => {
+                if (command instanceof PutObjectCommand) {
+                    puts.push(command);
+                    stored.set(command.input.Key!, {
+                        bytes: await commandBodyBytes(command.input.Body),
+                        sha256: command.input.Metadata!.sha256!,
+                    });
+                    return {};
                 }
-                return {Body: objectBody(object.bytes)};
-            }
-            throw new Error(`Unexpected repair command: ${String(command)}`);
-        })};
+                if (command instanceof HeadObjectCommand) {
+                    const object = stored.get(command.input.Key!);
+                    return object
+                        ? {
+                              ContentLength: object.bytes.byteLength,
+                              Metadata: {sha256: object.sha256},
+                          }
+                        : {$metadata: {httpStatusCode: 404}};
+                }
+                if (command instanceof GetObjectCommand) {
+                    const object = stored.get(command.input.Key!);
+                    if (!object) {
+                        throw new Error('Unexpected missing repair object');
+                    }
+                    return {Body: objectBody(object.bytes)};
+                }
+                throw new Error(`Unexpected repair command: ${String(command)}`);
+            }),
+        };
 
         await writeFile(join(artifactDirectory, 'EVB-Viewer-2.1.0-arm64-setup.exe'), 'arm installer');
         await writeFile(join(artifactDirectory, 'EVB-Viewer-2.1.0-win-arm64-provenance.json'), '{}');
@@ -804,13 +826,13 @@ describe('release mirror publisher', () => {
             client,
         });
 
-        expect(first.assets.map(asset => asset.name)).toEqual([
+        expect(first.assets.map((asset) => asset.name)).toEqual([
             'core.zip',
             'EVB-Viewer-2.1.0-arm64-setup.exe',
             'EVB-Viewer-2.1.0-win-arm64-provenance.json',
         ]);
         expect(repaired.assets).toEqual(first.assets);
-        expect(puts.map(command => command.input.Key)).toEqual([
+        expect(puts.map((command) => command.input.Key)).toEqual([
             'evb-viewer/releases/v2.1.0/core.zip',
             'evb-viewer/releases/v2.1.0/EVB-Viewer-2.1.0-arm64-setup.exe',
             'evb-viewer/releases/v2.1.0/EVB-Viewer-2.1.0-win-arm64-provenance.json',
@@ -823,44 +845,49 @@ describe('release mirror publisher', () => {
         await writeFile(join(artifactDirectory, 'core.zip'), 'core');
         await writeFile(join(artifactDirectory, 'EVB-Viewer-2.1.0-x64-setup.exe'), 'installer');
         await writeFile(join(artifactDirectory, 'SHA256SUMS'), 'checksums');
-        const stored = new Map<string, {
-            bytes: Buffer;
-            sha256: string
-        }>();
+        const stored = new Map<
+            string,
+            {
+                bytes: Buffer;
+                sha256: string;
+            }
+        >();
         const puts: string[] = [];
         let rejectedInstaller = false;
-        const client = {send: vi.fn(async (command: unknown) => {
-            if (command instanceof PutObjectCommand) {
-                const key = command.input.Key!;
-                if (key.endsWith('EVB-Viewer-2.1.0-x64-setup.exe') && !rejectedInstaller) {
-                    rejectedInstaller = true;
-                    throw Object.assign(new Error('AccessDenied'), {$metadata: {httpStatusCode: 403}});
-                }
-                puts.push(key);
-                stored.set(key, {
-                    bytes: await commandBodyBytes(command.input.Body),
-                    sha256: command.input.Metadata!.sha256!,
-                });
-                return {};
-            }
-            if (command instanceof HeadObjectCommand) {
-                const object = stored.get(command.input.Key!);
-                return object
-                    ? {
-                        ContentLength: object.bytes.byteLength,
-                        Metadata: {sha256: object.sha256},
+        const client = {
+            send: vi.fn(async (command: unknown) => {
+                if (command instanceof PutObjectCommand) {
+                    const key = command.input.Key!;
+                    if (key.endsWith('EVB-Viewer-2.1.0-x64-setup.exe') && !rejectedInstaller) {
+                        rejectedInstaller = true;
+                        throw Object.assign(new Error('AccessDenied'), {$metadata: {httpStatusCode: 403}});
                     }
-                    : {$metadata: {httpStatusCode: 404}};
-            }
-            if (command instanceof GetObjectCommand) {
-                const object = stored.get(command.input.Key!);
-                if (!object) {
-                    throw new Error('Unexpected missing repair object');
+                    puts.push(key);
+                    stored.set(key, {
+                        bytes: await commandBodyBytes(command.input.Body),
+                        sha256: command.input.Metadata!.sha256!,
+                    });
+                    return {};
                 }
-                return {Body: objectBody(object.bytes)};
-            }
-            throw new Error(`Unexpected resume command: ${String(command)}`);
-        })};
+                if (command instanceof HeadObjectCommand) {
+                    const object = stored.get(command.input.Key!);
+                    return object
+                        ? {
+                              ContentLength: object.bytes.byteLength,
+                              Metadata: {sha256: object.sha256},
+                          }
+                        : {$metadata: {httpStatusCode: 404}};
+                }
+                if (command instanceof GetObjectCommand) {
+                    const object = stored.get(command.input.Key!);
+                    if (!object) {
+                        throw new Error('Unexpected missing repair object');
+                    }
+                    return {Body: objectBody(object.bytes)};
+                }
+                throw new Error(`Unexpected resume command: ${String(command)}`);
+            }),
+        };
         const publishOptions = {
             artifactDirectory,
             releaseTag: 'v2.1.0',
@@ -874,11 +901,7 @@ describe('release mirror publisher', () => {
 
         const resumed = await publishReleaseMirror(publishOptions);
 
-        expect(resumed.assets.map(asset => asset.name)).toEqual([
-            'core.zip',
-            'EVB-Viewer-2.1.0-x64-setup.exe',
-            'SHA256SUMS',
-        ]);
+        expect(resumed.assets.map((asset) => asset.name)).toEqual(['core.zip', 'EVB-Viewer-2.1.0-x64-setup.exe', 'SHA256SUMS']);
         expect(puts.slice(1)).toEqual([
             'evb-viewer/releases/v2.1.0/EVB-Viewer-2.1.0-x64-setup.exe',
             'evb-viewer/releases/v2.1.0/SHA256SUMS',
@@ -889,93 +912,104 @@ describe('release mirror publisher', () => {
     });
 
     it('rejects invalid input, missing credentials, empty folders, and verification mismatches', async () => {
-        await expect(publishReleaseMirror({
-            artifactDirectory: '',
-            releaseTag: '',
-            environment,
-            client: {send: vi.fn()},
-        }))
-            .rejects.toThrow('Usage:');
-        await expect(publishReleaseMirror({
-            artifactDirectory: '/tmp',
-            releaseTag: 'latest',
-            environment,
-            client: {send: vi.fn()},
-        }))
-            .rejects.toThrow('Invalid release tag');
+        await expect(
+            publishReleaseMirror({
+                artifactDirectory: '',
+                releaseTag: '',
+                environment,
+                client: {send: vi.fn()},
+            }),
+        ).rejects.toThrow('Usage:');
+        await expect(
+            publishReleaseMirror({
+                artifactDirectory: '/tmp',
+                releaseTag: 'latest',
+                environment,
+                client: {send: vi.fn()},
+            }),
+        ).rejects.toThrow('Invalid release tag');
         expect(() => requireEnvironment({}, 'MIRROR_S3_BUCKET')).toThrow('Missing required environment variable');
 
         const emptyDirectory = await createTestTemporaryDirectory('evb-mirror-empty-');
         await writeFile(join(emptyDirectory, '.ignored'), 'hidden');
-        await expect(publishReleaseMirror({
-            artifactDirectory: emptyDirectory,
-            releaseTag: 'v1.0.0',
-            environment,
-            client: {send: vi.fn()},
-        }))
-            .rejects.toThrow('No release artifacts');
+        await expect(
+            publishReleaseMirror({
+                artifactDirectory: emptyDirectory,
+                releaseTag: 'v1.0.0',
+                environment,
+                client: {send: vi.fn()},
+            }),
+        ).rejects.toThrow('No release artifacts');
 
         const directoryOnly = await createTestTemporaryDirectory('evb-mirror-directory-');
         await mkdir(join(directoryOnly, 'nested'));
-        await expect(publishReleaseMirror({
-            artifactDirectory: directoryOnly,
-            releaseTag: 'v1.0.0',
-            environment,
-            client: {send: vi.fn()},
-        }))
-            .rejects.toThrow('No regular release artifact files');
+        await expect(
+            publishReleaseMirror({
+                artifactDirectory: directoryOnly,
+                releaseTag: 'v1.0.0',
+                environment,
+                client: {send: vi.fn()},
+            }),
+        ).rejects.toThrow('No regular release artifact files');
 
         const artifactDirectory = await createTestTemporaryDirectory('evb-mirror-invalid-');
         await writeFile(join(artifactDirectory, 'asset.zip'), 'zip');
-        const client = {send: vi.fn(async (command: unknown) => {
-            if (command instanceof HeadObjectCommand) {
-                return {
-                    ContentLength: 999,
-                    Metadata: {sha256: 'wrong'},
-                };
-            }
-            if (command instanceof GetObjectCommand) {
-                return {Body: objectBody(Buffer.from('wrong'))};
-            }
-            return {};
-        })};
-        await expect(publishReleaseMirror({
-            artifactDirectory,
-            releaseTag: 'v1.0.0',
-            environment,
-            client,
-        }))
-            .rejects.toThrow('Immutable mirror object mismatch');
+        const client = {
+            send: vi.fn(async (command: unknown) => {
+                if (command instanceof HeadObjectCommand) {
+                    return {
+                        ContentLength: 999,
+                        Metadata: {sha256: 'wrong'},
+                    };
+                }
+                if (command instanceof GetObjectCommand) {
+                    return {Body: objectBody(Buffer.from('wrong'))};
+                }
+                return {};
+            }),
+        };
+        await expect(
+            publishReleaseMirror({
+                artifactDirectory,
+                releaseTag: 'v1.0.0',
+                environment,
+                client,
+            }),
+        ).rejects.toThrow('Immutable mirror object mismatch');
     });
 
     it('refuses to overwrite an immutable tagged asset or manifest', async () => {
         const artifactDirectory = await createTestTemporaryDirectory('evb-mirror-immutable-');
         await writeFile(join(artifactDirectory, 'asset.zip'), 'new bytes');
         const puts: PutObjectCommand[] = [];
-        const client = {send: vi.fn(async (command: unknown) => {
-            if (command instanceof HeadObjectCommand) {
-                return {
-                    ContentLength: 7,
-                    Metadata: {sha256: 'different'},
-                };
-            }
-            if (command instanceof PutObjectCommand) {
-                puts.push(command);
-                return {};
-            }
-            if (command instanceof GetObjectCommand) {
-                return {Body: objectBody(Buffer.from('old body'))};
-            }
-            throw new Error(`Unexpected command: ${String(command)}`);
-        })};
+        const client = {
+            send: vi.fn(async (command: unknown) => {
+                if (command instanceof HeadObjectCommand) {
+                    return {
+                        ContentLength: 7,
+                        Metadata: {sha256: 'different'},
+                    };
+                }
+                if (command instanceof PutObjectCommand) {
+                    puts.push(command);
+                    return {};
+                }
+                if (command instanceof GetObjectCommand) {
+                    return {Body: objectBody(Buffer.from('old body'))};
+                }
+                throw new Error(`Unexpected command: ${String(command)}`);
+            }),
+        };
 
-        await expect(publishReleaseMirror({
-            artifactDirectory,
-            releaseTag: 'v3.0.0',
-            publishChannel: false,
-            environment,
-            client,
-        })).rejects.toThrow('Immutable mirror object mismatch');
+        await expect(
+            publishReleaseMirror({
+                artifactDirectory,
+                releaseTag: 'v3.0.0',
+                publishChannel: false,
+                environment,
+                client,
+            }),
+        ).rejects.toThrow('Immutable mirror object mismatch');
         expect(puts).toEqual([]);
     });
 
@@ -985,87 +1019,78 @@ describe('release mirror publisher', () => {
         await writeFile(join(artifactDirectory, 'asset.zip'), artifact);
         const sha256 = createHash('sha256').update(artifact).digest('hex');
         const puts: PutObjectCommand[] = [];
-        const client = {send: vi.fn(async (command: unknown) => {
-            if (command instanceof HeadObjectCommand) {
-                return {
-                    ContentLength: artifact.byteLength,
-                    Metadata: {sha256},
-                };
-            }
-            if (command instanceof GetObjectCommand) {
-                return {Body: objectBody(Buffer.from('tampered bytes'))};
-            }
-            if (command instanceof PutObjectCommand) {
-                puts.push(command);
-                return {};
-            }
-            throw new Error(`Unexpected command: ${String(command)}`);
-        })};
+        const client = {
+            send: vi.fn(async (command: unknown) => {
+                if (command instanceof HeadObjectCommand) {
+                    return {
+                        ContentLength: artifact.byteLength,
+                        Metadata: {sha256},
+                    };
+                }
+                if (command instanceof GetObjectCommand) {
+                    return {Body: objectBody(Buffer.from('tampered bytes'))};
+                }
+                if (command instanceof PutObjectCommand) {
+                    puts.push(command);
+                    return {};
+                }
+                throw new Error(`Unexpected command: ${String(command)}`);
+            }),
+        };
 
-        await expect(publishReleaseMirror({
-            artifactDirectory,
-            releaseTag: 'v3.0.1',
-            publishChannel: false,
-            environment,
-            client,
-        })).rejects.toThrow('Immutable mirror object mismatch');
+        await expect(
+            publishReleaseMirror({
+                artifactDirectory,
+                releaseTag: 'v3.0.1',
+                publishChannel: false,
+                environment,
+                client,
+            }),
+        ).rejects.toThrow('Immutable mirror object mismatch');
         expect(puts).toEqual([]);
     });
 
     it.each([
-        [
-            'accepts',
-            Buffer.from('release bytes'),
-            true,
-        ],
-        [
-            'rejects',
-            Buffer.from('racing attacker'),
-            false,
-        ],
-    ] as const)('%s a concurrent conditional creator according to its downloaded bytes', async (
-        _label,
-        racingBytes,
-        shouldAccept,
-    ) => {
+        ['accepts', Buffer.from('release bytes'), true],
+        ['rejects', Buffer.from('racing attacker'), false],
+    ] as const)('%s a concurrent conditional creator according to its downloaded bytes', async (_label, racingBytes, shouldAccept) => {
         const artifactDirectory = await createTestTemporaryDirectory('evb-mirror-race-');
         const intendedBytes = Buffer.from('release bytes');
         await writeFile(join(artifactDirectory, 'asset.zip'), intendedBytes);
         const stored = new Map<string, Buffer>();
         const puts: PutObjectCommand[] = [];
-        const client = {send: vi.fn(async (command: unknown) => {
-            const key = command instanceof HeadObjectCommand
-                || command instanceof GetObjectCommand
-                || command instanceof PutObjectCommand
-                ? command.input.Key!
-                : '';
-            if (command instanceof HeadObjectCommand) {
-                const bytes = stored.get(key);
-                return bytes
-                    ? {ContentLength: bytes.byteLength}
-                    : {$metadata: {httpStatusCode: 404}};
-            }
-            if (command instanceof PutObjectCommand) {
-                puts.push(command);
-                expect(command.input.IfNoneMatch).toBe('*');
-                if (key.endsWith('/asset.zip')) {
-                    stored.set(key, racingBytes);
-                    const conflict = new Error('conditional conflict');
-                    Object.assign(conflict, {$metadata: {httpStatusCode: 412}});
-                    throw conflict;
+        const client = {
+            send: vi.fn(async (command: unknown) => {
+                const key =
+                    command instanceof HeadObjectCommand || command instanceof GetObjectCommand || command instanceof PutObjectCommand
+                        ? command.input.Key!
+                        : '';
+                if (command instanceof HeadObjectCommand) {
+                    const bytes = stored.get(key);
+                    return bytes ? {ContentLength: bytes.byteLength} : {$metadata: {httpStatusCode: 404}};
                 }
-                stored.set(key, await commandBodyBytes(command.input.Body));
-                return {};
-            }
-            if (command instanceof GetObjectCommand) {
-                const bytes = stored.get(key);
-                if (!bytes) {
-                    throw new Error(`Missing object: ${key}`);
+                if (command instanceof PutObjectCommand) {
+                    puts.push(command);
+                    expect(command.input.IfNoneMatch).toBe('*');
+                    if (key.endsWith('/asset.zip')) {
+                        stored.set(key, racingBytes);
+                        const conflict = new Error('conditional conflict');
+                        Object.assign(conflict, {$metadata: {httpStatusCode: 412}});
+                        throw conflict;
+                    }
+                    stored.set(key, await commandBodyBytes(command.input.Body));
+                    return {};
                 }
-                return {Body: objectBody(bytes)};
-            }
-            throw new Error(`Unexpected command: ${String(command)}`);
-        })};
+                if (command instanceof GetObjectCommand) {
+                    const bytes = stored.get(key);
+                    if (!bytes) {
+                        throw new Error(`Missing object: ${key}`);
+                    }
+                    return {Body: objectBody(bytes)};
+                }
+                throw new Error(`Unexpected command: ${String(command)}`);
+            }),
+        };
 
         const result = publishReleaseMirror({
             artifactDirectory,
@@ -1087,45 +1112,52 @@ describe('release mirror publisher', () => {
         const artifactDirectory = await createTestTemporaryDirectory('evb-mirror-downgrade-');
         await writeFile(join(artifactDirectory, 'asset.zip'), 'release');
         const puts: PutObjectCommand[] = [];
-        const stored = new Map<string, {
-            bytes: Buffer;
-            sha256: string
-        }>();
-        const client = {send: vi.fn(async (command: unknown) => {
-            if (command instanceof HeadObjectCommand) {
-                const object = stored.get(command.input.Key!);
-                return object
-                    ? {
-                        ContentLength: object.bytes.byteLength,
-                        Metadata: {sha256: object.sha256},
-                    }
-                    : {$metadata: {httpStatusCode: 404}};
+        const stored = new Map<
+            string,
+            {
+                bytes: Buffer;
+                sha256: string;
             }
-            if (command instanceof PutObjectCommand) {
-                puts.push(command);
-                stored.set(command.input.Key!, {
-                    bytes: await commandBodyBytes(command.input.Body),
-                    sha256: command.input.Metadata!.sha256!,
-                });
-                return {};
-            }
-            if (command instanceof GetObjectCommand) {
-                const storedObject = stored.get(command.input.Key!);
-                if (storedObject) {
-                    return {Body: objectBody(storedObject.bytes)};
+        >();
+        const client = {
+            send: vi.fn(async (command: unknown) => {
+                if (command instanceof HeadObjectCommand) {
+                    const object = stored.get(command.input.Key!);
+                    return object
+                        ? {
+                              ContentLength: object.bytes.byteLength,
+                              Metadata: {sha256: object.sha256},
+                          }
+                        : {$metadata: {httpStatusCode: 404}};
                 }
-                return {Body: {transformToString: async () => JSON.stringify({release: {tag: 'v3.0.0'}})}};
-            }
-            throw new Error(`Unexpected command: ${String(command)}`);
-        })};
+                if (command instanceof PutObjectCommand) {
+                    puts.push(command);
+                    stored.set(command.input.Key!, {
+                        bytes: await commandBodyBytes(command.input.Body),
+                        sha256: command.input.Metadata!.sha256!,
+                    });
+                    return {};
+                }
+                if (command instanceof GetObjectCommand) {
+                    const storedObject = stored.get(command.input.Key!);
+                    if (storedObject) {
+                        return {Body: objectBody(storedObject.bytes)};
+                    }
+                    return {Body: {transformToString: async () => JSON.stringify({release: {tag: 'v3.0.0'}})}};
+                }
+                throw new Error(`Unexpected command: ${String(command)}`);
+            }),
+        };
 
-        await expect(publishReleaseMirror({
-            artifactDirectory,
-            releaseTag: 'v2.9.0',
-            environment,
-            client,
-        })).rejects.toThrow('Refusing to move stable mirror backward');
-        expect(puts.map(command => command.input.Key)).not.toContain('evb-viewer/channels/stable.json');
+        await expect(
+            publishReleaseMirror({
+                artifactDirectory,
+                releaseTag: 'v2.9.0',
+                environment,
+                client,
+            }),
+        ).rejects.toThrow('Refusing to move stable mirror backward');
+        expect(puts.map((command) => command.input.Key)).not.toContain('evb-viewer/channels/stable.json');
     });
 
     it('uses the stable channel ETag and rejects a concurrent downgrade race', async () => {
@@ -1133,52 +1165,53 @@ describe('release mirror publisher', () => {
         await writeFile(join(artifactDirectory, 'asset.zip'), 'release');
         const stored = new Map<string, Buffer>();
         let stableReadCount = 0;
-        const client = {send: vi.fn(async (command: unknown) => {
-            const key = command instanceof HeadObjectCommand
-                || command instanceof GetObjectCommand
-                || command instanceof PutObjectCommand
-                ? command.input.Key!
-                : '';
-            if (command instanceof HeadObjectCommand) {
-                const bytes = stored.get(key);
-                return bytes
-                    ? {ContentLength: bytes.byteLength}
-                    : {$metadata: {httpStatusCode: 404}};
-            }
-            if (command instanceof GetObjectCommand) {
-                if (key === 'evb-viewer/channels/stable.json') {
-                    stableReadCount += 1;
-                    const tag = stableReadCount === 1 ? 'v1.9.0' : 'v2.1.0';
-                    return {
-                        Body: objectBody(Buffer.from(JSON.stringify({release: {tag}}))),
-                        ETag: stableReadCount === 1 ? '"old"' : '"new"',
-                    };
+        const client = {
+            send: vi.fn(async (command: unknown) => {
+                const key =
+                    command instanceof HeadObjectCommand || command instanceof GetObjectCommand || command instanceof PutObjectCommand
+                        ? command.input.Key!
+                        : '';
+                if (command instanceof HeadObjectCommand) {
+                    const bytes = stored.get(key);
+                    return bytes ? {ContentLength: bytes.byteLength} : {$metadata: {httpStatusCode: 404}};
                 }
-                const bytes = stored.get(key);
-                if (!bytes) {
-                    throw new Error(`Missing object: ${key}`);
+                if (command instanceof GetObjectCommand) {
+                    if (key === 'evb-viewer/channels/stable.json') {
+                        stableReadCount += 1;
+                        const tag = stableReadCount === 1 ? 'v1.9.0' : 'v2.1.0';
+                        return {
+                            Body: objectBody(Buffer.from(JSON.stringify({release: {tag}}))),
+                            ETag: stableReadCount === 1 ? '"old"' : '"new"',
+                        };
+                    }
+                    const bytes = stored.get(key);
+                    if (!bytes) {
+                        throw new Error(`Missing object: ${key}`);
+                    }
+                    return {Body: objectBody(bytes)};
                 }
-                return {Body: objectBody(bytes)};
-            }
-            if (command instanceof PutObjectCommand) {
-                if (key === 'evb-viewer/channels/stable.json') {
-                    expect(command.input.IfMatch).toBe('"old"');
-                    const conflict = new Error('conditional conflict');
-                    Object.assign(conflict, {$metadata: {httpStatusCode: 412}});
-                    throw conflict;
+                if (command instanceof PutObjectCommand) {
+                    if (key === 'evb-viewer/channels/stable.json') {
+                        expect(command.input.IfMatch).toBe('"old"');
+                        const conflict = new Error('conditional conflict');
+                        Object.assign(conflict, {$metadata: {httpStatusCode: 412}});
+                        throw conflict;
+                    }
+                    stored.set(key, await commandBodyBytes(command.input.Body));
+                    return {};
                 }
-                stored.set(key, await commandBodyBytes(command.input.Body));
-                return {};
-            }
-            throw new Error(`Unexpected command: ${String(command)}`);
-        })};
+                throw new Error(`Unexpected command: ${String(command)}`);
+            }),
+        };
 
-        await expect(publishReleaseMirror({
-            artifactDirectory,
-            releaseTag: 'v2.0.0',
-            environment,
-            client,
-        })).rejects.toThrow('Refusing to move stable mirror backward from v2.1.0 to v2.0.0');
+        await expect(
+            publishReleaseMirror({
+                artifactDirectory,
+                releaseTag: 'v2.0.0',
+                environment,
+                client,
+            }),
+        ).rejects.toThrow('Refusing to move stable mirror backward from v2.1.0 to v2.0.0');
         expect(stableReadCount).toBe(2);
     });
 
@@ -1186,62 +1219,64 @@ describe('release mirror publisher', () => {
         async function createFixture() {
             const artifactDirectory = await createTestTemporaryDirectory('evb-mirror-transaction-');
             await writeFile(join(artifactDirectory, 'asset.zip'), 'release');
-            const stored = new Map<string, Buffer>([[
-                'evb-viewer/channels/stable.json',
-                Buffer.from(JSON.stringify({release: {tag: 'v1.0.0'}})),
-            ]]);
+            const stored = new Map<string, Buffer>([
+                ['evb-viewer/channels/stable.json', Buffer.from(JSON.stringify({release: {tag: 'v1.0.0'}}))],
+            ]);
             const etags = new Map<string, string>();
             let nextEtag = 1;
             for (const key of stored.keys()) {
                 etags.set(key, `"etag-${nextEtag++}"`);
             }
-            const client = {send: vi.fn(async (command: unknown) => {
-                const key = command instanceof HeadObjectCommand
-                    || command instanceof GetObjectCommand
-                    || command instanceof PutObjectCommand
-                    || command instanceof DeleteObjectCommand
-                    ? command.input.Key!
-                    : '';
-                if (command instanceof HeadObjectCommand) {
-                    const bytes = stored.get(key);
-                    return bytes ? {ContentLength: bytes.byteLength} : {$metadata: {httpStatusCode: 404}};
-                }
-                if (command instanceof GetObjectCommand) {
-                    const bytes = stored.get(key);
-                    if (!bytes) {
-                        throw Object.assign(new Error('missing'), {$metadata: {httpStatusCode: 404}});
+            const client = {
+                send: vi.fn(async (command: unknown) => {
+                    const key =
+                        command instanceof HeadObjectCommand ||
+                        command instanceof GetObjectCommand ||
+                        command instanceof PutObjectCommand ||
+                        command instanceof DeleteObjectCommand
+                            ? command.input.Key!
+                            : '';
+                    if (command instanceof HeadObjectCommand) {
+                        const bytes = stored.get(key);
+                        return bytes ? {ContentLength: bytes.byteLength} : {$metadata: {httpStatusCode: 404}};
                     }
-                    return {
-                        Body: objectBody(bytes),
-                        ETag: etags.get(key),
-                    };
-                }
-                if (command instanceof PutObjectCommand) {
-                    const existing = etags.get(key);
-                    if (command.input.IfNoneMatch === '*' && existing) {
-                        throw Object.assign(new Error('conditional conflict'), {$metadata: {httpStatusCode: 412}});
+                    if (command instanceof GetObjectCommand) {
+                        const bytes = stored.get(key);
+                        if (!bytes) {
+                            throw Object.assign(new Error('missing'), {$metadata: {httpStatusCode: 404}});
+                        }
+                        return {
+                            Body: objectBody(bytes),
+                            ETag: etags.get(key),
+                        };
                     }
-                    if (command.input.IfMatch && command.input.IfMatch !== existing) {
-                        throw Object.assign(new Error('conditional conflict'), {$metadata: {httpStatusCode: 412}});
+                    if (command instanceof PutObjectCommand) {
+                        const existing = etags.get(key);
+                        if (command.input.IfNoneMatch === '*' && existing) {
+                            throw Object.assign(new Error('conditional conflict'), {$metadata: {httpStatusCode: 412}});
+                        }
+                        if (command.input.IfMatch && command.input.IfMatch !== existing) {
+                            throw Object.assign(new Error('conditional conflict'), {$metadata: {httpStatusCode: 412}});
+                        }
+                        stored.set(key, await commandBodyBytes(command.input.Body));
+                        const etag = `"etag-${nextEtag++}"`;
+                        etags.set(key, etag);
+                        return {ETag: etag};
                     }
-                    stored.set(key, await commandBodyBytes(command.input.Body));
-                    const etag = `"etag-${nextEtag++}"`;
-                    etags.set(key, etag);
-                    return {ETag: etag};
-                }
-                if (command instanceof DeleteObjectCommand) {
-                    if (command.input.IfMatch && command.input.IfMatch !== etags.get(key)) {
-                        throw Object.assign(new Error('conditional conflict'), {$metadata: {httpStatusCode: 412}});
+                    if (command instanceof DeleteObjectCommand) {
+                        if (command.input.IfMatch && command.input.IfMatch !== etags.get(key)) {
+                            throw Object.assign(new Error('conditional conflict'), {$metadata: {httpStatusCode: 412}});
+                        }
+                        stored.delete(key);
+                        etags.delete(key);
+                        return {};
                     }
-                    stored.delete(key);
-                    etags.delete(key);
-                    return {};
-                }
-                if (command instanceof ListObjectsV2Command) {
-                    return {Contents: []};
-                }
-                throw new Error(`Unexpected command: ${String(command)}`);
-            })};
+                    if (command instanceof ListObjectsV2Command) {
+                        return {Contents: []};
+                    }
+                    throw new Error(`Unexpected command: ${String(command)}`);
+                }),
+            };
             return {
                 artifactDirectory,
                 client,
@@ -1257,16 +1292,18 @@ describe('release mirror publisher', () => {
             durableTransaction: true,
             client: publicFixture.client,
         });
-        await expect(reconcileReleasePromotion({
-            environment,
-            releaseTag: 'v2.0.0',
-            githubState: {
-                tagName: 'v2.0.0',
-                isDraft: false,
-                assets: [{name: 'SHA256SUMS'}],
-            },
-            client: publicFixture.client,
-        })).resolves.toBe('public');
+        await expect(
+            reconcileReleasePromotion({
+                environment,
+                releaseTag: 'v2.0.0',
+                githubState: {
+                    tagName: 'v2.0.0',
+                    isDraft: false,
+                    assets: [{name: 'SHA256SUMS'}],
+                },
+                client: publicFixture.client,
+            }),
+        ).resolves.toBe('public');
         expect(JSON.parse(publicFixture.stored.get('evb-viewer/channels/stable.json')!.toString()).release.tag).toBe('v2.0.0');
 
         const draftFixture = await createFixture();
@@ -1277,16 +1314,18 @@ describe('release mirror publisher', () => {
             durableTransaction: true,
             client: draftFixture.client,
         });
-        await expect(reconcileReleasePromotion({
-            environment,
-            releaseTag: 'v2.0.0',
-            githubState: {
-                tagName: 'v2.0.0',
-                isDraft: true,
-                assets: [{name: 'SHA256SUMS'}],
-            },
-            client: draftFixture.client,
-        })).resolves.toBe('draft-restored');
+        await expect(
+            reconcileReleasePromotion({
+                environment,
+                releaseTag: 'v2.0.0',
+                githubState: {
+                    tagName: 'v2.0.0',
+                    isDraft: true,
+                    assets: [{name: 'SHA256SUMS'}],
+                },
+                client: draftFixture.client,
+            }),
+        ).resolves.toBe('draft-restored');
         expect(JSON.parse(draftFixture.stored.get('evb-viewer/channels/stable.json')!.toString()).release.tag).toBe('v1.0.0');
 
         const unresolvedFixture = await createFixture();
@@ -1297,16 +1336,18 @@ describe('release mirror publisher', () => {
             durableTransaction: true,
             client: unresolvedFixture.client,
         });
-        await expect(reconcileReleasePromotion({
-            environment,
-            releaseTag: 'v2.0.0',
-            githubState: {
-                tagName: 'v2.0.0',
-                isDraft: true,
-                assets: [],
-            },
-            client: unresolvedFixture.client,
-        })).resolves.toBe('unresolved');
+        await expect(
+            reconcileReleasePromotion({
+                environment,
+                releaseTag: 'v2.0.0',
+                githubState: {
+                    tagName: 'v2.0.0',
+                    isDraft: true,
+                    assets: [],
+                },
+                client: unresolvedFixture.client,
+            }),
+        ).resolves.toBe('unresolved');
         expect(JSON.parse(unresolvedFixture.stored.get('evb-viewer/channels/stable.json')!.toString()).release.tag).toBe('v2.0.0');
     });
 
@@ -1316,11 +1357,7 @@ describe('release mirror publisher', () => {
         expect(contentTypeFor('app.zip')).toBe('application/zip');
         expect(contentTypeFor('manifest.json')).toBe('application/json');
         expect(contentTypeFor('notes.txt')).toBe('application/octet-stream');
-        expect(versionParts('v12.3.4-beta.1')).toEqual([
-            12,
-            3,
-            4,
-        ]);
+        expect(versionParts('v12.3.4-beta.1')).toEqual([12, 3, 4]);
         expect(compareReleaseTags('v2.0.0', 'v1.9.9')).toBeGreaterThan(0);
         expect(compareReleaseTags('v1.0.0-beta', 'v1.0.0-alpha')).toBeGreaterThan(0);
         expect(compareReleaseTags('v1.0.0', 'v1.0.0-beta.9')).toBeGreaterThan(0);

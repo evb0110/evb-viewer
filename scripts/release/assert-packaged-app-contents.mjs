@@ -1,24 +1,20 @@
 #!/usr/bin/env node
 
-import {
-    readdirSync,
-    readFileSync,
-    statSync,
-} from 'node:fs';
+import {readdirSync, readFileSync, statSync} from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import {pathToFileURL} from 'node:url';
 import {
     collectPublicArtifactContentViolations,
     isForbiddenPublicArtifactPath,
     shouldScanPublicArtifactContent,
 } from '../check-build-artifacts-hygiene.mjs';
-import { WASM_ARTIFACTS } from '../wasm-artifacts.mjs';
+import {WASM_ARTIFACTS} from '../wasm-artifacts.mjs';
 
 /** @typedef {{fileName: string}} IWorkerBundle */
 
-const { WORKER_BUNDLES } = /** @type {{WORKER_BUNDLES: IWorkerBundle[]}} */ (await import(
-    new URL('../../packages/electron-worker-bundles/electronWorkerBundles.js', import.meta.url).href
-));
+const {WORKER_BUNDLES} = /** @type {{WORKER_BUNDLES: IWorkerBundle[]}} */ (
+    await import(new URL('../../packages/electron-worker-bundles/electronWorkerBundles.js', import.meta.url).href)
+);
 
 const RELEASE_DIR = path.resolve(process.cwd(), process.argv[2] ?? 'release');
 
@@ -32,13 +28,13 @@ export const REQUIRED_ASAR_ENTRIES = [
     '/dist-electron/main.js',
     '/dist-electron/preload.cjs',
     '/dist-electron/package.json',
-    ...WORKER_BUNDLES.map(bundle => `/dist-electron/${bundle.fileName}`),
+    ...WORKER_BUNDLES.map((bundle) => `/dist-electron/${bundle.fileName}`),
     '/nuxt-output/public/electron/index.html',
     '/nuxt-output/public/index.html',
     '/nuxt-output/public/_nuxt',
-    ...WASM_ARTIFACTS
-        .map(artifact => `/nuxt-output/public/${artifact.publicRelativePath.replace('public/', '')}`)
-        .filter(entry => !WEB_ONLY_WASM_ENTRIES.includes(entry)),
+    ...WASM_ARTIFACTS.map((artifact) => `/nuxt-output/public/${artifact.publicRelativePath.replace('public/', '')}`).filter(
+        (entry) => !WEB_ONLY_WASM_ENTRIES.includes(entry),
+    ),
     // Desktop OCR, DjVu, and qpdf run the same WASM engines as the browser, in worker threads.
     '/nuxt-output/public/wasm/evb-tesseract.mjs',
     '/nuxt-output/public/wasm/evb-tesseract.wasm',
@@ -59,15 +55,9 @@ export const FORBIDDEN_EXACT_ENTRIES = [
     ...WEB_ONLY_WASM_ENTRIES,
 ];
 
-export const FORBIDDEN_PREFIXES = [
-    '/node_modules',
-    '/vendor',
-];
+export const FORBIDDEN_PREFIXES = ['/node_modules', '/vendor'];
 
-export const EXPECTED_UNPACKED_DIST_ELECTRON = [
-    ...WORKER_BUNDLES.map(bundle => bundle.fileName),
-    'package.json',
-].sort();
+export const EXPECTED_UNPACKED_DIST_ELECTRON = [...WORKER_BUNDLES.map((bundle) => bundle.fileName), 'package.json'].sort();
 
 /** @param {string} rootDir */
 function findAsarArchives(rootDir) {
@@ -81,7 +71,7 @@ function findAsarArchives(rootDir) {
         }
         let entries;
         try {
-            entries = readdirSync(current, { withFileTypes: true });
+            entries = readdirSync(current, {withFileTypes: true});
         } catch {
             continue;
         }
@@ -123,7 +113,7 @@ export function collectEntryViolations(entries) {
         }
     }
     for (const requiredPrefix of REQUIRED_ASAR_PREFIXES) {
-        if (!entries.some(entry => entry.startsWith(requiredPrefix))) {
+        if (!entries.some((entry) => entry.startsWith(requiredPrefix))) {
             problems.push(`missing required entry prefix: ${requiredPrefix}`);
         }
     }
@@ -133,7 +123,7 @@ export function collectEntryViolations(entries) {
             problems.push(`forbidden entry present: ${entry}`);
             continue;
         }
-        if (FORBIDDEN_PREFIXES.some(prefix => entry === prefix || entry.startsWith(`${prefix}/`))) {
+        if (FORBIDDEN_PREFIXES.some((prefix) => entry === prefix || entry.startsWith(`${prefix}/`))) {
             problems.push(`forbidden entry present: ${entry}`);
             continue;
         }
@@ -157,16 +147,20 @@ export function collectEntryViolations(entries) {
             problems.push(`archive should not ship: ${entry}`);
             continue;
         }
-        if (/\/(?:pdfjs-dist|pdfjs-dist-codex-preview)(?:\/|$)/u.test(entry)
-            || /(?:^|\/)(?:pdf\.sandbox|pdf\.min)\.mjs$/u.test(entry)
-            || /(?:^|\/)(?:pdf_viewer|pdf\.worker)\.mjs\.map$/u.test(entry)
-            || /(?:^|\/)image_decoders\//u.test(entry)) {
+        if (
+            /\/(?:pdfjs-dist|pdfjs-dist-codex-preview)(?:\/|$)/u.test(entry) ||
+            /(?:^|\/)(?:pdf\.sandbox|pdf\.min)\.mjs$/u.test(entry) ||
+            /(?:^|\/)(?:pdf_viewer|pdf\.worker)\.mjs\.map$/u.test(entry) ||
+            /(?:^|\/)image_decoders\//u.test(entry)
+        ) {
             problems.push(`complete or alternate PDF.js package content should not ship: ${entry}`);
             continue;
         }
-        if (entry.endsWith('.d.ts')
-            || /\/pdfjs-dist[^/]*\.(?:md|map)$/u.test(entry)
-            || /(?:^|\/)(?:patches?|[^/]+\.(?:patch|orig|rej|bak))(?:\/|$)/u.test(entry)) {
+        if (
+            entry.endsWith('.d.ts') ||
+            /\/pdfjs-dist[^/]*\.(?:md|map)$/u.test(entry) ||
+            /(?:^|\/)(?:patches?|[^/]+\.(?:patch|orig|rej|bak))(?:\/|$)/u.test(entry)
+        ) {
             problems.push(`PDF.js development artifact should not ship: ${entry}`);
             continue;
         }
@@ -225,11 +219,7 @@ export function collectUnpackedViolations(asarPath) {
     }
 
     const unpackedWasmDir = path.join(`${asarPath}.unpacked`, 'nuxt-output', 'public', 'wasm');
-    for (const wasmFile of [
-        'evb-pdf-page-ops.wasm',
-        'evb-qpdf.mjs',
-        'evb-qpdf.wasm',
-    ]) {
+    for (const wasmFile of ['evb-pdf-page-ops.wasm', 'evb-qpdf.mjs', 'evb-qpdf.wasm']) {
         const wasmPath = path.join(unpackedWasmDir, wasmFile);
         try {
             if (!statSync(wasmPath).isFile()) {
@@ -267,18 +257,12 @@ export async function main() {
             } catch {
                 continue;
             }
-            const target = entry.startsWith('/nuxt-output/public/')
-                ? 'desktop-renderer'
-                : 'desktop';
+            const target = entry.startsWith('/nuxt-output/public/') ? 'desktop-renderer' : 'desktop';
             for (const problem of collectPublicArtifactContentViolations(content, {target})) {
                 contentProblems.push(`forbidden ASAR content in ${entry}: ${problem}`);
             }
         }
-        const problems = [
-            ...collectEntryViolations(entries),
-            ...collectUnpackedViolations(asarPath),
-            ...contentProblems,
-        ];
+        const problems = [...collectEntryViolations(entries), ...collectUnpackedViolations(asarPath), ...contentProblems];
         if (problems.length > 0) {
             failures.push({
                 asarPath,

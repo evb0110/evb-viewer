@@ -1,21 +1,12 @@
-import type {
-    ElementHandle,
-    Page,
-} from 'puppeteer-core';
+import type {ElementHandle, Page} from 'puppeteer-core';
 import {resolve} from 'node:path';
 import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
-import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
-import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import { delay } from 'es-toolkit/promise';
+import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
+import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {delay} from 'es-toolkit/promise';
 import {collectDocumentOpenDiagnostics} from '@tests/e2e/electron/helpers/collectDocumentOpenDiagnostics';
-import {
-    evaluateInPage,
-    waitForFunctionInPage,
-} from '@tests/e2e/electron/helpers/pageRuntime';
-import {
-    DEFAULT_TIMEOUT_MS,
-    waitForActiveWorkspaceHost,
-} from '@tests/e2e/electron/helpers/viewerDom';
+import {evaluateInPage, waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
+import {DEFAULT_TIMEOUT_MS, waitForActiveWorkspaceHost} from '@tests/e2e/electron/helpers/viewerDom';
 import {
     callWorkspaceCommand,
     getLatestAutomationEventId,
@@ -23,56 +14,23 @@ import {
     installWorkspaceExposeProbe,
     waitForAutomationEvent,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
-import {
-    readToolbarPageIndicator,
-    waitForToolbarPageIndicator,
-} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
-import { startTrustedWheelFling } from '@tests/e2e/electron/helpers/startTrustedWheelFling';
-import {
-    clickAsUser,
-    clickFoundAsUser,
-} from '@tests/e2e/electron/helpers/userInput';
-import {
-    readViewportPageObservation,
-    waitForViewportQuiet,
-} from '@tests/e2e/electron/helpers/viewportPageObservation';
-import {
-    runWithElectronE2EDeadline,
-    type IElectronE2EDeadlineOptions,
-} from '@tests/e2e/electron/helpers/electronE2ESessionFailure';
+import {readToolbarPageIndicator, waitForToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
+import {startTrustedWheelFling} from '@tests/e2e/electron/helpers/startTrustedWheelFling';
+import {clickAsUser, clickFoundAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {readViewportPageObservation, waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
+import {runWithElectronE2EDeadline, type IElectronE2EDeadlineOptions} from '@tests/e2e/electron/helpers/electronE2ESessionFailure';
 
 const TOOLBAR_ACTION_ICON_HINTS: Record<string, string[]> = {
-    'Toggle Sidebar': [
-        '.i-ph-sidebar-simple',
-        '.iconify.i-ph-sidebar-simple',
-    ],
-    'Save': [
-        '.i-ph-floppy-disk',
-        '.iconify.i-ph-floppy-disk',
-    ],
-    'Save As': [
-        '.i-ph-floppy-disk-back',
-        '.iconify.i-ph-floppy-disk-back',
-    ],
-    'Print': [
-        '.i-ph-printer',
-        '.iconify.i-ph-printer',
-    ],
-    'Undo': [
-        '.i-ph-arrow-u-up-left',
-        '.iconify.i-ph-arrow-u-up-left',
-    ],
-    'Redo': [
-        '.i-ph-arrow-u-up-right',
-        '.iconify.i-ph-arrow-u-up-right',
-    ],
+    'Toggle Sidebar': ['.i-ph-sidebar-simple', '.iconify.i-ph-sidebar-simple'],
+    Save: ['.i-ph-floppy-disk', '.iconify.i-ph-floppy-disk'],
+    'Save As': ['.i-ph-floppy-disk-back', '.iconify.i-ph-floppy-disk-back'],
+    Print: ['.i-ph-printer', '.iconify.i-ph-printer'],
+    Undo: ['.i-ph-arrow-u-up-left', '.iconify.i-ph-arrow-u-up-left'],
+    Redo: ['.i-ph-arrow-u-up-right', '.iconify.i-ph-arrow-u-up-right'],
     // The scan-cleanup tooltip changes to live progress text while a previous
     // run is handing its output back to the viewer. Match its stable icon as
     // well as the idle label so a new document can still enter the workspace.
-    'Scan cleanup': [
-        '.scan-cleanup-trigger > svg',
-        '.overflow-menu-scan-cleanup-icon',
-    ],
+    'Scan cleanup': ['.scan-cleanup-trigger > svg', '.overflow-menu-scan-cleanup-icon'],
 };
 
 /** Smallest wheel step a converging search may use, in CSS pixels. */
@@ -83,19 +41,15 @@ const WHEEL_EVENT_INTERVAL_MS = 16;
 
 async function readActiveViewportCentre(page: Page) {
     const centre = await evaluateInPage(page, () => {
-        const host = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-        );
-        const viewport = host?.querySelector<HTMLElement>(
-            '[data-document-viewer-chassis-viewport], #pdf-viewer',
-        ) ?? null;
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
+        const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer') ?? null;
         if (!viewport) {
             return null;
         }
         const rect = viewport.getBoundingClientRect();
         return {
-            x: Math.round(rect.left + (rect.width / 2)),
-            y: Math.round(rect.top + (rect.height / 2)),
+            x: Math.round(rect.left + rect.width / 2),
+            y: Math.round(rect.top + rect.height / 2),
         };
     });
     if (!centre) {
@@ -106,7 +60,7 @@ async function readActiveViewportCentre(page: Page) {
 
 interface IAutomationFileOpenGrantApi {
     __allowRendererFileOpenForAutomation?: (value: string) => Promise<boolean>;
-    electronAPI?: { documents?: { recentFiles?: { add?: (value: string) => Promise<void>; }; }; };
+    electronAPI?: {documents?: {recentFiles?: {add?: (value: string) => Promise<void>}}};
 }
 
 class DirectDocumentOpenRejectedError extends Error {}
@@ -120,7 +74,9 @@ function isExecutionContextDestroyedError(error: unknown) {
         return false;
     }
 
-    return /Execution context was destroyed|Cannot find context with specified id|Target closed|Session closed|Frame was detached/i.test(error.message);
+    return /Execution context was destroyed|Cannot find context with specified id|Target closed|Session closed|Frame was detached/i.test(
+        error.message,
+    );
 }
 
 function describeError(error: unknown) {
@@ -131,10 +87,7 @@ function describeError(error: unknown) {
     return String(error);
 }
 
-async function runWithExecutionContextRetry<T>(
-    page: Page,
-    task: () => Promise<T>,
-) {
+async function runWithExecutionContextRetry<T>(page: Page, task: () => Promise<T>) {
     try {
         return await task();
     } catch (error) {
@@ -173,18 +126,14 @@ async function waitForRendererBindings(page: Page, timeoutMs = DEFAULT_TIMEOUT_M
             lastState = await evaluateInPage(page, () => {
                 const nuxtRoot = document.querySelector('#__nuxt');
                 return {
-                    electronAPI: typeof (window as IE2EWindow & { electronAPI?: unknown }).electronAPI,
-                    openFileDirect: typeof (window as IE2EWindow & { __openFileDirect?: unknown }).__openFileDirect,
+                    electronAPI: typeof (window as IE2EWindow & {electronAPI?: unknown}).electronAPI,
+                    openFileDirect: typeof (window as IE2EWindow & {__openFileDirect?: unknown}).__openFileDirect,
                     nuxtRootChildren: nuxtRoot?.children.length ?? 0,
                     url: window.location.href,
                 };
             });
 
-            if (
-                lastState.electronAPI === 'object'
-                && lastState.openFileDirect === 'function'
-                && lastState.nuxtRootChildren > 0
-            ) {
+            if (lastState.electronAPI === 'object' && lastState.openFileDirect === 'function' && lastState.nuxtRootChildren > 0) {
                 return;
             }
         } catch (error) {
@@ -207,125 +156,148 @@ export function readHeldShell(session: IElectronE2ESession) {
     return evaluateInPage(session.page, () => {
         const shell = document.querySelector<HTMLElement>('.editor-pane.is-active [data-document-opening-shell-id]');
         const rect = shell?.getBoundingClientRect();
-        return shell && rect ? {
-            page: Number(shell.dataset.pageNumber),
-            top: rect.top,
-            left: rect.left,
-            width: rect.width,
-            height: rect.height,
-        } : null;
+        return shell && rect
+            ? {
+                  page: Number(shell.dataset.pageNumber),
+                  top: rect.top,
+                  left: rect.left,
+                  width: rect.width,
+                  height: rect.height,
+              }
+            : null;
     });
 }
 
 export function readDrawnPage(session: IElectronE2ESession, pageNumber: number) {
-    return evaluateInPage(session.page, (page: number) => {
-        const rect = document.querySelector<HTMLElement>(
-            `.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer .page_container[data-page="${page}"]`,
-        )?.getBoundingClientRect();
-        return rect ? {
-            page,
-            top: rect.top,
-            left: rect.left,
-            width: rect.width,
-            height: rect.height,
-        } : null;
-    }, pageNumber);
+    return evaluateInPage(
+        session.page,
+        (page: number) => {
+            const rect = document
+                .querySelector<HTMLElement>(
+                    `.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer .page_container[data-page="${page}"]`,
+                )
+                ?.getBoundingClientRect();
+            return rect
+                ? {
+                      page,
+                      top: rect.top,
+                      left: rect.left,
+                      width: rect.width,
+                      height: rect.height,
+                  }
+                : null;
+        },
+        pageNumber,
+    );
 }
 
 export async function waitForActiveDocumentSource(page: Page, path: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
     const sourcePath = resolve(path);
     await installWorkspaceExposeProbe(page);
-    await waitForFunctionInPage(page, (payload: {path: string}) => {
-        const normalize = (value: unknown) => typeof value === 'string'
-            ? value.replace(/\\/gu, '/').toLowerCase()
-            : '';
-        const requestedPath = normalize(payload.path);
-        const api = (window as IE2EWindow & {__evbTestApi?: {
-            collectWorkspaceDebugState?: () => {activeWorkspaceState?: Record<string, unknown>;};
-            readActiveWorkspaceStateValues?: (propertyNames: string[]) => Record<string, unknown>;
-        };}).__evbTestApi;
-        const activeState = (api?.readActiveWorkspaceStateValues?.([
-            'originalPath',
-            'pendingDocumentPath',
-        ]) ?? api?.collectWorkspaceDebugState?.().activeWorkspaceState ?? {}) as Record<string, unknown>;
-        const candidates = [
-            activeState.originalPath,
-            activeState.pendingDocumentPath,
-        ];
-        return candidates.some(candidate => normalize(candidate) === requestedPath);
-    }, {timeout: timeoutMs}, {path: sourcePath});
+    await waitForFunctionInPage(
+        page,
+        (payload: {path: string}) => {
+            const normalize = (value: unknown) => (typeof value === 'string' ? value.replace(/\\/gu, '/').toLowerCase() : '');
+            const requestedPath = normalize(payload.path);
+            const api = (
+                window as IE2EWindow & {
+                    __evbTestApi?: {
+                        collectWorkspaceDebugState?: () => {activeWorkspaceState?: Record<string, unknown>};
+                        readActiveWorkspaceStateValues?: (propertyNames: string[]) => Record<string, unknown>;
+                    };
+                }
+            ).__evbTestApi;
+            const activeState = (api?.readActiveWorkspaceStateValues?.(['originalPath', 'pendingDocumentPath']) ??
+                api?.collectWorkspaceDebugState?.().activeWorkspaceState ??
+                {}) as Record<string, unknown>;
+            const candidates = [activeState.originalPath, activeState.pendingDocumentPath];
+            return candidates.some((candidate) => normalize(candidate) === requestedPath);
+        },
+        {timeout: timeoutMs},
+        {path: sourcePath},
+    );
 }
 
 export async function waitForPdfLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
     await runWithExecutionContextRetry(page, async () => {
-        await waitForFunctionInPage(page, () => {
-            const isElementVisible = (element: HTMLElement | null) => {
-                if (!element?.isConnected) {
-                    return false;
-                }
-
-                let current: HTMLElement | null = element;
-                while (current) {
-                    const style = window.getComputedStyle(current);
-                    if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || '1') === 0) {
+        await waitForFunctionInPage(
+            page,
+            () => {
+                const isElementVisible = (element: HTMLElement | null) => {
+                    if (!element?.isConnected) {
                         return false;
                     }
-                    current = current.parentElement;
-                }
 
-                const rect = element.getBoundingClientRect();
-                return rect.width > 100 && rect.height > 100;
-            };
-            const viewers = Array.from(document.querySelectorAll<HTMLElement>('#pdf-viewer'));
-            const visibleViewers = viewers.filter(isElementVisible);
-            const activeViewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer');
-            const viewer = (activeViewer && visibleViewers.includes(activeViewer))
-                ? activeViewer
-                : (visibleViewers.length === 1 ? visibleViewers[0] : null);
-            if (!viewer) {
-                return false;
-            }
+                    let current: HTMLElement | null = element;
+                    while (current) {
+                        const style = window.getComputedStyle(current);
+                        if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || '1') === 0) {
+                            return false;
+                        }
+                        current = current.parentElement;
+                    }
 
-            const host = viewer.closest<HTMLElement>('.workspace-host');
-            if (!host) {
-                return false;
-            }
-
-            const pages = Array.from(viewer.querySelectorAll<HTMLElement>('.page_container'));
-            if (pages.length === 0) {
-                return false;
-            }
-
-            const blockingState = host.querySelector([
-                '.workspace-host__loading',
-                '.document-viewer-chassis__opening-page',
-                '.pdf-loading',
-                '.pdf-loading-overlay',
-                '.pdf-error',
-                '.viewer-error',
-                '[data-loading="true"]',
-                '[data-error="true"]',
-            ].join(','));
-            if (blockingState) {
-                return false;
-            }
-
-            const viewerRect = viewer.getBoundingClientRect();
-            return pages.some((pageElement) => {
-                if (!pageElement.classList.contains('page_container--rendered')) {
-                    return false;
-                }
-                const pageRect = pageElement.getBoundingClientRect();
-                const visibleHeight = Math.min(pageRect.bottom, viewerRect.bottom)
-                    - Math.max(pageRect.top, viewerRect.top);
-                if (visibleHeight <= 8 || pageRect.width <= 0) {
+                    const rect = element.getBoundingClientRect();
+                    return rect.width > 100 && rect.height > 100;
+                };
+                const viewers = Array.from(document.querySelectorAll<HTMLElement>('#pdf-viewer'));
+                const visibleViewers = viewers.filter(isElementVisible);
+                const activeViewer = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+                );
+                const viewer =
+                    activeViewer && visibleViewers.includes(activeViewer)
+                        ? activeViewer
+                        : visibleViewers.length === 1
+                          ? visibleViewers[0]
+                          : null;
+                if (!viewer) {
                     return false;
                 }
 
-                const canvas = pageElement.querySelector<HTMLCanvasElement>('.page_canvas canvas, canvas');
-                return Boolean(canvas && canvas.width > 0 && canvas.height > 0);
-            });
-        }, {timeout: timeoutMs});
+                const host = viewer.closest<HTMLElement>('.workspace-host');
+                if (!host) {
+                    return false;
+                }
+
+                const pages = Array.from(viewer.querySelectorAll<HTMLElement>('.page_container'));
+                if (pages.length === 0) {
+                    return false;
+                }
+
+                const blockingState = host.querySelector(
+                    [
+                        '.workspace-host__loading',
+                        '.document-viewer-chassis__opening-page',
+                        '.pdf-loading',
+                        '.pdf-loading-overlay',
+                        '.pdf-error',
+                        '.viewer-error',
+                        '[data-loading="true"]',
+                        '[data-error="true"]',
+                    ].join(','),
+                );
+                if (blockingState) {
+                    return false;
+                }
+
+                const viewerRect = viewer.getBoundingClientRect();
+                return pages.some((pageElement) => {
+                    if (!pageElement.classList.contains('page_container--rendered')) {
+                        return false;
+                    }
+                    const pageRect = pageElement.getBoundingClientRect();
+                    const visibleHeight = Math.min(pageRect.bottom, viewerRect.bottom) - Math.max(pageRect.top, viewerRect.top);
+                    if (visibleHeight <= 8 || pageRect.width <= 0) {
+                        return false;
+                    }
+
+                    const canvas = pageElement.querySelector<HTMLCanvasElement>('.page_canvas canvas, canvas');
+                    return Boolean(canvas && canvas.width > 0 && canvas.height > 0);
+                });
+            },
+            {timeout: timeoutMs},
+        );
 
         await waitForViewerInteractive(page, timeoutMs);
     });
@@ -335,12 +307,7 @@ export async function waitForWorkspaceHistorySettled(page: Page, timeoutMs = DEF
     const startedAt = Date.now();
     let toolbar = await getWorkspaceToolbarSnapshot(page);
     while (Date.now() - startedAt < timeoutMs) {
-        if (
-            toolbar
-            && !toolbar.isHistoryBusy
-            && toolbar.initialVisualReady
-            && toolbar.totalPages > 0
-        ) {
+        if (toolbar && !toolbar.isHistoryBusy && toolbar.initialVisualReady && toolbar.totalPages > 0) {
             return toolbar;
         }
         await delay(50);
@@ -353,69 +320,70 @@ export async function waitForDjvuLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_
     await runWithExecutionContextRetry(page, async () => {
         await waitForActiveWorkspaceHost(page, timeoutMs);
 
-        await waitForFunctionInPage(page, () => {
-            const isVisibleHost = (element: HTMLElement) => {
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
-            };
+        await waitForFunctionInPage(
+            page,
+            () => {
+                const isVisibleHost = (element: HTMLElement) => {
+                    const rect = element.getBoundingClientRect();
+                    const style = window.getComputedStyle(element);
+                    return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+                };
 
-            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                .filter(isVisibleHost);
-            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
-            const host = (activeHost && visibleHosts.includes(activeHost))
-                ? activeHost
-                : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-            if (!host) {
-                return false;
-            }
-
-            const surface = host.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]');
-            const viewer = surface?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]') ?? null;
-            if (!surface || !viewer) {
-                return false;
-            }
-
-            const banner = host.querySelector<HTMLElement>('.djvu-banner');
-            const blockingState = host.querySelector([
-                '.workspace-host__loading',
-                '.document-viewer-chassis__opening-page',
-                '[data-loading="true"]',
-                '[data-error="true"]',
-            ].join(','));
-            if (
-                blockingState
-                || banner?.getAttribute('aria-busy') === 'true'
-                || banner?.textContent?.includes('Opening DjVu')
-            ) {
-                return false;
-            }
-
-            const viewerRect = viewer.getBoundingClientRect();
-            const visiblePages = Array.from(viewer.querySelectorAll<HTMLElement>(
-                '[data-testid="document-page-source-page"]',
-            )).filter((pageElement) => {
-                const pageRect = pageElement.getBoundingClientRect();
-                return Math.min(pageRect.bottom, viewerRect.bottom)
-                    - Math.max(pageRect.top, viewerRect.top) > 8;
-            });
-            return visiblePages.some((pageElement) => {
-                const image = pageElement.querySelector<HTMLImageElement>(
-                    ':scope > [data-testid="document-page-source-image"]',
+                const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter(isVisibleHost);
+                const activeHost = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
                 );
-                const imageStyle = image ? window.getComputedStyle(image) : null;
-                return pageElement.dataset.pageSourceVisual === 'fresh'
-                    && !pageElement.querySelector('.document-source-viewer__skeleton')
-                    && Boolean(
-                        image?.complete
-                        && image.naturalWidth > 0
-                        && image.naturalHeight > 0
-                        && image.classList.contains('document-page-visual--committed')
-                        && image.dataset.documentPageVisual === 'committed'
-                        && imageStyle?.visibility === 'visible',
+                const host =
+                    activeHost && visibleHosts.includes(activeHost) ? activeHost : visibleHosts.length === 1 ? visibleHosts[0] : null;
+                if (!host) {
+                    return false;
+                }
+
+                const surface = host.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]');
+                const viewer = surface?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]') ?? null;
+                if (!surface || !viewer) {
+                    return false;
+                }
+
+                const banner = host.querySelector<HTMLElement>('.djvu-banner');
+                const blockingState = host.querySelector(
+                    [
+                        '.workspace-host__loading',
+                        '.document-viewer-chassis__opening-page',
+                        '[data-loading="true"]',
+                        '[data-error="true"]',
+                    ].join(','),
+                );
+                if (blockingState || banner?.getAttribute('aria-busy') === 'true' || banner?.textContent?.includes('Opening DjVu')) {
+                    return false;
+                }
+
+                const viewerRect = viewer.getBoundingClientRect();
+                const visiblePages = Array.from(viewer.querySelectorAll<HTMLElement>('[data-testid="document-page-source-page"]')).filter(
+                    (pageElement) => {
+                        const pageRect = pageElement.getBoundingClientRect();
+                        return Math.min(pageRect.bottom, viewerRect.bottom) - Math.max(pageRect.top, viewerRect.top) > 8;
+                    },
+                );
+                return visiblePages.some((pageElement) => {
+                    const image = pageElement.querySelector<HTMLImageElement>(':scope > [data-testid="document-page-source-image"]');
+                    const imageStyle = image ? window.getComputedStyle(image) : null;
+                    return (
+                        pageElement.dataset.pageSourceVisual === 'fresh' &&
+                        !pageElement.querySelector('.document-source-viewer__skeleton') &&
+                        Boolean(
+                            image?.complete &&
+                            image.naturalWidth > 0 &&
+                            image.naturalHeight > 0 &&
+                            image.classList.contains('document-page-visual--committed') &&
+                            image.dataset.documentPageVisual === 'committed' &&
+                            imageStyle?.visibility === 'visible',
+                        )
                     );
-            });
-        }, {timeout: timeoutMs});
+                });
+            },
+            {timeout: timeoutMs},
+        );
     });
 }
 
@@ -438,24 +406,38 @@ async function openPathInApp(
             await waitForRendererBindings(page, Math.min(remainingMs, 8_000));
 
             if (!openTriggered) {
-                await waitForFunctionInPage(page, () => {
-                    const api = (window as IE2EWindow).__evbTestApi;
-                    const activeTabId = api?.getActiveTabId?.();
-                    const transitioningChassis = document.querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"] [data-chassis-resizing="true"]');
-                    return api?.isStartupOpenClaimPending?.() === false
-                        && !transitioningChassis
-                        && typeof activeTabId === 'string'
-                        && activeTabId.length > 0;
-                }, {timeout: remainingMs});
+                await waitForFunctionInPage(
+                    page,
+                    () => {
+                        const api = (window as IE2EWindow).__evbTestApi;
+                        const activeTabId = api?.getActiveTabId?.();
+                        const transitioningChassis = document.querySelector(
+                            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] [data-chassis-resizing="true"]',
+                        );
+                        return (
+                            api?.isStartupOpenClaimPending?.() === false &&
+                            !transitioningChassis &&
+                            typeof activeTabId === 'string' &&
+                            activeTabId.length > 0
+                        );
+                    },
+                    {timeout: remainingMs},
+                );
                 // The app keys native documents by their canonical file lookup,
                 // while a closing workspace can outlive its tab in the renderer.
                 const activeSource = await evaluateInPage(page, () => {
                     const api = (window as IE2EWindow).__evbTestApi;
                     const tabId = api?.getActiveTabId();
                     const tab = document.querySelector<HTMLElement>('.editor-pane.is-active .tab.is-active[data-tab-id]');
-                    const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
-                    if (!tabId || tab?.dataset.tabId !== tabId || host?.dataset.workspaceTabId !== tabId
-                        || api?.getActiveToolbarSnapshot()?.viewerCapabilities.closeableDocument !== true) {
+                    const host = document.querySelector<HTMLElement>(
+                        '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+                    );
+                    if (
+                        !tabId ||
+                        tab?.dataset.tabId !== tabId ||
+                        host?.dataset.workspaceTabId !== tabId ||
+                        api?.getActiveToolbarSnapshot()?.viewerCapabilities.closeableDocument !== true
+                    ) {
                         return null;
                     }
                     return api.readActiveWorkspaceStateValues<{originalPath: string | null}>(['originalPath']).originalPath;
@@ -466,18 +448,25 @@ async function openPathInApp(
                 }
                 openBaselineEventId = await getLatestAutomationEventId(page);
                 const openResult = await dispatchDocumentOpenOnce(async () => {
-                    return evaluateInPage(page, async (path: string) => {
-                        const automationGrant = (window as typeof globalThis & IE2EWindow & IAutomationFileOpenGrantApi).__allowRendererFileOpenForAutomation;
-                        if (typeof automationGrant === 'function') {
-                            await automationGrant(path);
-                        }
+                    return evaluateInPage(
+                        page,
+                        async (path: string) => {
+                            const automationGrant = (window as typeof globalThis & IE2EWindow & IAutomationFileOpenGrantApi)
+                                .__allowRendererFileOpenForAutomation;
+                            if (typeof automationGrant === 'function') {
+                                await automationGrant(path);
+                            }
 
-                        const openFileDirect = (window as typeof globalThis & IE2EWindow & { __openFileDirect?: (value: string) => Promise<boolean> }).__openFileDirect;
-                        if (typeof openFileDirect !== 'function') {
-                            return false;
-                        }
-                        return openFileDirect(path);
-                    }, path);
+                            const openFileDirect = (
+                                window as typeof globalThis & IE2EWindow & {__openFileDirect?: (value: string) => Promise<boolean>}
+                            ).__openFileDirect;
+                            if (typeof openFileDirect !== 'function') {
+                                return false;
+                            }
+                            return openFileDirect(path);
+                        },
+                        path,
+                    );
                 });
                 openTriggered = true;
 
@@ -512,10 +501,7 @@ async function openPathInApp(
                     await domWait;
                 })
                 .catch(() => domWait);
-            await Promise.race([
-                eventWait,
-                domWait,
-            ]);
+            await Promise.race([eventWait, domWait]);
             return;
         } catch (error) {
             if (error instanceof DirectDocumentOpenRejectedError) {
@@ -545,21 +531,28 @@ export async function triggerOpenPathInApp(page: Page, path: string, timeoutMs =
         try {
             await waitForRendererBindings(page, Math.min(remainingMs, 8_000));
             const openResult = await dispatchDocumentOpenOnce(async () => {
-                return evaluateInPage(page, async (path: string) => {
-                    const automationGrant = (window as typeof globalThis & IE2EWindow & IAutomationFileOpenGrantApi).__allowRendererFileOpenForAutomation;
-                    if (typeof automationGrant === 'function') {
-                        await automationGrant(path);
-                    }
+                return evaluateInPage(
+                    page,
+                    async (path: string) => {
+                        const automationGrant = (window as typeof globalThis & IE2EWindow & IAutomationFileOpenGrantApi)
+                            .__allowRendererFileOpenForAutomation;
+                        if (typeof automationGrant === 'function') {
+                            await automationGrant(path);
+                        }
 
-                    const openFileDirect = (window as typeof globalThis & IE2EWindow & { __openFileDirect?: (value: string) => Promise<boolean> }).__openFileDirect;
-                    if (typeof openFileDirect !== 'function') {
-                        return false;
-                    }
-                    void openFileDirect(path).catch((error) => {
-                        console.error('[E2E] Direct document open failed', error);
-                    });
-                    return true;
-                }, path);
+                        const openFileDirect = (
+                            window as typeof globalThis & IE2EWindow & {__openFileDirect?: (value: string) => Promise<boolean>}
+                        ).__openFileDirect;
+                        if (typeof openFileDirect !== 'function') {
+                            return false;
+                        }
+                        void openFileDirect(path).catch((error) => {
+                            console.error('[E2E] Direct document open failed', error);
+                        });
+                        return true;
+                    },
+                    path,
+                );
             });
 
             if (openResult) {
@@ -590,94 +583,107 @@ export async function openDjvuInApp(page: Page, djvuPath: string, timeoutMs = DE
 }
 
 export async function setRememberPlaceAsUser(session: IElectronE2ESession, enabled: boolean) {
-    const previousTabId = await session.page.$eval('.editor-pane.is-active .tab.is-active', element => (element as HTMLElement).dataset.tabId!);
+    const previousTabId = await session.page.$eval(
+        '.editor-pane.is-active .tab.is-active',
+        (element) => (element as HTMLElement).dataset.tabId!,
+    );
     await clickAsUser(session.page, 'button[aria-label="Settings"]');
     await session.page.waitForSelector('#settings-remember-document-view', {visible: true});
-    const checked = await session.page.$eval('#settings-remember-document-view', element => element.getAttribute('aria-checked') === 'true');
+    const checked = await session.page.$eval(
+        '#settings-remember-document-view',
+        (element) => element.getAttribute('aria-checked') === 'true',
+    );
     if (checked !== enabled) {
         await clickAsUser(session.page, '#settings-remember-document-view');
     }
-    await waitForFunctionInPage(session.page, async (expected: boolean) => {
-        const api = (window as IE2EWindow).electronAPI;
-        return (await api?.settings.get())?.rememberDocumentView === expected;
-    }, {timeout: 15_000}, enabled);
+    await waitForFunctionInPage(
+        session.page,
+        async (expected: boolean) => {
+            const api = (window as IE2EWindow).electronAPI;
+            return (await api?.settings.get())?.rememberDocumentView === expected;
+        },
+        {timeout: 15_000},
+        enabled,
+    );
     await clickAsUser(session.page, '.editor-pane.is-active .start-rail nav[aria-label="Start"] button');
     await clickAsUser(session.page, `.tab[data-tab-id="${previousTabId}"]`);
 }
 
-export async function setTabMemoryPolicyForE2E(
-    page: Page,
-    policy: 'conservative' | 'aggressive',
-    timeoutMs = DEFAULT_TIMEOUT_MS,
-) {
+export async function setTabMemoryPolicyForE2E(page: Page, policy: 'conservative' | 'aggressive', timeoutMs = DEFAULT_TIMEOUT_MS) {
     await waitForRendererBindings(page, timeoutMs);
     await runWithExecutionContextRetry(page, async () => {
-        await evaluateInPage(page, async (policy: 'conservative' | 'aggressive') => {
-            const setter = (window as IE2EWindow & {__setTabMemoryPolicyForE2E?: (policy: 'conservative' | 'aggressive') => void;}).__setTabMemoryPolicyForE2E;
-            if (typeof setter !== 'function') {
-                throw new Error('Tab memory policy automation hook is not available');
-            }
-            setter(policy);
-        }, policy);
+        await evaluateInPage(
+            page,
+            async (policy: 'conservative' | 'aggressive') => {
+                const setter = (window as IE2EWindow & {__setTabMemoryPolicyForE2E?: (policy: 'conservative' | 'aggressive') => void})
+                    .__setTabMemoryPolicyForE2E;
+                if (typeof setter !== 'function') {
+                    throw new Error('Tab memory policy automation hook is not available');
+                }
+                setter(policy);
+            },
+            policy,
+        );
     });
-    await waitForFunctionInPage(page, (policy: 'conservative' | 'aggressive') => {
-        const settingsApi = (window as IE2EWindow & {electronAPI?: {settings?: {get?: () => Promise<{tabMemoryPolicy?: string;}>;};};}).electronAPI?.settings;
-        return settingsApi?.get?.().then(settings => settings.tabMemoryPolicy === policy) ?? false;
-    }, { timeout: timeoutMs }, policy);
+    await waitForFunctionInPage(
+        page,
+        (policy: 'conservative' | 'aggressive') => {
+            const settingsApi = (window as IE2EWindow & {electronAPI?: {settings?: {get?: () => Promise<{tabMemoryPolicy?: string}>}}})
+                .electronAPI?.settings;
+            return settingsApi?.get?.().then((settings) => settings.tabMemoryPolicy === policy) ?? false;
+        },
+        {timeout: timeoutMs},
+        policy,
+    );
 }
 
 export async function waitForViewerInteractive(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
     await waitForActiveWorkspaceHost(page, timeoutMs);
 
-    await waitForFunctionInPage(page, () => {
-        const isVisibleHost = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
-        };
+    await waitForFunctionInPage(
+        page,
+        () => {
+            const isVisibleHost = (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+            };
 
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
-        const host = (activeHost && visibleHosts.includes(activeHost))
-            ? activeHost
-            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-        if (!host) {
-            return false;
-        }
+            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter(isVisibleHost);
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
+            const host = activeHost && visibleHosts.includes(activeHost) ? activeHost : visibleHosts.length === 1 ? visibleHosts[0] : null;
+            if (!host) {
+                return false;
+            }
 
-        const chassis = host.querySelector<HTMLElement>('.document-viewer-chassis');
-        const chassisViewport = chassis?.querySelector<HTMLElement>(
-            '[data-document-viewer-chassis-viewport]',
-        ) ?? null;
-        const legacyViewer = chassis ? null : host.querySelector<HTMLElement>('.pdfViewer');
-        const viewport = chassisViewport ?? legacyViewer;
-        const pdfPageTrack = chassisViewport?.querySelector<HTMLElement>('[data-pdf-page-track]') ?? null;
-        const documentSourceViewer = chassisViewport?.querySelector<HTMLElement>(
-            '[data-testid="document-page-source-viewer"]',
-        ) ?? null;
-        const interactiveSurface = pdfPageTrack ?? documentSourceViewer ?? legacyViewer;
-        if (!viewport || !interactiveSurface) {
-            return false;
-        }
+            const chassis = host.querySelector<HTMLElement>('.document-viewer-chassis');
+            const chassisViewport = chassis?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]') ?? null;
+            const legacyViewer = chassis ? null : host.querySelector<HTMLElement>('.pdfViewer');
+            const viewport = chassisViewport ?? legacyViewer;
+            const pdfPageTrack = chassisViewport?.querySelector<HTMLElement>('[data-pdf-page-track]') ?? null;
+            const documentSourceViewer = chassisViewport?.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]') ?? null;
+            const interactiveSurface = pdfPageTrack ?? documentSourceViewer ?? legacyViewer;
+            if (!viewport || !interactiveSurface) {
+                return false;
+            }
 
-        const viewportStyle = window.getComputedStyle(viewport);
-        const surfaceStyle = window.getComputedStyle(interactiveSurface);
-        const surfacePresented = surfaceStyle.display !== 'none'
-            && surfaceStyle.visibility !== 'hidden'
-            && Number(surfaceStyle.opacity || '1') > 0;
-        const viewportPresented = viewportStyle.display !== 'none'
-            && viewportStyle.visibility !== 'hidden'
-            && Number(viewportStyle.opacity || '1') > 0;
-        if (!surfacePresented || !viewportPresented) {
-            return false;
-        }
+            const viewportStyle = window.getComputedStyle(viewport);
+            const surfaceStyle = window.getComputedStyle(interactiveSurface);
+            const surfacePresented =
+                surfaceStyle.display !== 'none' && surfaceStyle.visibility !== 'hidden' && Number(surfaceStyle.opacity || '1') > 0;
+            const viewportPresented =
+                viewportStyle.display !== 'none' && viewportStyle.visibility !== 'hidden' && Number(viewportStyle.opacity || '1') > 0;
+            if (!surfacePresented || !viewportPresented) {
+                return false;
+            }
 
-        return !chassis || (
-            chassisViewport?.dataset.openSurfacePhase === 'ready'
-            && chassis.dataset.openSurfacePresentation === 'committed'
-        );
-    }, {timeout: timeoutMs});
+            return (
+                !chassis ||
+                (chassisViewport?.dataset.openSurfacePhase === 'ready' && chassis.dataset.openSurfacePresentation === 'committed')
+            );
+        },
+        {timeout: timeoutMs},
+    );
 }
 
 interface IToolbarActionQuery {
@@ -709,24 +715,27 @@ const TOOLBAR_APP_MENU: IToolbarMenuSelectors = {
 function findEnabledInlineToolbarButton(args: IToolbarActionQuery & {markDisabled: boolean}) {
     const candidates = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]')).filter((button) => {
         const ariaLabel = button.getAttribute('aria-label')?.trim() ?? '';
-        const matches = ariaLabel === args.label
-            || ariaLabel.startsWith(`${args.label} (`)
-            || args.iconHints.some(selector => Boolean(button.querySelector(selector)));
+        const matches =
+            ariaLabel === args.label ||
+            ariaLabel.startsWith(`${args.label} (`) ||
+            args.iconHints.some((selector) => Boolean(button.querySelector(selector)));
         const rect = button.getBoundingClientRect();
         const style = window.getComputedStyle(button);
-        return matches
-            && rect.width > 8
-            && rect.height > 8
-            && style.display !== 'none'
-            && style.visibility !== 'hidden'
-            && Number(style.opacity || '1') > 0;
+        return (
+            matches &&
+            rect.width > 8 &&
+            rect.height > 8 &&
+            style.display !== 'none' &&
+            style.visibility !== 'hidden' &&
+            Number(style.opacity || '1') > 0
+        );
     });
-    const enabled = candidates.find(button => !button.disabled && button.getAttribute('aria-disabled') !== 'true');
+    const enabled = candidates.find((button) => !button.disabled && button.getAttribute('aria-disabled') !== 'true');
     if (enabled) {
         return enabled;
     }
     // A status read tells a shown but disabled match apart from a missing one.
-    return args.markDisabled ? candidates[0] ?? null : null;
+    return args.markDisabled ? (candidates[0] ?? null) : null;
 }
 
 async function readInlineToolbarButtonStatus(page: Page, query: IToolbarActionQuery) {
@@ -749,30 +758,34 @@ async function findToolbarMenuTrigger(page: Page) {
         const shown = (element: HTMLElement) => {
             const rect = element.getBoundingClientRect();
             const style = window.getComputedStyle(element);
-            return rect.width > 8
-                && rect.height > 8
-                && style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0;
+            return (
+                rect.width > 8 &&
+                rect.height > 8 &&
+                style.display !== 'none' &&
+                style.visibility !== 'hidden' &&
+                Number(style.opacity || '1') > 0
+            );
         };
-        const overflow = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label], .toolbar-icon-button'))
-            .find(candidate => shown(candidate) && (
-                candidate.classList.contains('toolbar-icon-button')
-                || Boolean(candidate.querySelector('.i-ph-dots-three'))
-            ));
+        const overflow = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label], .toolbar-icon-button')).find(
+            (candidate) =>
+                shown(candidate) &&
+                (candidate.classList.contains('toolbar-icon-button') || Boolean(candidate.querySelector('.i-ph-dots-three'))),
+        );
         if (overflow && !overflow.disabled) {
             return overflow;
         }
-        return Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label="Menu"]'))
-            .find(candidate => shown(candidate) && !candidate.disabled && candidate.getAttribute('aria-disabled') !== 'true')
-            ?? null;
+        return (
+            Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label="Menu"]')).find(
+                (candidate) => shown(candidate) && !candidate.disabled && candidate.getAttribute('aria-disabled') !== 'true',
+            ) ?? null
+        );
     });
     const element = handle.asElement() as ElementHandle<HTMLButtonElement> | null;
     if (!element) {
         await handle.dispose();
         return null;
     }
-    const isAppMenu = await element.evaluate(button => button.getAttribute('aria-label') === 'Menu');
+    const isAppMenu = await element.evaluate((button) => button.getAttribute('aria-label') === 'Menu');
     return {
         element,
         menu: isAppMenu ? TOOLBAR_APP_MENU : TOOLBAR_OVERFLOW_MENU,
@@ -781,35 +794,45 @@ async function findToolbarMenuTrigger(page: Page) {
 
 async function clickToolbarActionInMenu(page: Page, query: IToolbarActionQuery, menu: IToolbarMenuSelectors) {
     await page.waitForSelector(menu.menu, {timeout: 4_000});
-    await clickFoundAsUser(page, (args: IToolbarActionQuery & {menu: IToolbarMenuSelectors}) => (
-        Array.from(document.querySelectorAll<HTMLElement>(`${args.menu.menu} ${args.menu.item}`)).find((item) => {
-            const text = (item.querySelector(args.menu.label)?.textContent ?? '').trim();
-            const rect = item.getBoundingClientRect();
-            const style = window.getComputedStyle(item);
-            return (text === args.label || args.iconHints.some(selector => Boolean(item.querySelector(selector))))
-                && rect.width > 8
-                && rect.height > 8
-                && style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0
-                && !item.hasAttribute('disabled')
-                && item.getAttribute('aria-disabled') !== 'true';
-        })
-    ), {
-        ...query,
-        menu,
-    }, {
-        description: `toolbar action '${query.label}' in ${menu.menu}`,
-        timeoutMs: 4_000,
-    });
-    await page.waitForFunction((selector: string) => {
-        const element = document.querySelector(selector);
-        if (!element) {
-            return true;
-        }
-        const style = window.getComputedStyle(element);
-        return style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || '1') === 0;
-    }, {timeout: 4_000}, menu.menu);
+    await clickFoundAsUser(
+        page,
+        (args: IToolbarActionQuery & {menu: IToolbarMenuSelectors}) =>
+            Array.from(document.querySelectorAll<HTMLElement>(`${args.menu.menu} ${args.menu.item}`)).find((item) => {
+                const text = (item.querySelector(args.menu.label)?.textContent ?? '').trim();
+                const rect = item.getBoundingClientRect();
+                const style = window.getComputedStyle(item);
+                return (
+                    (text === args.label || args.iconHints.some((selector) => Boolean(item.querySelector(selector)))) &&
+                    rect.width > 8 &&
+                    rect.height > 8 &&
+                    style.display !== 'none' &&
+                    style.visibility !== 'hidden' &&
+                    Number(style.opacity || '1') > 0 &&
+                    !item.hasAttribute('disabled') &&
+                    item.getAttribute('aria-disabled') !== 'true'
+                );
+            }),
+        {
+            ...query,
+            menu,
+        },
+        {
+            description: `toolbar action '${query.label}' in ${menu.menu}`,
+            timeoutMs: 4_000,
+        },
+    );
+    await page.waitForFunction(
+        (selector: string) => {
+            const element = document.querySelector(selector);
+            if (!element) {
+                return true;
+            }
+            const style = window.getComputedStyle(element);
+            return style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || '1') === 0;
+        },
+        {timeout: 4_000},
+        menu.menu,
+    );
 }
 
 /** Clicks a toolbar action with real input, through the overflow or app menu when it is not inline. */
@@ -828,13 +851,18 @@ export async function clickVisibleToolbarButton(page: Page, ariaLabel: string) {
         throw new Error(`Visible toolbar button stayed disabled: ${ariaLabel}`);
     }
     if (inline === 'enabled') {
-        await clickFoundAsUser(page, findEnabledInlineToolbarButton, {
-            ...query,
-            markDisabled: false,
-        }, {
-            description: `toolbar button ${ariaLabel}`,
-            timeoutMs: 4_000,
-        });
+        await clickFoundAsUser(
+            page,
+            findEnabledInlineToolbarButton,
+            {
+                ...query,
+                markDisabled: false,
+            },
+            {
+                description: `toolbar button ${ariaLabel}`,
+                timeoutMs: 4_000,
+            },
+        );
         return;
     }
 
@@ -850,11 +878,7 @@ export async function clickVisibleToolbarButton(page: Page, ariaLabel: string) {
     await clickToolbarActionInMenu(page, query, trigger.menu);
 }
 
-export async function clickToolbarButtonWhenEnabled(
-    page: Page,
-    ariaLabel: string,
-    timeoutMs = DEFAULT_TIMEOUT_MS,
-) {
+export async function clickToolbarButtonWhenEnabled(page: Page, ariaLabel: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
     const startedAt = Date.now();
     let lastError: Error | null = null;
 
@@ -884,10 +908,10 @@ export async function ensureSidebarOpen(page: Page, timeoutMs = DEFAULT_TIMEOUT_
         };
 
         const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
-        const host = (activeHost && isVisibleHost(activeHost))
-            ? activeHost
-            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                .find(isVisibleHost);
+        const host =
+            activeHost && isVisibleHost(activeHost)
+                ? activeHost
+                : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisibleHost);
         if (!host) {
             return false;
         }
@@ -897,82 +921,77 @@ export async function ensureSidebarOpen(page: Page, timeoutMs = DEFAULT_TIMEOUT_
         }
         const rect = sidebar.getBoundingClientRect();
         const style = window.getComputedStyle(sidebar);
-        return (
-            rect.width > 10
-            && rect.height > 10
-            && style.display !== 'none'
-            && style.visibility !== 'hidden'
-        );
+        return rect.width > 10 && rect.height > 10 && style.display !== 'none' && style.visibility !== 'hidden';
     });
 
     if (!hasSidebar) {
         await clickToolbarButtonWhenEnabled(page, 'Toggle Sidebar', timeoutMs);
     }
 
-    await page.waitForFunction(() => {
-        const isVisibleHost = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
-        };
+    await page.waitForFunction(
+        () => {
+            const isVisibleHost = (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+            };
 
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
-        const host = (activeHost && isVisibleHost(activeHost))
-            ? activeHost
-            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                .find(isVisibleHost);
-        if (!host) {
-            return false;
-        }
-        const sidebar = host.querySelector('[data-testid="document-sidebar"]');
-        if (!sidebar) {
-            return false;
-        }
-        const rect = sidebar.getBoundingClientRect();
-        const style = window.getComputedStyle(sidebar);
-        // The panel takes its open width at once while the wrapper slides open
-        // over it, so the panel measures visible before it can take a click.
-        const wrapperRect = sidebar.closest('.sidebar-wrapper')?.getBoundingClientRect();
-        return rect.width > 10
-            && rect.height > 10
-            && style.display !== 'none'
-            && style.visibility !== 'hidden'
-            && Boolean(wrapperRect && wrapperRect.right >= rect.right - 1);
-    }, {timeout: timeoutMs});
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
+            const host =
+                activeHost && isVisibleHost(activeHost)
+                    ? activeHost
+                    : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisibleHost);
+            if (!host) {
+                return false;
+            }
+            const sidebar = host.querySelector('[data-testid="document-sidebar"]');
+            if (!sidebar) {
+                return false;
+            }
+            const rect = sidebar.getBoundingClientRect();
+            const style = window.getComputedStyle(sidebar);
+            // The panel takes its open width at once while the wrapper slides open
+            // over it, so the panel measures visible before it can take a click.
+            const wrapperRect = sidebar.closest('.sidebar-wrapper')?.getBoundingClientRect();
+            return (
+                rect.width > 10 &&
+                rect.height > 10 &&
+                style.display !== 'none' &&
+                style.visibility !== 'hidden' &&
+                Boolean(wrapperRect && wrapperRect.right >= rect.right - 1)
+            );
+        },
+        {timeout: timeoutMs},
+    );
 }
 
-export async function openDocumentSidebarTab(
-    page: Page,
-    label: string,
-    timeoutMs = DEFAULT_TIMEOUT_MS,
-) {
+export async function openDocumentSidebarTab(page: Page, label: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
     await ensureSidebarOpen(page, timeoutMs);
     const tabs = await page.$$('.workspace-host[data-workspace-active="true"] [data-testid="document-sidebar"] [role="tab"]');
-    const tabLabels = await Promise.all(tabs.map(tab => tab.evaluate(element => (
-        `${element.getAttribute('aria-label') ?? ''} ${element.textContent ?? ''}`.trim()
-    ))));
+    const tabLabels = await Promise.all(
+        tabs.map((tab) => tab.evaluate((element) => `${element.getAttribute('aria-label') ?? ''} ${element.textContent ?? ''}`.trim())),
+    );
     const normalizedLabel = label.trim().toLocaleLowerCase();
-    const tabIndex = tabLabels.findIndex(tabLabel => (
-        tabLabel.toLocaleLowerCase().includes(normalizedLabel)
-    ));
+    const tabIndex = tabLabels.findIndex((tabLabel) => tabLabel.toLocaleLowerCase().includes(normalizedLabel));
     if (tabIndex < 0) {
         throw new Error(`Document sidebar tab '${label}' was unavailable: ${JSON.stringify(tabLabels)}`);
     }
     await clickAsUser(page, tabs[tabIndex]!);
-    await page.waitForFunction((expectedLabel: string) => {
-        const normalized = expectedLabel.trim().toLocaleLowerCase();
-        return Array.from(document.querySelectorAll<HTMLElement>(
-            '.workspace-host[data-workspace-active="true"] [data-testid="document-sidebar"] [role="tab"]',
-        )).some((tab) => {
-            const tabLabel = `${tab.getAttribute('aria-label') ?? ''} ${tab.textContent ?? ''}`
-                .trim()
-                .toLocaleLowerCase();
-            return tabLabel.includes(normalized) && (
-                tab.getAttribute('aria-selected') === 'true'
-                || tab.dataset.state === 'active'
-            );
-        });
-    }, {timeout: timeoutMs}, label);
+    await page.waitForFunction(
+        (expectedLabel: string) => {
+            const normalized = expectedLabel.trim().toLocaleLowerCase();
+            return Array.from(
+                document.querySelectorAll<HTMLElement>(
+                    '.workspace-host[data-workspace-active="true"] [data-testid="document-sidebar"] [role="tab"]',
+                ),
+            ).some((tab) => {
+                const tabLabel = `${tab.getAttribute('aria-label') ?? ''} ${tab.textContent ?? ''}`.trim().toLocaleLowerCase();
+                return tabLabel.includes(normalized) && (tab.getAttribute('aria-selected') === 'true' || tab.dataset.state === 'active');
+            });
+        },
+        {timeout: timeoutMs},
+        label,
+    );
 }
 
 async function isAnnotationsPanelVisible(page: Page) {
@@ -993,16 +1012,17 @@ async function isAnnotationsPanelVisible(page: Page) {
         };
 
         const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
-        const host = (activeHost && isVisibleHost(activeHost))
-            ? activeHost
-            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                .find(isVisibleHost);
+        const host =
+            activeHost && isVisibleHost(activeHost)
+                ? activeHost
+                : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisibleHost);
         return isVisiblePanel(host?.querySelector<HTMLElement>('.notes-panel') ?? null);
     });
 }
 
 async function tryActivateAnnotationsTab(page: Page) {
-    const activeSelector = '.editor-pane.is-active .workspace-host[data-workspace-active="true"] [data-testid="document-sidebar"] [role="tab"]';
+    const activeSelector =
+        '.editor-pane.is-active .workspace-host[data-workspace-active="true"] [data-testid="document-sidebar"] [role="tab"]';
     const fallbackSelector = '.workspace-host [data-testid="document-sidebar"] [role="tab"]';
     let tabs = await page.$$(activeSelector);
     if (tabs.length === 0) {
@@ -1012,27 +1032,32 @@ async function tryActivateAnnotationsTab(page: Page) {
         return 'missing-tabs';
     }
 
-    const tabStates = await Promise.all(tabs.map(async (tab) => ({
-        tab,
-        visible: await tab.boundingBox() !== null,
-        ...(await tab.evaluate((element) => {
-            const text = [
-                element.getAttribute('aria-label') ?? '',
-                element.getAttribute('title') ?? '',
-                element.textContent ?? '',
-                element.className,
-                element.querySelector('span')?.className ?? '',
-                element.querySelector('svg')?.getAttribute('data-icon') ?? '',
-            ]
-                .join(' ')
-                .toLowerCase();
-            return {isAnnotationTab: text.includes('notes')
-                || text.includes('annotation')
-                || text.includes('message-square')
-                || text.includes('sticky-note')};
+    const tabStates = await Promise.all(
+        tabs.map(async (tab) => ({
+            tab,
+            visible: (await tab.boundingBox()) !== null,
+            ...(await tab.evaluate((element) => {
+                const text = [
+                    element.getAttribute('aria-label') ?? '',
+                    element.getAttribute('title') ?? '',
+                    element.textContent ?? '',
+                    element.className,
+                    element.querySelector('span')?.className ?? '',
+                    element.querySelector('svg')?.getAttribute('data-icon') ?? '',
+                ]
+                    .join(' ')
+                    .toLowerCase();
+                return {
+                    isAnnotationTab:
+                        text.includes('notes') ||
+                        text.includes('annotation') ||
+                        text.includes('message-square') ||
+                        text.includes('sticky-note'),
+                };
+            })),
         })),
-    })));
-    const target = tabStates.find(state => state.visible && state.isAnnotationTab);
+    );
+    const target = tabStates.find((state) => state.visible && state.isAnnotationTab);
     if (!target) {
         return 'missing-target';
     }
@@ -1043,12 +1068,14 @@ async function tryActivateAnnotationsTab(page: Page) {
     const point = await target.tab.evaluate(async (element) => {
         let previous = element.getBoundingClientRect();
         for (let frame = 0; frame < 3; frame += 1) {
-            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
             const current = element.getBoundingClientRect();
-            if (Math.abs(current.left - previous.left) > 0.5
-                || Math.abs(current.top - previous.top) > 0.5
-                || Math.abs(current.width - previous.width) > 0.5
-                || Math.abs(current.height - previous.height) > 0.5) {
+            if (
+                Math.abs(current.left - previous.left) > 0.5 ||
+                Math.abs(current.top - previous.top) > 0.5 ||
+                Math.abs(current.width - previous.width) > 0.5 ||
+                Math.abs(current.height - previous.height) > 0.5
+            ) {
                 return null;
             }
             previous = current;
@@ -1136,10 +1163,10 @@ export async function setupScrollToPage(page: Page, pageNumber: number) {
         };
 
         const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
-        const host = (activeHost && isVisibleHost(activeHost))
-            ? activeHost
-            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                .find(isVisibleHost);
+        const host =
+            activeHost && isVisibleHost(activeHost)
+                ? activeHost
+                : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisibleHost);
         if (!host) {
             return false;
         }
@@ -1151,7 +1178,7 @@ export async function setupScrollToPage(page: Page, pageNumber: number) {
         }
 
         viewer.scrollTop = Math.max(0, pageEl.offsetTop - 16);
-        viewer.dispatchEvent(new Event('scroll', { bubbles: true }));
+        viewer.dispatchEvent(new Event('scroll', {bubbles: true}));
         return true;
     }, pageNumber);
 
@@ -1181,11 +1208,7 @@ export interface IScrollToPageWithWheelOptions {
  * oscillating around the target. Practical for nearby pages; a jump across a
  * long document is setup, not a gesture, and belongs to `setupScrollToPage`.
  */
-export async function scrollToPageWithWheel(
-    page: Page,
-    pageNumber: number,
-    options: IScrollToPageWithWheelOptions = {},
-) {
+export async function scrollToPageWithWheel(page: Page, pageNumber: number, options: IScrollToPageWithWheelOptions = {}) {
     await waitForActiveWorkspaceHost(page);
     const maxGestures = options.maxGestures ?? 60;
     const maxStepRatio = options.maxStepRatio ?? 0.8;
@@ -1197,9 +1220,7 @@ export async function scrollToPageWithWheel(
         if (observation.viewportPage === pageNumber) {
             return observation;
         }
-        const direction = observation.viewportPage === null || observation.viewportPage < pageNumber
-            ? 1
-            : -1;
+        const direction = observation.viewportPage === null || observation.viewportPage < pageNumber ? 1 : -1;
         if (previousDirection !== 0 && direction !== previousDirection) {
             stepPx = Math.max(MIN_WHEEL_STEP_PX, Math.round(stepPx / 2));
         }
@@ -1209,10 +1230,7 @@ export async function scrollToPageWithWheel(
         // The burst delivers its step over several events at the trackpad's
         // cadence, so the whole gesture moves about `stepPx`, not that much per
         // event.
-        const eventDeltaY = direction * Math.max(
-            1,
-            Math.round(stepPx / Math.ceil(WHEEL_STEP_DURATION_MS / WHEEL_EVENT_INTERVAL_MS)),
-        );
+        const eventDeltaY = direction * Math.max(1, Math.round(stepPx / Math.ceil(WHEEL_STEP_DURATION_MS / WHEEL_EVENT_INTERVAL_MS)));
         const run = await startTrustedWheelFling(page, {
             x: centre.x,
             y: centre.y,
@@ -1227,23 +1245,19 @@ export async function scrollToPageWithWheel(
         const next = await readViewportPageObservation(page);
         if (next.scrollTop === observation.scrollTop && next.viewportPage === observation.viewportPage) {
             throw new Error(
-                `Wheel input stopped moving the viewer at page ${String(next.viewportPage)} `
-                + `while reaching page ${String(pageNumber)}`,
+                `Wheel input stopped moving the viewer at page ${String(next.viewportPage)} ` + `while reaching page ${String(pageNumber)}`,
             );
         }
         observation = next;
     }
 
     throw new Error(
-        `Wheel input did not reach page ${String(pageNumber)} in ${String(maxGestures)} gestures; `
-        + `the window shows page ${String(observation.viewportPage)}`,
+        `Wheel input did not reach page ${String(pageNumber)} in ${String(maxGestures)} gestures; ` +
+            `the window shows page ${String(observation.viewportPage)}`,
     );
 }
 
-export async function dismissScanCleanupFirstRunGuidance(
-    page: Page,
-    timeoutMs = DEFAULT_TIMEOUT_MS,
-) {
+export async function dismissScanCleanupFirstRunGuidance(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
     const selector = '.scan-cleanup-first-run-guidance';
     const guidance = await page.$(selector);
     if (!guidance) {
@@ -1274,8 +1288,9 @@ export async function goToPageViaToolbar(page: Page, pageNumber: number) {
             };
 
             const toolbarHost = document.querySelector<HTMLElement>('#editor-global-toolbar-host');
-            const display = Array.from((toolbarHost ?? document).querySelectorAll<HTMLButtonElement>('.page-controls-display'))
-                .find(candidate => isVisibleElement(candidate) && !candidate.disabled);
+            const display = Array.from((toolbarHost ?? document).querySelectorAll<HTMLButtonElement>('.page-controls-display')).find(
+                (candidate) => isVisibleElement(candidate) && !candidate.disabled,
+            );
             if (!display) {
                 return null;
             }
@@ -1289,19 +1304,19 @@ export async function goToPageViaToolbar(page: Page, pageNumber: number) {
 
         if (!displayPoint) {
             lastFailure = 'no enabled visible .page-controls-display in the active toolbar';
-            await new Promise(resolve => setTimeout(resolve, 250));
+            await new Promise((resolve) => setTimeout(resolve, 250));
             continue;
         }
 
         await page.mouse.click(displayPoint.x, displayPoint.y);
         try {
-            await page.waitForSelector('.page-controls-inline-input', { timeout: 2_000 });
+            await page.waitForSelector('.page-controls-inline-input', {timeout: 2_000});
         } catch {
             lastFailure = 'clicking the page control did not open the inline editor';
             continue;
         }
 
-        await clickAsUser(page, '.page-controls-inline-input', { count: 3 });
+        await clickAsUser(page, '.page-controls-inline-input', {count: 3});
         await page.keyboard.type(String(pageNumber));
         await page.keyboard.press('Enter');
         await waitForToolbarCurrentPage(page, pageNumber);
@@ -1325,11 +1340,7 @@ export async function getToolbarCurrentPage(page: Page) {
  * name `expectedPage`. The signature is unchanged, so every caller keeps
  * checking the screen without knowing it.
  */
-export async function waitForToolbarCurrentPage(
-    page: Page,
-    expectedPage: number,
-    timeoutMs = DEFAULT_TIMEOUT_MS,
-) {
+export async function waitForToolbarCurrentPage(page: Page, expectedPage: number, timeoutMs = DEFAULT_TIMEOUT_MS) {
     await waitForToolbarPageIndicator(page, expectedPage, {timeoutMs});
 }
 
@@ -1339,20 +1350,22 @@ export async function saveViaWindowHandle(page: Page, timeoutMs = DEFAULT_TIMEOU
     const saved = workspaceSave.called
         ? workspaceSave.value === true
         : await page.evaluate(async () => {
-            const save = (window as IE2EWindow & { __handleSave?: () => Promise<unknown> }).__handleSave;
-            if (typeof save !== 'function') {
-                return false;
-            }
-            return await save() === true;
-        });
+              const save = (window as IE2EWindow & {__handleSave?: () => Promise<unknown>}).__handleSave;
+              if (typeof save !== 'function') {
+                  return false;
+              }
+              return (await save()) === true;
+          });
 
     if (!saved) {
         const toolbar = await getWorkspaceToolbarSnapshot(page);
-        throw new Error(`Active workspace save did not commit: ${JSON.stringify({
-            called: workspaceSave.called,
-            value: workspaceSave.value,
-            toolbar,
-        })}`);
+        throw new Error(
+            `Active workspace save did not commit: ${JSON.stringify({
+                called: workspaceSave.called,
+                value: workspaceSave.value,
+                toolbar,
+            })}`,
+        );
     }
 
     const event = await waitForAutomationEvent(page, 'save-committed', {
@@ -1369,7 +1382,9 @@ export async function saveViaWindowHandle(page: Page, timeoutMs = DEFAULT_TIMEOU
  * Saves through the enabled visible toolbar control and requires the product's
  * save-committed event. There is deliberately no workspace-command fallback.
  */
-export interface ISaveViaVisibleToolbarOptions {signal?: AbortSignal;}
+export interface ISaveViaVisibleToolbarOptions {
+    signal?: AbortSignal;
+}
 
 function throwIfAborted(signal: AbortSignal | undefined) {
     if (!signal?.aborted) {
@@ -1389,10 +1404,7 @@ async function awaitWithAbort<T>(promise: Promise<T>, signal: AbortSignal | unde
         signal.addEventListener('abort', handleAbort, {once: true});
     });
     try {
-        return await Promise.race([
-            promise,
-            aborted,
-        ]);
+        return await Promise.race([promise, aborted]);
     } finally {
         if (handleAbort) {
             signal.removeEventListener('abort', handleAbort);
@@ -1418,13 +1430,13 @@ export async function saveViaVisibleToolbar(
                 const rect = candidate.getBoundingClientRect();
                 const style = window.getComputedStyle(candidate);
                 return (
-                    !candidate.hasAttribute('disabled')
-                    && candidate.getAttribute('aria-disabled') !== 'true'
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0
-                    && rect.width > 0
-                    && rect.height > 0
+                    !candidate.hasAttribute('disabled') &&
+                    candidate.getAttribute('aria-disabled') !== 'true' &&
+                    style.display !== 'none' &&
+                    style.visibility !== 'hidden' &&
+                    Number(style.opacity || '1') > 0 &&
+                    rect.width > 0 &&
+                    rect.height > 0
                 );
             });
             if (!enabled) {
@@ -1453,7 +1465,9 @@ export async function saveViaVisibleToolbar(
     throw new Error('Visible Save button did not become enabled');
 }
 
-export interface ISaveViaVisibleToolbarDeadlineOptions extends IElectronE2EDeadlineOptions {label?: string;}
+export interface ISaveViaVisibleToolbarDeadlineOptions extends IElectronE2EDeadlineOptions {
+    label?: string;
+}
 
 export function saveViaVisibleToolbarWithDeadline(
     page: Page,
@@ -1461,14 +1475,11 @@ export function saveViaVisibleToolbarWithDeadline(
     expectedPath?: string,
     options: ISaveViaVisibleToolbarDeadlineOptions = {},
 ) {
-    const {
-        label = 'Visible toolbar save',
-        ...deadlineOptions
-    } = options;
+    const {label = 'Visible toolbar save', ...deadlineOptions} = options;
     return runWithElectronE2EDeadline(
         label,
         timeoutMs,
-        signal => saveViaVisibleToolbar(page, timeoutMs, expectedPath, {signal}),
+        (signal) => saveViaVisibleToolbar(page, timeoutMs, expectedPath, {signal}),
         deadlineOptions,
     );
 }

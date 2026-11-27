@@ -6,11 +6,7 @@ export type * from '@contracts/scan-cleanup/nativeProtocolV3';
 export type * from '@contracts/scan-cleanup/outputMode';
 export type {IScanCleanupCapability} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 export {resolveScanCleanupEffectiveOutputMode} from '@contracts/scan-cleanup/outputMode';
-export {
-    SCAN_CLEANUP_ERROR_ENVELOPE_SCHEMA,
-    isScanCleanupErrorEnvelope,
-    SCAN_CLEANUP_ERROR_CODES,
-} from '@contracts/scan-cleanup/ipc';
+export {SCAN_CLEANUP_ERROR_ENVELOPE_SCHEMA, isScanCleanupErrorEnvelope, SCAN_CLEANUP_ERROR_CODES} from '@contracts/scan-cleanup/ipc';
 export {
     NATIVE_SCAN_CLEANUP_DOCUMENT_INK_PRIOR_SCHEMA,
     SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,

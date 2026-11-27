@@ -1,8 +1,5 @@
 import type {IPdfPageSizeStore} from '@electron/pdf/pdfPageSizes';
-import type {
-    IRetainedDocument,
-    IScanCleanupRasterDependencies,
-} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
+import type {IRetainedDocument, IScanCleanupRasterDependencies} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {logScanCleanupMessage} from '@electron/features/scan-cleanup/scanCleanupRasterRetentionIo';
 
 export async function resolveScanCleanupRasterPageSizeStore(input: {
@@ -14,16 +11,10 @@ export async function resolveScanCleanupRasterPageSizeStore(input: {
     currentGeneration: () => number;
     observePageSizeStore: (document: IRetainedDocument, store: IPdfPageSizeStore) => IPdfPageSizeStore;
 }): Promise<IPdfPageSizeStore> {
-    const {
-        dependencies,
-        document,
-        signal,
-    } = input;
+    const {dependencies, document, signal} = input;
     signal.throwIfAborted();
-    const isStale = () => document.lifetime.signal.aborted
-        || input.disposed()
-        || input.currentGeneration() !== input.generation
-        || document.removeWhenIdle;
+    const isStale = () =>
+        document.lifetime.signal.aborted || input.disposed() || input.currentGeneration() !== input.generation || document.removeWhenIdle;
     const pdfPageOpsBinary = dependencies.resolvePageOpsBinary();
     if (!pdfPageOpsBinary) {
         throw new Error('evb-pdf-page-ops is unavailable to read page geometry');
@@ -36,10 +27,7 @@ export async function resolveScanCleanupRasterPageSizeStore(input: {
     });
     if (isStale()) {
         await store.close();
-        throw document.lifetime.signal.reason ?? new DOMException(
-            'Scan cleanup page geometry was released',
-            'AbortError',
-        );
+        throw document.lifetime.signal.reason ?? new DOMException('Scan cleanup page geometry was released', 'AbortError');
     }
     const observedStore = input.observePageSizeStore(document, store);
     document.pageSizeStores.add(observedStore);

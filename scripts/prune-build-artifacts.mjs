@@ -1,24 +1,11 @@
-import {
-    readdir,
-    realpath,
-    rm,
-    stat,
-} from 'node:fs/promises';
+import {readdir, realpath, rm, stat} from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import {fileURLToPath} from 'node:url';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
-const buildRoots = [
-    'dist-electron',
-    'nuxt-output',
-    '.vercel/output',
-    '.output',
-];
+const buildRoots = ['dist-electron', 'nuxt-output', '.vercel/output', '.output'];
 
-const removableDirectoryNames = new Set([
-    '__tests__',
-    'coverage',
-]);
+const removableDirectoryNames = new Set(['__tests__', 'coverage']);
 
 const removableFilePatterns = [
     /\.map$/u,
@@ -27,23 +14,18 @@ const removableFilePatterns = [
     /^favicon-dev[.-]/u,
 ];
 
-const removablePathSegmentPatterns = [
-    /^tests?$/u,
-    /^\.vitest$/u,
-    /^\.playwright$/u,
-];
+const removablePathSegmentPatterns = [/^tests?$/u, /^\.vitest$/u, /^\.playwright$/u];
 
 function shouldRemoveEntry(entryName, isDirectory) {
     if (isDirectory) {
-        return removableDirectoryNames.has(entryName)
-            || removablePathSegmentPatterns.some(pattern => pattern.test(entryName));
+        return removableDirectoryNames.has(entryName) || removablePathSegmentPatterns.some((pattern) => pattern.test(entryName));
     }
 
-    return removableFilePatterns.some(pattern => pattern.test(entryName));
+    return removableFilePatterns.some((pattern) => pattern.test(entryName));
 }
 
 export async function pruneDirectory(dirPath) {
-    const entries = await readdir(dirPath, { withFileTypes: true });
+    const entries = await readdir(dirPath, {withFileTypes: true});
     let removedCount = 0;
 
     for (const entry of entries) {
@@ -77,11 +59,11 @@ export async function pruneDirectory(dirPath) {
 function assertSafeBuildRoot(rootDirectory, buildRoot, configuredRoot) {
     const relativePath = path.relative(rootDirectory, buildRoot);
     if (
-        path.isAbsolute(configuredRoot)
-        || !relativePath
-        || relativePath === '..'
-        || relativePath.startsWith(`..${path.sep}`)
-        || path.isAbsolute(relativePath)
+        path.isAbsolute(configuredRoot) ||
+        !relativePath ||
+        relativePath === '..' ||
+        relativePath.startsWith(`..${path.sep}`) ||
+        path.isAbsolute(relativePath)
     ) {
         throw new Error(`Refusing to prune build root outside the project: ${configuredRoot}`);
     }
@@ -110,10 +92,7 @@ async function pruneBuildRoot(rootDirectory, relativeRoot) {
     return pruneDirectory(root);
 }
 
-export async function pruneBuildArtifacts({
-    rootDirectory = projectRoot,
-    roots = buildRoots,
-} = {}) {
+export async function pruneBuildArtifacts({rootDirectory = projectRoot, roots = buildRoots} = {}) {
     let totalRemoved = 0;
     for (const buildRoot of roots) {
         totalRemoved += await pruneBuildRoot(rootDirectory, buildRoot);
@@ -127,10 +106,7 @@ async function isDirectCliInvocation() {
         return false;
     }
 
-    const [
-        invokedPath,
-        modulePath,
-    ] = await Promise.all([
+    const [invokedPath, modulePath] = await Promise.all([
         realpath(path.resolve(process.argv[1])).catch(() => null),
         realpath(fileURLToPath(import.meta.url)).catch(() => null),
     ]);

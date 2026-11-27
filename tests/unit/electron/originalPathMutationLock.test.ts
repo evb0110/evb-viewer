@@ -1,15 +1,11 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {withOriginalPathMutationLock} from '@electron/file-access/withOriginalPathMutationLock';
 
 describe('withOriginalPathMutationLock', () => {
     it('serializes distinct working-copy saves targeting the same original', async () => {
         const order: string[] = [];
         let releaseFirst!: () => void;
-        const gate = new Promise<void>(resolve => {
+        const gate = new Promise<void>((resolve) => {
             releaseFirst = resolve;
         });
         const first = withOriginalPathMutationLock('/tmp/shared.pdf', async () => {
@@ -24,22 +20,14 @@ describe('withOriginalPathMutationLock', () => {
         await Promise.resolve();
         expect(order).toEqual(['first:start']);
         releaseFirst();
-        await Promise.all([
-            first,
-            second,
-        ]);
-        expect(order).toEqual([
-            'first:start',
-            'first:end',
-            'second:start',
-            'second:end',
-        ]);
+        await Promise.all([first, second]);
+        expect(order).toEqual(['first:start', 'first:end', 'second:start', 'second:end']);
     });
 
     it('does not serialize unrelated originals', async () => {
         const order: string[] = [];
         let release!: () => void;
-        const gate = new Promise<void>(resolve => {
+        const gate = new Promise<void>((resolve) => {
             release = resolve;
         });
         const first = withOriginalPathMutationLock('/tmp/a.pdf', async () => {
@@ -50,10 +38,7 @@ describe('withOriginalPathMutationLock', () => {
             order.push('b');
         });
         await second;
-        expect(order).toEqual([
-            'a',
-            'b',
-        ]);
+        expect(order).toEqual(['a', 'b']);
         release();
         await first;
     });

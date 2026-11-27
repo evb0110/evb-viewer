@@ -1,101 +1,101 @@
 .pdf-thumbnail-selection-toggle {
-  position: absolute;
-  z-index: var(--app-z-local-overlay);
-  top: var(--app-thumbnail-selection-offset);
-  left: var(--app-thumbnail-selection-offset);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--app-sidebar-action-size);
-  height: var(--app-sidebar-action-size);
-  border: 1px solid var(--ui-border);
-  border-radius: var(--app-radius-xs);
-  background: var(--ui-bg);
-  padding: 0;
-  font: inherit;
-  line-height: 1;
-  appearance: none;
-  box-shadow: var(--app-document-page-shadow);
-  color: var(--ui-primary);
-  opacity: 0;
-  cursor: pointer;
-  transition:
-    background-color var(--app-transition-standard),
-    border-color var(--app-transition-standard),
-    color var(--app-transition-standard),
-    opacity var(--app-transition-standard);
+    position: absolute;
+    z-index: var(--app-z-local-overlay);
+    top: var(--app-thumbnail-selection-offset);
+    left: var(--app-thumbnail-selection-offset);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--app-sidebar-action-size);
+    height: var(--app-sidebar-action-size);
+    border: 1px solid var(--ui-border);
+    border-radius: var(--app-radius-xs);
+    background: var(--ui-bg);
+    padding: 0;
+    font: inherit;
+    line-height: 1;
+    appearance: none;
+    box-shadow: var(--app-document-page-shadow);
+    color: var(--ui-primary);
+    opacity: 0;
+    cursor: pointer;
+    transition:
+        background-color var(--app-transition-standard),
+        border-color var(--app-transition-standard),
+        color var(--app-transition-standard),
+        opacity var(--app-transition-standard);
 }
 
 .pdf-thumbnails [data-document-thumbnail-item]:hover .pdf-thumbnail-selection-toggle,
 .pdf-thumbnail-selection-toggle.is-selected {
-  opacity: 1;
+    opacity: 1;
 }
 
 .pdf-thumbnail-selection-toggle:hover {
-  border-color: var(--ui-primary);
-  background: var(--app-sidebar-control-hover-bg);
+    border-color: var(--ui-primary);
+    background: var(--app-sidebar-control-hover-bg);
 }
 
 .pdf-thumbnail-selection-toggle:focus-visible {
-  opacity: 1;
-  outline: 2px solid var(--app-toolbar-focus-ring);
-  outline-offset: 2px;
+    opacity: 1;
+    outline: 2px solid var(--app-toolbar-focus-ring);
+    outline-offset: 2px;
 }
 
 .pdf-thumbnail-selection-toggle.is-selected {
-  border-color: var(--ui-primary);
-  background: var(--ui-primary);
-  color: var(--ui-bg);
+    border-color: var(--ui-primary);
+    background: var(--ui-primary);
+    color: var(--ui-bg);
 }
 
 .pdf-thumbnail-selection-icon {
-  width: var(--app-icon-size-sm);
-  height: var(--app-icon-size-sm);
+    width: var(--app-icon-size-sm);
+    height: var(--app-icon-size-sm);
 }
 
 .pdf-thumbnails [data-document-thumbnail-item]:has(> .pdf-thumbnail-dragged) {
-  opacity: 0.35;
+    opacity: 0.35;
 }
 
 .pdf-thumbnail-drop {
-  position: absolute;
-  left: var(--app-thumbnail-drop-inset);
-  right: var(--app-thumbnail-drop-inset);
-  height: var(--app-drop-indicator-height);
-  background: var(--ui-primary);
-  border-radius: var(--app-thumbnail-drop-radius);
-  pointer-events: none;
+    position: absolute;
+    left: var(--app-thumbnail-drop-inset);
+    right: var(--app-thumbnail-drop-inset);
+    height: var(--app-drop-indicator-height);
+    background: var(--ui-primary);
+    border-radius: var(--app-thumbnail-drop-radius);
+    pointer-events: none;
 }
 
 .pdf-thumbnail-drop--before {
-  top: calc(var(--app-thumbnail-drop-offset) * -1);
+    top: calc(var(--app-thumbnail-drop-offset) * -1);
 }
 
 .pdf-thumbnail-drop--after {
-  bottom: calc(var(--app-thumbnail-drop-offset) * -1);
+    bottom: calc(var(--app-thumbnail-drop-offset) * -1);
 }
 
 .pdf-thumbnails.is-reorder-dragging [data-document-thumbnail-item] {
-  cursor: grabbing;
+    cursor: grabbing;
 }
 
 .pdf-thumbnails.is-external-drag {
-  outline: 2px dashed var(--ui-primary);
-  outline-offset: -2px;
-  border-radius: var(--app-thumbnail-row-radius);
+    outline: 2px dashed var(--ui-primary);
+    outline-offset: -2px;
+    border-radius: var(--app-thumbnail-row-radius);
 }
 
 .pdf-thumbnails [data-document-thumbnail-item]:focus {
-  outline: none;
+    outline: none;
 }
 
 .pdf-thumbnails [data-document-thumbnail-item]:focus-visible {
-  box-shadow: inset 0 0 0 2px var(--app-toolbar-focus-ring);
+    box-shadow: inset 0 0 0 2px var(--app-toolbar-focus-ring);
 }
 
 @media (forced-colors: active) {
-  .pdf-thumbnails [data-document-thumbnail-item]:focus-visible {
-    outline: 2px solid Highlight;
-    outline-offset: -2px;
-  }
+    .pdf-thumbnails [data-document-thumbnail-item]:focus-visible {
+        outline: 2px solid Highlight;
+        outline-offset: -2px;
+    }
 }

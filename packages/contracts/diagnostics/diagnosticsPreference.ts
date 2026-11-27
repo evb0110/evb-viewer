@@ -5,7 +5,11 @@ export function parseClientDiagnosticsPreference(value: unknown): TClientDiagnos
 }
 
 /** The consent main passed to this window at creation, readable before settings load. */
-export interface IDiagnosticsStartupPolicy {mode: TClientDiagnosticsPreference;}
+export interface IDiagnosticsStartupPolicy {
+    mode: TClientDiagnosticsPreference;
+}
 
 /** The diagnostics capability available to renderer application code. */
-export interface IDiagnosticsRendererCapability {startupPolicy: Readonly<IDiagnosticsStartupPolicy>;}
+export interface IDiagnosticsRendererCapability {
+    startupPolicy: Readonly<IDiagnosticsStartupPolicy>;
+}

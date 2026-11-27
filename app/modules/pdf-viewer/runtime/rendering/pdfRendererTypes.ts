@@ -1,39 +1,25 @@
-import type { TPageNumber } from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 
-import type {
-    IPdfPage,
-    IPdfRenderTask,
-} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import type {
-    MaybeRefOrGetter,
-    Ref,
-} from 'vue';
-import type {
-    IPdfDocumentFence,
-    TPdfDocumentView,
-} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
-import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
-import type {
-    IPdfPageMatches,
-    IPdfSearchMatch,
-} from '@app/types/pdfUi';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type { IPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
-import type { TPdfPageResources } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageResources';
-import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
-import type { ILinkAnnotation } from '@app/types/annotations';
-import type { IPdfAnnotationRenderInput } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
+import type {IPdfPage, IPdfRenderTask} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type {MaybeRefOrGetter, Ref} from 'vue';
+import type {IPdfDocumentFence, TPdfDocumentView} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import type {IScrollToPageOptions} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
+import type {IPdfPageMatches, IPdfSearchMatch} from '@app/types/pdfUi';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {IPdfRenderSupervisor} from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
+import type {TPdfPageResources} from '@app/modules/pdf-viewer/runtime/rendering/pdfPageResources';
+import type {TPdfViewportSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
+import type {ILinkAnnotation} from '@app/types/annotations';
+import type {IPdfAnnotationRenderInput} from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
 export type {
-    IPdfAnnotationRenderInput, IRenderVisiblePagesOptions,
+    IPdfAnnotationRenderInput,
+    IRenderVisiblePagesOptions,
 } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
 
 export interface IPdfRendererSearchNavigationOptions {
     scrollToPage?: (pageNumber: TPageNumber, options?: IScrollToPageOptions) => void;
-    revealSearchNavigationTarget?: (
-        pageNumber: TPageNumber,
-        options?: Pick<IScrollToPageOptions, 'markerRect' | 'textAnchor'>,
-    ) => void;
+    revealSearchNavigationTarget?: (pageNumber: TPageNumber, options?: Pick<IScrollToPageOptions, 'markerRect' | 'textAnchor'>) => void;
     endSearchNavigation?: (settleMs?: number) => void;
 }
 
@@ -93,10 +79,12 @@ export interface IPdfLayerRenderResult {
     userUnit: number;
     totalScaleFactor: number;
     annotationInput?: IPdfAnnotationRenderInput | undefined;
-    annotationOutput?: Readonly<{
-        annotationMode: number;
-        requestedSeparateCanvas: boolean;
-        separateAnnots: unknown;
-        ownCanvases: ReadonlyArray<readonly [string, HTMLCanvasElement]>;
-    }> | undefined;
+    annotationOutput?:
+        | Readonly<{
+              annotationMode: number;
+              requestedSeparateCanvas: boolean;
+              separateAnnots: unknown;
+              ownCanvases: ReadonlyArray<readonly [string, HTMLCanvasElement]>;
+          }>
+        | undefined;
 }

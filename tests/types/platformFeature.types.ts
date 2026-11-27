@@ -1,23 +1,17 @@
 import * as v from 'valibot';
-import {
-    definePlatformFeature,
-    type TFeatureCapability,
-} from '@contracts/platformFeature';
+import {definePlatformFeature, type TFeatureCapability} from '@contracts/platformFeature';
 
 const defaultedOptionsSchema = v.pipe(
     v.object({
         flag: v.optional(v.boolean()),
     }),
-    v.transform(options => ({
+    v.transform((options) => ({
         flag: options.flag ?? false,
     })),
 );
 
 const mixedScalarOrTupleSchema = v.pipe(
-    v.union([
-        v.string(),
-        v.strictTuple([v.string()]),
-    ]),
+    v.union([v.string(), v.strictTuple([v.string()])]),
     v.transform((value): [string] => (typeof value === 'string' ? [value] : value)),
 );
 
@@ -32,23 +26,20 @@ const validFeature = definePlatformFeature({
             kind: 'async',
             channel: 'test:run',
             ipc: {
-                args: v.strictTuple([
-                    v.string(),
-                    defaultedOptionsSchema,
-                ]),
+                args: v.strictTuple([v.string(), defaultedOptionsSchema]),
                 result: v.boolean(),
             },
             client: {
-                mapArgs: (id: string, flag?: boolean): [string, { flag?: boolean }] => [
+                mapArgs: (id: string, flag?: boolean): [string, {flag?: boolean}] => [
                     id,
-                    ...(flag === undefined ? [{}] as const : [{ flag }] as const),
+                    ...(flag === undefined ? ([{}] as const) : ([{flag}] as const)),
                 ],
             },
             main: {
                 method: 'run',
                 context: 'none',
             },
-            browser: { method: 'run' },
+            browser: {method: 'run'},
             lazy: 'forwarded',
         },
         runReadonlyTuple: {
@@ -65,7 +56,7 @@ const validFeature = definePlatformFeature({
                 method: 'runReadonlyTuple',
                 context: 'none',
             },
-            browser: { method: 'runReadonlyTuple' },
+            browser: {method: 'runReadonlyTuple'},
             lazy: 'forwarded',
         },
         runMixedInput: {
@@ -82,17 +73,14 @@ const validFeature = definePlatformFeature({
                 method: 'runMixedInput',
                 context: 'none',
             },
-            browser: { method: 'runMixedInput' },
+            browser: {method: 'runMixedInput'},
             lazy: 'forwarded',
         },
     },
 });
 
 export type TValidFeatureCapability = TFeatureCapability<typeof validFeature>;
-export const verifyValidCapability: TValidFeatureCapability['run'] = async (
-    _id: string,
-    _flag?: boolean,
-) => true;
+export const verifyValidCapability: TValidFeatureCapability['run'] = async (_id: string, _flag?: boolean) => true;
 
 export const invalidArrayMapperFeature = definePlatformFeature({
     path: ['testInvalidArray'],
@@ -116,7 +104,7 @@ export const invalidArrayMapperFeature = definePlatformFeature({
                 method: 'run',
                 context: 'none',
             },
-            browser: { method: 'run' },
+            browser: {method: 'run'},
             lazy: 'forwarded',
         },
     },
@@ -144,7 +132,7 @@ export const invalidTypeMapperFeature = definePlatformFeature({
                 method: 'run',
                 context: 'none',
             },
-            browser: { method: 'run' },
+            browser: {method: 'run'},
             lazy: 'forwarded',
         },
     },
@@ -172,7 +160,7 @@ export const invalidMixedInputFeature = definePlatformFeature({
                 method: 'run',
                 context: 'none',
             },
-            browser: { method: 'run' },
+            browser: {method: 'run'},
             lazy: 'forwarded',
         },
     },
@@ -185,12 +173,12 @@ const optionalInvalidClientSpec: {
         readonly args: v.StrictTupleSchema<readonly [v.StringSchema<undefined>], undefined>;
         readonly result: v.BooleanSchema<undefined>;
     };
-    readonly client?: { readonly mapArgs: () => [boolean] };
+    readonly client?: {readonly mapArgs: () => [boolean]};
     readonly main: {
         readonly method: 'run';
         readonly context: 'none';
     };
-    readonly browser: { readonly method: 'run' };
+    readonly browser: {readonly method: 'run'};
     readonly lazy: 'forwarded';
 } = {
     kind: 'async',
@@ -206,7 +194,7 @@ const optionalInvalidClientSpec: {
         method: 'run',
         context: 'none',
     },
-    browser: { method: 'run' },
+    browser: {method: 'run'},
     lazy: 'forwarded',
 };
 
@@ -236,7 +224,7 @@ const swappedUnionA = {
         method: 'run',
         context: 'none',
     },
-    browser: { method: 'run' },
+    browser: {method: 'run'},
     lazy: 'forwarded',
 } as const;
 
@@ -254,7 +242,7 @@ const swappedUnionB = {
         method: 'run',
         context: 'none',
     },
-    browser: { method: 'run' },
+    browser: {method: 'run'},
     lazy: 'forwarded',
 } as const;
 
@@ -277,12 +265,12 @@ const optionalReadonlyMapperSpec: {
         readonly args: v.StrictTupleSchema<readonly [v.StringSchema<undefined>], undefined>;
         readonly result: v.BooleanSchema<undefined>;
     };
-    readonly client?: { readonly mapArgs: (page: number) => readonly [string] };
+    readonly client?: {readonly mapArgs: (page: number) => readonly [string]};
     readonly main: {
         readonly method: 'run';
         readonly context: 'none';
     };
-    readonly browser: { readonly method: 'run' };
+    readonly browser: {readonly method: 'run'};
     readonly lazy: 'forwarded';
 } = {
     kind: 'async',
@@ -298,7 +286,7 @@ const optionalReadonlyMapperSpec: {
         method: 'run',
         context: 'none',
     },
-    browser: { method: 'run' },
+    browser: {method: 'run'},
     lazy: 'forwarded',
 };
 
@@ -313,9 +301,7 @@ const optionalReadonlyMapperFeature = definePlatformFeature({
     },
 });
 
-export function verifyOptionalReadonlyMapperCapability(
-    capability: TFeatureCapability<typeof optionalReadonlyMapperFeature>,
-) {
+export function verifyOptionalReadonlyMapperCapability(capability: TFeatureCapability<typeof optionalReadonlyMapperFeature>) {
     // @ts-expect-error optional client.mapArgs taking number must not expose string-only wire args
     void capability.run('1');
     // @ts-expect-error omitted client branch requires string wire args, so number is also unsafe
@@ -334,12 +320,12 @@ const optionalTransformMapperSpec: {
         readonly args: typeof numberToStringWireArgs;
         readonly result: v.BooleanSchema<undefined>;
     };
-    readonly client?: { readonly mapArgs: (value: string) => readonly [number] };
+    readonly client?: {readonly mapArgs: (value: string) => readonly [number]};
     readonly main: {
         readonly method: 'run';
         readonly context: 'none';
     };
-    readonly browser: { readonly method: 'run' };
+    readonly browser: {readonly method: 'run'};
     readonly lazy: 'forwarded';
 } = {
     kind: 'async',
@@ -355,7 +341,7 @@ const optionalTransformMapperSpec: {
         method: 'run',
         context: 'none',
     },
-    browser: { method: 'run' },
+    browser: {method: 'run'},
     lazy: 'forwarded',
 };
 
@@ -370,9 +356,7 @@ const optionalTransformMapperFeature = definePlatformFeature({
     },
 });
 
-export function verifyOptionalTransformMapperCapability(
-    capability: TFeatureCapability<typeof optionalTransformMapperFeature>,
-) {
+export function verifyOptionalTransformMapperCapability(capability: TFeatureCapability<typeof optionalTransformMapperFeature>) {
     // @ts-expect-error omitted mapper sends args raw to wire input ([number]), so string must be rejected
     void capability.run('abc');
     // @ts-expect-error present mapper expects string, so number must also be rejected

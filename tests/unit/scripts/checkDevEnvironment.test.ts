@@ -1,10 +1,6 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import {describe, expect, it} from 'vitest';
+import {resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
 
 interface ICheckDevEnvironmentModule {
     isNode26: (version: string) => boolean;
@@ -12,13 +8,9 @@ interface ICheckDevEnvironmentModule {
     statusFromBoolean: (ok: boolean, missingStatus?: string) => string;
 }
 
-const {
-    isNode26,
-    resolveHostTag,
-    statusFromBoolean,
-} = await import(
+const {isNode26, resolveHostTag, statusFromBoolean} = (await import(
     pathToFileURL(resolve(process.cwd(), 'scripts/check-dev-environment.mjs')).href
-) as ICheckDevEnvironmentModule;
+)) as ICheckDevEnvironmentModule;
 
 describe('check-dev-environment helpers', () => {
     it('recognizes only Node 26 version strings', () => {

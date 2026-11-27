@@ -1,11 +1,8 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
-import type { TPageNumber } from '@contracts/pageNumbers';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 
 import {clamp} from 'es-toolkit/math';
-import {
-    resolveScrollForPageRect,
-    type IPdfSemanticAnchor,
-} from '@app/modules/document-viewer/public';
+import {resolveScrollForPageRect, type IPdfSemanticAnchor} from '@app/modules/document-viewer/public';
 import {getRequestAnchor} from '@app/modules/pdf-viewer/runtime/navigation/pdfNavigationRequestAnchors';
 
 type TViewportSize = Readonly<{
@@ -14,9 +11,7 @@ type TViewportSize = Readonly<{
 }>;
 
 function getMountedPageElement(container: HTMLElement, pageNumber: TPageNumber) {
-    return container.querySelector<HTMLElement>(
-        `.page_container[data-page="${String(Math.max(1, Math.trunc(pageNumber)))}"]`,
-    );
+    return container.querySelector<HTMLElement>(`.page_container[data-page="${String(Math.max(1, Math.trunc(pageNumber)))}"]`);
 }
 
 export function hasMeasurableMountedPage(container: HTMLElement, pageNumber: TPageNumber) {
@@ -68,13 +63,19 @@ export function resolvePagedScrollForAnchor(
     }
     const viewportRect = container.getBoundingClientRect();
     const pageRect = element.getBoundingClientRect();
-    return resolveScrollForPageRect({
-        left: container.scrollLeft + pageRect.left - viewportRect.left,
-        top: container.scrollTop + pageRect.top - viewportRect.top,
-        width: pageRect.width,
-        height: pageRect.height,
-    }, anchor, viewport, {
-        width: container.scrollWidth,
-        height: container.scrollHeight,
-    }, scaledMargin);
+    return resolveScrollForPageRect(
+        {
+            left: container.scrollLeft + pageRect.left - viewportRect.left,
+            top: container.scrollTop + pageRect.top - viewportRect.top,
+            width: pageRect.width,
+            height: pageRect.height,
+        },
+        anchor,
+        viewport,
+        {
+            width: container.scrollWidth,
+            height: container.scrollHeight,
+        },
+        scaledMargin,
+    );
 }

@@ -1,10 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { createRafBurstScheduler } from '@app/modules/workspace-shell/scheduling/createRafBurstScheduler';
+import {describe, expect, it, vi} from 'vitest';
+import {createRafBurstScheduler} from '@app/modules/workspace-shell/scheduling/createRafBurstScheduler';
 
 describe('createRafBurstScheduler', () => {
     it('runs and then stops without rescheduling itself', () => {

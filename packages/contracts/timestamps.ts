@@ -6,9 +6,7 @@ export type TIsoTimestamp = TBrand<string, 'IsoTimestamp'>;
 const ISO_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u;
 
 export function isEpochMs(value: unknown): value is TEpochMs {
-    return typeof value === 'number'
-        && Number.isSafeInteger(value)
-        && value >= 0;
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
 export function parseEpochMs(value: unknown): TEpochMs | null {
@@ -28,9 +26,7 @@ export function createEpochMs(value = Date.now()): TEpochMs {
 }
 
 export function isIsoTimestamp(value: unknown): value is TIsoTimestamp {
-    return typeof value === 'string'
-        && ISO_TIMESTAMP_PATTERN.test(value)
-        && !Number.isNaN(Date.parse(value));
+    return typeof value === 'string' && ISO_TIMESTAMP_PATTERN.test(value) && !Number.isNaN(Date.parse(value));
 }
 
 export function parseIsoTimestamp(value: unknown): TIsoTimestamp | null {

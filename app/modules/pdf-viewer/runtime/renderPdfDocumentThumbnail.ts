@@ -1,14 +1,14 @@
 import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
-import type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
-import { toPdfjsHiddenAnnotationIds } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotations/toPdfjsHiddenAnnotationIds';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {AnnotationMode} from '@app/services/pdfjs/runtimeLib';
+import type {IPdfPageRasterScheduler} from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
+import {toPdfjsHiddenAnnotationIds} from '@app/modules/pdf-viewer/engine/pdf-hidden-annotations/toPdfjsHiddenAnnotationIds';
 import type {
     IWorkspaceSurfaceBudgetController,
     IDocumentPageRenderRequest,
     IDocumentRenderLease,
 } from '@app/modules/document-viewer/public';
-import { resolveBoundedRasterDimensions } from '@app/modules/document-viewer/public';
+import {resolveBoundedRasterDimensions} from '@app/modules/document-viewer/public';
 
 const PDF_THUMBNAIL_MAX_PIXELS = 4 * 1024 * 1024;
 
@@ -33,21 +33,18 @@ export async function renderPdfDocumentThumbnail(options: {
     rotation: number | undefined;
     hiddenAnnotationIds: ReadonlySet<string>;
 }): Promise<IDocumentRenderLease> {
-    const {
-        scheduler,
-        sourceId,
-        request,
-    } = options;
+    const {scheduler, sourceId, request} = options;
     const pageNumber = requirePageNumber(request.pageNumber);
     let lease: IDocumentRenderLease | null = null;
     let priority = request.priority;
     let invalidate: (() => void) | undefined;
     let budgetLease: ReturnType<IWorkspaceSurfaceBudgetController['reserve']> | null = null;
-    const cancel = () => scheduler.invalidate({
-        pages: [pageNumber],
-        reason: 'thumbnail-demand-cancelled',
-        sourceId,
-    });
+    const cancel = () =>
+        scheduler.invalidate({
+            pages: [pageNumber],
+            reason: 'thumbnail-demand-cancelled',
+            sourceId,
+        });
     request.signal.addEventListener('abort', cancel, {once: true});
     try {
         const outcome = await scheduler.request<IPreparedPdfThumbnail>({
@@ -80,16 +77,18 @@ export async function renderPdfDocumentThumbnail(options: {
                     canvas.width = dimensions.width;
                     canvas.height = dimensions.height;
                     const context = canvas.getContext('2d');
-                    return Promise.resolve(context
-                        ? {
-                            canvas,
-                            context,
-                            viewport: page.getViewport({
-                                scale: requestedScale * dimensions.scale,
-                                ...rotation,
-                            }),
-                        }
-                        : null);
+                    return Promise.resolve(
+                        context
+                            ? {
+                                  canvas,
+                                  context,
+                                  viewport: page.getViewport({
+                                      scale: requestedScale * dimensions.scale,
+                                      ...rotation,
+                                  }),
+                              }
+                            : null,
+                    );
                 },
                 start(prepared, page) {
                     const hiddenAnnotationIds = toPdfjsHiddenAnnotationIds(options.hiddenAnnotationIds);
@@ -110,7 +109,9 @@ export async function renderPdfDocumentThumbnail(options: {
                         surface: canvas,
                         onInvalidated(listener) {
                             invalidate = listener;
-                            return () => { invalidate = undefined; };
+                            return () => {
+                                invalidate = undefined;
+                            };
                         },
                         setPriority(nextPriority) {
                             priority = nextPriority;
@@ -154,9 +155,7 @@ export async function renderPdfDocumentThumbnail(options: {
                 lease?.release();
             },
         } as const;
-        budgetLease = priority === 'visible'
-            ? options.surfaceBudget.reserve(reservation)
-            : options.surfaceBudget.tryReserve(reservation);
+        budgetLease = priority === 'visible' ? options.surfaceBudget.reserve(reservation) : options.surfaceBudget.tryReserve(reservation);
         if (!budgetLease) {
             (lease as IDocumentRenderLease).release();
             throw new RangeError('PDF thumbnail exceeds the available workspace surface budget');

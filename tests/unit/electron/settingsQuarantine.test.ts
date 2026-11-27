@@ -1,22 +1,9 @@
 import type * as TViMockOriginalModule from '@electron/features/diagnostics/public';
 
-import {
-    mkdirSync,
-    mkdtempSync,
-    readFileSync,
-    readdirSync,
-    rmSync,
-    writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {DEFAULT_SETTINGS} from '@contracts/settings';
 
 const OLDER_SETTINGS_FIXTURE = {
@@ -58,16 +45,13 @@ describe('settings corruption quarantine', () => {
         mocks.userDataPath = mkdtempSync(join(tmpdir(), 'evb-settings-quarantine-'));
         const settingsPath = join(mocks.userDataPath, 'settings.json');
         writeFileSync(settingsPath, '{malformed');
-        const {
-            consumeSettingsRecoveryNotice,
-            loadSettings,
-        } = await import('@electron/settings');
+        const {consumeSettingsRecoveryNotice, loadSettings} = await import('@electron/settings');
 
         const settings = await loadSettings();
 
         expect(settings).toBeTypeOf('object');
         expect(JSON.parse(readFileSync(settingsPath, 'utf-8'))).toEqual(settings);
-        expect(readdirSync(mocks.userDataPath).some(name => /^settings\.json\.\d+\.corrupt$/u.test(name))).toBe(true);
+        expect(readdirSync(mocks.userDataPath).some((name) => /^settings\.json\.\d+\.corrupt$/u.test(name))).toBe(true);
         expect(mocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining('Quarantined corrupt settings'));
         expect(consumeSettingsRecoveryNotice()).toEqual({
             reason: 'corrupt',
@@ -84,20 +68,16 @@ describe('settings corruption quarantine', () => {
             futureSetting: true,
         });
         writeFileSync(settingsPath, futureContent);
-        const {
-            consumeSettingsRecoveryNotice,
-            loadSettings,
-        } = await import('@electron/settings');
+        const {consumeSettingsRecoveryNotice, loadSettings} = await import('@electron/settings');
 
         await expect(loadSettings()).resolves.toMatchObject({
             version: 2,
             theme: 'light',
         });
         expect(readFileSync(settingsPath, 'utf-8')).not.toBe(futureContent);
-        expect(readdirSync(mocks.userDataPath)).toEqual(expect.arrayContaining([
-            'settings.json',
-            expect.stringMatching(/^settings\.json\.\d+\.corrupt$/u),
-        ]));
+        expect(readdirSync(mocks.userDataPath)).toEqual(
+            expect.arrayContaining(['settings.json', expect.stringMatching(/^settings\.json\.\d+\.corrupt$/u)]),
+        );
         expect(mocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining('Quarantined unsupported settings'));
         expect(consumeSettingsRecoveryNotice()).toEqual({
             reason: 'unsupported',
@@ -109,15 +89,15 @@ describe('settings corruption quarantine', () => {
     it('preserves unknown settings through a migrated update', async () => {
         mocks.userDataPath = mkdtempSync(join(tmpdir(), 'evb-settings-migration-'));
         const settingsPath = join(mocks.userDataPath, 'settings.json');
-        writeFileSync(settingsPath, JSON.stringify({
-            version: 1,
-            authorName: 'Migrated user',
-            futureSetting: {enabled: true},
-        }));
-        const {
-            loadSettings,
-            updateSettings,
-        } = await import('@electron/settings');
+        writeFileSync(
+            settingsPath,
+            JSON.stringify({
+                version: 1,
+                authorName: 'Migrated user',
+                futureSetting: {enabled: true},
+            }),
+        );
+        const {loadSettings, updateSettings} = await import('@electron/settings');
 
         await expect(loadSettings()).resolves.toMatchObject({
             version: 2,
@@ -136,10 +116,7 @@ describe('settings corruption quarantine', () => {
     it('keeps the diagnostics preference through Electron settings persistence', async () => {
         mocks.userDataPath = mkdtempSync(join(tmpdir(), 'evb-settings-diagnostics-preference-'));
         const settingsPath = join(mocks.userDataPath, 'settings.json');
-        const {
-            loadSettings,
-            updateSettings,
-        } = await import('@electron/settings');
+        const {loadSettings, updateSettings} = await import('@electron/settings');
 
         await updateSettings(() => ({clientDiagnosticsPreference: 'granted'}));
 
@@ -166,10 +143,12 @@ describe('settings corruption quarantine', () => {
         mkdirSync(settingsPath);
         const {updateSettings} = await import('@electron/settings');
 
-        await expect(updateSettings(settings => ({
-            ...settings,
-            theme: 'dark',
-        }))).rejects.toThrow();
+        await expect(
+            updateSettings((settings) => ({
+                ...settings,
+                theme: 'dark',
+            })),
+        ).rejects.toThrow();
 
         expect(mocks.setMainDiagnosticsPreference).not.toHaveBeenCalled();
         expect(readdirSync(settingsPath)).toEqual([]);
@@ -195,10 +174,7 @@ describe('settings corruption quarantine', () => {
             return undefined;
         });
         releaseFirst();
-        await Promise.all([
-            first,
-            second,
-        ]);
+        await Promise.all([first, second]);
 
         expect(JSON.parse(readFileSync(settingsPath, 'utf-8'))).toMatchObject({
             authorName: 'Concurrent Author',

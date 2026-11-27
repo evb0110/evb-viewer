@@ -1,36 +1,20 @@
-import type { Ref } from 'vue';
-import { useTimeoutFn } from '@vueuse/core';
-import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type { IWorkspaceDocumentDriverExportTarget } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
-import {
-    getFailureReceipt,
-    type ExpectedOutcome,
-} from '@contracts/diagnostics/failureReceipt';
-import { uniq } from 'es-toolkit/array';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { useFailureToast } from '@app/composables/useFailureToast';
-import type {
-    IImageExportProgress,
-    TDocumentImageExportSourceKind,
-    TImageExportProgressFormat,
-} from '@contracts/imageExportPlatformFeature';
-import {
-    getDocumentWorkingCopyCapability,
-    getImageExportCapability,
-} from '@app/utils/platformDocuments';
-import { isBrowserDocumentRef } from '@app/utils/documentRef';
-import { getErrorMessage } from '@app/utils/error';
-import { stripIpcInvocationPrefix } from '@app/utils/stripIpcInvocationPrefix';
-import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
-import {
-    createRequestId,
-    type TRequestId,
-} from '@contracts/shared';
-import type { TPageSelection } from '@pdf-core/pdfPageSelection';
+import type {Ref} from 'vue';
+import {useTimeoutFn} from '@vueuse/core';
+import {parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {IWorkspaceDocumentDriverExportTarget} from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
+import {getFailureReceipt, type ExpectedOutcome} from '@contracts/diagnostics/failureReceipt';
+import {uniq} from 'es-toolkit/array';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {useFailureToast} from '@app/composables/useFailureToast';
+import type {IImageExportProgress, TDocumentImageExportSourceKind, TImageExportProgressFormat} from '@contracts/imageExportPlatformFeature';
+import {getDocumentWorkingCopyCapability, getImageExportCapability} from '@app/utils/platformDocuments';
+import {isBrowserDocumentRef} from '@app/utils/documentRef';
+import {getErrorMessage} from '@app/utils/error';
+import {stripIpcInvocationPrefix} from '@app/utils/stripIpcInvocationPrefix';
+import type {TDocumentOperationKind} from '@app/types/documentOperationKind';
+import {createRequestId, type TRequestId} from '@contracts/shared';
+import type {TPageSelection} from '@pdf-core/pdfPageSelection';
 import {
     createAllPageSelection,
     createExplicitPageSelection,
@@ -57,9 +41,9 @@ function resolveExportPageNumbers(selection: TPageSelection): number[] | undefin
 type TExportSelectionResolution =
     | {kind: 'all'}
     | {
-        kind: 'selection';
-        selection: TPageSelection;
-    }
+          kind: 'selection';
+          selection: TPageSelection;
+      }
     | {kind: 'refused'};
 
 export interface IWorkspaceExportOverlay {
@@ -78,16 +62,13 @@ interface IWorkspaceExportDeps {
     documentRevisionToken?: Ref<TDocumentRevisionToken | null>;
     totalPages: Ref<number>;
     ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
-    runWithDocumentOperationLease?: <T>(
-        kind: TDocumentOperationKind,
-        operation: () => Promise<T>,
-    ) => Promise<T>;
+    runWithDocumentOperationLease?: <T>(kind: TDocumentOperationKind, operation: () => Promise<T>) => Promise<T>;
 }
 
 export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
-    const { t } = useTypedI18n();
+    const {t} = useTypedI18n();
     const toast = useToast();
-    const { presentFailureToast } = useFailureToast();
+    const {presentFailureToast} = useFailureToast();
     const {
         workingCopyPath,
         exportTargets,
@@ -117,10 +98,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         documentRevisionToken: TDocumentRevisionToken | null;
     }
 
-    function captureExportIdentity(
-        generation: number,
-        target: IWorkspaceDocumentDriverExportTarget | null,
-    ): IExportIdentity | null {
+    function captureExportIdentity(generation: number, target: IWorkspaceDocumentDriverExportTarget | null): IExportIdentity | null {
         if (!target) {
             return null;
         }
@@ -134,38 +112,34 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         };
     }
 
-    function ownsExportIdentity(
-        identity: IExportIdentity,
-        target: IWorkspaceDocumentDriverExportTarget | null,
-    ) {
-        return ownsExportSource(identity, target)
-            && (documentRevisionToken?.value ?? null) === identity.documentRevisionToken;
+    function ownsExportIdentity(identity: IExportIdentity, target: IWorkspaceDocumentDriverExportTarget | null) {
+        return ownsExportSource(identity, target) && (documentRevisionToken?.value ?? null) === identity.documentRevisionToken;
     }
 
-    function ownsExportSource(
-        identity: IExportIdentity,
-        target: IWorkspaceDocumentDriverExportTarget | null,
-    ) {
-        return !isDisposed
-            && identity.generation === exportGeneration
-            && target?.sourceKind === identity.sourceKind
-            && target.sourcePath === identity.sourcePath
-            && target.requiresFreshWorkingCopy === identity.requiresFreshWorkingCopy
-            && workingCopyPath.value === identity.workingCopyPath;
+    function ownsExportSource(identity: IExportIdentity, target: IWorkspaceDocumentDriverExportTarget | null) {
+        return (
+            !isDisposed &&
+            identity.generation === exportGeneration &&
+            target?.sourceKind === identity.sourceKind &&
+            target.sourcePath === identity.sourcePath &&
+            target.requiresFreshWorkingCopy === identity.requiresFreshWorkingCopy &&
+            workingCopyPath.value === identity.workingCopyPath
+        );
     }
 
-    const {
-        start: startExportOverlayResetTimer,
-        stop: stopExportOverlayResetTimer,
-    } = useTimeoutFn((kind: IWorkspaceExportOverlay['kind'], pageCount: number) => {
-        if (
-            exportOverlay.value?.kind === kind
-            && exportOverlay.value.state === 'success'
-            && exportOverlay.value.pageCount === pageCount
-        ) {
-            exportOverlay.value = null;
-        }
-    }, 2200, { immediate: false });
+    const {start: startExportOverlayResetTimer, stop: stopExportOverlayResetTimer} = useTimeoutFn(
+        (kind: IWorkspaceExportOverlay['kind'], pageCount: number) => {
+            if (
+                exportOverlay.value?.kind === kind &&
+                exportOverlay.value.state === 'success' &&
+                exportOverlay.value.pageCount === pageCount
+            ) {
+                exportOverlay.value = null;
+            }
+        },
+        2200,
+        {immediate: false},
+    );
 
     function clearExportOverlayTimer() {
         stopExportOverlayResetTimer();
@@ -257,7 +231,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
 
     function normalizeExportSelectedPages(selectedPages: number[]) {
         return uniq(selectedPages)
-            .filter(page => Number.isInteger(page) && page >= 1 && page <= totalPages.value)
+            .filter((page) => Number.isInteger(page) && page >= 1 && page <= totalPages.value)
             .sort((left, right) => left - right);
     }
 
@@ -288,9 +262,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
     ) {
         const cleanupPaths = outputPaths.flatMap((path) => {
             const documentRef = parseDocumentRef(path);
-            return documentRef !== null && isBrowserDocumentRef(documentRef)
-                ? [documentRef]
-                : [];
+            return documentRef !== null && isBrowserDocumentRef(documentRef) ? [documentRef] : [];
         });
         if (cleanupPaths.length === 0) {
             return;
@@ -311,9 +283,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         if (!result.success) {
             setExportOverlay(null);
             if (!result.canceled) {
-                const resultError = 'error' in result && typeof result.error === 'string'
-                    ? result.error
-                    : t('errors.export.images');
+                const resultError = 'error' in result && typeof result.error === 'string' ? result.error : t('errors.export.images');
                 showExportFailure(t('errors.export.images'), resultError);
             }
             return;
@@ -347,10 +317,10 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
 
         exportScopeDialogMode.value = mode;
         exportScopeDialogPageSelection.value = selectedPageSelection;
-        exportScopeDialogSelectedPages.value = selectedPageSelection
-            && pageSelectionCount(selectedPageSelection) <= EXPORT_SELECTION_MATERIALIZATION_LIMIT
-            ? materializePageSelection(selectedPageSelection)
-            : [];
+        exportScopeDialogSelectedPages.value =
+            selectedPageSelection && pageSelectionCount(selectedPageSelection) <= EXPORT_SELECTION_MATERIALIZATION_LIMIT
+                ? materializePageSelection(selectedPageSelection)
+                : [];
         exportScopeDialogOpen.value = true;
 
         return new Promise((resolve) => {
@@ -358,13 +328,10 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         });
     }
 
-    function handleExportScopeDialogSubmit(payload: {
-        pageNumbers?: number[];
-        pageSelection?: TPageSelection;
-    }) {
-        resolveExportScopeDialog(payload.pageSelection ?? (payload.pageNumbers
-            ? createExplicitPageSelection(totalPages.value, payload.pageNumbers)
-            : undefined));
+    function handleExportScopeDialogSubmit(payload: {pageNumbers?: number[]; pageSelection?: TPageSelection}) {
+        resolveExportScopeDialog(
+            payload.pageSelection ?? (payload.pageNumbers ? createExplicitPageSelection(totalPages.value, payload.pageNumbers) : undefined),
+        );
     }
 
     function handleExportScopeDialogOpenChange(isOpen: boolean) {
@@ -390,19 +357,14 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         return true;
     }
 
-    function beginRasterExportPreflight(
-        generation: number,
-        target: IWorkspaceDocumentDriverExportTarget | null,
-    ) {
+    function beginRasterExportPreflight(generation: number, target: IWorkspaceDocumentDriverExportTarget | null) {
         const identity = captureExportIdentity(generation, target);
         if (!identity) {
             return null;
         }
         return {
             identity,
-            isFreshForRead: identity.requiresFreshWorkingCopy && ensureWorkingCopyFreshForRead
-                ? ensureWorkingCopyFreshForRead()
-                : true,
+            isFreshForRead: identity.requiresFreshWorkingCopy && ensureWorkingCopyFreshForRead ? ensureWorkingCopyFreshForRead() : true,
         };
     }
 
@@ -423,9 +385,8 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
             if (!preflight) {
                 return;
             }
-            const isFreshForRead = typeof preflight.isFreshForRead === 'boolean'
-                ? preflight.isFreshForRead
-                : await preflight.isFreshForRead;
+            const isFreshForRead =
+                typeof preflight.isFreshForRead === 'boolean' ? preflight.isFreshForRead : await preflight.isFreshForRead;
             if (!acceptRasterExportPreflight(preflight.identity, targetRef.value, isFreshForRead)) {
                 return;
             }
@@ -462,7 +423,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
                     subscribeExportProgress(imageExport, requestId, 'images');
                     const result = await imageExport.exportPdfToImages(
                         identity.sourcePath,
-                        pageNumbers?.map(pageNumber => requirePageNumber(pageNumber, totalPages.value)),
+                        pageNumbers?.map((pageNumber) => requirePageNumber(pageNumber, totalPages.value)),
                         requestId,
                         identity.sourceKind,
                     );
@@ -501,7 +462,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
                     subscribeExportProgress(imageExport, requestId, 'multipage-tiff');
                     const result = await imageExport.exportPdfToMultiPageTiff(
                         identity.sourcePath,
-                        pageNumbers?.map(pageNumber => requirePageNumber(pageNumber, totalPages.value)),
+                        pageNumbers?.map((pageNumber) => requirePageNumber(pageNumber, totalPages.value)),
                         requestId,
                         identity.sourceKind,
                     );
@@ -519,9 +480,8 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
                     } else {
                         setExportOverlay(null);
                         if (!result.canceled) {
-                            const resultError = 'error' in result && typeof result.error === 'string'
-                                ? result.error
-                                : t('errors.export.multiPageTiff');
+                            const resultError =
+                                'error' in result && typeof result.error === 'string' ? result.error : t('errors.export.multiPageTiff');
                             showExportFailure(t('errors.export.multiPageTiff'), resultError);
                         }
                     }
@@ -554,9 +514,8 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
                 showExportSelectionRefusalToast();
                 return;
             }
-            const initialSelection = resolvedSelection.kind === 'all'
-                ? createAllPageSelection(totalPages.value)
-                : resolvedSelection.selection;
+            const initialSelection =
+                resolvedSelection.kind === 'all' ? createAllPageSelection(totalPages.value) : resolvedSelection.selection;
             const selection = await openExportScopeDialog(kind, initialSelection);
             if (selection === null) {
                 return;

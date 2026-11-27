@@ -1,25 +1,19 @@
-import {
-    copyFile, mkdir, mkdtemp, readFile, rm, writeFile,
-} from 'node:fs/promises';
+import {copyFile, mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {
-    join, resolve,
-} from 'node:path';
-import {
-    PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRef, PDFString,
-} from 'pdf-lib';
-import {
-    describe, expect, it, onTestFinished,
-} from 'vitest';
+import {join, resolve} from 'node:path';
+import {PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRef, PDFString} from 'pdf-lib';
+import {describe, expect, it, onTestFinished} from 'vitest';
 import type {Page} from 'puppeteer-core';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
-    openPdfInApp, waitForPdfLoaded, waitForViewerInteractive,openAnnotationsTab, saveViaVisibleToolbar,
+    openPdfInApp,
+    waitForPdfLoaded,
+    waitForViewerInteractive,
+    openAnnotationsTab,
+    saveViaVisibleToolbar,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {readWorkspaceStateValues} from '@tests/e2e/electron/helpers/workspaceExpose';
-import {
-    activateMenuItemAsUser, clickAsUser, revealForPointer,
-} from '@tests/e2e/electron/helpers/userInput';
+import {activateMenuItemAsUser, clickAsUser, revealForPointer} from '@tests/e2e/electron/helpers/userInput';
 import {evaluateInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {createCanonicalTextBoxWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
@@ -27,10 +21,7 @@ import {createMultiPageTextFixturePdf} from '@tests/e2e/electron/helpers/fixture
 
 async function highlightedTextPdf(path: string, note = '', flags = 4) {
     const pdf = await PDFDocument.create();
-    const page = pdf.addPage([
-        612,
-        792,
-    ]);
+    const page = pdf.addPage([612, 792]);
     const font = await pdf.embedFont('Helvetica');
     page.drawText('Marked sentence must remain selectable', {
         x: 90,
@@ -44,46 +35,34 @@ async function highlightedTextPdf(path: string, note = '', flags = 4) {
         size: 22,
         font,
     });
-    const annotation = pdf.context.register(pdf.context.obj({
-        Type: PDFName.of('Annot'),
-        Subtype: PDFName.of('Highlight'),
-        P: page.ref,
-        F: PDFNumber.of(flags),
-        NM: PDFHexString.fromText('text-select-highlight'),
-        Rect: [
-            88,
-            516,
-            485,
-            550,
-        ],
-        QuadPoints: [
-            88,
-            550,
-            485,
-            550,
-            88,
-            516,
-            485,
-            516,
-        ],
-        C: [
-            1,
-            0.8,
-            0,
-        ],
-        CA: PDFNumber.of(0.6),
-        Contents: PDFString.of(note),
-    }));
+    const annotation = pdf.context.register(
+        pdf.context.obj({
+            Type: PDFName.of('Annot'),
+            Subtype: PDFName.of('Highlight'),
+            P: page.ref,
+            F: PDFNumber.of(flags),
+            NM: PDFHexString.fromText('text-select-highlight'),
+            Rect: [88, 516, 485, 550],
+            QuadPoints: [88, 550, 485, 550, 88, 516, 485, 516],
+            C: [1, 0.8, 0],
+            CA: PDFNumber.of(0.6),
+            Contents: PDFString.of(note),
+        }),
+    );
     page.node.set(PDFName.of('Annots'), pdf.context.obj([annotation]));
     await writeFile(path, await pdf.save());
 }
 
 async function lineDragPoints(page: Page, text: string) {
     return page.evaluate((expected: string) => {
-        const spans = Array.from(document.querySelectorAll<HTMLElement>('.editor-pane.is-active .textLayer span, .editor-pane.is-active .text-layer span'));
-        const span = spans.find(candidate => candidate.textContent?.includes(expected));
+        const spans = Array.from(
+            document.querySelectorAll<HTMLElement>('.editor-pane.is-active .textLayer span, .editor-pane.is-active .text-layer span'),
+        );
+        const span = spans.find((candidate) => candidate.textContent?.includes(expected));
         const node = span?.firstChild;
-        if (!(node instanceof Text)) throw new Error(`Rendered PDF text was unavailable: ${expected}`);
+        if (!(node instanceof Text)) {
+            throw new Error(`Rendered PDF text was unavailable: ${expected}`);
+        }
         const start = node.textContent!.indexOf(expected);
         const range = document.createRange();
         range.setStart(node, start);
@@ -128,31 +107,36 @@ async function readImportedHighlight(path: string) {
     const bytes = await readFile(path);
     const pdf = await PDFDocument.load(bytes);
     const refs = pdf.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray).asArray();
-    const ref = refs.find(value => pdf.context.lookup(value, PDFDict)
-        .get(PDFName.of('Subtype'))?.toString() === '/Highlight');
-    if (!(ref instanceof PDFRef)) throw new Error('The fixture has no referenced highlight');
+    const ref = refs.find((value) => pdf.context.lookup(value, PDFDict).get(PDFName.of('Subtype'))?.toString() === '/Highlight');
+    if (!(ref instanceof PDFRef)) {
+        throw new Error('The fixture has no referenced highlight');
+    }
     const dictionary = pdf.context.lookup(ref, PDFDict);
-    const objectBytes = [...bytes.toString('latin1').matchAll(new RegExp(
-        `${ref.objectNumber} ${ref.generationNumber} obj[\\s\\S]*?endobj`, 'gu',
-    ))].at(-1)?.[0];
-    if (!objectBytes) throw new Error('The highlight object bytes are missing');
+    const objectBytes = [
+        ...bytes.toString('latin1').matchAll(new RegExp(`${ref.objectNumber} ${ref.generationNumber} obj[\\s\\S]*?endobj`, 'gu')),
+    ].at(-1)?.[0];
+    if (!objectBytes) {
+        throw new Error('The highlight object bytes are missing');
+    }
     return {
         dictionary: dictionary.toString(),
         objectBytes,
-        rect: dictionary.lookup(PDFName.of('Rect'), PDFArray).asArray()
-            .map(value => pdf.context.lookup(value, PDFNumber).asNumber()),
+        rect: dictionary
+            .lookup(PDFName.of('Rect'), PDFArray)
+            .asArray()
+            .map((value) => pdf.context.lookup(value, PDFNumber).asNumber()),
         flags: dictionary.lookup(PDFName.of('F'), PDFNumber).asNumber(),
     };
 }
 
 async function importedHighlightRegion(page: Page) {
-    return page.$eval('.editor-pane.is-active .page_container[data-page="1"] canvas', element => {
+    return page.$eval('.editor-pane.is-active .page_container[data-page="1"] canvas', (element) => {
         const rect = element.getBoundingClientRect();
         return {
-            x: rect.left + rect.width * 80 / 612,
-            y: rect.top + rect.height * (792 - 585) / 792,
-            width: rect.width * (360 - 80) / 612,
-            height: rect.height * (585 - 550) / 792,
+            x: rect.left + (rect.width * 80) / 612,
+            y: rect.top + (rect.height * (792 - 585)) / 792,
+            width: (rect.width * (360 - 80)) / 612,
+            height: (rect.height * (585 - 550)) / 792,
         };
     });
 }
@@ -160,101 +144,120 @@ async function importedHighlightRegion(page: Page) {
 async function importedHighlightPixels(page: Page, screenshotPath: string) {
     const region = await importedHighlightRegion(page);
     const bytes = await page.screenshot({path: screenshotPath});
-    return page.evaluate(async ({
-        data, region,
-    }) => {
-        const image = new Image();
-        image.src = `data:image/png;base64,${data}`;
-        await image.decode();
-        const canvas = new OffscreenCanvas(image.naturalWidth, image.naturalHeight);
-        const context = canvas.getContext('2d')!;
-        context.drawImage(image, 0, 0);
-        const pixels = context.getImageData(
-            Math.ceil(region.x), Math.ceil(region.y), Math.floor(region.width), Math.floor(region.height),
-        ).data;
-        let yellow = 0;
-        for (let index = 0; index < pixels.length; index += 4) {
-            if (pixels[index]! > 180 && pixels[index + 1]! > 140 && pixels[index + 2]! < 160
-                && pixels[index]! > pixels[index + 2]! + 60) yellow += 1;
-        }
-        return yellow;
-    }, {
-        data: Buffer.from(bytes).toString('base64'),
-        region,
-    });
+    return page.evaluate(
+        async ({data, region}) => {
+            const image = new Image();
+            image.src = `data:image/png;base64,${data}`;
+            await image.decode();
+            const canvas = new OffscreenCanvas(image.naturalWidth, image.naturalHeight);
+            const context = canvas.getContext('2d')!;
+            context.drawImage(image, 0, 0);
+            const pixels = context.getImageData(
+                Math.ceil(region.x),
+                Math.ceil(region.y),
+                Math.floor(region.width),
+                Math.floor(region.height),
+            ).data;
+            let yellow = 0;
+            for (let index = 0; index < pixels.length; index += 4) {
+                if (
+                    pixels[index]! > 180 &&
+                    pixels[index + 1]! > 140 &&
+                    pixels[index + 2]! < 160 &&
+                    pixels[index]! > pixels[index + 2]! + 60
+                ) {
+                    yellow += 1;
+                }
+            }
+            return yellow;
+        },
+        {
+            data: Buffer.from(bytes).toString('base64'),
+            region,
+        },
+    );
 }
 
 describe('Electron E2E - Text Select over existing highlight', () => {
     const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-text-select-highlight-${Date.now()}`});
 
-    it.each([
-        68,
-        644,
-    ])('keeps restricted highlight flags %i foreign and preserves its contents on Save', async flags => {
-        const {page} = sessions.getSession();
-        const directory = await mkdtemp(join(tmpdir(), 'evb-restricted-highlight-'));
-        onTestFinished(() => rm(directory, {
-            recursive: true,
-            force: true,
-        }));
-        const path = join(directory, 'restricted.pdf');
-        await highlightedTextPdf(path, 'Locked note', flags);
-        const contents = async () => {
-            const pdf = await PDFDocument.load(await readFile(path));
-            const annots = pdf.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
-            const highlight = annots.asArray().map(ref => pdf.context.lookup(ref, PDFDict))
-                .find(dict => dict.get(PDFName.of('Subtype'))?.toString() === '/Highlight')!;
-            return {
-                bytes: Array.from(highlight.lookup(PDFName.of('Contents'), PDFString).asBytes()),
-                flags: highlight.lookup(PDFName.of('F'), PDFNumber).asNumber(),
+    it.each([68, 644])(
+        'keeps restricted highlight flags %i foreign and preserves its contents on Save',
+        async (flags) => {
+            const {page} = sessions.getSession();
+            const directory = await mkdtemp(join(tmpdir(), 'evb-restricted-highlight-'));
+            onTestFinished(() =>
+                rm(directory, {
+                    recursive: true,
+                    force: true,
+                }),
+            );
+            const path = join(directory, 'restricted.pdf');
+            await highlightedTextPdf(path, 'Locked note', flags);
+            const contents = async () => {
+                const pdf = await PDFDocument.load(await readFile(path));
+                const annots = pdf.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+                const highlight = annots
+                    .asArray()
+                    .map((ref) => pdf.context.lookup(ref, PDFDict))
+                    .find((dict) => dict.get(PDFName.of('Subtype'))?.toString() === '/Highlight')!;
+                return {
+                    bytes: Array.from(highlight.lookup(PDFName.of('Contents'), PDFString).asBytes()),
+                    flags: highlight.lookup(PDFName.of('F'), PDFNumber).asNumber(),
+                };
             };
-        };
-        const before = await contents();
-        await openPdfInApp(page, path);
-        await waitForPdfLoaded(page);
-        await waitForViewerInteractive(page);
-        await openAnnotationsTab(page);
-        await clickAsUser(page, '.notes-panel .tool-button[data-tool="select"]');
-        await page.waitForSelector('.editor-pane.is-active .textLayer span, .editor-pane.is-active .text-layer span');
-        const {start} = await lineDragPoints(page, 'Marked sentence must remain selectable');
-        await page.mouse.click(start.x, start.y, {count: 2});
-        await page.evaluate(async () => {
-            await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-        });
-        expect(await page.$$('textarea.note-window__textarea:not([readonly]):not([disabled])')).toHaveLength(0);
-        expect(await page.$$('.editor-pane.is-active [data-annotation-kind="text-markup"]')).toHaveLength(0);
-        const yellowPixels = await page.$eval('.editor-pane.is-active .page_container[data-page="1"] canvas', element => {
-            if (!(element instanceof HTMLCanvasElement)) throw new Error('Page canvas is missing');
-            const {data} = element.getContext('2d')!.getImageData(0, 0, element.width, element.height);
-            let yellow = 0;
-            for (let index = 0; index < data.length; index += 4) {
-                if (data[index]! > 180 && data[index + 1]! > 140 && data[index + 2]! < 160
-                    && data[index]! > data[index + 2]! + 60) yellow += 1;
-            }
-            return yellow;
-        });
-        expect(yellowPixels).toBeGreaterThan(1_000);
-        await createCanonicalTextBoxWithPointer(page, 'Unrelated saved edit', {
-            x: 0.2,
-            y: 0.65,
-        });
-        await saveViaVisibleToolbar(page, 30_000, path);
-        expect(await contents()).toEqual(before);
-        const artifacts = join('.devkit', 'artifacts', `restricted-highlight-${flags}-${Date.now()}`);
-        await mkdir(artifacts, {recursive: true});
-        await copyFile(path, join(artifacts, 'saved.pdf'));
-        await page.screenshot({path: join(artifacts, 'restricted-highlight.png')});
-        console.log(`RESTRICTED_HIGHLIGHT_EVIDENCE ${artifacts}`);
-    }, 90_000);
-
+            const before = await contents();
+            await openPdfInApp(page, path);
+            await waitForPdfLoaded(page);
+            await waitForViewerInteractive(page);
+            await openAnnotationsTab(page);
+            await clickAsUser(page, '.notes-panel .tool-button[data-tool="select"]');
+            await page.waitForSelector('.editor-pane.is-active .textLayer span, .editor-pane.is-active .text-layer span');
+            const {start} = await lineDragPoints(page, 'Marked sentence must remain selectable');
+            await page.mouse.click(start.x, start.y, {count: 2});
+            await page.evaluate(async () => {
+                await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+            });
+            expect(await page.$$('textarea.note-window__textarea:not([readonly]):not([disabled])')).toHaveLength(0);
+            expect(await page.$$('.editor-pane.is-active [data-annotation-kind="text-markup"]')).toHaveLength(0);
+            const yellowPixels = await page.$eval('.editor-pane.is-active .page_container[data-page="1"] canvas', (element) => {
+                if (!(element instanceof HTMLCanvasElement)) {
+                    throw new Error('Page canvas is missing');
+                }
+                const {data} = element.getContext('2d')!.getImageData(0, 0, element.width, element.height);
+                let yellow = 0;
+                for (let index = 0; index < data.length; index += 4) {
+                    if (data[index]! > 180 && data[index + 1]! > 140 && data[index + 2]! < 160 && data[index]! > data[index + 2]! + 60) {
+                        yellow += 1;
+                    }
+                }
+                return yellow;
+            });
+            expect(yellowPixels).toBeGreaterThan(1_000);
+            await createCanonicalTextBoxWithPointer(page, 'Unrelated saved edit', {
+                x: 0.2,
+                y: 0.65,
+            });
+            await saveViaVisibleToolbar(page, 30_000, path);
+            expect(await contents()).toEqual(before);
+            const artifacts = join('.devkit', 'artifacts', `restricted-highlight-${flags}-${Date.now()}`);
+            await mkdir(artifacts, {recursive: true});
+            await copyFile(path, join(artifacts, 'saved.pdf'));
+            await page.screenshot({path: join(artifacts, 'restricted-highlight.png')});
+            console.log(`RESTRICTED_HIGHLIGHT_EVIDENCE ${artifacts}`);
+        },
+        90_000,
+    );
 
     it('keeps a NoView highlight hidden with no editable hit target', async () => {
         const {page} = sessions.getSession();
         const directory = await mkdtemp(join(tmpdir(), 'evb-noview-highlight-'));
-        onTestFinished(() => rm(directory, {
-            recursive: true,
-            force: true,
-        }));
+        onTestFinished(() =>
+            rm(directory, {
+                recursive: true,
+                force: true,
+            }),
+        );
         const path = join(directory, 'noview.pdf');
         await copyFile(resolve('tests/fixtures/electron/restricted-markup/Highlight-36.pdf'), path);
         const before = await readImportedHighlight(path);
@@ -272,7 +275,9 @@ describe('Electron E2E - Text Select over existing highlight', () => {
         await page.mouse.click(region.x + region.width / 2, region.y + region.height / 2, {count: 2});
         const markup = '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-markup"]';
         const canonicalMarks = await page.$$(markup);
-        if (canonicalMarks.length) await page.waitForSelector('textarea.note-window__textarea', {visible: true});
+        if (canonicalMarks.length) {
+            await page.waitForSelector('textarea.note-window__textarea', {visible: true});
+        }
         const writable = await page.$$('textarea.note-window__textarea:not([readonly]):not([disabled])');
         await page.screenshot({path: join(artifacts, 'after-double-click.png')});
         console.log('NOVIEW_HIGHLIGHT', {
@@ -296,10 +301,12 @@ describe('Electron E2E - Text Select over existing highlight', () => {
     it('keeps a Locked highlight unchanged after arrow keys and Save', async () => {
         const {page} = sessions.getSession();
         const directory = await mkdtemp(join(tmpdir(), 'evb-locked-highlight-'));
-        onTestFinished(() => rm(directory, {
-            recursive: true,
-            force: true,
-        }));
+        onTestFinished(() =>
+            rm(directory, {
+                recursive: true,
+                force: true,
+            }),
+        );
         const path = join(directory, 'locked.pdf');
         await copyFile(resolve('tests/fixtures/electron/restricted-markup/Highlight-132.pdf'), path);
         const before = await readImportedHighlight(path);
@@ -317,7 +324,7 @@ describe('Electron E2E - Text Select over existing highlight', () => {
         const canonical = await page.$(markup);
         if (canonical) {
             await clickAsUser(page, canonical);
-            await page.waitForFunction(selector => document.querySelector(selector)?.classList.contains('is-selected'), {}, markup);
+            await page.waitForFunction((selector) => document.querySelector(selector)?.classList.contains('is-selected'), {}, markup);
         } else {
             const region = await importedHighlightRegion(page);
             await page.mouse.click(region.x + region.width / 2, region.y + region.height / 2);
@@ -341,12 +348,7 @@ describe('Electron E2E - Text Select over existing highlight', () => {
             dirtyAfterArrows,
             artifacts,
         });
-        expect(saved.rect).toEqual([
-            80,
-            550,
-            360,
-            585,
-        ]);
+        expect(saved.rect).toEqual([80, 550, 360, 585]);
         expect(saved.flags).toBe(132);
         expect(saved).toEqual(before);
         expect(dirtyAfterArrows, 'arrow keys cannot edit a foreign Locked highlight').toBe(false);
@@ -357,25 +359,31 @@ describe('Electron E2E - Text Select over existing highlight', () => {
         const {page} = sessions.getSession();
         const directory = await mkdtemp(join(tmpdir(), 'evb-text-select-highlight-'));
         const path = join(directory, 'highlight.pdf');
-        onTestFinished(() => rm(directory, {
-            recursive: true,
-            force: true,
-        }));
+        onTestFinished(() =>
+            rm(directory, {
+                recursive: true,
+                force: true,
+            }),
+        );
         await highlightedTextPdf(path);
         await openPdfInApp(page, path);
         await waitForPdfLoaded(page);
         await waitForViewerInteractive(page);
-        expect(await page.$eval('.editor-pane.is-active .pdfViewer', element => element.classList.contains('is-text-selection-mode')))
-            .toBe(true);
+        expect(
+            await page.$eval('.editor-pane.is-active .pdfViewer', (element) => element.classList.contains('is-text-selection-mode')),
+        ).toBe(true);
         await page.waitForSelector('.page_container[data-page="1"] .textLayer span, .page_container[data-page="1"] .text-layer span');
-        await page.waitForSelector('.page_container[data-page="1"] .highlightAnnotation, .page_container[data-page="1"] [data-annotation-kind="text-markup"]');
+        await page.waitForSelector(
+            '.page_container[data-page="1"] .highlightAnnotation, .page_container[data-page="1"] [data-annotation-kind="text-markup"]',
+        );
 
         const positiveControl = await drag(page, await lineDragPoints(page, 'Unmarked sentence selects normally'));
         expect(positiveControl).toContain('Unmarked sentence selects normally');
         await page.evaluate(() => document.getSelection()?.removeAllRanges());
 
-        const highlight = '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-text-markup path[data-annotation-visual]';
-        const before = await page.$eval(highlight, element => {
+        const highlight =
+            '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-text-markup path[data-annotation-visual]';
+        const before = await page.$eval(highlight, (element) => {
             const rect = element.getBoundingClientRect();
             return {
                 x: rect.x,
@@ -387,7 +395,7 @@ describe('Electron E2E - Text Select over existing highlight', () => {
         const beforeDirty = await readWorkspaceStateValues<{dirtyState: {hasPendingUnsavedChanges: boolean}}>(page, ['dirtyState']);
         expect(beforeDirty.dirtyState.hasPendingUnsavedChanges).toBe(false);
         const selected = await drag(page, await lineDragPoints(page, 'Marked sentence must remain selectable'));
-        const after = await page.$eval(highlight, element => {
+        const after = await page.$eval(highlight, (element) => {
             const rect = element.getBoundingClientRect();
             return {
                 x: rect.x,
@@ -397,14 +405,16 @@ describe('Electron E2E - Text Select over existing highlight', () => {
             };
         });
         const afterDirty = await readWorkspaceStateValues<{dirtyState: {hasPendingUnsavedChanges: boolean}}>(page, ['dirtyState']);
-        console.log(`TEXT_SELECT_HIGHLIGHT ${JSON.stringify({
-            positiveControl,
-            selected,
-            before,
-            after,
-            dirtyBefore: beforeDirty.dirtyState.hasPendingUnsavedChanges,
-            dirtyAfter: afterDirty.dirtyState.hasPendingUnsavedChanges,
-        })}`);
+        console.log(
+            `TEXT_SELECT_HIGHLIGHT ${JSON.stringify({
+                positiveControl,
+                selected,
+                before,
+                after,
+                dirtyBefore: beforeDirty.dirtyState.hasPendingUnsavedChanges,
+                dirtyAfter: afterDirty.dirtyState.hasPendingUnsavedChanges,
+            })}`,
+        );
         expect(selected).toContain('Marked sentence must remain selectable');
         expect(after).toEqual(before);
         expect(afterDirty.dirtyState.hasPendingUnsavedChanges).toBe(false);
@@ -412,14 +422,13 @@ describe('Electron E2E - Text Select over existing highlight', () => {
     it('opens the existing or empty highlight note on double-click and reuses its window', async () => {
         const {page} = sessions.getSession();
         const directory = await mkdtemp(join(tmpdir(), 'evb-highlight-note-'));
-        onTestFinished(() => rm(directory, {
-            recursive: true,
-            force: true,
-        }));
-        for (const note of [
-            'Existing highlight note',
-            '',
-        ]) {
+        onTestFinished(() =>
+            rm(directory, {
+                recursive: true,
+                force: true,
+            }),
+        );
+        for (const note of ['Existing highlight note', '']) {
             const path = join(directory, note ? 'with-note.pdf' : 'empty-note.pdf');
             await highlightedTextPdf(path, note);
             await openPdfInApp(page, path);
@@ -442,15 +451,17 @@ describe('Electron E2E - Text Select over existing highlight', () => {
                 visible: true,
                 timeout: 10_000,
             });
-            expect(await page.$eval(editor, element => element.value)).toBe(note);
+            expect(await page.$eval(editor, (element) => element.value)).toBe(note);
             expect(await page.$$(editor)).toHaveLength(1);
             // The open note covers the highlight's centre. Double-click its
             // exposed edge, checking the actual hit before trusted input.
-            const exposedPoint = await page.$eval(hitTarget, element => {
+            const exposedPoint = await page.$eval(hitTarget, (element) => {
                 const rect = element.getBoundingClientRect();
                 const x = rect.right - 4;
                 const y = rect.top + rect.height / 2;
-                if (!element.contains(document.elementFromPoint(x, y))) throw new Error('Highlight edge is covered');
+                if (!element.contains(document.elementFromPoint(x, y))) {
+                    throw new Error('Highlight edge is covered');
+                }
                 return {
                     x,
                     y,
@@ -458,24 +469,26 @@ describe('Electron E2E - Text Select over existing highlight', () => {
             });
             await page.mouse.click(exposedPoint.x, exposedPoint.y, {count: 2});
             expect(await page.$$(editor)).toHaveLength(1);
-            expect(await page.$eval(editor, element => element.value)).toBe(note);
+            expect(await page.$eval(editor, (element) => element.value)).toBe(note);
             if (!note) {
                 await clickAsUser(page, editor);
                 await page.keyboard.type('Note attached to this highlight');
-                await expect.poll(() => page.$eval(editor, element => element.value)).toBe('Note attached to this highlight');
+                await expect.poll(() => page.$eval(editor, (element) => element.value)).toBe('Note attached to this highlight');
             }
             await clickAsUser(page, '.note-window__close');
             await page.waitForFunction(() => !document.querySelector('textarea.note-window__textarea'));
             await clickAsUser(page, hitTarget, {count: 2});
             await page.waitForSelector(editor, {visible: true});
-            expect(await page.$eval(editor, element => element.value)).toBe(note || 'Note attached to this highlight');
+            expect(await page.$eval(editor, (element) => element.value)).toBe(note || 'Note attached to this highlight');
             expect(await page.$$(editor)).toHaveLength(1);
             await clickAsUser(page, '.note-window__close');
-            console.log(`HIGHLIGHT_NOTE ${JSON.stringify({
-                note,
-                oneWindow: true,
-                pressSelected: true,
-            })}`);
+            console.log(
+                `HIGHLIGHT_NOTE ${JSON.stringify({
+                    note,
+                    oneWindow: true,
+                    pressSelected: true,
+                })}`,
+            );
         }
     }, 90_000);
 
@@ -486,10 +499,10 @@ describe('Electron E2E - Text Select over existing highlight', () => {
         await waitForViewerInteractive(page);
         await page.waitForSelector('.page_container[data-page="1"] [data-annotation-hit-target]');
         const points = await lineDragPoints(page, 'Hello');
-        const stackedTargets = await page.evaluate(({
-            x, y,
-        }) => document.elementsFromPoint(x, y)
-            .filter(element => element.hasAttribute('data-annotation-hit-target')).length, points.start);
+        const stackedTargets = await page.evaluate(
+            ({x, y}) => document.elementsFromPoint(x, y).filter((element) => element.hasAttribute('data-annotation-hit-target')).length,
+            points.start,
+        );
         expect(stackedTargets).toBeGreaterThan(1);
         await page.evaluate(() => navigator.clipboard.writeText('selection-sentinel'));
         const cdp = await page.createCDPSession();
@@ -510,7 +523,7 @@ describe('Electron E2E - Text Select over existing highlight', () => {
             for (let step = 1; step <= 12; step += 1) {
                 await cdp.send('Input.dispatchMouseEvent', {
                     type: 'mouseMoved',
-                    x: points.start.x + (points.end.x - points.start.x) * step / 12,
+                    x: points.start.x + ((points.end.x - points.start.x) * step) / 12,
                     y: points.start.y,
                     button: 'left',
                     buttons: 1,
@@ -530,11 +543,13 @@ describe('Electron E2E - Text Select over existing highlight', () => {
         await pressCopy(page);
         await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('Hello');
         const copied = await page.evaluate(() => navigator.clipboard.readText());
-        console.log(`STACKED_HIGHLIGHT_SELECTION ${JSON.stringify({
-            stackedTargets,
-            selected,
-            copied,
-        })}`);
+        console.log(
+            `STACKED_HIGHLIGHT_SELECTION ${JSON.stringify({
+                stackedTargets,
+                selected,
+                copied,
+            })}`,
+        );
         expect(selected).toBe('Hello');
         expect(copied).toBe('Hello');
     }, 90_000);
@@ -549,8 +564,8 @@ describe('Electron E2E - Text Select over existing highlight', () => {
         await page.waitForSelector('.editor-pane.is-active .page_container[data-page="1"] .text-layer[data-pdf-text-layer-ready="true"]');
         await waitForViewportQuiet(page);
         // From just inside the first line's box to just inside the end of the second.
-        const points = await page.$$eval('.editor-pane.is-active .page_container[data-page="1"] .text-layer span', spans => {
-            const [firstBox, secondBox] = spans.map(span => span.getBoundingClientRect());
+        const points = await page.$$eval('.editor-pane.is-active .page_container[data-page="1"] .text-layer span', (spans) => {
+            const [firstBox, secondBox] = spans.map((span) => span.getBoundingClientRect());
             return {
                 start: {
                     x: firstBox!.left + 1,
@@ -577,15 +592,16 @@ describe('Electron E2E - Text Select over existing highlight', () => {
         await clickAsUser(page, '.annotation-context-menu button.pdf-context-menu__action:first-of-type');
         await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).not.toBe('selection-sentinel');
         const copiedFromMenu = await page.evaluate(() => navigator.clipboard.readText());
-        console.log(`TWO_LINE_COPY ${JSON.stringify({
-            selected,
-            copied,
-            copiedFromMenu,
-        })}`);
+        console.log(
+            `TWO_LINE_COPY ${JSON.stringify({
+                selected,
+                copied,
+                copiedFromMenu,
+            })}`,
+        );
         expect(copied).toBe(`${first}\n${second}`);
         expect(copiedFromMenu).toBe(`${first}\n${second}`);
     }, 90_000);
-
 });
 
 describe('Electron E2E - Touch selection and native panning over highlights', () => {
@@ -594,15 +610,14 @@ describe('Electron E2E - Touch selection and native panning over highlights', ()
     it('selects the whole touch drag, keeps highlight taps, and pans without selecting text', async () => {
         const {page} = sessions.getSession();
         const directory = await mkdtemp(join(tmpdir(), 'evb-touch-highlight-'));
-        onTestFinished(() => rm(directory, {
-            recursive: true,
-            force: true,
-        }));
+        onTestFinished(() =>
+            rm(directory, {
+                recursive: true,
+                force: true,
+            }),
+        );
         const pdf = await PDFDocument.create();
-        const pdfPage = pdf.addPage([
-            500,
-            900,
-        ]);
+        const pdfPage = pdf.addPage([500, 900]);
         const font = await pdf.embedFont('Helvetica');
         pdfPage.drawText('Alpha bravo charlie delta', {
             x: 60,
@@ -616,36 +631,22 @@ describe('Electron E2E - Touch selection and native panning over highlights', ()
             size: 20,
             font,
         });
-        const marks = Array.from({length: 3}, (_, index) => pdf.context.register(pdf.context.obj({
-            Type: PDFName.of('Annot'),
-            Subtype: PDFName.of('Highlight'),
-            P: pdfPage.ref,
-            F: 4,
-            NM: PDFHexString.fromText(`touch-highlight-${index}`),
-            Rect: [
-                58,
-                656,
-                410,
-                683,
-            ],
-            QuadPoints: [
-                58,
-                683,
-                410,
-                683,
-                58,
-                656,
-                410,
-                656,
-            ],
-            C: [
-                1,
-                0.8,
-                0,
-            ],
-            CA: 0.5,
-            Contents: PDFString.of(''),
-        })));
+        const marks = Array.from({length: 3}, (_, index) =>
+            pdf.context.register(
+                pdf.context.obj({
+                    Type: PDFName.of('Annot'),
+                    Subtype: PDFName.of('Highlight'),
+                    P: pdfPage.ref,
+                    F: 4,
+                    NM: PDFHexString.fromText(`touch-highlight-${index}`),
+                    Rect: [58, 656, 410, 683],
+                    QuadPoints: [58, 683, 410, 683, 58, 656, 410, 656],
+                    C: [1, 0.8, 0],
+                    CA: 0.5,
+                    Contents: PDFString.of(''),
+                }),
+            ),
+        );
         pdfPage.node.set(PDFName.of('Annots'), pdf.context.obj(marks));
         const path = join(directory, 'touch-highlight.pdf');
         await writeFile(path, await pdf.save());
@@ -654,41 +655,50 @@ describe('Electron E2E - Touch selection and native panning over highlights', ()
         await waitForViewerInteractive(page);
         await page.waitForSelector('[data-annotation-kind="text-markup"] [data-annotation-hit-target]');
         const points = await lineDragPoints(page, 'Alpha');
-        expect(await page.evaluate(({
-            x, y,
-        }) => document.elementsFromPoint(x, y)
-            .filter(element => element.hasAttribute('data-annotation-hit-target')).length, points.start)).toBe(3);
+        expect(
+            await page.evaluate(
+                ({x, y}) => document.elementsFromPoint(x, y).filter((element) => element.hasAttribute('data-annotation-hit-target')).length,
+                points.start,
+            ),
+        ).toBe(3);
         const cdp = await page.createCDPSession();
         const cancellations: string[] = [];
         await page.exposeFunction('recordTouchCancel', (pointerType: string) => cancellations.push(pointerType));
         await page.evaluate(() => {
-            document.addEventListener('pointercancel', event => {
+            document.addEventListener('pointercancel', (event) => {
                 const record = Reflect.get(window, 'recordTouchCancel') as (pointerType: string) => void;
                 record(event.pointerType);
             });
         });
-        async function touchDrag(start: {
-            x: number;
-            y: number
-        }, end: {
-            x: number;
-            y: number
-        }) {
+        async function touchDrag(
+            start: {
+                x: number;
+                y: number;
+            },
+            end: {
+                x: number;
+                y: number;
+            },
+        ) {
             await cdp.send('Input.dispatchTouchEvent', {
                 type: 'touchStart',
-                touchPoints: [{
-                    ...start,
-                    id: 1,
-                }],
+                touchPoints: [
+                    {
+                        ...start,
+                        id: 1,
+                    },
+                ],
             });
             for (let step = 1; step <= 12; step += 1) {
                 await cdp.send('Input.dispatchTouchEvent', {
                     type: 'touchMove',
-                    touchPoints: [{
-                        x: start.x + (end.x - start.x) * step / 12,
-                        y: start.y + (end.y - start.y) * step / 12,
-                        id: 1,
-                    }],
+                    touchPoints: [
+                        {
+                            x: start.x + ((end.x - start.x) * step) / 12,
+                            y: start.y + ((end.y - start.y) * step) / 12,
+                            id: 1,
+                        },
+                    ],
                 });
             }
             await cdp.send('Input.dispatchTouchEvent', {
@@ -705,31 +715,34 @@ describe('Electron E2E - Touch selection and native panning over highlights', ()
             const selected = await page.evaluate(() => document.getSelection()?.toString() ?? '');
             const selectionCancellations = [...cancellations];
             const layer = '.editor-pane.is-active .pdf-annotation-editor-layer';
-            const selecting = await page.$$eval(`${layer}.is-text-selecting`, elements => elements.length);
+            const selecting = await page.$$eval(`${layer}.is-text-selecting`, (elements) => elements.length);
             await page.evaluate(() => document.getSelection()?.removeAllRanges());
             // Setup a fresh tap target through ordinary trusted input.
             await page.mouse.click(740, 440);
             await cdp.send('Input.dispatchTouchEvent', {
                 type: 'touchStart',
-                touchPoints: [{
-                    ...points.start,
-                    id: 1,
-                }],
+                touchPoints: [
+                    {
+                        ...points.start,
+                        id: 1,
+                    },
+                ],
             });
             await cdp.send('Input.dispatchTouchEvent', {
                 type: 'touchEnd',
                 touchPoints: [],
             });
-            const tapped = await page.$$eval('[data-annotation-kind="text-markup"].is-selected', elements => elements.length);
+            const tapped = await page.$$eval('[data-annotation-kind="text-markup"].is-selected', (elements) => elements.length);
             const pageSelector = '.editor-pane.is-active .page_container[data-page="1"]';
-            const beforePan = await page.$eval(pageSelector, element => element.getBoundingClientRect().top);
+            const beforePan = await page.$eval(pageSelector, (element) => element.getBoundingClientRect().top);
             await touchDrag(points.start, {
                 x: points.start.x,
                 y: points.start.y - 100,
             });
-            await expect.poll(() => page.$eval(pageSelector, element => element.getBoundingClientRect().top))
+            await expect
+                .poll(() => page.$eval(pageSelector, (element) => element.getBoundingClientRect().top))
                 .toBeLessThan(beforePan - 30);
-            const afterPan = await page.$eval(pageSelector, element => element.getBoundingClientRect().top);
+            const afterPan = await page.$eval(pageSelector, (element) => element.getBoundingClientRect().top);
             const panSelection = await page.evaluate(() => document.getSelection()?.toString() ?? '');
             const plain = await lineDragPoints(page, 'Plain control');
             const beforePlainPan = afterPan;
@@ -737,19 +750,22 @@ describe('Electron E2E - Touch selection and native panning over highlights', ()
                 x: plain.start.x,
                 y: plain.start.y - 100,
             });
-            await expect.poll(() => page.$eval(pageSelector, element => element.getBoundingClientRect().top))
+            await expect
+                .poll(() => page.$eval(pageSelector, (element) => element.getBoundingClientRect().top))
                 .toBeLessThan(beforePlainPan - 30);
-            const afterPlainPan = await page.$eval(pageSelector, element => element.getBoundingClientRect().top);
-            console.log(`TOUCH_HIGHLIGHT_SELECTION ${JSON.stringify({
-                selected,
-                selectionCancellations,
-                selecting,
-                tapped,
-                beforePan,
-                afterPan,
-                afterPlainPan,
-                panSelection,
-            })}`);
+            const afterPlainPan = await page.$eval(pageSelector, (element) => element.getBoundingClientRect().top);
+            console.log(
+                `TOUCH_HIGHLIGHT_SELECTION ${JSON.stringify({
+                    selected,
+                    selectionCancellations,
+                    selecting,
+                    tapped,
+                    beforePan,
+                    afterPan,
+                    afterPlainPan,
+                    panSelection,
+                })}`,
+            );
             expect(selected).toBe('Alpha');
             expect(selectionCancellations).toEqual([]);
             expect(selecting).toBe(0);

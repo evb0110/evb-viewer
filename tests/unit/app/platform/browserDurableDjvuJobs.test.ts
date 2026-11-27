@@ -1,16 +1,7 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { BrowserDurableDjvuJobs } from '@app/platform/browser-api/browserDurableDjvuJobs';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {BrowserDurableDjvuJobs} from '@app/platform/browser-api/browserDurableDjvuJobs';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
-import {
-    requireJobId,
-    requireRequestId,
-} from '@contracts/shared';
+import {requireJobId, requireRequestId} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
 
 function installNumericTimerHarness() {
@@ -238,7 +229,7 @@ describe('BrowserDurableDjvuJobs', () => {
             expect(() => jobs.awaitConvert(outcome.jobId)).toThrow('Unknown browser DjVu conversion job');
 
             timers.run(timerId);
-            expect(timers.clearedTimerIds.filter(id => id === timerId)).toHaveLength(1);
+            expect(timers.clearedTimerIds.filter((id) => id === timerId)).toHaveLength(1);
         }
     });
 
@@ -277,10 +268,7 @@ describe('BrowserDurableDjvuJobs', () => {
         });
         const staleTimerId = timers.latestTimerId;
 
-        for (const jobId of [
-            requireJobId('numeric-evict-1'),
-            requireJobId('numeric-evict-2'),
-        ]) {
+        for (const jobId of [requireJobId('numeric-evict-1'), requireJobId('numeric-evict-2')]) {
             jobs.startConvert(jobId, requireRequestId(jobId), async () => ({success: true}));
             await jobs.awaitConvert(jobId);
         }
@@ -311,23 +299,21 @@ describe('BrowserDurableDjvuJobs', () => {
 
         timers.run(currentTimerId);
         expect(jobs.getState(reusedJobId)).toBeNull();
-        expect(timers.clearedTimerIds.filter(id => id === staleTimerId)).toHaveLength(1);
-        expect(timers.clearedTimerIds.filter(id => id === currentTimerId)).toHaveLength(1);
+        expect(timers.clearedTimerIds.filter((id) => id === staleTimerId)).toHaveLength(1);
+        expect(timers.clearedTimerIds.filter((id) => id === currentTimerId)).toHaveLength(1);
     });
 
     it('bounds retained terminal jobs without evicting active work', async () => {
-        let resolveActive!: (result: {
-            success: true;
-            pageCount: number
-        }) => void;
-        jobs.startOpen(requireJobId('active'), requireRequestId('request-active'), () => new Promise((resolve) => {
-            resolveActive = resolve;
-        }));
-        for (const jobId of [
-            requireJobId('finished-1'),
-            requireJobId('finished-2'),
-            requireJobId('finished-3'),
-        ]) {
+        let resolveActive!: (result: {success: true; pageCount: number}) => void;
+        jobs.startOpen(
+            requireJobId('active'),
+            requireRequestId('request-active'),
+            () =>
+                new Promise((resolve) => {
+                    resolveActive = resolve;
+                }),
+        );
+        for (const jobId of [requireJobId('finished-1'), requireJobId('finished-2'), requireJobId('finished-3')]) {
             jobs.startOpen(jobId, requireRequestId(`request-${jobId}`), async () => ({
                 success: true,
                 pageCount: 1,

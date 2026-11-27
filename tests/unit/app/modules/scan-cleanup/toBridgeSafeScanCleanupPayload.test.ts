@@ -1,13 +1,6 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    reactive,
-    readonly,
-} from 'vue';
-import { toBridgeSafeScanCleanupPayload } from '@app/modules/scan-cleanup/runtime/toBridgeSafeScanCleanupPayload';
+import {describe, expect, it} from 'vitest';
+import {reactive, readonly} from 'vue';
+import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/toBridgeSafeScanCleanupPayload';
 
 describe('toBridgeSafeScanCleanupPayload', () => {
     it('rebuilds reactive payloads as structured-cloneable plain data', () => {
@@ -41,23 +34,14 @@ describe('toBridgeSafeScanCleanupPayload', () => {
 
     it('converts reactive Maps and Sets and drops undefined values', () => {
         const safe = toBridgeSafeScanCleanupPayload({
-            classifications: reactive(new Map([[
-                1,
-                {kind: 'spread'},
-            ]])),
-            pages: new Set([
-                1,
-                2,
-            ]),
+            classifications: reactive(new Map([[1, {kind: 'spread'}]])),
+            pages: new Set([1, 2]),
             skip: undefined,
         });
         expect(() => structuredClone(safe)).not.toThrow();
         expect(safe).toEqual({
             classifications: {'1': {kind: 'spread'}},
-            pages: [
-                1,
-                2,
-            ],
+            pages: [1, 2],
         });
     });
 

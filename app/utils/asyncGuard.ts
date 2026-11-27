@@ -1,6 +1,6 @@
-import { isAbortError } from '@contracts/isAbortError';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { getErrorMessage } from '@app/utils/error';
+import {isAbortError} from '@contracts/isAbortError';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getErrorMessage} from '@app/utils/error';
 
 export type TGuardAsyncCategory = 'background-diagnostic' | 'user-visible-operation';
 
@@ -21,10 +21,7 @@ function isExpectedCancellation(error: unknown, options: IGuardAsyncOptions) {
         return true;
     }
 
-    if (
-        isErrorWithName(error, 'RenderingCancelledException')
-        || isErrorWithName(error, 'AbortException')
-    ) {
+    if (isErrorWithName(error, 'RenderingCancelledException') || isErrorWithName(error, 'AbortException')) {
         return true;
     }
 
@@ -36,10 +33,7 @@ function isExpectedCancellation(error: unknown, options: IGuardAsyncOptions) {
     return false;
 }
 
-function runGuardAsyncErrorHandler(
-    error: unknown,
-    options: IGuardAsyncOptions,
-) {
+function runGuardAsyncErrorHandler(error: unknown, options: IGuardAsyncOptions) {
     if (!options.onError) {
         return;
     }
@@ -47,18 +41,11 @@ function runGuardAsyncErrorHandler(
     try {
         options.onError(error);
     } catch (onErrorError) {
-        BrowserLogger.debug(
-            options.scope,
-            'Async guard onError handler failed',
-            onErrorError,
-        );
+        BrowserLogger.debug(options.scope, 'Async guard onError handler failed', onErrorError);
     }
 }
 
-function logGuardAsyncError(
-    error: unknown,
-    options: IGuardAsyncOptions,
-) {
+function logGuardAsyncError(error: unknown, options: IGuardAsyncOptions) {
     if (isExpectedCancellation(error, options)) {
         BrowserLogger.debug(options.scope, options.message, {
             category: options.category,
@@ -79,26 +66,25 @@ function logGuardAsyncError(
         return;
     }
 
-    BrowserLogger.error(options.scope, options.message, {
-        category: options.category,
-        error,
-    }, {code: 'RENDERER_ASYNC_GUARD_FAILED'});
+    BrowserLogger.error(
+        options.scope,
+        options.message,
+        {
+            category: options.category,
+            error,
+        },
+        {code: 'RENDERER_ASYNC_GUARD_FAILED'},
+    );
 }
 
-export function guardAsync(
-    promise: Promise<unknown>,
-    options: IGuardAsyncOptions,
-) {
+export function guardAsync(promise: Promise<unknown>, options: IGuardAsyncOptions) {
     void promise.catch((error) => {
         runGuardAsyncErrorHandler(error, options);
         logGuardAsyncError(error, options);
     });
 }
 
-export function runGuardedTask(
-    task: () => Promise<unknown>,
-    options: IGuardAsyncOptions,
-) {
+export function runGuardedTask(task: () => Promise<unknown>, options: IGuardAsyncOptions) {
     try {
         guardAsync(task(), options);
     } catch (error) {
@@ -108,10 +94,7 @@ export function runGuardedTask(
 }
 
 /** Runs intentionally unawaited work while keeping failures inside its owning subsystem. */
-export function runDetached(
-    task: () => Promise<unknown>,
-    options: IGuardAsyncOptions,
-): Promise<void> {
+export function runDetached(task: () => Promise<unknown>, options: IGuardAsyncOptions): Promise<void> {
     let pending: Promise<unknown>;
     try {
         pending = task();

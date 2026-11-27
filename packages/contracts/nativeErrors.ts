@@ -1,9 +1,5 @@
 import type {NativeErrorCode} from '@contracts/scan-cleanup/nativeWire.generated';
-import {
-    isOneOf,
-    isRecord,
-    isSuppressedErrorLike,
-} from '@contracts/runtimeGuards';
+import {isOneOf, isRecord, isSuppressedErrorLike} from '@contracts/runtimeGuards';
 import {SERIALIZABLE_ERROR_ENVELOPE_SCHEMA} from '@contracts/serializableError';
 import * as v from 'valibot';
 
@@ -20,7 +16,7 @@ export const NATIVE_ERROR_CODES = [
     'native-failure',
 ] as const satisfies readonly NativeErrorCode[];
 
-export type TNativeErrorCode = typeof NATIVE_ERROR_CODES[number];
+export type TNativeErrorCode = (typeof NATIVE_ERROR_CODES)[number];
 
 type TAssertNativeErrorCodeParity<T extends true> = T;
 export type TNativeErrorCodeBidirectionalParity = TAssertNativeErrorCodeParity<
@@ -56,7 +52,9 @@ export function hasNativeErrorCode(value: unknown): value is {code: TNativeError
  */
 const UNPROVEN_NATIVE_TERMINATION = Symbol.for('evb.unprovenNativeTermination');
 
-interface IUnprovenNativeTerminationCarrier {[UNPROVEN_NATIVE_TERMINATION]?: string | null;}
+interface IUnprovenNativeTerminationCarrier {
+    [UNPROVEN_NATIVE_TERMINATION]?: string | null;
+}
 
 export function markUnprovenNativeTermination<T>(error: T, detail: string): T {
     if (typeof error === 'object' && error !== null) {

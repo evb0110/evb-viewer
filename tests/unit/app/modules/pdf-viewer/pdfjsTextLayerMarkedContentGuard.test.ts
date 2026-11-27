@@ -1,13 +1,7 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { createPdfjsTextLayer } from '@app/services/pdfjs/pdfViewerFacade';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {createPdfjsTextLayer} from '@app/services/pdfjs/pdfViewerFacade';
 
 /**
  * A scanned or otherwise malformed PDF can stream more `endMarkedContent`
@@ -21,12 +15,14 @@ import { createPdfjsTextLayer } from '@app/services/pdfjs/pdfViewerFacade';
  */
 const FONT_NAME = 'g_d0_f1';
 
-const TEXT_CONTENT_STYLES = {[FONT_NAME]: {
-    ascent: 0.8,
-    descent: -0.2,
-    fontFamily: 'sans-serif',
-    vertical: false,
-}};
+const TEXT_CONTENT_STYLES = {
+    [FONT_NAME]: {
+        ascent: 0.8,
+        descent: -0.2,
+        fontFamily: 'sans-serif',
+        vertical: false,
+    },
+};
 
 const VIEWPORT = {
     rawDims: {
@@ -53,14 +49,7 @@ function textItem(str: string) {
         hasEOL: false,
         height: 10,
         str,
-        transform: [
-            10,
-            0,
-            0,
-            10,
-            0,
-            0,
-        ],
+        transform: [10, 0, 0, 10, 0, 0],
         width: 10,
     };
 }
@@ -72,15 +61,18 @@ function textItem(str: string) {
  */
 function stubCanvasMeasurement() {
     const canvas = document.createElement('canvas');
-    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => ({
-        canvas,
-        font: '',
-        measureText: (text: string) => ({
-            fontBoundingBoxAscent: 8,
-            fontBoundingBoxDescent: 2,
-            width: text.length * 5,
-        }),
-    }) as never);
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
+        () =>
+            ({
+                canvas,
+                font: '',
+                measureText: (text: string) => ({
+                    fontBoundingBoxAscent: 8,
+                    fontBoundingBoxDescent: 2,
+                    width: text.length * 5,
+                }),
+            }) as never,
+    );
 }
 
 describe('pdfjs text layer marked content guard', () => {
@@ -123,7 +115,7 @@ describe('pdfjs text layer marked content guard', () => {
         const textLayer = createPdfjsTextLayer({
             container,
             textContentSource: {
-                items: [{ str: 'unreadable' }],
+                items: [{str: 'unreadable'}],
                 styles: {},
             },
             viewport: VIEWPORT,

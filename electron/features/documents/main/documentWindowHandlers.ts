@@ -1,21 +1,15 @@
-import { shell } from 'electron';
-import { existsSync } from 'fs';
-import { resolve } from 'path';
-import { refreshMenu } from '@electron/menu';
-import { findWorkingCopyPathByOriginalPath } from '@electron/file-access/documentStore';
-import {
-    requireRevealPath,
-    type TOpenPath,
-} from '@electron/file-access/openPathCapabilities';
-import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
-import { te } from '@electron/te';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
-import type { TOpenPathOwner } from '@electron/features/documents/main/openPathOwner';
-import type {
-    IDocumentsOpenPathContext,
-    IDocumentsWindowContext,
-} from '@electron/features/documents/documentsContexts';
+import {shell} from 'electron';
+import {existsSync} from 'fs';
+import {resolve} from 'path';
+import {refreshMenu} from '@electron/menu';
+import {findWorkingCopyPathByOriginalPath} from '@electron/file-access/documentStore';
+import {requireRevealPath, type TOpenPath} from '@electron/file-access/openPathCapabilities';
+import {resolveAllowedReadPath} from '@electron/utils/pathValidator';
+import {te} from '@electron/te';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
+import type {TOpenPathOwner} from '@electron/features/documents/main/openPathOwner';
+import type {IDocumentsOpenPathContext, IDocumentsWindowContext} from '@electron/features/documents/documentsContexts';
 
 const logger = createLogger('documents-dialogs');
 const MAX_WINDOW_TITLE_LENGTH = 512;
@@ -61,10 +55,7 @@ async function resolveRevealablePath(filePath: string, owner?: TOpenPathOwner) {
     return normalizedPath as TOpenPath;
 }
 
-export async function handleShowItemInFolder(
-    context: IDocumentsOpenPathContext,
-    filePath: string,
-) {
+export async function handleShowItemInFolder(context: IDocumentsOpenPathContext, filePath: string) {
     const normalizedPath = typeof filePath === 'string' ? filePath.trim() : '';
     if (!normalizedPath) {
         return false;

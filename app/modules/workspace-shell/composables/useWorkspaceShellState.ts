@@ -1,8 +1,5 @@
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
-import type { ITab } from '@app/types/tabs';
+import type {ComputedRef, Ref} from 'vue';
+import type {ITab} from '@app/types/tabs';
 import {
     snapshotOccupiesTab,
     type IWorkspaceDocumentController,
@@ -29,28 +26,26 @@ export interface IUseWorkspaceShellStateOptions {
 
 export const useWorkspaceShellState = (options: IUseWorkspaceShellStateOptions): IWorkspaceShellState => {
     const activeToolbarSnapshot = computed(() => options.activeDocumentView.value?.toolbarSnapshot.value ?? null);
-    const activeWorkspaceHasDocument = computed(() => (
-        activeToolbarSnapshot.value?.hasPdf === true
-        || activeToolbarSnapshot.value?.isDjvuMode === true
-    ));
-    const activeWorkspaceCanPrint = computed(() => (
-        activeWorkspaceHasDocument.value
-        && activeToolbarSnapshot.value?.viewerCapabilities.print === true
-    ));
+    const activeWorkspaceHasDocument = computed(
+        () => activeToolbarSnapshot.value?.hasPdf === true || activeToolbarSnapshot.value?.isDjvuMode === true,
+    );
+    const activeWorkspaceCanPrint = computed(
+        () => activeWorkspaceHasDocument.value && activeToolbarSnapshot.value?.viewerCapabilities.print === true,
+    );
     const activeWorkspaceCanSave = computed(() => activeToolbarSnapshot.value?.canSave === true);
-    const activeWorkspaceCanSaveAs = computed(() => (
-        activeWorkspaceHasDocument.value
-        && activeToolbarSnapshot.value?.viewerCapabilities.saveAs === true
-    ));
+    const activeWorkspaceCanSaveAs = computed(
+        () => activeWorkspaceHasDocument.value && activeToolbarSnapshot.value?.viewerCapabilities.saveAs === true,
+    );
     const activeWorkspaceCanRepairSave = computed(() => activeToolbarSnapshot.value?.canRepairSave === true);
     const activeWorkspaceCanOptimizePdf = computed(() => activeToolbarSnapshot.value?.canOptimizePdf === true);
-    const activeWorkspaceInteractive = computed(() => (
-        activeWorkspaceHasDocument.value
-        && options.activeDocumentSession.value?.operationLease.activeKind.value !== 'tab-transfer'
-        && options.activeDocumentSession.value?.snapshot.value.phase === 'presented'
-        && activeToolbarSnapshot.value?.initialVisualReady === true
-        && (activeToolbarSnapshot.value?.totalPages ?? 0) > 0
-    ));
+    const activeWorkspaceInteractive = computed(
+        () =>
+            activeWorkspaceHasDocument.value &&
+            options.activeDocumentSession.value?.operationLease.activeKind.value !== 'tab-transfer' &&
+            options.activeDocumentSession.value?.snapshot.value.phase === 'presented' &&
+            activeToolbarSnapshot.value?.initialVisualReady === true &&
+            (activeToolbarSnapshot.value?.totalPages ?? 0) > 0,
+    );
     const hasDocument = computed(() => {
         const session = options.activeDocumentSession.value;
         return activeWorkspaceHasDocument.value || (session !== null && snapshotOccupiesTab(session.snapshot.value));

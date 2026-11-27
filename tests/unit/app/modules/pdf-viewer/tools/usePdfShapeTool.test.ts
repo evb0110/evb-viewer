@@ -1,30 +1,11 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    effectScope,
-    shallowRef,
-    watch,
-} from 'vue';
-import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
-import { usePdfShapeTool } from '@app/modules/pdf-viewer/tools/usePdfShapeTool';
-import {
-    createDrawingShape,
-    finishDrawingShape,
-    updateDrawingShapeForPoint,
-} from '@app/modules/pdf-viewer/tools/annotationShapeDrawing';
-import {
-    AnnotationApplication,
-    toCanonicalShapeEntity,
-} from '@app/modules/pdf-viewer/annotations/annotationApplication';
-import type { IShapeAnnotation } from '@app/types/annotations';
-import {
-    asAnnotationId,
-    type AnnotationEntity,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {describe, expect, it, vi} from 'vitest';
+import {effectScope, shallowRef, watch} from 'vue';
+import {DEFAULT_ANNOTATION_SETTINGS} from '@app/constants/annotationDefaults';
+import {usePdfShapeTool} from '@app/modules/pdf-viewer/tools/usePdfShapeTool';
+import {createDrawingShape, finishDrawingShape, updateDrawingShapeForPoint} from '@app/modules/pdf-viewer/tools/annotationShapeDrawing';
+import {AnnotationApplication, toCanonicalShapeEntity} from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import type {IShapeAnnotation} from '@app/types/annotations';
+import {asAnnotationId, type AnnotationEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {buildNativeShapesMutationForSave} from '@app/modules/pdf-viewer/runtime/save/nativeShapeMutations';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
@@ -34,12 +15,19 @@ function createShapeProjection() {
     const entitiesByPage = shallowRef<ReadonlyMap<number, readonly AnnotationEntity[]>>(new Map());
     const scope = effectScope();
     const shapes = scope.run(() => {
-        watch(application, (current, _previous, onCleanup) => onCleanup(current.store.subscribe((entities) => {
-            entitiesByPage.value = new Map([[0, entities.filter(entity => !entity.deleted)]]);
-        })), {
-            immediate: true,
-            flush: 'sync',
-        });
+        watch(
+            application,
+            (current, _previous, onCleanup) =>
+                onCleanup(
+                    current.store.subscribe((entities) => {
+                        entitiesByPage.value = new Map([[0, entities.filter((entity) => !entity.deleted)]]);
+                    }),
+                ),
+            {
+                immediate: true,
+                flush: 'sync',
+            },
+        );
         return usePdfShapeTool({
             annotationApplication: application,
             entitiesByPage,
@@ -99,20 +87,22 @@ function createEmbeddedInkShape(overrides?: Partial<IShapeAnnotation>): IShapeAn
                 y: 0.35,
             },
         ],
-        strokes: [[
-            {
-                x: 0.1,
-                y: 0.2,
-            },
-            {
-                x: 0.15,
-                y: 0.25,
-            },
-            {
-                x: 0.25,
-                y: 0.35,
-            },
-        ]],
+        strokes: [
+            [
+                {
+                    x: 0.1,
+                    y: 0.2,
+                },
+                {
+                    x: 0.15,
+                    y: 0.25,
+                },
+                {
+                    x: 0.25,
+                    y: 0.35,
+                },
+            ],
+        ],
         source: 'embedded',
         annotationId: '21R',
         stableKey: 'evb-shape:embedded-ink-1',
@@ -122,7 +112,7 @@ function createEmbeddedInkShape(overrides?: Partial<IShapeAnnotation>): IShapeAn
 }
 
 function shapeById(projection: ReturnType<typeof createShapeProjection>, id: string) {
-    return projection.shapes.getAllShapes().find(shape => shape.id === id) ?? null;
+    return projection.shapes.getAllShapes().find((shape) => shape.id === id) ?? null;
 }
 
 function drawLocalShape(projection: ReturnType<typeof createShapeProjection>) {
@@ -151,12 +141,9 @@ function drawLocalShape(projection: ReturnType<typeof createShapeProjection>) {
     return created!;
 }
 
-function replaceEmbeddedShapes(
-    projection: ReturnType<typeof createShapeProjection>,
-    shapes: readonly IShapeAnnotation[],
-) {
+function replaceEmbeddedShapes(projection: ReturnType<typeof createShapeProjection>, shapes: readonly IShapeAnnotation[]) {
     projection.application.value.store.replaceFromDocument(
-        shapes.map(shape => toCanonicalShapeEntity(shape, asAnnotationId(shape.id))),
+        shapes.map((shape) => toCanonicalShapeEntity(shape, asAnnotationId(shape.id))),
         [],
     );
 }
@@ -186,8 +173,7 @@ describe('usePdfShapeTool', () => {
         projected!.color = '#000000';
         expect(shapeById(projection, 'embedded-shape-1')?.color).toBe('#336699');
 
-        const entity = projection.application.value.store.list()
-            .find(candidate => candidate.kind === 'shape');
+        const entity = projection.application.value.store.list().find((candidate) => candidate.kind === 'shape');
         expect(entity?.kind).toBe('shape');
         if (entity?.kind === 'shape') {
             projection.application.value.store.updateShape(entity.identity.id, {strokeColor: '#ff0000'});
@@ -202,8 +188,7 @@ describe('usePdfShapeTool', () => {
 
         expect(projection.shapes.hasShapes.value).toBe(true);
 
-        const entity = projection.application.value.store.list()
-            .find(candidate => candidate.kind === 'shape');
+        const entity = projection.application.value.store.list().find((candidate) => candidate.kind === 'shape');
         expect(entity?.kind).toBe('shape');
         if (entity?.kind === 'shape') {
             projection.application.value.store.updateShape(entity.identity.id, {strokeColor: '#ff0000'});
@@ -274,10 +259,7 @@ describe('usePdfShapeTool', () => {
             y: 0.3,
         });
 
-        replaceEmbeddedShapes(projection, [
-            retiredShape,
-            liveShape,
-        ]);
+        replaceEmbeddedShapes(projection, [retiredShape, liveShape]);
         const retiredId = projection.application.value.annotationIdForShape(retiredShape);
         const liveId = projection.application.value.annotationIdForShape(liveShape);
         expect(retiredId).not.toBeNull();
@@ -285,10 +267,12 @@ describe('usePdfShapeTool', () => {
 
         projection.store.delete(retiredId!);
         const frontier = projection.store.beginSave();
-        projection.store.markPersisted(frontier, [{
-            annotationId: liveId!,
-            pdfRef: '22R',
-        }]);
+        projection.store.markPersisted(frontier, [
+            {
+                annotationId: liveId!,
+                pdfRef: '22R',
+            },
+        ]);
         expect(projection.store.get(retiredId!)?.identity.pdfRef).toBeUndefined();
 
         expect(projection.store.undo()).toBe(true);
@@ -307,8 +291,8 @@ describe('usePdfShapeTool', () => {
             deletedStableKeys: [],
         });
         expect(mutation).not.toBeNull();
-        const retiredNative = mutation!.shapes.find(shape => shape.color === '#dc2626');
-        const liveNative = mutation!.shapes.find(shape => shape.annotationId === '22R');
+        const retiredNative = mutation!.shapes.find((shape) => shape.color === '#dc2626');
+        const liveNative = mutation!.shapes.find((shape) => shape.annotationId === '22R');
         expect(retiredNative).toMatchObject({
             annotationId: null,
             color: '#dc2626',
@@ -366,7 +350,7 @@ describe('usePdfShapeTool', () => {
             pdfSubtype: 'Ink',
         });
         expect(shapeById(projection, created.id)?.points).toEqual(created.points);
-        expect(projection.store.dirtyEntities().some(entity => entity.identity.id === asAnnotationId(created.id))).toBe(true);
+        expect(projection.store.dirtyEntities().some((entity) => entity.identity.id === asAnnotationId(created.id))).toBe(true);
     });
 
     it('keeps local shape geometry while the parsed document supplies its saved baseline', () => {
@@ -379,20 +363,24 @@ describe('usePdfShapeTool', () => {
             stableKey: created.stableKey,
             x: created.x + 0.02,
             y: created.y + 0.03,
-            points: created.points?.map(point => ({
+            points: created.points?.map((point) => ({
                 x: point.x + 0.02,
                 y: point.y + 0.03,
             })),
-            strokes: created.strokes?.map(stroke => stroke.map(point => ({
-                x: point.x + 0.02,
-                y: point.y + 0.03,
-            }))),
+            strokes: created.strokes?.map((stroke) =>
+                stroke.map((point) => ({
+                    x: point.x + 0.02,
+                    y: point.y + 0.03,
+                })),
+            ),
         });
 
-        replaceEmbeddedShapes(projection, [{
-            ...importedEmbeddedInkShape,
-            id: created.id,
-        }]);
+        replaceEmbeddedShapes(projection, [
+            {
+                ...importedEmbeddedInkShape,
+                id: created.id,
+            },
+        ]);
 
         expect(shapeById(projection, created.id)).toMatchObject({
             id: created.id,
@@ -429,26 +417,26 @@ describe('usePdfShapeTool', () => {
         expect(projection.store.get(createdId!)?.identity.pdfRef).toBe('77R');
         expect(shapeById(projection, survivingEmbeddedShape.id)).not.toBeNull();
 
-        const entity = projection.application.value.store.list()
-            .find(candidate => candidate.kind === 'shape');
+        const entity = projection.application.value.store.list().find((candidate) => candidate.kind === 'shape');
         expect(entity?.kind).toBe('shape');
         if (entity?.kind !== 'shape') {
             throw new Error('Expected a canonical shape');
         }
         projection.application.value.store.updateShape(entity.identity.id, {strokeColor: '#ff0000'});
 
-        expect(() => projection.store.assertSaveFrontierCurrent(frontier))
-            .toThrow(/staleRevisionError/u);
+        expect(() => projection.store.assertSaveFrontierCurrent(frontier)).toThrow(/staleRevisionError/u);
     });
 
     it('keeps a parsed identity when a save frontier is rolled back', () => {
         const projection = createShapeProjection();
         const created = drawLocalShape(projection);
 
-        replaceEmbeddedShapes(projection, [createEmbeddedInkShape({
-            id: created.id,
-            stableKey: created.stableKey,
-        })]);
+        replaceEmbeddedShapes(projection, [
+            createEmbeddedInkShape({
+                id: created.id,
+                stableKey: created.stableKey,
+            }),
+        ]);
         const createdId = projection.application.value.annotationIdForShape(created);
         expect(projection.store.get(createdId!)?.identity.pdfRef).toBe('21R');
 
@@ -475,10 +463,12 @@ describe('usePdfShapeTool', () => {
             y: created.y + 0.03,
         });
 
-        replaceEmbeddedShapes(projection, [{
-            ...importedEmbeddedInkShape,
-            id: created.id,
-        }]);
+        replaceEmbeddedShapes(projection, [
+            {
+                ...importedEmbeddedInkShape,
+                id: created.id,
+            },
+        ]);
 
         expect(shapeById(projection, created.id)).toMatchObject({
             id: created.id,
@@ -521,14 +511,16 @@ describe('usePdfShapeTool', () => {
             stableKey: created.stableKey,
             x: created.x + 0.0002,
             y: created.y + 0.00015,
-            points: created.points?.map(point => ({
+            points: created.points?.map((point) => ({
                 x: point.x + 0.0002,
                 y: point.y + 0.00015,
             })),
-            strokes: created.strokes?.map(stroke => stroke.map(point => ({
-                x: point.x + 0.0002,
-                y: point.y + 0.00015,
-            }))),
+            strokes: created.strokes?.map((stroke) =>
+                stroke.map((point) => ({
+                    x: point.x + 0.0002,
+                    y: point.y + 0.00015,
+                })),
+            ),
         });
 
         replaceEmbeddedShapes(projection, [importedEmbeddedInkShape]);
@@ -564,10 +556,12 @@ describe('usePdfShapeTool', () => {
             opacity: 0.5,
         });
 
-        replaceEmbeddedShapes(projection, [{
-            ...importedEmbeddedInkShape,
-            id: embeddedInkShape.id,
-        }]);
+        replaceEmbeddedShapes(projection, [
+            {
+                ...importedEmbeddedInkShape,
+                id: embeddedInkShape.id,
+            },
+        ]);
 
         expect(shapeById(projection, embeddedInkShape.id)).toMatchObject({
             id: embeddedInkShape.id,
@@ -589,13 +583,15 @@ describe('usePdfShapeTool', () => {
         replaceEmbeddedShapes(projection, [embeddedInkShape]);
         const localShape = drawLocalShape(projection);
 
-        replaceEmbeddedShapes(projection, [createEmbeddedInkShape({
-            ...embeddedInkShape,
-            id: embeddedInkShape.id,
-            annotationId: '52R',
-            x: embeddedInkShape.x + 0.01,
-            y: embeddedInkShape.y + 0.01,
-        })]);
+        replaceEmbeddedShapes(projection, [
+            createEmbeddedInkShape({
+                ...embeddedInkShape,
+                id: embeddedInkShape.id,
+                annotationId: '52R',
+                x: embeddedInkShape.x + 0.01,
+                y: embeddedInkShape.y + 0.01,
+            }),
+        ]);
 
         expect(shapeById(projection, embeddedInkShape.id)).toMatchObject({
             id: embeddedInkShape.id,
@@ -641,16 +637,10 @@ describe('usePdfShapeTool', () => {
             y: 0.28,
         });
 
-        replaceEmbeddedShapes(projection, [
-            firstEmbeddedInkShape,
-            secondEmbeddedInkShape,
-        ]);
+        replaceEmbeddedShapes(projection, [firstEmbeddedInkShape, secondEmbeddedInkShape]);
         deleteShape(projection, secondEmbeddedInkShape.id);
 
-        replaceEmbeddedShapes(projection, [
-            firstEmbeddedInkShape,
-            secondEmbeddedInkShape,
-        ]);
+        replaceEmbeddedShapes(projection, [firstEmbeddedInkShape, secondEmbeddedInkShape]);
 
         expect(projection.shapes.getAllShapes()).toHaveLength(1);
         expect(projection.shapes.getAllShapes()[0]).toMatchObject({
@@ -673,10 +663,7 @@ describe('usePdfShapeTool', () => {
             y: 0.28,
         });
 
-        replaceEmbeddedShapes(projection, [
-            firstEmbeddedInkShape,
-            secondEmbeddedInkShape,
-        ]);
+        replaceEmbeddedShapes(projection, [firstEmbeddedInkShape, secondEmbeddedInkShape]);
         deleteShape(projection, firstEmbeddedInkShape.id);
 
         expect(projection.shapes.getDeletedEmbeddedAnnotationIds()).toEqual(['21R']);
@@ -686,7 +673,7 @@ describe('usePdfShapeTool', () => {
         projection.store.markPersisted(frontier, []);
         replaceEmbeddedShapes(projection, [secondEmbeddedInkShape]);
 
-        expect(projection.shapes.getAllShapes().map(shape => shape.id)).toEqual([secondEmbeddedInkShape.id]);
+        expect(projection.shapes.getAllShapes().map((shape) => shape.id)).toEqual([secondEmbeddedInkShape.id]);
         expect(projection.shapes.getDeletedEmbeddedAnnotationIds()).toEqual([]);
         expect(projection.shapes.getDeletedEmbeddedShapeStableKeys()).toEqual([]);
         expect(projection.shapes.hasShapes.value).toBe(true);

@@ -1,16 +1,6 @@
-import {
-    mkdirSync,
-    rmSync,
-    writeFileSync,
-} from 'node:fs';
+import {mkdirSync, rmSync, writeFileSync} from 'node:fs';
 import {createServer} from 'node:http';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {
     clearSessionStarting,
     getSessionStartingInfo,
@@ -45,14 +35,8 @@ describe('electron run session artifacts', () => {
 
         markSessionStarting(12345);
         recordSessionStartingAttempt({
-            cdpPorts: [
-                9222,
-                9222,
-            ],
-            electronPids: [
-                23456,
-                23456,
-            ],
+            cdpPorts: [9222, 9222],
+            electronPids: [23456, 23456],
             electronUserDataDir: electronUserDataPath(),
             nuxtPid: 34567,
             nuxtPort: 3235,
@@ -71,10 +55,13 @@ describe('electron run session artifacts', () => {
     it('normalizes legacy starting artifacts that only contain the manager pid', () => {
         resetTestSession();
         mkdirSync(sessionDir(), {recursive: true});
-        writeFileSync(sessionStartingFilePath(), JSON.stringify({
-            pid: 12345,
-            startedAt: Date.now(),
-        }));
+        writeFileSync(
+            sessionStartingFilePath(),
+            JSON.stringify({
+                pid: 12345,
+                startedAt: Date.now(),
+            }),
+        );
 
         expect(getSessionStartingInfo()).toMatchObject({
             pid: 12345,
@@ -88,10 +75,7 @@ describe('electron run session artifacts', () => {
         clearSessionStarting();
     });
 
-    it.each([
-        'headers',
-        'body',
-    ])('bounds readiness when the controller stalls during %s', async (stallStage) => {
+    it.each(['headers', 'body'])('bounds readiness when the controller stalls during %s', async (stallStage) => {
         vi.resetModules();
         vi.doMock('@scripts/electron-run/electronRunProcessIdentity', () => ({
             findSessionOwnedElectronPids: () => [],
@@ -136,20 +120,23 @@ describe('electron run session artifacts', () => {
             throw new Error('readiness fixture did not expose a TCP port');
         }
         mkdirSync(freshSessionDir(), {recursive: true});
-        writeFileSync(freshSessionFilePath(), JSON.stringify({
-            port: address.port,
-            pid: 1,
-            cdpPort: 39202,
-            electronPid: null,
-            nuxtPid: null,
-            nuxtPort: 3235,
-        }));
+        writeFileSync(
+            freshSessionFilePath(),
+            JSON.stringify({
+                port: address.port,
+                pid: 1,
+                cdpPort: 39202,
+                electronPid: null,
+                nuxtPid: null,
+                nuxtPort: 3235,
+            }),
+        );
         const startedAt = Date.now();
         try {
             await expect(isFreshSessionRunning(testSessionName, AbortSignal.timeout(50))).resolves.toBe(false);
             expect(Date.now() - startedAt).toBeLessThan(1000);
         } finally {
-            await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+            await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
         }
     });
 });

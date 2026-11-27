@@ -3,8 +3,8 @@ import {
     assertBrowserDjvuRasterDimensions,
     toBrowserDjvuDecodeError,
 } from '@app/platform/browser-api/assertBrowserDjvuRasterDimensions';
-import type { IDjvuWorker } from '@app/platform/browser-api/browserDjvuWorkerClient';
-import { getDjvuWorkerPageSizes } from '@app/platform/browser-api/browserDjvuSource';
+import type {IDjvuWorker} from '@app/platform/browser-api/browserDjvuWorkerClient';
+import {getDjvuWorkerPageSizes} from '@app/platform/browser-api/browserDjvuSource';
 import {
     createDjvuCanvas as createCanvas,
     encodeDjvuCanvas as canvasToImageBytes,
@@ -50,13 +50,11 @@ export interface IRenderedDjvuPpmPage {
 }
 
 function positiveInteger(value: unknown) {
-    return typeof value === 'number' && Number.isFinite(value) && value > 0
-        ? Math.trunc(value)
-        : null;
+    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.trunc(value) : null;
 }
 
 function pointsFromPixels(pixels: number, dpi: number) {
-    return Math.max(1, pixels / Math.max(1, dpi) * 72);
+    return Math.max(1, (pixels / Math.max(1, dpi)) * 72);
 }
 
 function compactPhotoTargetSize(width: number, height: number, dpi: number, ppiCap: number) {
@@ -91,7 +89,9 @@ export async function decodeDjvuPageImageData(
 ) {
     throwIfDjvuCanceled(signal);
     const pageSize = (await getDjvuWorkerPageSizes(worker))[pageNumber - 1];
-    if (!pageSize) throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
+    if (!pageSize) {
+        throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
+    }
     const decodeWidth = targetSize?.width ?? pageSize.width;
     const decodeHeight = targetSize?.height ?? pageSize.height;
     const context = `DjVu page ${pageNumber}`;
@@ -100,10 +100,12 @@ export async function decodeDjvuPageImageData(
         const rendered = await worker.renderPage(pageNumber, {
             mode: 'color',
             pixelFormat: 'rgba',
-            ...(targetSize ? {
-                targetWidth: targetSize.width,
-                targetHeight: targetSize.height,
-            } : {}),
+            ...(targetSize
+                ? {
+                      targetWidth: targetSize.width,
+                      targetHeight: targetSize.height,
+                  }
+                : {}),
         });
         throwIfDjvuCanceled(signal);
         return toImageData(rendered.bytes, rendered.width, rendered.height);
@@ -141,7 +143,9 @@ export async function renderDjvuPage(
 ): Promise<IRenderedDjvuPage> {
     throwIfDjvuCanceled(signal);
     const pageSize = (await getDjvuWorkerPageSizes(worker))[pageNumber - 1];
-    if (!pageSize) throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
+    if (!pageSize) {
+        throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
+    }
     const effectiveSubsample = Math.max(1, subsample);
     const targetWidth = Math.max(1, Math.round(pageSize.width / effectiveSubsample));
     const targetHeight = Math.max(1, Math.round(pageSize.height / effectiveSubsample));
@@ -169,17 +173,14 @@ export async function renderDjvuPage(
  * Renders a page for display at `targetWidth`, never larger than the native
  * page, decoding directly at the target dimensions in DjVuLibre WASM.
  */
-export async function renderDjvuPagePreviewPng(
-    worker: IDjvuWorker,
-    pageNumber: number,
-    targetWidth: number,
-    signal?: AbortSignal,
-) {
+export async function renderDjvuPagePreviewPng(worker: IDjvuWorker, pageNumber: number, targetWidth: number, signal?: AbortSignal) {
     throwIfDjvuCanceled(signal);
     const pageSize = (await getDjvuWorkerPageSizes(worker))[pageNumber - 1];
-    if (!pageSize) throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
+    if (!pageSize) {
+        throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
+    }
     const width = Math.max(1, Math.min(pageSize.width, Math.round(targetWidth)));
-    const height = Math.max(1, Math.round(width * pageSize.height / Math.max(1, pageSize.width)));
+    const height = Math.max(1, Math.round((width * pageSize.height) / Math.max(1, pageSize.width)));
     assertBrowserDjvuRasterDimensions(width, height, `DjVu page ${pageNumber} preview`);
     const imageData = await decodeDjvuPageImageData(worker, pageNumber, signal, {
         width,

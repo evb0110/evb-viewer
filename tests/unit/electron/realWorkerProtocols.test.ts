@@ -1,22 +1,10 @@
-import {
-    mkdtemp,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
+import {mkdtemp, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {
-    describe,
-    expect,
-    it,
-    onTestFinished,
-} from 'vitest';
+import {describe, expect, it, onTestFinished} from 'vitest';
 import {JobBroker} from '@electron/resources/jobBroker';
 import {runResultWorkerTask} from '@electron/utils/workerTask';
-import {
-    getUnprovenNativeTerminationDetail,
-    markUnprovenNativeTermination,
-} from '@electron/utils/nativeTerminationProof';
+import {getUnprovenNativeTerminationDetail, markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 
 // A worker that answers a cancel the way a native-tool worker does when it
 // could not prove its child process died.
@@ -47,10 +35,12 @@ const LEASE = {
 
 async function writeWorker(source = CANCELLED_WORKER_SOURCE, fileName = 'cancelled-worker.mjs') {
     const dir = await mkdtemp(join(tmpdir(), 'worker-task-real-'));
-    onTestFinished(() => rm(dir, {
-        recursive: true,
-        force: true,
-    }));
+    onTestFinished(() =>
+        rm(dir, {
+            recursive: true,
+            force: true,
+        }),
+    );
     const workerPath = join(dir, fileName);
     await writeFile(workerPath, source);
     return workerPath;
@@ -63,38 +53,46 @@ setTimeout(() => process.exit(1), 25);
 `;
 
 describe('result worker task on a real worker thread', () => {
-    it('settles a cancel whose frozen AggregateError reason already reports a member\'s unproven termination', async () => {
+    it("settles a cancel whose frozen AggregateError reason already reports a member's unproven termination", async () => {
         const workerPath = await writeWorker();
         const broker = new JobBroker(LEASE);
         const jobAbort = new AbortController();
         // Sol's probe: a joined stop whose member already carries a mark, frozen
         // by the code that produced it. The aggregate reports the member's mark
         // without carrying one, so it still cannot take this worker's.
-        const frozenReason = Object.freeze(new AggregateError([
-            markUnprovenNativeTermination(new Error('sibling stop'), 'sibling child alive'),
-        ], 'shared job stopped'));
+        const frozenReason = Object.freeze(
+            new AggregateError([markUnprovenNativeTermination(new Error('sibling stop'), 'sibling child alive')], 'shared job stopped'),
+        );
         const ready = Promise.withResolvers<void>();
 
-        const outcome = broker.run({
-            ownerId: 'real-worker',
-            kind: 'conformance',
-            priority: 'user',
-            resources: LEASE,
-        }, ({onTerminationProof}) => runResultWorkerTask({
-            workerPath,
-            workerData: null,
-            invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
-            signal: jobAbort.signal,
-            createCancelMessage: () => ({type: 'cancel'}),
-            cooperativeCancelDelayMs: 30_000,
-            onProgressMessage: (payload) => {
-                if ((payload as {type?: unknown} | null)?.type !== 'ready') return false;
-                ready.resolve();
-                return true;
-            },
-            onTerminationProof,
-        })).catch((cause: unknown) => cause);
+        const outcome = broker
+            .run(
+                {
+                    ownerId: 'real-worker',
+                    kind: 'conformance',
+                    priority: 'user',
+                    resources: LEASE,
+                },
+                ({onTerminationProof}) =>
+                    runResultWorkerTask({
+                        workerPath,
+                        workerData: null,
+                        invalidPayloadMessage: 'invalid payload',
+                        createWorkerExitError: (code) => new Error(`exit: ${code}`),
+                        signal: jobAbort.signal,
+                        createCancelMessage: () => ({type: 'cancel'}),
+                        cooperativeCancelDelayMs: 30_000,
+                        onProgressMessage: (payload) => {
+                            if ((payload as {type?: unknown} | null)?.type !== 'ready') {
+                                return false;
+                            }
+                            ready.resolve();
+                            return true;
+                        },
+                        onTerminationProof,
+                    }),
+            )
+            .catch((cause: unknown) => cause);
         await ready.promise;
         jobAbort.abort(frozenReason);
 
@@ -119,26 +117,34 @@ describe('result worker task on a real worker thread', () => {
         const frozenNullProto = Object.freeze(Object.create(null)) as object;
         const ready = Promise.withResolvers<void>();
 
-        const outcome = broker.run({
-            ownerId: 'real-worker-null-proto',
-            kind: 'conformance',
-            priority: 'user',
-            resources: LEASE,
-        }, ({onTerminationProof}) => runResultWorkerTask({
-            workerPath,
-            workerData: null,
-            invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
-            signal: jobAbort.signal,
-            createCancelMessage: () => ({type: 'cancel'}),
-            cooperativeCancelDelayMs: 30_000,
-            onProgressMessage: (payload) => {
-                if ((payload as {type?: unknown} | null)?.type !== 'ready') return false;
-                ready.resolve();
-                return true;
-            },
-            onTerminationProof,
-        })).catch((cause: unknown) => cause);
+        const outcome = broker
+            .run(
+                {
+                    ownerId: 'real-worker-null-proto',
+                    kind: 'conformance',
+                    priority: 'user',
+                    resources: LEASE,
+                },
+                ({onTerminationProof}) =>
+                    runResultWorkerTask({
+                        workerPath,
+                        workerData: null,
+                        invalidPayloadMessage: 'invalid payload',
+                        createWorkerExitError: (code) => new Error(`exit: ${code}`),
+                        signal: jobAbort.signal,
+                        createCancelMessage: () => ({type: 'cancel'}),
+                        cooperativeCancelDelayMs: 30_000,
+                        onProgressMessage: (payload) => {
+                            if ((payload as {type?: unknown} | null)?.type !== 'ready') {
+                                return false;
+                            }
+                            ready.resolve();
+                            return true;
+                        },
+                        onTerminationProof,
+                    }),
+            )
+            .catch((cause: unknown) => cause);
         await ready.promise;
         jobAbort.abort(frozenNullProto);
 
@@ -162,26 +168,34 @@ describe('result worker task on a real worker thread', () => {
         const ready = Promise.withResolvers<void>();
         let capturedExitError: Error | undefined;
 
-        const outcome = broker.run({
-            ownerId: 'real-worker-frozen-exit',
-            kind: 'conformance',
-            priority: 'user',
-            resources: LEASE,
-        }, ({onTerminationProof}) => runResultWorkerTask({
-            workerPath,
-            workerData: null,
-            invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: (code) => {
-                capturedExitError = Object.freeze(new Error(`exit: ${code}`));
-                return capturedExitError;
-            },
-            onProgressMessage: (payload) => {
-                if ((payload as {type?: unknown} | null)?.type !== 'ready') return false;
-                ready.resolve();
-                return true;
-            },
-            onTerminationProof,
-        })).catch((cause: unknown) => cause);
+        const outcome = broker
+            .run(
+                {
+                    ownerId: 'real-worker-frozen-exit',
+                    kind: 'conformance',
+                    priority: 'user',
+                    resources: LEASE,
+                },
+                ({onTerminationProof}) =>
+                    runResultWorkerTask({
+                        workerPath,
+                        workerData: null,
+                        invalidPayloadMessage: 'invalid payload',
+                        createWorkerExitError: (code) => {
+                            capturedExitError = Object.freeze(new Error(`exit: ${code}`));
+                            return capturedExitError;
+                        },
+                        onProgressMessage: (payload) => {
+                            if ((payload as {type?: unknown} | null)?.type !== 'ready') {
+                                return false;
+                            }
+                            ready.resolve();
+                            return true;
+                        },
+                        onTerminationProof,
+                    }),
+            )
+            .catch((cause: unknown) => cause);
 
         await ready.promise;
         const error = await outcome;
@@ -207,26 +221,34 @@ describe('result worker task on a real worker thread', () => {
         });
         const ready = Promise.withResolvers<void>();
 
-        const outcome = broker.run({
-            ownerId: 'real-worker-dropping-proxy',
-            kind: 'conformance',
-            priority: 'user',
-            resources: LEASE,
-        }, ({onTerminationProof}) => runResultWorkerTask({
-            workerPath,
-            workerData: null,
-            invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
-            signal: jobAbort.signal,
-            createCancelMessage: () => ({type: 'cancel'}),
-            cooperativeCancelDelayMs: 30_000,
-            onProgressMessage: (payload) => {
-                if ((payload as {type?: unknown} | null)?.type !== 'ready') return false;
-                ready.resolve();
-                return true;
-            },
-            onTerminationProof,
-        })).catch((cause: unknown) => cause);
+        const outcome = broker
+            .run(
+                {
+                    ownerId: 'real-worker-dropping-proxy',
+                    kind: 'conformance',
+                    priority: 'user',
+                    resources: LEASE,
+                },
+                ({onTerminationProof}) =>
+                    runResultWorkerTask({
+                        workerPath,
+                        workerData: null,
+                        invalidPayloadMessage: 'invalid payload',
+                        createWorkerExitError: (code) => new Error(`exit: ${code}`),
+                        signal: jobAbort.signal,
+                        createCancelMessage: () => ({type: 'cancel'}),
+                        cooperativeCancelDelayMs: 30_000,
+                        onProgressMessage: (payload) => {
+                            if ((payload as {type?: unknown} | null)?.type !== 'ready') {
+                                return false;
+                            }
+                            ready.resolve();
+                            return true;
+                        },
+                        onTerminationProof,
+                    }),
+            )
+            .catch((cause: unknown) => cause);
         await ready.promise;
         jobAbort.abort(droppingProxy);
 
@@ -256,26 +278,34 @@ describe('result worker task on a real worker thread', () => {
         Object.freeze(strangeError);
         const ready = Promise.withResolvers<void>();
 
-        const outcome = broker.run({
-            ownerId: 'real-worker-noncoercible-message',
-            kind: 'conformance',
-            priority: 'user',
-            resources: LEASE,
-        }, ({onTerminationProof}) => runResultWorkerTask({
-            workerPath,
-            workerData: null,
-            invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
-            signal: jobAbort.signal,
-            createCancelMessage: () => ({type: 'cancel'}),
-            cooperativeCancelDelayMs: 30_000,
-            onProgressMessage: (payload) => {
-                if ((payload as {type?: unknown} | null)?.type !== 'ready') return false;
-                ready.resolve();
-                return true;
-            },
-            onTerminationProof,
-        })).catch((cause: unknown) => cause);
+        const outcome = broker
+            .run(
+                {
+                    ownerId: 'real-worker-noncoercible-message',
+                    kind: 'conformance',
+                    priority: 'user',
+                    resources: LEASE,
+                },
+                ({onTerminationProof}) =>
+                    runResultWorkerTask({
+                        workerPath,
+                        workerData: null,
+                        invalidPayloadMessage: 'invalid payload',
+                        createWorkerExitError: (code) => new Error(`exit: ${code}`),
+                        signal: jobAbort.signal,
+                        createCancelMessage: () => ({type: 'cancel'}),
+                        cooperativeCancelDelayMs: 30_000,
+                        onProgressMessage: (payload) => {
+                            if ((payload as {type?: unknown} | null)?.type !== 'ready') {
+                                return false;
+                            }
+                            ready.resolve();
+                            return true;
+                        },
+                        onTerminationProof,
+                    }),
+            )
+            .catch((cause: unknown) => cause);
         await ready.promise;
         jobAbort.abort(strangeError);
 
@@ -298,34 +328,42 @@ describe('result worker task on a real worker thread', () => {
         const ready = Promise.withResolvers<void>();
         let capturedProxy: Error | undefined;
 
-        const outcome = broker.run({
-            ownerId: 'real-worker-throwing-exit-proxy',
-            kind: 'conformance',
-            priority: 'user',
-            resources: LEASE,
-        }, ({onTerminationProof}) => runResultWorkerTask({
-            workerPath,
-            workerData: null,
-            invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: (code) => {
-                const frozen = Object.freeze(new Error(`exit: ${code}`));
-                capturedProxy = new Proxy(frozen, {
-                    get(target, prop, receiver) {
-                        if (prop === Symbol.for('evb.unprovenNativeTermination')) {
-                            throw new Error('symbol read failed');
-                        }
-                        return Reflect.get(target, prop, receiver);
-                    },
-                });
-                return capturedProxy;
-            },
-            onProgressMessage: (payload) => {
-                if ((payload as {type?: unknown} | null)?.type !== 'ready') return false;
-                ready.resolve();
-                return true;
-            },
-            onTerminationProof,
-        })).catch((cause: unknown) => cause);
+        const outcome = broker
+            .run(
+                {
+                    ownerId: 'real-worker-throwing-exit-proxy',
+                    kind: 'conformance',
+                    priority: 'user',
+                    resources: LEASE,
+                },
+                ({onTerminationProof}) =>
+                    runResultWorkerTask({
+                        workerPath,
+                        workerData: null,
+                        invalidPayloadMessage: 'invalid payload',
+                        createWorkerExitError: (code) => {
+                            const frozen = Object.freeze(new Error(`exit: ${code}`));
+                            capturedProxy = new Proxy(frozen, {
+                                get(target, prop, receiver) {
+                                    if (prop === Symbol.for('evb.unprovenNativeTermination')) {
+                                        throw new Error('symbol read failed');
+                                    }
+                                    return Reflect.get(target, prop, receiver);
+                                },
+                            });
+                            return capturedProxy;
+                        },
+                        onProgressMessage: (payload) => {
+                            if ((payload as {type?: unknown} | null)?.type !== 'ready') {
+                                return false;
+                            }
+                            ready.resolve();
+                            return true;
+                        },
+                        onTerminationProof,
+                    }),
+            )
+            .catch((cause: unknown) => cause);
 
         await ready.promise;
         const error = await outcome;

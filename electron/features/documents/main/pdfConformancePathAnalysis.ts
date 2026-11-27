@@ -1,7 +1,4 @@
-import {
-    open,
-    stat,
-} from 'node:fs/promises';
+import {open, stat} from 'node:fs/promises';
 import type {FileHandle} from 'node:fs/promises';
 import {join} from 'node:path';
 import type {detectPdfaLevelFromPdfText} from '@pdf-core/pdfConformanceHelpers';
@@ -20,18 +17,10 @@ import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand'
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import {usingManagedScratchScope} from '@electron/utils/managedScratchTemp';
 import {QPDF_SUCCESS_EXIT_CODES} from '@pdf-core/qpdfCommands';
-import {
-    abortErrorFromSignal,
-    isAbortError,
-    raceWithAbortSignal,
-} from '@electron/utils/abort';
+import {abortErrorFromSignal, isAbortError, raceWithAbortSignal} from '@electron/utils/abort';
 import {getErrorMessage} from '@electron/utils/error';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
-import {
-    mergeTerminationProofSinks,
-    type IJobBrokerRunContext,
-    type TTerminationProofSink,
-} from '@electron/resources/jobBroker';
+import {mergeTerminationProofSinks, type IJobBrokerRunContext, type TTerminationProofSink} from '@electron/resources/jobBroker';
 import {
     PdfConformanceCapabilityError,
     type TPdfConformanceCapabilityErrorCode,
@@ -75,12 +64,10 @@ function throwIfAborted(signal?: AbortSignal) {
     }
 }
 
-function capabilityError(
-    code: TPdfConformanceCapabilityErrorCode,
-    message: string,
-    cause?: unknown,
-): PdfConformanceCapabilityError {
-    if (getUnprovenNativeTerminationDetail(cause) !== undefined) throw cause;
+function capabilityError(code: TPdfConformanceCapabilityErrorCode, message: string, cause?: unknown): PdfConformanceCapabilityError {
+    if (getUnprovenNativeTerminationDetail(cause) !== undefined) {
+        throw cause;
+    }
     return new PdfConformanceCapabilityError(code, message, {
         ...(cause === undefined ? {} : {cause}),
         operation: 'pdf-conformance-path-analysis',
@@ -90,18 +77,12 @@ function capabilityError(
 function getSafeFileSize(value: number | bigint) {
     const size = typeof value === 'number' && Number.isSafeInteger(value) ? BigInt(value) : value;
     if (typeof size !== 'bigint' || size < 0n || size > BigInt(Number.MAX_SAFE_INTEGER)) {
-        throw capabilityError(
-            'native-failure',
-            'PDF conformance source size is outside the safe range for bounded range reads',
-        );
+        throw capabilityError('native-failure', 'PDF conformance source size is outside the safe range for bounded range reads');
     }
     return size;
 }
 
-async function readPdfMarkerEvidenceFromPath(
-    filePath: string,
-    signal?: AbortSignal,
-): Promise<IPdfMarkerEvidence> {
+async function readPdfMarkerEvidenceFromPath(filePath: string, signal?: AbortSignal): Promise<IPdfMarkerEvidence> {
     throwIfAborted(signal);
     let fileStat;
     try {
@@ -117,10 +98,7 @@ async function readPdfMarkerEvidenceFromPath(
         );
     }
     if (!fileStat.isFile()) {
-        throw capabilityError(
-            'native-failure',
-            `PDF conformance source is not a regular file: ${filePath}`,
-        );
+        throw capabilityError('native-failure', `PDF conformance source is not a regular file: ${filePath}`);
     }
 
     const size = getSafeFileSize(fileStat.size);
@@ -131,7 +109,10 @@ async function readPdfMarkerEvidenceFromPath(
             try {
                 handle = await raceWithAbortSignal(openPromise, signal);
             } catch (error) {
-                void openPromise.then(opened => opened.close().catch(() => undefined), () => undefined);
+                void openPromise.then(
+                    (opened) => opened.close().catch(() => undefined),
+                    () => undefined,
+                );
                 throw error;
             }
         } catch (error) {
@@ -155,9 +136,7 @@ async function readPdfMarkerEvidenceFromPath(
             throwIfAborted(signal);
             const remaining = size - offset;
             const chunkBytes = Number(
-                remaining < BigInt(PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES)
-                    ? remaining
-                    : BigInt(PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES),
+                remaining < BigInt(PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES) ? remaining : BigInt(PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES),
             );
             const chunk = Buffer.allocUnsafe(chunkBytes);
             let bytesRead: number;
@@ -174,25 +153,15 @@ async function readPdfMarkerEvidenceFromPath(
                 );
             }
             if (bytesRead <= 0) {
-                throw capabilityError(
-                    'native-failure',
-                    `PDF conformance source changed while it was being read: ${filePath}`,
-                );
+                throw capabilityError('native-failure', `PDF conformance source changed while it was being read: ${filePath}`);
             }
 
             const bytes = chunk.subarray(0, bytesRead);
-            const window = overlap.length === 0
-                ? bytes
-                : Buffer.concat([
-                    overlap,
-                    bytes,
-                ]);
+            const window = overlap.length === 0 ? bytes : Buffer.concat([overlap, bytes]);
             const windowEvidence = scanPdfMarkerEvidence(window);
             evidence.isEncrypted ||= windowEvidence.isEncrypted;
             evidence.pdfaLevel ??= windowEvidence.pdfaLevel;
-            overlap = bytes.subarray(
-                Math.max(0, bytes.length - PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES),
-            );
+            overlap = bytes.subarray(Math.max(0, bytes.length - PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES));
             offset += BigInt(bytesRead);
         }
 
@@ -218,28 +187,21 @@ async function readPdfStructuralFactsFromPath(
     throwIfAborted(options.signal);
     const nativePath = resolveNativePageOpsPath();
     if (!nativePath) {
-        throw capabilityError(
-            'native-unavailable',
-            'The native PDF conformance structural reader is unavailable',
-        );
+        throw capabilityError('native-unavailable', 'The native PDF conformance structural reader is unavailable');
     }
-    const runConformanceCommand = (targetPath: string) => runNativeToolCommand(nativePath, [
-        'pdf-conformance',
-        '--input',
-        targetPath,
-        ...(options.strict ? ['--strict'] : []),
-    ], {
-        timeoutMs: options.timeoutMs ?? PDF_CONFORMANCE_STRUCTURAL_TIMEOUT_MS,
-        maxStdoutBytes: PDF_CONFORMANCE_FACTS_MAX_BYTES,
-        maxStderrBytes: PDF_CONFORMANCE_STRUCTURAL_DIAGNOSTIC_MAX_BYTES,
-        rejectOnStdoutTruncation: true,
-        allowedExitCodes: [0],
-        commandLabel: PDF_CONFORMANCE_NATIVE_COMMAND_LABEL,
-        ...(options.signal ? {signal: options.signal} : {}),
-        ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
-        ...(options.brokerRun ? {brokerRun: options.brokerRun} : {}),
-        ...(options.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
-    });
+    const runConformanceCommand = (targetPath: string) =>
+        runNativeToolCommand(nativePath, ['pdf-conformance', '--input', targetPath, ...(options.strict ? ['--strict'] : [])], {
+            timeoutMs: options.timeoutMs ?? PDF_CONFORMANCE_STRUCTURAL_TIMEOUT_MS,
+            maxStdoutBytes: PDF_CONFORMANCE_FACTS_MAX_BYTES,
+            maxStderrBytes: PDF_CONFORMANCE_STRUCTURAL_DIAGNOSTIC_MAX_BYTES,
+            rejectOnStdoutTruncation: true,
+            allowedExitCodes: [0],
+            commandLabel: PDF_CONFORMANCE_NATIVE_COMMAND_LABEL,
+            ...(options.signal ? {signal: options.signal} : {}),
+            ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
+            ...(options.brokerRun ? {brokerRun: options.brokerRun} : {}),
+            ...(options.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
+        });
 
     let stdout: string;
     try {
@@ -249,30 +211,24 @@ async function readPdfStructuralFactsFromPath(
             if (options.strict || isAbortError(error) || !(hasNativeErrorCode(error) && error.code === 'corrupt-xref')) {
                 throw error;
             }
-            const repairTerminationProof = mergeTerminationProofSinks(
-                options.brokerRun?.onTerminationProof,
-                options.onTerminationProof,
-            );
+            const repairTerminationProof = mergeTerminationProofSinks(options.brokerRun?.onTerminationProof, options.onTerminationProof);
             // Damaged cross-reference tables that the WASM structural indexer refuses can still be
             // recovered by qpdf without decrypting or decompressing streams.
-            ({stdout} = await usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async scratchDir => {
+            ({stdout} = await usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async (scratchDir) => {
                 const repairedPath = join(scratchDir, 'repaired.pdf');
-                await runDesktopQpdfWasm([
-                    '--warning-exit-0',
-                    '--preserve-unreferenced',
-                    '--stream-data=preserve',
-                    filePath,
-                    repairedPath,
-                ], {
-                    timeoutMs: options.timeoutMs ?? PDF_CONFORMANCE_STRUCTURAL_TIMEOUT_MS,
-                    maxStdoutBytes: PDF_CONFORMANCE_FACTS_MAX_BYTES,
-                    maxStderrBytes: PDF_CONFORMANCE_STRUCTURAL_DIAGNOSTIC_MAX_BYTES,
-                    allowedExitCodes: QPDF_SUCCESS_EXIT_CODES,
-                    commandLabel: 'qpdf(conformance-repair)',
-                    ...(options.signal ? {signal: options.signal} : {}),
-                    ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
-                    ...(repairTerminationProof ? {onTerminationProof: repairTerminationProof} : {}),
-                });
+                await runDesktopQpdfWasm(
+                    ['--warning-exit-0', '--preserve-unreferenced', '--stream-data=preserve', filePath, repairedPath],
+                    {
+                        timeoutMs: options.timeoutMs ?? PDF_CONFORMANCE_STRUCTURAL_TIMEOUT_MS,
+                        maxStdoutBytes: PDF_CONFORMANCE_FACTS_MAX_BYTES,
+                        maxStderrBytes: PDF_CONFORMANCE_STRUCTURAL_DIAGNOSTIC_MAX_BYTES,
+                        allowedExitCodes: QPDF_SUCCESS_EXIT_CODES,
+                        commandLabel: 'qpdf(conformance-repair)',
+                        ...(options.signal ? {signal: options.signal} : {}),
+                        ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
+                        ...(repairTerminationProof ? {onTerminationProof: repairTerminationProof} : {}),
+                    },
+                );
                 return runConformanceCommand(repairedPath);
             }));
         }
@@ -281,33 +237,23 @@ async function readPdfStructuralFactsFromPath(
             throw error;
         }
         const message = getErrorMessage(error);
-        const code = (hasNativeErrorCode(error) && error.code === 'too-large')
-            || /stdout exceeded|truncated|timed out|too.large|resource.limit/iu.test(message)
-            ? 'structural-output-too-large'
-            : 'native-failure';
-        throw capabilityError(
-            code,
-            `Native PDF conformance structure was unavailable for "${filePath}": ${message}`,
-            error,
-        );
+        const code =
+            (hasNativeErrorCode(error) && error.code === 'too-large') ||
+            /stdout exceeded|truncated|timed out|too.large|resource.limit/iu.test(message)
+                ? 'structural-output-too-large'
+                : 'native-failure';
+        throw capabilityError(code, `Native PDF conformance structure was unavailable for "${filePath}": ${message}`, error);
     }
     throwIfAborted(options.signal);
     let parsed: unknown;
     try {
         parsed = JSON.parse(stdout);
     } catch (error) {
-        throw capabilityError(
-            'native-failure',
-            `Native PDF conformance facts are not valid JSON: ${getErrorMessage(error)}`,
-            error,
-        );
+        throw capabilityError('native-failure', `Native PDF conformance facts are not valid JSON: ${getErrorMessage(error)}`, error);
     }
     const facts = v.safeParse(qpdfStructuralFactsSchema, parsed, {abortEarly: true});
     if (!facts.success) {
-        throw capabilityError(
-            'native-failure',
-            'Native PDF conformance output has an invalid structural facts payload',
-        );
+        throw capabilityError('native-failure', 'Native PDF conformance output has an invalid structural facts payload');
     }
     return facts.output;
 }
@@ -319,15 +265,9 @@ export async function analyzePdfConformancePath(
     const structuralFacts = await readPdfStructuralFactsFromPath(filePath, options);
     return options.markerEvidence === 'structural-only'
         ? createPdfConformanceProfile(structuralFacts)
-        : createPdfConformanceProfile(
-            structuralFacts,
-            await readPdfMarkerEvidenceFromPath(filePath, options.signal),
-        );
+        : createPdfConformanceProfile(structuralFacts, await readPdfMarkerEvidenceFromPath(filePath, options.signal));
 }
 
-export async function validatePdfStructureFromPath(
-    filePath: string,
-    options: IPdfConformancePathAnalysisOptions = {},
-) {
+export async function validatePdfStructureFromPath(filePath: string, options: IPdfConformancePathAnalysisOptions = {}) {
     await readPdfStructuralFactsFromPath(filePath, options);
 }

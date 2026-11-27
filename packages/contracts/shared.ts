@@ -1,18 +1,11 @@
-import {
-    createBrandedId,
-    isBrandedString,
-    parseBranded,
-} from '@contracts/brand';
+import {createBrandedId, isBrandedString, parseBranded} from '@contracts/brand';
 import type {TBrand} from '@contracts/brand';
-import type { TLocale } from '@i18n-core';
-import type { TClientDiagnosticsPreference } from '@contracts/diagnostics/diagnosticsPreference';
-import type {
-    TDocumentBackend,
-    TDocumentRef,
-} from '@contracts/documentRef';
-import type { IPdfBox as IPdfGeometryBox } from '@contracts/geometry';
-import type { TPerformanceMode } from '@contracts/hostResourceProfile';
-import { isRecord } from '@contracts/runtimeGuards';
+import type {TLocale} from '@i18n-core';
+import type {TClientDiagnosticsPreference} from '@contracts/diagnostics/diagnosticsPreference';
+import type {TDocumentBackend, TDocumentRef} from '@contracts/documentRef';
+import type {IPdfBox as IPdfGeometryBox} from '@contracts/geometry';
+import type {TPerformanceMode} from '@contracts/hostResourceProfile';
+import {isRecord} from '@contracts/runtimeGuards';
 import type {TEpochMs} from '@contracts/timestamps';
 
 export type TRequestId = TBrand<string, 'RequestId'>;
@@ -36,10 +29,7 @@ export function isLeaseId(value: unknown): value is TLeaseId {
     return isBrandedString<'LeaseId'>(value);
 }
 
-function parseIdentifier<TIdentifier>(
-    value: unknown,
-    guard: (candidate: unknown) => candidate is TIdentifier,
-): TIdentifier | null {
+function parseIdentifier<TIdentifier>(value: unknown, guard: (candidate: unknown) => candidate is TIdentifier): TIdentifier | null {
     const normalized = typeof value === 'string' ? value.trim() : value;
     return parseBranded(normalized, guard);
 }
@@ -108,10 +98,7 @@ export function createLeaseId(prefix = 'lease'): TLeaseId {
     return createBrandedId(prefix, isLeaseId);
 }
 
-export type {
-    IPageGeometry,
-    IPdfBox,
-} from '@contracts/geometry';
+export type {IPageGeometry, IPdfBox} from '@contracts/geometry';
 
 export function normalizeNonEmptyStringPaths(paths: readonly unknown[]): string[] {
     const normalizedPaths: string[] = [];
@@ -141,34 +128,38 @@ export interface IRecentFile {
     modifiedAt?: TEpochMs;
 }
 
-export type { IOcrLanguage } from '@contracts/ocrLanguages';
+export type {IOcrLanguage} from '@contracts/ocrLanguages';
 
-export interface IOcrWord extends IPdfGeometryBox {text: string;}
+export interface IOcrWord extends IPdfGeometryBox {
+    text: string;
+}
 
 export function isOcrWord(value: unknown): value is IOcrWord {
-    return isRecord(value)
-        && typeof value.text === 'string'
-        && typeof value.x === 'number'
-        && typeof value.y === 'number'
-        && typeof value.width === 'number'
-        && typeof value.height === 'number'
-        && Number.isFinite(value.x)
-        && Number.isFinite(value.y)
-        && Number.isFinite(value.width)
-        && Number.isFinite(value.height);
+    return (
+        isRecord(value) &&
+        typeof value.text === 'string' &&
+        typeof value.x === 'number' &&
+        typeof value.y === 'number' &&
+        typeof value.width === 'number' &&
+        typeof value.height === 'number' &&
+        Number.isFinite(value.x) &&
+        Number.isFinite(value.y) &&
+        Number.isFinite(value.width) &&
+        Number.isFinite(value.height)
+    );
 }
 
 export type TFitMode = 'width' | 'height';
 export type TZoomMode = 'custom' | 'fit-width' | 'fit-height';
 export type TPdfZoomState =
     | {
-        kind: 'custom';
-        scale: number
-    }
+          kind: 'custom';
+          scale: number;
+      }
     | {
-        kind: 'fit';
-        axis: TFitMode
-    };
+          kind: 'fit';
+          axis: TFitMode;
+      };
 /**
  * One view's requested zoom, as its renderers reach it. A write is the
  * state the next read returns; nothing echoes it back.
@@ -192,13 +183,13 @@ export const DETACHED_ZOOM_ACCESS: IZoomStateAccess = Object.freeze({
 export function createZoomState(mode: TZoomMode, scale: number): TPdfZoomState {
     return mode === 'custom'
         ? {
-            kind: 'custom',
-            scale,
-        }
+              kind: 'custom',
+              scale,
+          }
         : {
-            kind: 'fit',
-            axis: mode === 'fit-height' ? 'height' : 'width',
-        };
+              kind: 'fit',
+              axis: mode === 'fit-height' ? 'height' : 'width',
+          };
 }
 export function getZoomMode(state: TPdfZoomState): TZoomMode {
     if (state.kind === 'custom') {
@@ -253,20 +244,20 @@ export interface ICropMargins {
 
 export function normalizeCropMargins(value: unknown): ICropMargins {
     if (
-        !isRecord(value)
-        || typeof value.top !== 'number'
-        || typeof value.bottom !== 'number'
-        || typeof value.left !== 'number'
-        || typeof value.right !== 'number'
-        || !Number.isFinite(value.top)
-        || !Number.isFinite(value.bottom)
-        || !Number.isFinite(value.left)
-        || !Number.isFinite(value.right)
-        || value.top < 0
-        || value.bottom < 0
-        || value.left < 0
-        || value.right < 0
-        || (value.physical !== undefined && typeof value.physical !== 'boolean')
+        !isRecord(value) ||
+        typeof value.top !== 'number' ||
+        typeof value.bottom !== 'number' ||
+        typeof value.left !== 'number' ||
+        typeof value.right !== 'number' ||
+        !Number.isFinite(value.top) ||
+        !Number.isFinite(value.bottom) ||
+        !Number.isFinite(value.left) ||
+        !Number.isFinite(value.right) ||
+        value.top < 0 ||
+        value.bottom < 0 ||
+        value.left < 0 ||
+        value.right < 0 ||
+        (value.physical !== undefined && typeof value.physical !== 'boolean')
     ) {
         throw new Error('Invalid crop margins');
     }

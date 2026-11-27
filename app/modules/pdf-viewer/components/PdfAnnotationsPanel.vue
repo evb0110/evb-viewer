@@ -61,11 +61,11 @@ import type {
     TAnnotationCommentsStatus,
     TAnnotationTool,
 } from '@app/types/annotations';
-import type { AnnotationEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {AnnotationEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import PdfAnnotationCommentsList from '@app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue';
 import PdfAnnotationStyleEditor from '@app/modules/pdf-viewer/components/PdfAnnotationStyleEditor.vue';
 import PdfAnnotationToolbar from '@app/modules/pdf-viewer/components/PdfAnnotationToolbar.vue';
-import { annotationIdForSummary } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
+import {annotationIdForSummary} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 
 interface IProps {
     tool: TAnnotationTool;
@@ -79,8 +79,8 @@ interface IProps {
     canRotateAnnotations?: ((delta: -90 | 90) => boolean) | undefined;
 }
 
-const { settings: appSettings } = useSettings();
-const { t } = useTypedI18n();
+const {settings: appSettings} = useSettings();
+const {t} = useTypedI18n();
 
 const {
     keepActive,
@@ -93,13 +93,13 @@ const {
     selectedAnnotations = [],
     canRotateAnnotations = undefined,
 } = defineProps<IProps>();
-const propertySelection = computed(() => tool === 'select' || tool === 'none' ? selectedAnnotations : []);
-const propertiesLabel = computed(() => propertySelection.value.length > 0
-    ? t('annotations.selectedProperties')
-    : t('annotations.toolDefaults'));
+const propertySelection = computed(() => (tool === 'select' || tool === 'none' ? selectedAnnotations : []));
+const propertiesLabel = computed(() =>
+    propertySelection.value.length > 0 ? t('annotations.selectedProperties') : t('annotations.toolDefaults'),
+);
 const activeCommentStableKey = computed(() => {
     const selectedId = selectedAnnotations[0]?.identity.id;
-    const comment = selectedId ? comments.find(comment => comment.appAnnotationId === selectedId) : undefined;
+    const comment = selectedId ? comments.find((comment) => comment.appAnnotationId === selectedId) : undefined;
     return comment ? annotationIdForSummary(comment) : undefined;
 });
 
@@ -107,10 +107,12 @@ const emit = defineEmits<{
     'set-tool': [tool: TAnnotationTool];
     'update-properties': [updates: IAnnotationPropertyUpdate];
     'update:keep-active': [value: boolean];
-    'update-setting': [payload: {
-        key: keyof IAnnotationSettings;
-        value: IAnnotationSettings[keyof IAnnotationSettings];
-    }];
+    'update-setting': [
+        payload: {
+            key: keyof IAnnotationSettings;
+            value: IAnnotationSettings[keyof IAnnotationSettings];
+        },
+    ];
     'focus-comment': [comment: IAnnotationCommentSummary];
     'edit-text-box': [comment: IAnnotationCommentSummary];
     'open-note': [comment: IAnnotationCommentSummary];

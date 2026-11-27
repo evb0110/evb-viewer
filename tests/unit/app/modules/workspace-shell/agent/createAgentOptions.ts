@@ -4,26 +4,30 @@ import type {TDocumentRef} from '@contracts/documentRef';
 import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
 import type {TPdfViewMode} from '@contracts/shared';
 import type {
-    IUseDocumentWorkspaceAgentOptions, TWorkspaceAgentFitMode,
+    IUseDocumentWorkspaceAgentOptions,
+    TWorkspaceAgentFitMode,
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
 import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
 import type {
-    IAnnotationCommentSummary, IAnnotationInventoryCompleteness, TAnnotationCommentsStatus, TAnnotationTool,
+    IAnnotationCommentSummary,
+    IAnnotationInventoryCompleteness,
+    TAnnotationCommentsStatus,
+    TAnnotationTool,
 } from '@app/types/annotations';
 import type {IAnnotationNoteWindowViewModel} from '@app/types/annotationNoteWindow';
 import type {IWorkspacePdfViewerAgentPort} from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import {createDefaultWorkspaceViewerCapabilities} from '@app/types/workspaceExpose';
 
-export function createAgentOptions(
-    overrides: Partial<IUseDocumentWorkspaceAgentOptions> = {},
-): IUseDocumentWorkspaceAgentOptions {
+export function createAgentOptions(overrides: Partial<IUseDocumentWorkspaceAgentOptions> = {}): IUseDocumentWorkspaceAgentOptions {
     const bookmarkItems = ref<IPdfBookmarkEntry[]>([]);
-    const pageLabelRanges = ref([{
-        startPage: 1,
-        style: 'D' as const,
-        prefix: '',
-        startNumber: 1,
-    }]);
+    const pageLabelRanges = ref([
+        {
+            startPage: 1,
+            style: 'D' as const,
+            prefix: '',
+            startNumber: 1,
+        },
+    ]);
     const showSidebar = ref(false);
     const sidebarTab = ref<'annotations' | 'bookmarks' | 'thumbnails' | 'search'>('annotations');
 

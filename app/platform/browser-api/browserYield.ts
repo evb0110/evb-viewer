@@ -1,4 +1,1 @@
-export {
-    resetBrowserYieldStateForTests,
-    yieldToBrowser,
-} from '@app/utils/yieldToBrowser';
+export {resetBrowserYieldStateForTests, yieldToBrowser} from '@app/utils/yieldToBrowser';

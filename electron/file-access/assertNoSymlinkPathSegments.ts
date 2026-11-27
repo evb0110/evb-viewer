@@ -1,22 +1,10 @@
-import {
-    lstatSync,
-    realpathSync,
-} from 'fs';
-import {
-    dirname,
-    resolve,
-} from 'path';
+import {lstatSync, realpathSync} from 'fs';
+import {dirname, resolve} from 'path';
 import {isErrnoException} from '@contracts/runtimeGuards';
 
 const ALLOWED_SYSTEM_SYMLINK_TARGETS = new Map([
-    [
-        '/tmp',
-        '/private/tmp',
-    ],
-    [
-        '/var',
-        '/private/var',
-    ],
+    ['/tmp', '/private/tmp'],
+    ['/var', '/private/var'],
 ]);
 
 function isAllowedSystemSymlinkPathSegment(segment: string) {
@@ -31,7 +19,6 @@ function isAllowedSystemSymlinkPathSegment(segment: string) {
         return false;
     }
 }
-
 
 export function assertNoSymlinkPathSegments(resolvedPath: string) {
     const segments: string[] = [];

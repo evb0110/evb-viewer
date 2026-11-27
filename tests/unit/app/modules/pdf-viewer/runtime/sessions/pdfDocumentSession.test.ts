@@ -1,33 +1,15 @@
 import {existsSync} from 'node:fs';
-import {
-    mkdtemp, readFile, rm, writeFile,
-} from 'node:fs/promises';
+import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {
-    requirePageNumber, requirePageIndex,
-} from '@contracts/pageNumbers';
+import {requirePageNumber, requirePageIndex} from '@contracts/pageNumbers';
 import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
-import { requireDocumentRef } from '@contracts/documentRef';
-import { requireDocumentRevisionToken } from '@contracts/documentRevision';
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    computed,
-    nextTick,
-    ref,
-    shallowRef,
-    effectScope,
-    isReactive,
-    watch,
-} from 'vue';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {computed, nextTick, ref, shallowRef, effectScope, isReactive, watch} from 'vue';
 import type {IPdfRenderTask} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
 
 const loggerError = vi.fn();
 const loggerWarn = vi.fn();
@@ -41,14 +23,16 @@ const rangeReadFailureReceipt = {
 const createObjectURLMock = vi.fn(() => 'blob:pdf-load');
 const revokeObjectURLMock = vi.fn();
 
-vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
-    diagnostic: vi.fn(),
-    diagnosticThrottled: vi.fn(),
-    error: loggerError,
-    warn: loggerWarn,
-    warnThrottled: vi.fn(),
-    debug: loggerDebug,
-}}));
+vi.mock('@app/utils/browserLogger', () => ({
+    BrowserLogger: {
+        diagnostic: vi.fn(),
+        diagnosticThrottled: vi.fn(),
+        error: loggerError,
+        warn: loggerWarn,
+        warnThrottled: vi.fn(),
+        debug: loggerDebug,
+    },
+}));
 
 interface IPdfjsDataRangeTransport {
     onDataRange: ReturnType<typeof vi.fn>;
@@ -69,14 +53,14 @@ class MockPdfDataRangeTransport implements IPdfjsDataRangeTransport {
 
 const pdfjsState: {
     version: string;
-    GlobalWorkerOptions: { workerSrc: string };
-    VerbosityLevel: { ERRORS: number };
+    GlobalWorkerOptions: {workerSrc: string};
+    VerbosityLevel: {ERRORS: number};
     getDocument: ReturnType<typeof vi.fn>;
     PDFDataRangeTransport?: typeof MockPdfDataRangeTransport;
 } = {
     version: '6.3.311',
-    GlobalWorkerOptions: { workerSrc: '' },
-    VerbosityLevel: { ERRORS: 0 },
+    GlobalWorkerOptions: {workerSrc: ''},
+    VerbosityLevel: {ERRORS: 0},
     getDocument: vi.fn(),
     PDFDataRangeTransport: MockPdfDataRangeTransport,
 };
@@ -88,43 +72,43 @@ const electronApi = createElectronPlatformApiFixture({documentFiles: {readFileRa
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => electronApi}));
 
 const {createPdfDocumentSession} = await import('@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession');
-const {
-    createPdfSourceJob, createPdfDocumentSessionSlot,
-} = await import('@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot');
+const {createPdfSourceJob, createPdfDocumentSessionSlot} = await import('@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot');
 const {createDocumentViewerRuntime} = await import('@app/modules/document-viewer/runtime/documentViewerRuntime');
 const {createDocumentOpenSurfaceSession} = await import('@app/modules/document-viewer/runtime/documentOpenSurfaceSession');
 const {maxCachedPdfPages} = await import('@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource');
 const {PDF_PAGE_METRICS_DENSE_LIMIT} = await import('@app/modules/document-viewer/public');
-const {runCoordinatedPdfPageOperation} = await import('@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender');
-const {
-    recordPdfDocumentLoadedRevision, recordPdfDocumentOriginalAnnotations,
-} = await import('@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision');
+const {runCoordinatedPdfPageOperation} =
+    await import('@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender');
+const {recordPdfDocumentLoadedRevision, recordPdfDocumentOriginalAnnotations} =
+    await import('@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision');
 
 function originalAnnotations(revision: IPdfAnnotationParseResult['documentRevisionToken']): IPdfAnnotationParseResult {
     return {
         documentRevisionToken: revision,
         pageCount: 1,
         foreign: [],
-        entities: [{
-            kind: 'text-box',
-            pageIndex: requirePageIndex(0),
-            objectNumber: 6,
-            generationNumber: 0,
-            name: 'large-original-appearance',
-            author: null,
-            createdAt: null,
-            modifiedAt: null,
-            text: 'Original text',
-            rect: {
-                left: 0.1,
-                top: 0.2,
-                width: 0.3,
-                height: 0.1,
+        entities: [
+            {
+                kind: 'text-box',
+                pageIndex: requirePageIndex(0),
+                objectNumber: 6,
+                generationNumber: 0,
+                name: 'large-original-appearance',
+                author: null,
+                createdAt: null,
+                modifiedAt: null,
+                text: 'Original text',
+                rect: {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.3,
+                    height: 0.1,
+                },
+                rotation: 0,
+                fontSize: 12,
+                color: '#000000',
             },
-            rotation: 0,
-            fontSize: 12,
-            color: '#000000',
-        }],
+        ],
     };
 }
 
@@ -198,10 +182,12 @@ describe('PdfDocumentSession range loading', () => {
             expect(documentState.pageMetrics.value).toEqual([]);
             admitted.resolve(undefined);
             await expect(loading).resolves.not.toBeNull();
-            expect(documentState.pageMetrics.value).toEqual([{
-                width: 100,
-                height: 200,
-            }]);
+            expect(documentState.pageMetrics.value).toEqual([
+                {
+                    width: 100,
+                    height: 200,
+                },
+            ]);
         } finally {
             admitted.resolve(undefined);
             await loading;
@@ -259,10 +245,12 @@ describe('PdfDocumentSession range loading', () => {
             await retired.promise;
             expect(documentState.acceptedSource.value).toBe(replacement);
             expect(documentState.loadError.value).toBeNull();
-            expect(documentState.pageMetrics.value).toEqual([{
-                width: 100,
-                height: 200,
-            }]);
+            expect(documentState.pageMetrics.value).toEqual([
+                {
+                    width: 100,
+                    height: 200,
+                },
+            ]);
         } finally {
             release.resolve(undefined);
             await older;
@@ -274,10 +262,12 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
 
         expect(documentState.hasExactPageGeometry(requirePageNumber(7))).toBe(false);
-        expect(documentState.seedTrustedPageGeometry({
-            pageNumber: requirePageNumber(7),
-            pageCount: 431,
-        })).toBe(false);
+        expect(
+            documentState.seedTrustedPageGeometry({
+                pageNumber: requirePageNumber(7),
+                pageCount: 431,
+            }),
+        ).toBe(false);
         expect(documentState.hasExactPageGeometry(requirePageNumber(7))).toBe(false);
         expect(documentState.hasExactPageGeometry(requirePageNumber(1))).toBe(false);
 
@@ -285,32 +275,36 @@ describe('PdfDocumentSession range loading', () => {
         expect(documentState.hasExactPageGeometry(requirePageNumber(7))).toBe(false);
     });
 
-    it.each([
-        0,
-        90,
-        180,
-        270,
-        45,
-    ])('accepts readonly surface page tables only for right-angle rotation %s', (rotation) => {
+    it.each([0, 90, 180, 270, 45])('accepts readonly surface page tables only for right-angle rotation %s', (rotation) => {
         const documentState = createPdfDocumentSession();
-        const pages = Object.freeze([Object.freeze({
-            widthPoints: 600,
-            heightPoints: 780,
-            rotation,
-            userUnit: 1,
-        })]);
+        const pages = Object.freeze([
+            Object.freeze({
+                widthPoints: 600,
+                heightPoints: 780,
+                rotation,
+                userUnit: 1,
+            }),
+        ]);
 
-        expect(documentState.seedTrustedPageGeometry({
-            pageNumber: requirePageNumber(1),
-            pageCount: 1,
-            pages,
-        })).toBe(rotation !== 45);
-        expect(documentState.pageMetrics.value).toEqual(rotation === 45 ? [] : [{
-            width: rotation === 90 || rotation === 270 ? 780 : 600,
-            height: rotation === 90 || rotation === 270 ? 600 : 780,
-            rotation,
-            userUnit: 1,
-        }]);
+        expect(
+            documentState.seedTrustedPageGeometry({
+                pageNumber: requirePageNumber(1),
+                pageCount: 1,
+                pages,
+            }),
+        ).toBe(rotation !== 45);
+        expect(documentState.pageMetrics.value).toEqual(
+            rotation === 45
+                ? []
+                : [
+                      {
+                          width: rotation === 90 || rotation === 270 ? 780 : 600,
+                          height: rotation === 90 || rotation === 270 ? 600 : 780,
+                          rotation,
+                          userUnit: 1,
+                      },
+                  ],
+        );
         documentState.cleanup();
     });
 
@@ -318,24 +312,26 @@ describe('PdfDocumentSession range loading', () => {
         const path = requireDocumentRef('/tmp/seeded-native-geometry.pdf');
         const revision = requireDocumentRevisionToken('rev-admitted');
         const documentState = createPdfDocumentSession();
-        expect(documentState.seedTrustedPageGeometry({
-            pageNumber: requirePageNumber(1),
-            pageCount: 2,
-            pages: [
-                {
-                    widthPoints: 600,
-                    heightPoints: 780,
-                    rotation: 0,
-                    userUnit: 1,
-                },
-                {
-                    widthPoints: 880,
-                    heightPoints: 580,
-                    rotation: 90,
-                    userUnit: 1.25,
-                },
-            ],
-        })).toBe(true);
+        expect(
+            documentState.seedTrustedPageGeometry({
+                pageNumber: requirePageNumber(1),
+                pageCount: 2,
+                pages: [
+                    {
+                        widthPoints: 600,
+                        heightPoints: 780,
+                        rotation: 0,
+                        userUnit: 1,
+                    },
+                    {
+                        widthPoints: 880,
+                        heightPoints: 580,
+                        rotation: 90,
+                        userUnit: 1.25,
+                    },
+                ],
+            }),
+        ).toBe(true);
         expect(documentState.pageMetrics.value).toEqual([
             {
                 width: 600,
@@ -352,21 +348,25 @@ describe('PdfDocumentSession range loading', () => {
         ]);
         expect(documentState.basePageWidth.value).toBe(725);
         let currentWidth = 620;
-        Reflect.set(electronApi.documentFiles, 'getPdfNativePageSizes', async (_path: string, options: {expectedDocumentRevisionToken: string}) => ({
-            kind: 'exact',
-            documentRef: path,
-            documentRevisionToken: options.expectedDocumentRevisionToken,
-            pageCount: 2,
-            pages: Array.from({length: 2}, (_, index) => ({
-                pageNumber: requirePageNumber(index + 1),
-                xPoints: 0,
-                yPoints: 0,
-                widthPoints: currentWidth,
-                heightPoints: 800,
-                rotation: 0,
-                userUnit: 1,
-            })),
-        }));
+        Reflect.set(
+            electronApi.documentFiles,
+            'getPdfNativePageSizes',
+            async (_path: string, options: {expectedDocumentRevisionToken: string}) => ({
+                kind: 'exact',
+                documentRef: path,
+                documentRevisionToken: options.expectedDocumentRevisionToken,
+                pageCount: 2,
+                pages: Array.from({length: 2}, (_, index) => ({
+                    pageNumber: requirePageNumber(index + 1),
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: currentWidth,
+                    heightPoints: 800,
+                    rotation: 0,
+                    userUnit: 1,
+                })),
+            }),
+        );
         pdfjsState.getDocument.mockImplementation(() => ({
             promise: Promise.resolve({
                 numPages: 2,
@@ -383,12 +383,7 @@ describe('PdfDocumentSession range loading', () => {
             }),
             destroy: vi.fn(),
         }));
-        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-        ]));
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([1, 2, 3, 4]));
         try {
             const source = {
                 kind: 'path' as const,
@@ -397,21 +392,17 @@ describe('PdfDocumentSession range loading', () => {
                 revision,
             };
             await expect(documentState.loadPdf(source)).resolves.not.toBeNull();
-            expect(documentState.pageMetrics.value.map(metric => metric.width)).toEqual([
-                620,
-                620,
-            ]);
+            expect(documentState.pageMetrics.value.map((metric) => metric.width)).toEqual([620, 620]);
             expect(documentState.basePageWidth.value).toBe(620);
 
             currentWidth = 700;
-            await expect(documentState.loadPdf({
-                ...source,
-                revision: requireDocumentRevisionToken('rev-rewritten'),
-            })).resolves.not.toBeNull();
-            expect(documentState.pageMetrics.value.map(metric => metric.width)).toEqual([
-                700,
-                700,
-            ]);
+            await expect(
+                documentState.loadPdf({
+                    ...source,
+                    revision: requireDocumentRevisionToken('rev-rewritten'),
+                }),
+            ).resolves.not.toBeNull();
+            expect(documentState.pageMetrics.value.map((metric) => metric.width)).toEqual([700, 700]);
             expect(documentState.basePageWidth.value).toBe(700);
         } finally {
             await documentState.dispose();
@@ -456,7 +447,9 @@ describe('PdfDocumentSession range loading', () => {
 
     it('releases a source published before any viewer when its document closes', async () => {
         const scope = effectScope();
-        const slot = scope.run(() => createPdfDocumentSessionSlot({src: shallowRef(new Blob(['pdf'], {type: 'application/pdf'}) as never)}))!;
+        const slot = scope.run(() =>
+            createPdfDocumentSessionSlot({src: shallowRef(new Blob(['pdf'], {type: 'application/pdf'}) as never)}),
+        )!;
         const job = slot.admit('open');
 
         scope.stop();
@@ -473,10 +466,12 @@ describe('PdfDocumentSession range loading', () => {
         const revision = requireDocumentRevisionToken('drt1:original-source');
         const destroyStarted = Promise.withResolvers<undefined>();
         const destruction = Promise.withResolvers<undefined>();
-        pdfjsState.getDocument.mockReturnValue(originalSourceDocumentTask(() => {
-            destroyStarted.resolve(undefined);
-            return destruction.promise;
-        }));
+        pdfjsState.getDocument.mockReturnValue(
+            originalSourceDocumentTask(() => {
+                destroyStarted.resolve(undefined);
+                return destruction.promise;
+            }),
+        );
         const documentState = createPdfDocumentSession();
         const left = documentState.attachView();
         const right = documentState.attachView();
@@ -551,9 +546,7 @@ describe('PdfDocumentSession range loading', () => {
         });
 
         try {
-            await expect(documentState.loadPublishedSource()?.finished)
-                .resolves
-                .toEqual({status: 'presented'});
+            await expect(documentState.loadPublishedSource()?.finished).resolves.toEqual({status: 'presented'});
             expect(view.openSurfaceGeneration).toBe(generation);
             expect(openSurface.snapshot.value.identity).toMatchObject({
                 documentId: '/tmp/opened-after-session.pdf',
@@ -575,31 +568,30 @@ describe('PdfDocumentSession range loading', () => {
 
     it('uses authoritative PDF.js geometry after declining a provisional baseline', async () => {
         const documentState = createPdfDocumentSession();
-        expect(documentState.seedTrustedPageGeometry({
-            pageNumber: requirePageNumber(1),
-            pageCount: 1,
-        })).toBe(false);
+        expect(
+            documentState.seedTrustedPageGeometry({
+                pageNumber: requirePageNumber(1),
+                pageCount: 1,
+            }),
+        ).toBe(false);
 
         const result = await documentState.loadPdf(new Blob(['pdf'], {type: 'application/pdf'}));
 
         expect(result).not.toBeNull();
-        expect(documentState.pageMetrics.value).toEqual([{
-            width: 100,
-            height: 200,
-        }]);
+        expect(documentState.pageMetrics.value).toEqual([
+            {
+                width: 100,
+                height: 200,
+            },
+        ]);
         expect(documentState.basePageWidth.value).toBe(100);
         expect(documentState.basePageHeight.value).toBe(200);
         expect(documentState.hasExactPageGeometry(requirePageNumber(1))).toBe(true);
     });
 
     it('loads a PDF through range transport and populates document state', async () => {
-        const size = (1024 * 1024 * 2) + 13;
-        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-        ]));
+        const size = 1024 * 1024 * 2 + 13;
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([1, 2, 3, 4]));
 
         const documentState = createPdfDocumentSession();
         const source = {
@@ -617,43 +609,49 @@ describe('PdfDocumentSession range loading', () => {
         expect(documentState.numPages.value).toBe(1);
         expect(documentState.basePageWidth.value).toBe(100);
         expect(documentState.basePageHeight.value).toBe(200);
-        expect(documentState.pageMetrics.value).toEqual([{
-            width: 100,
-            height: 200,
-        }]);
+        expect(documentState.pageMetrics.value).toEqual([
+            {
+                width: 100,
+                height: 200,
+            },
+        ]);
         expect(documentState.isLoading.value).toBe(false);
 
-        const { getPdfjsAssetDir } = await import('@app/utils/viewerAssets');
+        const {getPdfjsAssetDir} = await import('@app/utils/viewerAssets');
         expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
-        expect(pdfjsState.getDocument).toHaveBeenCalledWith(expect.objectContaining({
-            range: expect.any(MockPdfDataRangeTransport),
-            rangeChunkSize: 1024 * 1024,
-            disableAutoFetch: true,
-            disableStream: true,
-            verbosity: pdfjsState.VerbosityLevel.ERRORS,
-            standardFontDataUrl: getPdfjsAssetDir('standard_fonts'),
-            cMapUrl: getPdfjsAssetDir('cmaps'),
-            cMapPacked: true,
-            wasmUrl: getPdfjsAssetDir('wasm'),
-            iccUrl: getPdfjsAssetDir('iccs'),
-            useSystemFonts: false,
-        }));
+        expect(pdfjsState.getDocument).toHaveBeenCalledWith(
+            expect.objectContaining({
+                range: expect.any(MockPdfDataRangeTransport),
+                rangeChunkSize: 1024 * 1024,
+                disableAutoFetch: true,
+                disableStream: true,
+                verbosity: pdfjsState.VerbosityLevel.ERRORS,
+                standardFontDataUrl: getPdfjsAssetDir('standard_fonts'),
+                cMapUrl: getPdfjsAssetDir('cmaps'),
+                cMapPacked: true,
+                wasmUrl: getPdfjsAssetDir('wasm'),
+                iccUrl: getPdfjsAssetDir('iccs'),
+                useSystemFonts: false,
+            }),
+        );
     });
 
     it('publishes exact opening geometry before PDF.js loads and keeps it final', async () => {
         const pageCount = 6;
         const revision = requireDocumentRevisionToken('rev-native-geometry');
         const path = requireDocumentRef('/tmp/native-geometry.pdf');
-        const getPage = vi.fn((pageNumber: number) => (pageNumber === 1
-            ? Promise.resolve({
-                cleanup: vi.fn(),
-                getViewport: vi.fn(() => ({
-                    width: 600,
-                    height: 792,
-                })),
-            })
-            // The single PDF.js worker is still rasterizing another page.
-            : new Promise(() => {})));
+        const getPage = vi.fn((pageNumber: number) =>
+            pageNumber === 1
+                ? Promise.resolve({
+                      cleanup: vi.fn(),
+                      getViewport: vi.fn(() => ({
+                          width: 600,
+                          height: 792,
+                      })),
+                  })
+                : // The single PDF.js worker is still rasterizing another page.
+                  new Promise(() => {}),
+        );
         const document = {
             numPages: pageCount,
             getPage,
@@ -664,12 +662,7 @@ describe('PdfDocumentSession range loading', () => {
             promise: ready.promise,
             destroy: vi.fn(),
         });
-        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-        ]));
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([1, 2, 3, 4]));
         const getPdfNativePageSizes = vi.fn(async () => ({
             kind: 'exact' as const,
             documentRef: path,
@@ -695,7 +688,9 @@ describe('PdfDocumentSession range loading', () => {
                 revision,
             });
             try {
-                await vi.waitFor(() => expect(documentState.pageMetrics.value.map(metric => metric.width)).toEqual(Array(pageCount).fill(612)));
+                await vi.waitFor(() =>
+                    expect(documentState.pageMetrics.value.map((metric) => metric.width)).toEqual(Array(pageCount).fill(612)),
+                );
                 expect(documentState.pdfDocument.value).toBeNull();
                 expect(documentState.acceptedSource.value).toBeNull();
             } finally {
@@ -703,12 +698,8 @@ describe('PdfDocumentSession range loading', () => {
             }
             const result = await loading;
             expect(result).not.toBeNull();
-            expect(documentState.pageMetrics.value.map(metric => metric.width)).toEqual(Array(pageCount).fill(612));
-            expect(loggerWarn).toHaveBeenCalledWith(
-                'pdf-document',
-                expect.stringContaining('disagrees with PDF.js'),
-                expect.anything(),
-            );
+            expect(documentState.pageMetrics.value.map((metric) => metric.width)).toEqual(Array(pageCount).fill(612));
+            expect(loggerWarn).toHaveBeenCalledWith('pdf-document', expect.stringContaining('disagrees with PDF.js'), expect.anything());
             // A range request needs no PDF.js page while another page renders.
             await expect(documentState.ensurePageMetricsInRange(4, 5)).resolves.toBe(false);
         } finally {
@@ -792,10 +783,7 @@ describe('PdfDocumentSession range loading', () => {
         }
         expect(documentState.acceptedSource.value).toBe(source);
         expect(documentState.numPages.value).toBe(2);
-        expect(documentState.pageMetrics.value.map(metric => metric.width)).toEqual([
-            612,
-            612,
-        ]);
+        expect(documentState.pageMetrics.value.map((metric) => metric.width)).toEqual([612, 612]);
     });
 
     it('discards native geometry while the invalidated view is still cancelling', async () => {
@@ -806,15 +794,17 @@ describe('PdfDocumentSession range loading', () => {
             documentRef: path,
             documentRevisionToken: revision,
             pageCount: 1,
-            pages: [{
-                pageNumber: requirePageNumber(1),
-                xPoints: 0,
-                yPoints: 0,
-                widthPoints: 612,
-                heightPoints: 792,
-                rotation: 0 as const,
-                userUnit: 1,
-            }],
+            pages: [
+                {
+                    pageNumber: requirePageNumber(1),
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 612,
+                    heightPoints: 792,
+                    rotation: 0 as const,
+                    userUnit: 1,
+                },
+            ],
         };
         const nativeStarted = Promise.withResolvers<undefined>();
         const nativeResult = Promise.withResolvers<typeof geometry>();
@@ -837,8 +827,10 @@ describe('PdfDocumentSession range loading', () => {
         });
         const documentState = createPdfDocumentSession();
         const view = documentState.attachView();
-        view.subscribe(transition => {
-            if (transition.phase !== 'invalidated') return;
+        view.subscribe((transition) => {
+            if (transition.phase !== 'invalidated') {
+                return;
+            }
             cancelling.resolve(undefined);
             return cancellation.promise;
         });
@@ -911,18 +903,18 @@ describe('PdfDocumentSession range loading', () => {
             hasDocument: boolean;
             hasSource: boolean;
         }> = [];
-        const stopWatching = watch([
-            documentState.pdfDocument,
-            documentState.acceptedSource,
-        ], ([
-            publishedDocument,
-            publishedSource,
-        ]) => {
-            if (publishedDocument || publishedSource) publications.push({
-                hasDocument: publishedDocument !== null,
-                hasSource: publishedSource !== null,
-            });
-        }, {flush: 'sync'});
+        const stopWatching = watch(
+            [documentState.pdfDocument, documentState.acceptedSource],
+            ([publishedDocument, publishedSource]) => {
+                if (publishedDocument || publishedSource) {
+                    publications.push({
+                        hasDocument: publishedDocument !== null,
+                        hasSource: publishedSource !== null,
+                    });
+                }
+            },
+            {flush: 'sync'},
+        );
         try {
             const loading = documentState.loadPdf({
                 kind: 'path',
@@ -1008,8 +1000,8 @@ describe('PdfDocumentSession range loading', () => {
         try {
             await expect(documentState.loadPdf(source)).resolves.not.toBeNull();
             expect(documentState.acceptedSource.value).toBe(source);
-            expect(documentState.pageMetrics.value.map(metric => metric.width)).toEqual(
-                Array.from({length: pageCount}, (_, index) => witness === 'matching' && index === 1 ? 400 : 100),
+            expect(documentState.pageMetrics.value.map((metric) => metric.width)).toEqual(
+                Array.from({length: pageCount}, (_, index) => (witness === 'matching' && index === 1 ? 400 : 100)),
             );
         } finally {
             documentState.cleanup();
@@ -1017,49 +1009,42 @@ describe('PdfDocumentSession range loading', () => {
         }
     });
 
-    it.each([
-        3,
-        1_000,
-        PDF_PAGE_METRICS_DENSE_LIMIT + 1,
-    ])('opens a %s-page Blob independently of held native metadata', async (pageCount) => {
-        const source = new Blob(['pdf'], {type: 'application/pdf'});
-        pdfjsState.getDocument.mockReturnValue({
-            promise: Promise.resolve({
-                numPages: pageCount,
-                getPage: vi.fn(async () => ({
-                    cleanup: vi.fn(),
-                    getViewport: () => ({
-                        width: 100,
-                        height: 200,
-                    }),
-                })),
-                loadingTask: {destroy: vi.fn()},
-            }),
-            destroy: vi.fn(),
-        });
-        Reflect.set(electronApi.documentFiles, 'getPdfNativePageSizes', () => new Promise(() => {}));
-        const documentState = createPdfDocumentSession({
-            workingCopyPath: ref(requireDocumentRef('/tmp/ordinary-blob.pdf')),
-            documentRevisionToken: ref(requireDocumentRevisionToken('rev-ordinary')),
-        });
-        try {
-            await expect(documentState.loadPdf(source)).resolves.not.toBeNull();
-            expect(documentState.loadState.value.status).toBe('ready');
-            expect(documentState.acceptedSource.value).toBe(source);
-            expect(documentState.pageMetrics.value.map(metric => [
-                metric.width,
-                metric.height,
-            ])).toEqual(
-                Array.from({length: pageCount > PDF_PAGE_METRICS_DENSE_LIMIT ? 1 : pageCount}, () => [
-                    100,
-                    200,
-                ]),
-            );
-        } finally {
-            documentState.cleanup();
-            Reflect.deleteProperty(electronApi.documentFiles, 'getPdfNativePageSizes');
-        }
-    });
+    it.each([3, 1_000, PDF_PAGE_METRICS_DENSE_LIMIT + 1])(
+        'opens a %s-page Blob independently of held native metadata',
+        async (pageCount) => {
+            const source = new Blob(['pdf'], {type: 'application/pdf'});
+            pdfjsState.getDocument.mockReturnValue({
+                promise: Promise.resolve({
+                    numPages: pageCount,
+                    getPage: vi.fn(async () => ({
+                        cleanup: vi.fn(),
+                        getViewport: () => ({
+                            width: 100,
+                            height: 200,
+                        }),
+                    })),
+                    loadingTask: {destroy: vi.fn()},
+                }),
+                destroy: vi.fn(),
+            });
+            Reflect.set(electronApi.documentFiles, 'getPdfNativePageSizes', () => new Promise(() => {}));
+            const documentState = createPdfDocumentSession({
+                workingCopyPath: ref(requireDocumentRef('/tmp/ordinary-blob.pdf')),
+                documentRevisionToken: ref(requireDocumentRevisionToken('rev-ordinary')),
+            });
+            try {
+                await expect(documentState.loadPdf(source)).resolves.not.toBeNull();
+                expect(documentState.loadState.value.status).toBe('ready');
+                expect(documentState.acceptedSource.value).toBe(source);
+                expect(documentState.pageMetrics.value.map((metric) => [metric.width, metric.height])).toEqual(
+                    Array.from({length: pageCount > PDF_PAGE_METRICS_DENSE_LIMIT ? 1 : pageCount}, () => [100, 200]),
+                );
+            } finally {
+                documentState.cleanup();
+                Reflect.deleteProperty(electronApi.documentFiles, 'getPdfNativePageSizes');
+            }
+        },
+    );
 
     it('does not impose a total-page product cap on path-backed PDFs', async () => {
         const pageCount = 100_001;
@@ -1077,12 +1062,7 @@ describe('PdfDocumentSession range loading', () => {
             }),
             destroy: vi.fn(),
         });
-        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-        ]));
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([1, 2, 3, 4]));
 
         const documentState = createPdfDocumentSession();
         const result = await documentState.loadPdf({
@@ -1126,12 +1106,7 @@ describe('PdfDocumentSession range loading', () => {
             }),
             destroy: vi.fn(),
         });
-        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-        ]));
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([1, 2, 3, 4]));
 
         const documentState = createPdfDocumentSession();
         const result = await documentState.loadPdf({
@@ -1181,12 +1156,7 @@ describe('PdfDocumentSession range loading', () => {
             }),
             destroy: vi.fn(),
         });
-        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-        ]));
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([1, 2, 3, 4]));
 
         const documentState = createPdfDocumentSession();
         await documentState.loadPdf({
@@ -1227,12 +1197,7 @@ describe('PdfDocumentSession range loading', () => {
             }),
             destroy: vi.fn(),
         });
-        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-        ]));
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([1, 2, 3, 4]));
 
         const documentState = createPdfDocumentSession();
         await documentState.loadPdf({
@@ -1245,96 +1210,96 @@ describe('PdfDocumentSession range loading', () => {
         documentState.cleanup();
     });
 
-    it('keeps the preloaded tail cached until PDF.js requests it', async () => {
-        const getDocumentCalled = Promise.withResolvers<MockPdfDataRangeTransport>();
-        const deferred = Promise.withResolvers<{
-            numPages: number;
-            getPage: ReturnType<typeof vi.fn>;
-            loadingTask: {destroy: ReturnType<typeof vi.fn>};
-        }>();
-        const destroy = vi.fn(() => Promise.resolve());
-        const chunkLength = 1024 * 1024;
-        const size = chunkLength * 3;
-        const tailStart = size - chunkLength;
-        const initialData = new Uint8Array(chunkLength);
-        const tailData = new Uint8Array(chunkLength);
-        initialData[0] = 1;
-        tailData[0] = 9;
-        tailData[chunkLength - 1] = 7;
+    it(
+        'keeps the preloaded tail cached until PDF.js requests it',
+        async () => {
+            const getDocumentCalled = Promise.withResolvers<MockPdfDataRangeTransport>();
+            const deferred = Promise.withResolvers<{
+                numPages: number;
+                getPage: ReturnType<typeof vi.fn>;
+                loadingTask: {destroy: ReturnType<typeof vi.fn>};
+            }>();
+            const destroy = vi.fn(() => Promise.resolve());
+            const chunkLength = 1024 * 1024;
+            const size = chunkLength * 3;
+            const tailStart = size - chunkLength;
+            const initialData = new Uint8Array(chunkLength);
+            const tailData = new Uint8Array(chunkLength);
+            initialData[0] = 1;
+            tailData[0] = 9;
+            tailData[chunkLength - 1] = 7;
 
-        pdfjsState.getDocument.mockImplementation((options: { range?: MockPdfDataRangeTransport }) => {
-            expect(options.range?.onDataRange).not.toHaveBeenCalled();
-            if (options.range) {
-                getDocumentCalled.resolve(options.range);
-            } else {
-                getDocumentCalled.reject(new Error('Expected PDF range transport'));
-            }
-            return {
-                promise: deferred.promise,
-                destroy,
-            };
-        });
-
-        electronApi.documentFiles.readFileRange.mockImplementation(async (
-            _path: string,
-            offset: number,
-            length: number,
-        ) => {
-            if (offset === 0) {
-                expect(length).toBe(chunkLength);
-                return initialData;
-            }
-            if (offset === tailStart) {
-                expect(length).toBe(chunkLength);
-                return tailData;
-            }
-            throw new Error(`Unexpected PDF range read ${offset}..${offset + length}`);
-        });
-
-        const documentState = createPdfDocumentSession();
-        const loadPromise = documentState.loadPdf({
-            kind: 'path',
-            path: requireDocumentRef('/tmp/preloaded-tail.pdf'),
-            size,
-        });
-
-        const range = await getDocumentCalled.promise;
-
-        expect(range.onDataRange).not.toHaveBeenCalled();
-
-        const dataRangeDelivered = Promise.withResolvers<{
-            begin: number;
-            chunk: unknown;
-        }>();
-        range.onDataRange.mockImplementation((begin: number, chunk: unknown) => {
-            dataRangeDelivered.resolve({
-                begin,
-                chunk,
+            pdfjsState.getDocument.mockImplementation((options: {range?: MockPdfDataRangeTransport}) => {
+                expect(options.range?.onDataRange).not.toHaveBeenCalled();
+                if (options.range) {
+                    getDocumentCalled.resolve(options.range);
+                } else {
+                    getDocumentCalled.reject(new Error('Expected PDF range transport'));
+                }
+                return {
+                    promise: deferred.promise,
+                    destroy,
+                };
             });
-        });
-        if (!range.requestDataRange) {
-            throw new Error('Expected PDF range request handler');
-        }
 
-        range.requestDataRange(tailStart, size);
-        const deliveredRange = await dataRangeDelivered.promise;
+            electronApi.documentFiles.readFileRange.mockImplementation(async (_path: string, offset: number, length: number) => {
+                if (offset === 0) {
+                    expect(length).toBe(chunkLength);
+                    return initialData;
+                }
+                if (offset === tailStart) {
+                    expect(length).toBe(chunkLength);
+                    return tailData;
+                }
+                throw new Error(`Unexpected PDF range read ${offset}..${offset + length}`);
+            });
 
-        expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledTimes(2);
-        expect(range.onDataRange).toHaveBeenCalledTimes(1);
-        const rangeChunk = deliveredRange.chunk as Uint8Array | undefined;
-        expect(deliveredRange.begin).toBe(tailStart);
-        expect(rangeChunk).toBeInstanceOf(Uint8Array);
-        expect(rangeChunk).not.toBe(tailData);
-        expect(rangeChunk).toHaveLength(chunkLength);
-        expect(rangeChunk?.[0]).toBe(9);
-        expect(rangeChunk?.[chunkLength - 1]).toBe(7);
+            const documentState = createPdfDocumentSession();
+            const loadPromise = documentState.loadPdf({
+                kind: 'path',
+                path: requireDocumentRef('/tmp/preloaded-tail.pdf'),
+                size,
+            });
 
-        documentState.cleanup();
-        deferred.reject(new Error('range cache test cancelled load'));
+            const range = await getDocumentCalled.promise;
 
-        await expect(loadPromise).resolves.toBeNull();
-        expect(documentState.loadError.value).toBeNull();
-    }, rangePreloadTestTimeoutMs);
+            expect(range.onDataRange).not.toHaveBeenCalled();
+
+            const dataRangeDelivered = Promise.withResolvers<{
+                begin: number;
+                chunk: unknown;
+            }>();
+            range.onDataRange.mockImplementation((begin: number, chunk: unknown) => {
+                dataRangeDelivered.resolve({
+                    begin,
+                    chunk,
+                });
+            });
+            if (!range.requestDataRange) {
+                throw new Error('Expected PDF range request handler');
+            }
+
+            range.requestDataRange(tailStart, size);
+            const deliveredRange = await dataRangeDelivered.promise;
+
+            expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledTimes(2);
+            expect(range.onDataRange).toHaveBeenCalledTimes(1);
+            const rangeChunk = deliveredRange.chunk as Uint8Array | undefined;
+            expect(deliveredRange.begin).toBe(tailStart);
+            expect(rangeChunk).toBeInstanceOf(Uint8Array);
+            expect(rangeChunk).not.toBe(tailData);
+            expect(rangeChunk).toHaveLength(chunkLength);
+            expect(rangeChunk?.[0]).toBe(9);
+            expect(rangeChunk?.[chunkLength - 1]).toBe(7);
+
+            documentState.cleanup();
+            deferred.reject(new Error('range cache test cancelled load'));
+
+            await expect(loadPromise).resolves.toBeNull();
+            expect(documentState.loadError.value).toBeNull();
+        },
+        rangePreloadTestTimeoutMs,
+    );
 
     it('uses the largest measured page as the fit baseline when page sizes differ', async () => {
         const getPage = vi.fn(async (pageNumber: number) => {
@@ -1353,7 +1318,7 @@ describe('PdfDocumentSession range loading', () => {
                 },
             ];
             const metric = metrics[pageNumber - 1]!;
-            return { getViewport: vi.fn(() => metric) };
+            return {getViewport: vi.fn(() => metric)};
         });
         pdfjsState.getDocument.mockReturnValue({
             promise: Promise.resolve({
@@ -1363,12 +1328,7 @@ describe('PdfDocumentSession range loading', () => {
             }),
             destroy: vi.fn(),
         });
-        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-        ]));
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([1, 2, 3, 4]));
 
         const documentState = createPdfDocumentSession();
         const result = await documentState.loadPdf({
@@ -1400,10 +1360,12 @@ describe('PdfDocumentSession range loading', () => {
     });
 
     it('publishes dense page metrics at open and reuses them for later range requests', async () => {
-        const getPage = vi.fn(async (pageNumber: number) => ({ getViewport: vi.fn(() => ({
-            width: 200 + pageNumber,
-            height: 400 + pageNumber,
-        })) }));
+        const getPage = vi.fn(async (pageNumber: number) => ({
+            getViewport: vi.fn(() => ({
+                width: 200 + pageNumber,
+                height: 400 + pageNumber,
+            })),
+        }));
         pdfjsState.getDocument.mockReturnValue({
             promise: Promise.resolve({
                 numPages: 5,
@@ -1412,12 +1374,7 @@ describe('PdfDocumentSession range loading', () => {
             }),
             destroy: vi.fn(),
         });
-        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-        ]));
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([1, 2, 3, 4]));
 
         const documentState = createPdfDocumentSession();
         await documentState.loadPdf({
@@ -1469,10 +1426,7 @@ describe('PdfDocumentSession range loading', () => {
                     })),
                 },
             ],
-            [
-                2,
-                page2,
-            ],
+            [2, page2],
         ]);
         const getPage = vi.fn(async (pageNumber: number) => pages.get(pageNumber));
         pdfjsState.getDocument.mockReturnValue({
@@ -1483,12 +1437,7 @@ describe('PdfDocumentSession range loading', () => {
             }),
             destroy: vi.fn(),
         });
-        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-        ]));
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([1, 2, 3, 4]));
 
         const documentState = createPdfDocumentSession();
         await documentState.loadPdf({
@@ -1507,11 +1456,7 @@ describe('PdfDocumentSession range loading', () => {
 
     it('surfaces a load error when PDF.js range transport API is unavailable', async () => {
         delete pdfjsState.PDFDataRangeTransport;
-        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
-            1,
-            2,
-            3,
-        ]));
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([1, 2, 3]));
 
         const documentState = createPdfDocumentSession();
         const result = await documentState.loadPdf({
@@ -1524,12 +1469,9 @@ describe('PdfDocumentSession range loading', () => {
         expect(documentState.isLoading.value).toBe(false);
         expect(documentState.loadError.value).toBeInstanceOf(Error);
         expect((documentState.loadError.value as Error).message).toContain('PDFDataRangeTransport export is not a constructor');
-        expect(loggerError).toHaveBeenCalledWith(
-            'pdf-document',
-            'Failed to load PDF',
-            expect.any(Error),
-            {code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED'},
-        );
+        expect(loggerError).toHaveBeenCalledWith('pdf-document', 'Failed to load PDF', expect.any(Error), {
+            code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED',
+        });
     });
 
     it('returns null and clears loading when initial range read fails', async () => {
@@ -1547,12 +1489,9 @@ describe('PdfDocumentSession range loading', () => {
         expect(documentState.isLoading.value).toBe(false);
         expect(documentState.loadError.value).toBeInstanceOf(Error);
         expect((documentState.loadError.value as Error).message).toBe('read failed');
-        expect(loggerError).toHaveBeenCalledWith(
-            'pdf-document',
-            'Failed to load PDF',
-            expect.any(Error),
-            {code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED'},
-        );
+        expect(loggerError).toHaveBeenCalledWith('pdf-document', 'Failed to load PDF', expect.any(Error), {
+            code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED',
+        });
     });
 
     it('fails the load instead of hanging when a later range read rejects', async () => {
@@ -1572,49 +1511,34 @@ describe('PdfDocumentSession range loading', () => {
         });
 
         electronApi.documentFiles.readFileRange
-            .mockResolvedValueOnce(new Uint8Array([
-                1,
-                2,
-                3,
-                4,
-            ]))
+            .mockResolvedValueOnce(new Uint8Array([1, 2, 3, 4]))
             .mockRejectedValueOnce(new Error('late range read failed'));
 
         const documentState = createPdfDocumentSession();
         const loadPromise = documentState.loadPdf({
             kind: 'path',
             path: requireDocumentRef('/tmp/late-failure.pdf'),
-            size: (1024 * 1024) + 512,
+            size: 1024 * 1024 + 512,
         });
 
         await vi.waitFor(() => {
             expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
         });
 
-        const getDocumentArg = pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined;
+        const getDocumentArg = pdfjsState.getDocument.mock.calls[0]?.[0] as {range?: MockPdfDataRangeTransport} | undefined;
         expect(getDocumentArg?.range).toBeInstanceOf(MockPdfDataRangeTransport);
 
-        getDocumentArg?.range?.requestDataRange?.(1024 * 1024, (1024 * 1024) + 512);
+        getDocumentArg?.range?.requestDataRange?.(1024 * 1024, 1024 * 1024 + 512);
 
         await expect(loadPromise).resolves.toBeNull();
         expect(documentState.isLoading.value).toBe(false);
         expect(documentState.pdfDocument.value).toBeNull();
         expect(destroy).toHaveBeenCalledTimes(1);
         expect(getDocumentArg?.range?.abort).toHaveBeenCalledTimes(1);
-        expect(loggerError).toHaveBeenNthCalledWith(
-            1,
-            'pdf-document',
-            'Failed to read PDF range chunk',
-            expect.any(Error),
-            {code: 'RENDERER_PDF_RANGE_READ_FAILED'},
-        );
-        expect(loggerError).toHaveBeenNthCalledWith(
-            2,
-            'pdf-document',
-            'Failed to load PDF',
-            expect.any(Error),
-            rangeReadFailureReceipt,
-        );
+        expect(loggerError).toHaveBeenNthCalledWith(1, 'pdf-document', 'Failed to read PDF range chunk', expect.any(Error), {
+            code: 'RENDERER_PDF_RANGE_READ_FAILED',
+        });
+        expect(loggerError).toHaveBeenNthCalledWith(2, 'pdf-document', 'Failed to load PDF', expect.any(Error), rangeReadFailureReceipt);
     });
 
     it('queues a range request burst wider than the serialized read chain instead of failing the load', async () => {
@@ -1632,11 +1556,9 @@ describe('PdfDocumentSession range loading', () => {
             promise: deferred.promise,
             destroy,
         });
-        electronApi.documentFiles.readFileRange.mockImplementation(async (
-            _path: string,
-            _offset: number,
-            length: number,
-        ) => new Uint8Array(length));
+        electronApi.documentFiles.readFileRange.mockImplementation(
+            async (_path: string, _offset: number, length: number) => new Uint8Array(length),
+        );
 
         const documentState = createPdfDocumentSession();
         const loadPromise = documentState.loadPdf({
@@ -1649,7 +1571,7 @@ describe('PdfDocumentSession range loading', () => {
             expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
         });
 
-        const getDocumentArg = pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined;
+        const getDocumentArg = pdfjsState.getDocument.mock.calls[0]?.[0] as {range?: MockPdfDataRangeTransport} | undefined;
         const range = getDocumentArg?.range;
         expect(range).toBeInstanceOf(MockPdfDataRangeTransport);
         range?.onDataRange.mockClear();
@@ -1657,7 +1579,7 @@ describe('PdfDocumentSession range loading', () => {
         const burstSize = 64;
         for (let index = 0; index < burstSize; index += 1) {
             const begin = (2 + index) * 1024 * 1024;
-            range?.requestDataRange?.(begin, begin + (1024 * 1024));
+            range?.requestDataRange?.(begin, begin + 1024 * 1024);
         }
 
         await vi.waitFor(() => {
@@ -1698,11 +1620,7 @@ describe('PdfDocumentSession range loading', () => {
         });
 
         const failingBegin = 2 * 1024 * 1024;
-        electronApi.documentFiles.readFileRange.mockImplementation(async (
-            _path: string,
-            offset: number,
-            length: number,
-        ) => {
+        electronApi.documentFiles.readFileRange.mockImplementation(async (_path: string, offset: number, length: number) => {
             if (offset === failingBegin) {
                 throw new Error('range read failed');
             }
@@ -1720,32 +1638,25 @@ describe('PdfDocumentSession range loading', () => {
             expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
         });
 
-        const getDocumentArg = pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined;
+        const getDocumentArg = pdfjsState.getDocument.mock.calls[0]?.[0] as {range?: MockPdfDataRangeTransport} | undefined;
         const range = getDocumentArg?.range;
         expect(range).toBeInstanceOf(MockPdfDataRangeTransport);
         electronApi.documentFiles.readFileRange.mockClear();
         range?.onDataRange.mockClear();
 
         for (let index = 0; index < 8; index += 1) {
-            const begin = failingBegin + (index * 1024 * 1024);
-            range?.requestDataRange?.(begin, begin + (1024 * 1024));
+            const begin = failingBegin + index * 1024 * 1024;
+            range?.requestDataRange?.(begin, begin + 1024 * 1024);
         }
 
         await expect(loadPromise).resolves.toBeNull();
 
         expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledTimes(1);
-        expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledWith(
-            '/tmp/range-burst-failure.pdf',
-            failingBegin,
-            1024 * 1024,
-        );
+        expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledWith('/tmp/range-burst-failure.pdf', failingBegin, 1024 * 1024);
         expect(range?.onDataRange).not.toHaveBeenCalled();
     });
 
-    it.each([
-        { staleReadOutcome: 'resolves' },
-        { staleReadOutcome: 'rejects' },
-    ] as const)(
+    it.each([{staleReadOutcome: 'resolves'}, {staleReadOutcome: 'rejects'}] as const)(
         'lets load B finish before stale load A $staleReadOutcome its pending range read',
         async ({staleReadOutcome}) => {
             const chunkLength = 1024 * 1024;
@@ -1779,11 +1690,7 @@ describe('PdfDocumentSession range loading', () => {
                     promise: loadBResult.promise,
                     destroy: vi.fn(() => Promise.resolve()),
                 });
-            electronApi.documentFiles.readFileRange.mockImplementation(async (
-                path: string,
-                offset: number,
-                length: number,
-            ) => {
+            electronApi.documentFiles.readFileRange.mockImplementation(async (path: string, offset: number, length: number) => {
                 if (path === '/tmp/range-session-a.pdf' && offset === requestedStart) {
                     return staleRead.promise.then(
                         (data) => {
@@ -1811,24 +1718,20 @@ describe('PdfDocumentSession range loading', () => {
                 size: fileSize,
             } as const;
 
-            await expect(documentState.loadPdf(sourceA)).resolves.toEqual(expect.objectContaining({ document: documentA }));
-            const rangeA = (pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined)?.range;
+            await expect(documentState.loadPdf(sourceA)).resolves.toEqual(expect.objectContaining({document: documentA}));
+            const rangeA = (pdfjsState.getDocument.mock.calls[0]?.[0] as {range?: MockPdfDataRangeTransport} | undefined)?.range;
             expect(rangeA).toBeInstanceOf(MockPdfDataRangeTransport);
             rangeA?.onDataRange.mockClear();
             rangeA?.requestDataRange?.(requestedStart, requestedEnd);
             await vi.waitFor(() => {
-                expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledWith(
-                    sourceA.path,
-                    requestedStart,
-                    chunkLength,
-                );
+                expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledWith(sourceA.path, requestedStart, chunkLength);
             });
 
             const loadB = documentState.loadPdf(sourceB);
             await vi.waitFor(() => {
                 expect(pdfjsState.getDocument).toHaveBeenCalledTimes(2);
             });
-            const rangeB = (pdfjsState.getDocument.mock.calls[1]?.[0] as { range?: MockPdfDataRangeTransport } | undefined)?.range;
+            const rangeB = (pdfjsState.getDocument.mock.calls[1]?.[0] as {range?: MockPdfDataRangeTransport} | undefined)?.range;
             expect(rangeB).toBeInstanceOf(MockPdfDataRangeTransport);
             rangeB?.onDataRange.mockClear();
             rangeB?.requestDataRange?.(requestedStart, requestedEnd);
@@ -1837,7 +1740,7 @@ describe('PdfDocumentSession range loading', () => {
                 expect(rangeB?.onDataRange).toHaveBeenCalledOnce();
             });
             loadBResult.resolve(documentB);
-            await expect(loadB).resolves.toEqual(expect.objectContaining({ document: documentB }));
+            await expect(loadB).resolves.toEqual(expect.objectContaining({document: documentB}));
             expect(documentState.pdfDocument.value).toBe(documentB);
             expect(documentState.acceptedSource.value).toBe(sourceB);
 
@@ -1858,11 +1761,7 @@ describe('PdfDocumentSession range loading', () => {
             expect(documentState.pdfDocument.value).toBe(documentB);
             expect(documentState.acceptedSource.value).toBe(sourceB);
             expect(documentState.loadError.value).toBeNull();
-            expect(loggerError).not.toHaveBeenCalledWith(
-                'pdf-document',
-                'Failed to read PDF range chunk',
-                expect.anything(),
-            );
+            expect(loggerError).not.toHaveBeenCalledWith('pdf-document', 'Failed to read PDF range chunk', expect.anything());
         },
     );
 
@@ -1881,11 +1780,7 @@ describe('PdfDocumentSession range loading', () => {
 
         const requestedStart = 5 * 1024 * 1024;
         const requestedEnd = requestedStart + 12;
-        electronApi.documentFiles.readFileRange.mockImplementation(async (
-            _path: string,
-            offset: number,
-            length: number,
-        ) => {
+        electronApi.documentFiles.readFileRange.mockImplementation(async (_path: string, offset: number, length: number) => {
             if (offset === requestedStart) {
                 expect(length).toBe(12);
                 return new Uint8Array(8);
@@ -1908,7 +1803,7 @@ describe('PdfDocumentSession range loading', () => {
             expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
         });
 
-        const getDocumentArg = pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined;
+        const getDocumentArg = pdfjsState.getDocument.mock.calls[0]?.[0] as {range?: MockPdfDataRangeTransport} | undefined;
         const range = getDocumentArg?.range;
         expect(range).toBeInstanceOf(MockPdfDataRangeTransport);
         range?.onDataRange.mockClear();
@@ -1918,16 +1813,8 @@ describe('PdfDocumentSession range loading', () => {
             expect(range?.onDataRange).toHaveBeenCalledTimes(1);
         });
 
-        expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledWith(
-            '/tmp/short-range-read.pdf',
-            requestedStart,
-            12,
-        );
-        expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledWith(
-            '/tmp/short-range-read.pdf',
-            requestedStart + 8,
-            4,
-        );
+        expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledWith('/tmp/short-range-read.pdf', requestedStart, 12);
+        expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledWith('/tmp/short-range-read.pdf', requestedStart + 8, 4);
         expect(range?.onDataRange.mock.calls[0]?.[0]).toBe(requestedStart);
         expect(range?.onDataRange.mock.calls[0]?.[1]).toHaveLength(12);
 
@@ -1958,11 +1845,9 @@ describe('PdfDocumentSession range loading', () => {
             promise: deferred.promise,
             destroy,
         });
-        electronApi.documentFiles.readFileRange.mockImplementation(async (
-            _path: string,
-            _offset: number,
-            length: number,
-        ) => new Uint8Array(length));
+        electronApi.documentFiles.readFileRange.mockImplementation(
+            async (_path: string, _offset: number, length: number) => new Uint8Array(length),
+        );
 
         const documentState = createPdfDocumentSession();
         const loadPromise = documentState.loadPdf({
@@ -1975,7 +1860,7 @@ describe('PdfDocumentSession range loading', () => {
             expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
         });
 
-        const range = (pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined)?.range;
+        const range = (pdfjsState.getDocument.mock.calls[0]?.[0] as {range?: MockPdfDataRangeTransport} | undefined)?.range;
         expect(range).toBeInstanceOf(MockPdfDataRangeTransport);
 
         electronApi.documentFiles.readFileRange.mockClear();
@@ -1997,9 +1882,9 @@ describe('PdfDocumentSession range loading', () => {
             10 * 1024 * 1024,
             2 * 1024 * 1024,
         );
-        expect(range?.onDataRange.mock.calls.every(call => call[0] === 2 * 1024 * 1024)).toBe(true);
-        expect(range?.onDataRange.mock.calls.every(call => call[1]?.byteLength === 1024 * 1024)).toBe(true);
-        expect(range?.onDataRange.mock.calls.slice(0, -1).every(call => call[2] === false)).toBe(true);
+        expect(range?.onDataRange.mock.calls.every((call) => call[0] === 2 * 1024 * 1024)).toBe(true);
+        expect(range?.onDataRange.mock.calls.every((call) => call[1]?.byteLength === 1024 * 1024)).toBe(true);
+        expect(range?.onDataRange.mock.calls.slice(0, -1).every((call) => call[2] === false)).toBe(true);
         expect(range?.onDataRange.mock.calls.at(-1)?.[2]).toBeUndefined();
 
         deferred.resolve({
@@ -2019,12 +1904,7 @@ describe('PdfDocumentSession range loading', () => {
 
     it('loads oversized path-backed files through the bounded PDF.js range transport', async () => {
         const size = 2 * 1024 * 1024 * 1024;
-        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-        ]));
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([1, 2, 3, 4]));
 
         const documentState = createPdfDocumentSession();
         const result = await documentState.loadPdf({
@@ -2034,21 +1914,19 @@ describe('PdfDocumentSession range loading', () => {
         });
 
         expect(result).not.toBeNull();
-        expect(pdfjsState.getDocument).toHaveBeenCalledWith(expect.objectContaining({
-            disableAutoFetch: true,
-            disableStream: true,
-            range: expect.any(MockPdfDataRangeTransport),
-            rangeChunkSize: 1024 * 1024,
-        }));
-        expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledTimes(2);
-        expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledWith(
-            '/tmp/native-opening-preview.pdf',
-            0,
-            1024 * 1024,
+        expect(pdfjsState.getDocument).toHaveBeenCalledWith(
+            expect.objectContaining({
+                disableAutoFetch: true,
+                disableStream: true,
+                range: expect.any(MockPdfDataRangeTransport),
+                rangeChunkSize: 1024 * 1024,
+            }),
         );
+        expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledTimes(2);
+        expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledWith('/tmp/native-opening-preview.pdf', 0, 1024 * 1024);
         expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledWith(
             '/tmp/native-opening-preview.pdf',
-            size - (1024 * 1024),
+            size - 1024 * 1024,
             1024 * 1024,
         );
         expect(loggerError).not.toHaveBeenCalled();
@@ -2069,11 +1947,9 @@ describe('PdfDocumentSession range loading', () => {
             promise: deferred.promise,
             destroy,
         });
-        electronApi.documentFiles.readFileRange.mockImplementation(async (
-            _path: string,
-            _offset: number,
-            length: number,
-        ) => new Uint8Array(length));
+        electronApi.documentFiles.readFileRange.mockImplementation(
+            async (_path: string, _offset: number, length: number) => new Uint8Array(length),
+        );
 
         const documentState = createPdfDocumentSession();
         const loadPromise = documentState.loadPdf({
@@ -2086,7 +1962,7 @@ describe('PdfDocumentSession range loading', () => {
             expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
         });
 
-        const range = (pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined)?.range;
+        const range = (pdfjsState.getDocument.mock.calls[0]?.[0] as {range?: MockPdfDataRangeTransport} | undefined)?.range;
         expect(range).toBeInstanceOf(MockPdfDataRangeTransport);
 
         electronApi.documentFiles.readFileRange.mockClear();
@@ -2096,8 +1972,8 @@ describe('PdfDocumentSession range loading', () => {
             expect(range?.onDataRange).toHaveBeenCalledTimes(65);
         });
         expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledTimes(9);
-        expect(range?.onDataRange.mock.calls.every(call => call[1]?.byteLength <= 1024 * 1024)).toBe(true);
-        expect(range?.onDataRange.mock.calls.slice(0, -1).every(call => call[2] === false)).toBe(true);
+        expect(range?.onDataRange.mock.calls.every((call) => call[1]?.byteLength <= 1024 * 1024)).toBe(true);
+        expect(range?.onDataRange.mock.calls.slice(0, -1).every((call) => call[2] === false)).toBe(true);
         expect(range?.onDataRange.mock.calls.at(-1)?.[2]).toBeUndefined();
 
         documentState.cleanup();
@@ -2122,26 +1998,23 @@ describe('PdfDocumentSession range loading', () => {
             }),
             destroy: taskDestroy,
         });
-        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-        ]));
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([1, 2, 3, 4]));
 
         const documentState = createPdfDocumentSession();
-        await expect(documentState.loadPdf({
-            kind: 'path',
-            path: requireDocumentRef('/tmp/post-load-range-failure.pdf'),
-            size: (1024 * 1024 * 2) + 512,
-        })).resolves.not.toBeNull();
+        await expect(
+            documentState.loadPdf({
+                kind: 'path',
+                path: requireDocumentRef('/tmp/post-load-range-failure.pdf'),
+                size: 1024 * 1024 * 2 + 512,
+            }),
+        ).resolves.not.toBeNull();
 
-        const range = (pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined)?.range;
+        const range = (pdfjsState.getDocument.mock.calls[0]?.[0] as {range?: MockPdfDataRangeTransport} | undefined)?.range;
         expect(documentState.pdfDocument.value).not.toBeNull();
 
         const postLoadReadError = new Error('post-load read failed');
         electronApi.documentFiles.readFileRange.mockRejectedValue(postLoadReadError);
-        range?.requestDataRange?.(1024 * 1024, (1024 * 1024) + 512);
+        range?.requestDataRange?.(1024 * 1024, 1024 * 1024 + 512);
 
         await vi.waitFor(() => {
             expect(documentState.pdfDocument.value).toBeNull();
@@ -2170,12 +2043,7 @@ describe('PdfDocumentSession range loading', () => {
             }),
             destroy: taskDestroy,
         });
-        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-        ]));
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([1, 2, 3, 4]));
 
         const documentState = createPdfDocumentSession();
         const result = await documentState.loadPdf({
@@ -2196,18 +2064,22 @@ describe('PdfDocumentSession range loading', () => {
     it('keeps the accepted source bound to load B when stale load A resolves afterward', async () => {
         const staleDocument = {
             numPages: 1,
-            getPage: vi.fn(async () => ({getViewport: vi.fn(() => ({
-                width: 100,
-                height: 200,
-            }))})),
+            getPage: vi.fn(async () => ({
+                getViewport: vi.fn(() => ({
+                    width: 100,
+                    height: 200,
+                })),
+            })),
             loadingTask: {destroy: vi.fn(() => Promise.resolve())},
         };
         const currentDocument = {
             numPages: 1,
-            getPage: vi.fn(async () => ({getViewport: vi.fn(() => ({
-                width: 300,
-                height: 400,
-            }))})),
+            getPage: vi.fn(async () => ({
+                getViewport: vi.fn(() => ({
+                    width: 300,
+                    height: 400,
+                })),
+            })),
             loadingTask: {destroy: vi.fn(() => Promise.resolve())},
         };
         const staleLoad = Promise.withResolvers<typeof staleDocument>();
@@ -2230,7 +2102,7 @@ describe('PdfDocumentSession range loading', () => {
         });
 
         const loadB = documentState.loadPdf(sourceB);
-        await expect(loadB).resolves.toEqual(expect.objectContaining({ document: currentDocument }));
+        await expect(loadB).resolves.toEqual(expect.objectContaining({document: currentDocument}));
         expect(documentState.pdfDocument.value).toBe(currentDocument);
         expect(documentState.acceptedSource.value).toBe(sourceB);
 
@@ -2268,12 +2140,14 @@ describe('PdfDocumentSession range loading', () => {
         const active = ref(true);
         const documentState = createPdfDocumentSession({src: source});
         const view = documentState.attachView({isActive: computed(() => active.value)});
-        view.subscribe(transition => {
+        view.subscribe((transition) => {
             if (transition.reason === 'deactivated') {
                 cancelling.resolve(undefined);
                 return cancellation.promise;
             }
-            if (transition.reason === 'source-replaced') replacing.resolve(undefined);
+            if (transition.reason === 'source-replaced') {
+                replacing.resolve(undefined);
+            }
             return undefined;
         });
         try {
@@ -2287,7 +2161,9 @@ describe('PdfDocumentSession range loading', () => {
             void documentState.admit(createPdfSourceJob('reload', {src: source}));
             await replacing.promise;
             // Let the replacement finish if it has bypassed cancellation.
-            for (let turn = 0; turn < 100; turn += 1) await Promise.resolve();
+            for (let turn = 0; turn < 100; turn += 1) {
+                await Promise.resolve();
+            }
             expect(documentState.acceptedSource.value).not.toBe(source.value);
             expect(firstDocument!.loadingTask.destroy).not.toHaveBeenCalled();
             cancellation.resolve(undefined);
@@ -2321,10 +2197,9 @@ describe('PdfDocumentSession range loading', () => {
         const active = ref(true);
         const documentState = createPdfDocumentSession();
         const invalidation = vi.fn(() => cancellation.promise);
-        documentState.attachView({isActive: computed(() => active.value)})
-            .subscribe(transition => transition.phase === 'invalidated'
-                ? invalidation()
-                : undefined);
+        documentState
+            .attachView({isActive: computed(() => active.value)})
+            .subscribe((transition) => (transition.phase === 'invalidated' ? invalidation() : undefined));
 
         await documentState.loadPdf(new Blob([Uint8Array.of(1)]));
         active.value = false;
@@ -2358,10 +2233,9 @@ describe('PdfDocumentSession range loading', () => {
         const isAnySaving = ref(false);
         const documentState = createPdfDocumentSession({isAnySaving});
         const invalidation = vi.fn(async () => undefined);
-        documentState.attachView({isActive: computed(() => active.value)})
-            .subscribe(transition => transition.phase === 'invalidated'
-                ? invalidation()
-                : undefined);
+        documentState
+            .attachView({isActive: computed(() => active.value)})
+            .subscribe((transition) => (transition.phase === 'invalidated' ? invalidation() : undefined));
         // Lets the deactivation finish its queued cleanup step. The same
         // flush must reclaim once the save is over, below, so it is long enough.
         const settleDeactivation = async (deactivations: number) => {
@@ -2431,10 +2305,9 @@ describe('PdfDocumentSession range loading', () => {
         const active = ref(true);
         const documentState = createPdfDocumentSession();
         const invalidation = vi.fn(() => cancellation.promise);
-        documentState.attachView({isActive: computed(() => active.value)})
-            .subscribe(transition => transition.phase === 'invalidated'
-                ? invalidation()
-                : undefined);
+        documentState
+            .attachView({isActive: computed(() => active.value)})
+            .subscribe((transition) => (transition.phase === 'invalidated' ? invalidation() : undefined));
 
         await documentState.loadPdf(new Blob([Uint8Array.of(1)]));
         active.value = false;
@@ -2456,21 +2329,16 @@ describe('PdfDocumentSession range loading', () => {
             promise: Promise.reject(new Error('parse failed')),
             destroy,
         });
-        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-        ]));
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([1, 2, 3, 4]));
 
         const documentState = createPdfDocumentSession();
         const result = await documentState.loadPdf({
             kind: 'path',
             path: requireDocumentRef('/tmp/parse-failure.pdf'),
-            size: (1024 * 1024) + 512,
+            size: 1024 * 1024 + 512,
         });
 
-        const getDocumentArg = pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined;
+        const getDocumentArg = pdfjsState.getDocument.mock.calls[0]?.[0] as {range?: MockPdfDataRangeTransport} | undefined;
         expect(result).toBeNull();
         expect(destroy).toHaveBeenCalledTimes(1);
         expect(getDocumentArg?.range?.abort).toHaveBeenCalledTimes(1);
@@ -2531,11 +2399,13 @@ describe('PdfDocumentSession range loading', () => {
         electronApi.documentFiles.readFileRange.mockResolvedValue(Uint8Array.of(1, 2, 3, 4));
 
         const documentState = createPdfDocumentSession();
-        await expect(documentState.loadPdf({
-            kind: 'path',
-            path: requireDocumentRef('/tmp/first.pdf'),
-            size: 2048,
-        })).resolves.not.toBeNull();
+        await expect(
+            documentState.loadPdf({
+                kind: 'path',
+                path: requireDocumentRef('/tmp/first.pdf'),
+                size: 2048,
+            }),
+        ).resolves.not.toBeNull();
 
         documentState.cleanup();
         await vi.waitFor(() => {
@@ -2615,7 +2485,7 @@ describe('PdfDocumentSession range loading', () => {
             sourceId: 'viewport',
             input: [demand],
             policy: {
-                expand: input => input,
+                expand: (input) => input,
                 compareWithinLane: () => 0,
             },
             target: {
@@ -2646,12 +2516,7 @@ describe('PdfDocumentSession range loading', () => {
         render.resolve(undefined);
         await vi.waitFor(() => expect(documentDestroy).toHaveBeenCalledOnce());
 
-        expect(events).toEqual([
-            'render-cancel',
-            'invalidation-settled',
-            'page-cleanup',
-            'document-destroy',
-        ]);
+        expect(events).toEqual(['render-cancel', 'invalidation-settled', 'page-cleanup', 'document-destroy']);
     });
 
     it('does not let a cancelled page acquisition block PDF.js teardown', async () => {
@@ -2668,9 +2533,7 @@ describe('PdfDocumentSession range loading', () => {
             })),
             pageNumber: 1,
         };
-        const getPage = vi.fn((pageNumber: number) => (
-            Promise.resolve(pageNumber === 1 ? pageOne : pendingPage.promise)
-        ));
+        const getPage = vi.fn((pageNumber: number) => Promise.resolve(pageNumber === 1 ? pageOne : pendingPage.promise));
         const pageTwo = {
             cleanup: vi.fn(),
             getViewport: vi.fn(() => ({
@@ -2695,18 +2558,20 @@ describe('PdfDocumentSession range loading', () => {
         const scheduler = documentState.rasterScheduler!;
         scheduler.setDemand({
             sourceId: 'viewport',
-            input: [{
-                consumerGeneration: 1,
-                documentFence: scheduler.documentFence,
-                estimatedPixels: 100,
-                lane: 'viewport-visible',
-                ordinal: 1,
-                pageNumber: requirePageNumber(2),
-                renderKey: 'pending-page',
-                retention: 'render-cache',
-            } as const],
+            input: [
+                {
+                    consumerGeneration: 1,
+                    documentFence: scheduler.documentFence,
+                    estimatedPixels: 100,
+                    lane: 'viewport-visible',
+                    ordinal: 1,
+                    pageNumber: requirePageNumber(2),
+                    renderKey: 'pending-page',
+                    retention: 'render-cache',
+                } as const,
+            ],
             policy: {
-                expand: input => input,
+                expand: (input) => input,
                 compareWithinLane: () => 0,
             },
             target: {
@@ -2771,37 +2636,43 @@ describe('PdfDocumentSession range loading', () => {
         const scheduler = documentState.rasterScheduler!;
         scheduler.setDemand({
             sourceId: 'viewport',
-            input: [{
-                consumerGeneration: 1,
-                documentFence: scheduler.documentFence,
-                estimatedPixels: 100,
-                lane: 'viewport-visible',
-                ordinal: 1,
-                pageNumber: requirePageNumber(1),
-                renderKey: 'preparing',
-                retention: 'render-cache',
-            } as const],
+            input: [
+                {
+                    consumerGeneration: 1,
+                    documentFence: scheduler.documentFence,
+                    estimatedPixels: 100,
+                    lane: 'viewport-visible',
+                    ordinal: 1,
+                    pageNumber: requirePageNumber(1),
+                    renderKey: 'preparing',
+                    retention: 'render-cache',
+                } as const,
+            ],
             policy: {
-                expand: input => input,
+                expand: (input) => input,
                 compareWithinLane: () => 0,
             },
             target: {
                 id: 'viewport',
-                prepare: async (_demand, leasedPage, signal, captureSettlement) => runCoordinatedPdfPageOperation({
-                    owner: 'viewport',
-                    pageNumber: requirePageNumber(leasedPage.pageNumber),
-                    pdfPage: leasedPage,
-                    priority: 100,
-                    signal,
-                    captureSettlement,
-                    operation: async () => {
-                        prepareStarted();
-                        events.push('preparation-start');
-                        const result = await leasedPage.getOperatorList();
-                        events.push('preparation-settled');
-                        return result;
-                    },
-                }).then(() => signal.aborted ? null : {}, () => null),
+                prepare: async (_demand, leasedPage, signal, captureSettlement) =>
+                    runCoordinatedPdfPageOperation({
+                        owner: 'viewport',
+                        pageNumber: requirePageNumber(leasedPage.pageNumber),
+                        pdfPage: leasedPage,
+                        priority: 100,
+                        signal,
+                        captureSettlement,
+                        operation: async () => {
+                            prepareStarted();
+                            events.push('preparation-start');
+                            const result = await leasedPage.getOperatorList();
+                            events.push('preparation-settled');
+                            return result;
+                        },
+                    }).then(
+                        () => (signal.aborted ? null : {}),
+                        () => null,
+                    ),
                 start: () => {
                     startCalled();
                     throw new Error('Cancelled preparation must not start a render');
@@ -2827,41 +2698,38 @@ describe('PdfDocumentSession range loading', () => {
         await vi.waitFor(() => expect(documentDestroy).toHaveBeenCalledOnce());
 
         expect(startCalled).not.toHaveBeenCalled();
-        expect(events).toEqual([
-            'preparation-start',
-            'preparation-settled',
-            'page-cleanup',
-            'document-destroy',
-        ]);
+        expect(events).toEqual(['preparation-start', 'preparation-settled', 'page-cleanup', 'document-destroy']);
     });
 
     it('bounds the cached PDF pages with an LRU policy', async () => {
-        const loadedPages = new Map<number, Array<{
-            cleanup: ReturnType<typeof vi.fn>;
-            pageNumber: number;
-        }>>();
-        const getPage = vi.fn(async (pageNumber: number) => ({
-            getViewport: vi.fn(() => ({
-                width: 200,
-                height: 400,
-            })),
-            cleanup: vi.fn(),
-            pageNumber,
-        })).mockImplementation(async (pageNumber: number) => {
-            const page = {
+        const loadedPages = new Map<
+            number,
+            Array<{
+                cleanup: ReturnType<typeof vi.fn>;
+                pageNumber: number;
+            }>
+        >();
+        const getPage = vi
+            .fn(async (pageNumber: number) => ({
                 getViewport: vi.fn(() => ({
                     width: 200,
                     height: 400,
                 })),
                 cleanup: vi.fn(),
                 pageNumber,
-            };
-            loadedPages.set(pageNumber, [
-                ...(loadedPages.get(pageNumber) ?? []),
-                page,
-            ]);
-            return page;
-        });
+            }))
+            .mockImplementation(async (pageNumber: number) => {
+                const page = {
+                    getViewport: vi.fn(() => ({
+                        width: 200,
+                        height: 400,
+                    })),
+                    cleanup: vi.fn(),
+                    pageNumber,
+                };
+                loadedPages.set(pageNumber, [...(loadedPages.get(pageNumber) ?? []), page]);
+                return page;
+            });
         pdfjsState.getDocument.mockReturnValue({
             promise: Promise.resolve({
                 numPages: sparsePageCount,
@@ -2870,12 +2738,7 @@ describe('PdfDocumentSession range loading', () => {
             }),
             destroy: vi.fn(),
         });
-        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-        ]));
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([1, 2, 3, 4]));
 
         const documentState = createPdfDocumentSession();
         await documentState.loadPdf({
@@ -2903,11 +2766,14 @@ describe('PdfDocumentSession range loading', () => {
     });
 
     it('defers cache cleanup for active page leases until release', async () => {
-        const loadedPages = new Map<number, Array<{
-            cleanup: ReturnType<typeof vi.fn>;
-            getViewport: ReturnType<typeof vi.fn>;
-            pageNumber: number;
-        }>>();
+        const loadedPages = new Map<
+            number,
+            Array<{
+                cleanup: ReturnType<typeof vi.fn>;
+                getViewport: ReturnType<typeof vi.fn>;
+                pageNumber: number;
+            }>
+        >();
         const getPage = vi.fn(async (pageNumber: number) => {
             const page = {
                 cleanup: vi.fn(),
@@ -2917,10 +2783,7 @@ describe('PdfDocumentSession range loading', () => {
                 })),
                 pageNumber,
             };
-            loadedPages.set(pageNumber, [
-                ...(loadedPages.get(pageNumber) ?? []),
-                page,
-            ]);
+            loadedPages.set(pageNumber, [...(loadedPages.get(pageNumber) ?? []), page]);
             return page;
         });
         pdfjsState.getDocument.mockReturnValue({
@@ -2931,12 +2794,7 @@ describe('PdfDocumentSession range loading', () => {
             }),
             destroy: vi.fn(),
         });
-        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-        ]));
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([1, 2, 3, 4]));
 
         const active = ref(true);
         const documentState = createPdfDocumentSession();
@@ -3069,11 +2927,11 @@ describe('PdfDocumentSession range loading', () => {
             expect(firstPageCallsBeforeLease).toBe(1);
             expect(firstPageCallsAfterLease).toBe(1);
 
-            const traceEvents = (traceWindow.__pdfRenderTraceBuffer ?? []).map(entry => entry.event);
-            const evictTraceEvents = traceEvents.filter(event => (
-                event === 'pdf-document-page-cache-evict' || event === 'pdf-document-page-cache-cleanup-page'
-            ));
-            const cacheMissTraceEvents = traceEvents.filter(event => event === 'pdf-document-page-cache-miss');
+            const traceEvents = (traceWindow.__pdfRenderTraceBuffer ?? []).map((entry) => entry.event);
+            const evictTraceEvents = traceEvents.filter(
+                (event) => event === 'pdf-document-page-cache-evict' || event === 'pdf-document-page-cache-cleanup-page',
+            );
+            const cacheMissTraceEvents = traceEvents.filter((event) => event === 'pdf-document-page-cache-miss');
             expect(evictTraceEvents).toEqual([]);
             expect(cacheMissTraceEvents.length).toBeLessThanOrEqual(12);
         } finally {

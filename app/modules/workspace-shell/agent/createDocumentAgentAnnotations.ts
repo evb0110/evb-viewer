@@ -1,10 +1,7 @@
-import type { Ref } from 'vue';
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import type { TAgentTextMarkupKind } from '@app/modules/pdf-viewer/public';
-import {
-    markerRectFromPoint,
-    normalizeMarkerRect,
-} from '@app/modules/pdf-viewer/public';
+import type {Ref} from 'vue';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
+import type {TAgentTextMarkupKind} from '@app/modules/pdf-viewer/public';
+import {markerRectFromPoint, normalizeMarkerRect} from '@app/modules/pdf-viewer/public';
 import {
     getAgentBooleanInput,
     getAgentNumberInput,
@@ -22,34 +19,20 @@ interface ICreateDocumentAgentAnnotationsOptions {
 }
 
 export function createDocumentAgentAnnotations(options: ICreateDocumentAgentAnnotationsOptions) {
-    const {
-        annotationComments,
-        currentPage,
-    } = options;
+    const {annotationComments, currentPage} = options;
 
     function getAgentTextMarkupCreateOptions(input: Record<string, unknown>) {
-        const text = getAgentStringInput(input, 'text')
-            ?? getAgentStringInput(input, 'query')
-            ?? getAgentStringInput(input, 'selectionText');
+        const text =
+            getAgentStringInput(input, 'text') ?? getAgentStringInput(input, 'query') ?? getAgentStringInput(input, 'selectionText');
         if (!text) {
             throw new Error('annotation.create_text_markup requires input.text.');
         }
 
-        const pageNumber = getAgentNumberInput(input, 'page')
-            ?? getAgentNumberInput(input, 'pageNumber')
-            ?? currentPage.value;
-        const occurrence = getAgentNumberInput(input, 'occurrence')
-            ?? getAgentNumberInput(input, 'matchIndex')
-            ?? 1;
-        const markup = getAgentStringInput(input, 'markup')
-            ?? getAgentStringInput(input, 'tool')
-            ?? getAgentStringInput(input, 'kind');
-        const withNote = getAgentBooleanInput(input, 'withNote')
-            ?? getAgentBooleanInput(input, 'openNote')
-            ?? false;
-        const caseSensitive = getAgentBooleanInput(input, 'caseSensitive')
-            ?? getAgentBooleanInput(input, 'matchCase')
-            ?? false;
+        const pageNumber = getAgentNumberInput(input, 'page') ?? getAgentNumberInput(input, 'pageNumber') ?? currentPage.value;
+        const occurrence = getAgentNumberInput(input, 'occurrence') ?? getAgentNumberInput(input, 'matchIndex') ?? 1;
+        const markup = getAgentStringInput(input, 'markup') ?? getAgentStringInput(input, 'tool') ?? getAgentStringInput(input, 'kind');
+        const withNote = getAgentBooleanInput(input, 'withNote') ?? getAgentBooleanInput(input, 'openNote') ?? false;
+        const caseSensitive = getAgentBooleanInput(input, 'caseSensitive') ?? getAgentBooleanInput(input, 'matchCase') ?? false;
         const wholeWord = getAgentBooleanInput(input, 'wholeWord') ?? false;
 
         if (!isAgentTextMarkupKind(markup ?? 'highlight')) {
@@ -68,9 +51,7 @@ export function createDocumentAgentAnnotations(options: ICreateDocumentAgentAnno
     }
 
     function getAgentPointNoteCreateOptions(input: Record<string, unknown>) {
-        const pageNumber = getAgentNumberInput(input, 'page')
-            ?? getAgentNumberInput(input, 'pageNumber')
-            ?? currentPage.value;
+        const pageNumber = getAgentNumberInput(input, 'page') ?? getAgentNumberInput(input, 'pageNumber') ?? currentPage.value;
         const pageX = getAgentNumberInput(input, 'pageX') ?? getAgentNumberInput(input, 'x');
         const pageY = getAgentNumberInput(input, 'pageY') ?? getAgentNumberInput(input, 'y');
         if (pageX === null || pageY === null) {
@@ -94,9 +75,7 @@ export function createDocumentAgentAnnotations(options: ICreateDocumentAgentAnno
     }
 
     function getAgentShapeCreateOptions(input: Record<string, unknown>) {
-        const tool = getAgentStringInput(input, 'shape')
-            ?? getAgentStringInput(input, 'tool')
-            ?? getAgentStringInput(input, 'kind');
+        const tool = getAgentStringInput(input, 'shape') ?? getAgentStringInput(input, 'tool') ?? getAgentStringInput(input, 'kind');
         if (!isAgentShapeTool(tool)) {
             throw new Error('annotation.create_shape requires input.shape: draw, rectangle, circle, line, or arrow.');
         }
@@ -111,9 +90,7 @@ export function createDocumentAgentAnnotations(options: ICreateDocumentAgentAnno
         }
 
         return {
-            pageNumber: getAgentNumberInput(input, 'page')
-                ?? getAgentNumberInput(input, 'pageNumber')
-                ?? currentPage.value,
+            pageNumber: getAgentNumberInput(input, 'page') ?? getAgentNumberInput(input, 'pageNumber') ?? currentPage.value,
             tool,
             x,
             y,
@@ -160,11 +137,12 @@ export function createDocumentAgentAnnotations(options: ICreateDocumentAgentAnno
         const stableKey = getAgentStringInput(input, 'stableKey');
         const annotationId = getAgentStringInput(input, 'annotationId');
         const id = getAgentStringInput(input, 'id');
-        const comment = annotationComments.value.find(candidate => (
-            (stableKey !== null && candidate.stableKey === stableKey)
-            || (annotationId !== null && candidate.annotationId === annotationId)
-            || (id !== null && candidate.id === id)
-        ));
+        const comment = annotationComments.value.find(
+            (candidate) =>
+                (stableKey !== null && candidate.stableKey === stableKey) ||
+                (annotationId !== null && candidate.annotationId === annotationId) ||
+                (id !== null && candidate.id === id),
+        );
         if (!comment) {
             throw new Error('Annotation comment was not found. Use evb://document/{tabId}/annotations to get stable keys.');
         }

@@ -15,10 +15,7 @@
         :data-document-page-number="page"
         :data-page-visual="raster === null ? 'none' : 'ready'"
         :data-page-raster="raster ?? undefined"
-        :style="[
-            placeholderStyle ?? undefined,
-            pageScaleStyle,
-        ]"
+        :style="[placeholderStyle ?? undefined, pageScaleStyle]"
         @click="handlePageClick"
     >
         <div
@@ -58,23 +55,16 @@
 </template>
 
 <script setup lang="ts">
-
 import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
 import PdfAnnotationEditorLayer from '@app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue';
 import PdfImagePlacementOverlay from '@app/modules/pdf-viewer/components/PdfImagePlacementOverlay.vue';
-import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
-import { shouldClearPdfPageSelection } from '@app/modules/pdf-viewer/engine/annotations/shouldClearPdfPageSelection';
-import { usePdfSkeletonContext } from '@app/modules/pdf-viewer/runtime/skeleton/usePdfSkeletonInsets';
-import type {
-    IPdfImagePlacementDraft,
-    IPdfImagePlacementRectUpdate,
-} from '@app/types/pdfImagePlacement';
-import type { TPageNumber } from '@contracts/pageNumbers';
-import {
-    buildPdfPageScaleStyle,
-    type IPdfPageScale,
-} from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
-import { annotationEditorSurfaceKey } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
+import {clearPdfSelectionForLayerTeardown} from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
+import {shouldClearPdfPageSelection} from '@app/modules/pdf-viewer/engine/annotations/shouldClearPdfPageSelection';
+import {usePdfSkeletonContext} from '@app/modules/pdf-viewer/runtime/skeleton/usePdfSkeletonInsets';
+import type {IPdfImagePlacementDraft, IPdfImagePlacementRectUpdate} from '@app/types/pdfImagePlacement';
+import type {TPageNumber} from '@contracts/pageNumbers';
+import {buildPdfPageScaleStyle, type IPdfPageScale} from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
+import {annotationEditorSurfaceKey} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 
 interface IProps {
     page: TPageNumber;
@@ -111,7 +101,7 @@ const {
     placedImage = null,
     placedImageBusy = false,
 } = defineProps<IProps>();
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 const emit = defineEmits<{
     'page-container-mounted': [page: TPageNumber];
     'page-container-unmounted': [page: TPageNumber];
@@ -120,12 +110,9 @@ const emit = defineEmits<{
     'cancel-placed-image': [];
 }>();
 const pageContainer = ref<HTMLElement | null>(null);
-const pageScaleStyle = computed(() => pageScale ? buildPdfPageScaleStyle(pageScale) : undefined);
+const pageScaleStyle = computed(() => (pageScale ? buildPdfPageScaleStyle(pageScale) : undefined));
 
-const {
-    scaledSkeletonPadding,
-    scaledPageHeight,
-} = usePdfSkeletonContext();
+const {scaledSkeletonPadding, scaledPageHeight} = usePdfSkeletonContext();
 const fallbackSkeletonPadding = Object.freeze({
     top: 56,
     right: 56,
@@ -148,7 +135,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
-    clearPdfSelectionForLayerTeardown({ target: pageContainer.value });
+    clearPdfSelectionForLayerTeardown({target: pageContainer.value});
     emit('page-container-unmounted', page);
 });
 </script>

@@ -1,12 +1,5 @@
-import { join } from 'node:path';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {join} from 'node:path';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     appTempDir: '/tmp/evb-viewer',
@@ -52,7 +45,7 @@ describe('sweepStaleOcrTempArtifacts', () => {
             isFile: () => !path.includes('dir'),
             mtimeMs: path.includes('fresh') ? 9_900 : 0,
         }));
-        const { sweepStaleOcrTempArtifacts } = await import('@electron/features/documents/main/sweepStaleOcrTempArtifacts');
+        const {sweepStaleOcrTempArtifacts} = await import('@electron/features/documents/main/sweepStaleOcrTempArtifacts');
 
         await expect(sweepStaleOcrTempArtifacts(5_000)).resolves.toBe(3);
 

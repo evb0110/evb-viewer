@@ -1,41 +1,26 @@
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type {
-    IWindowTabTransferRequest,
-    IWindowTabTransferResult,
-} from '@contracts/windowTabs';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import type {IWindowTabTransferRequest, IWindowTabTransferResult} from '@contracts/windowTabs';
 import {requireDocumentRef} from '@contracts/documentRef';
-import {
-    mkdtempSync,
-    rmSync,
-    writeFileSync,
-} from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
+import {mkdtempSync, rmSync, writeFileSync} from 'fs';
+import {tmpdir} from 'os';
+import {join} from 'path';
 
 vi.mock('@electron/window', () => ({
     createAppWindow: vi.fn(),
     getWindowById: vi.fn(),
 }));
 
-vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-})}));
+vi.mock('@electron/utils/createLogger', () => ({
+    createLogger: () => ({
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+    }),
+}));
 
-const { WindowTabTransferBroker } = await import('@electron/windowTabTransfer');
-const {
-    allowOpenPath,
-    requireOpenPath,
-} = await import('@electron/file-access/openPathCapabilities');
+const {WindowTabTransferBroker} = await import('@electron/windowTabTransfer');
+const {allowOpenPath, requireOpenPath} = await import('@electron/file-access/openPathCapabilities');
 
 const djvuDirectories: string[] = [];
 
@@ -63,7 +48,7 @@ interface IWindowTabTransferTestWindow {
     destroyed: boolean;
     sentTransfers: unknown[];
     isDestroyed: () => boolean;
-    webContents: {send: (channel: string, payload: unknown) => void;};
+    webContents: {send: (channel: string, payload: unknown) => void};
 }
 
 function createTransferRequest(targetWindowId: number): IWindowTabTransferRequest {
@@ -88,9 +73,11 @@ function createWindow(windowId: number): IWindowTabTransferTestWindow {
         destroyed: false,
         sentTransfers: [],
         isDestroyed: () => window.destroyed,
-        webContents: {send: (_channel, payload) => {
-            window.sentTransfers.push(payload);
-        }},
+        webContents: {
+            send: (_channel, payload) => {
+                window.sentTransfers.push(payload);
+            },
+        },
     };
 
     return window;
@@ -126,7 +113,7 @@ describe('WindowTabTransferBroker', () => {
             createTargetWindow,
             getWindowById,
             setTimer: (callback, ms) => setTimeout(callback, ms),
-            clearTimer: handle => clearTimeout(handle),
+            clearTimer: (handle) => clearTimeout(handle),
         });
     });
 
@@ -147,7 +134,7 @@ describe('WindowTabTransferBroker', () => {
         await flushTransferTasks();
 
         expect(targetWindow.sentTransfers).toHaveLength(1);
-        const sentPayload = targetWindow.sentTransfers[0] as { transferId: string };
+        const sentPayload = targetWindow.sentTransfers[0] as {transferId: string};
         const acknowledged = broker.acknowledgeTransfer(targetWindow.id, {
             transferId: sentPayload.transferId,
             success: true,
@@ -155,13 +142,17 @@ describe('WindowTabTransferBroker', () => {
 
         const result = await transferPromise;
         let targetEditable = false;
-        void Promise.resolve(acknowledged).then(committed => { targetEditable = committed; });
+        void Promise.resolve(acknowledged).then((committed) => {
+            targetEditable = committed;
+        });
         await Promise.resolve();
         expect(targetEditable).toBe(false);
-        expect(broker.acknowledgeTransfer(1, {
-            transferId: sentPayload.transferId,
-            success: true,
-        })).toBe(true);
+        expect(
+            broker.acknowledgeTransfer(1, {
+                transferId: sentPayload.transferId,
+                success: true,
+            }),
+        ).toBe(true);
         await expect(acknowledged).resolves.toBe(true);
         expect(result).toMatchObject({
             transferId: sentPayload.transferId,
@@ -170,10 +161,7 @@ describe('WindowTabTransferBroker', () => {
         } satisfies Partial<IWindowTabTransferResult>);
     });
 
-    it.each([
-        'rejected',
-        'missing',
-    ])('rolls back a restored PDF snapshot when source finalization is %s', async (decisionKind) => {
+    it.each(['rejected', 'missing'])('rolls back a restored PDF snapshot when source finalization is %s', async (decisionKind) => {
         const targetWindow = createWindow(22);
         windowsById.set(targetWindow.id, targetWindow);
         const prepare = vi.fn(() => 7);
@@ -183,7 +171,7 @@ describe('WindowTabTransferBroker', () => {
             createTargetWindow,
             getWindowById,
             setTimer: (callback, ms) => setTimeout(callback, ms),
-            clearTimer: handle => clearTimeout(handle),
+            clearTimer: (handle) => clearTimeout(handle),
             preparePdfSnapshotTransfer: prepare,
             commitPdfSnapshotTransfer: commit,
             revokePdfSnapshotTransfer: revoke,
@@ -201,7 +189,7 @@ describe('WindowTabTransferBroker', () => {
             },
         });
         await flushTransferTasks();
-        const sentPayload = targetWindow.sentTransfers[0] as { transferId: string };
+        const sentPayload = targetWindow.sentTransfers[0] as {transferId: string};
 
         expect(prepare).toHaveBeenCalledWith('/tmp/demo-snapshot.pdf', 11, targetWindow.id);
         const decision = broker.acknowledgeTransfer(targetWindow.id, {
@@ -211,21 +199,27 @@ describe('WindowTabTransferBroker', () => {
         await expect(transferPromise).resolves.toMatchObject({success: true});
         expect(commit).toHaveBeenCalledWith('/tmp/demo-snapshot.pdf', 11, targetWindow.id, 7);
         expect(revoke).not.toHaveBeenCalled();
-        expect(broker.acknowledgeTransfer(99, {
-            transferId: sentPayload.transferId,
-            success: false,
-        })).toBe(false);
-        if (decisionKind === 'missing') {
-            await vi.advanceTimersByTimeAsync(12_000);
-            expect(broker.acknowledgeTransfer(11, {
-                transferId: sentPayload.transferId,
-                success: true,
-            })).toBe(false);
-        } else {
-            expect(broker.acknowledgeTransfer(11, {
+        expect(
+            broker.acknowledgeTransfer(99, {
                 transferId: sentPayload.transferId,
                 success: false,
-            })).toBe(true);
+            }),
+        ).toBe(false);
+        if (decisionKind === 'missing') {
+            await vi.advanceTimersByTimeAsync(12_000);
+            expect(
+                broker.acknowledgeTransfer(11, {
+                    transferId: sentPayload.transferId,
+                    success: true,
+                }),
+            ).toBe(false);
+        } else {
+            expect(
+                broker.acknowledgeTransfer(11, {
+                    transferId: sentPayload.transferId,
+                    success: false,
+                }),
+            ).toBe(true);
         }
         await expect(decision).resolves.toBe(false);
         expect(revoke).toHaveBeenCalledWith('/tmp/demo-snapshot.pdf', 11, targetWindow.id, 7);
@@ -240,7 +234,7 @@ describe('WindowTabTransferBroker', () => {
             createTargetWindow,
             getWindowById,
             setTimer: (callback, ms) => setTimeout(callback, ms),
-            clearTimer: handle => clearTimeout(handle),
+            clearTimer: (handle) => clearTimeout(handle),
             preparePdfSnapshotTransfer: prepare,
             revokePdfSnapshotTransfer: revoke,
         });
@@ -256,7 +250,7 @@ describe('WindowTabTransferBroker', () => {
             },
         });
         await flushTransferTasks();
-        const sentPayload = targetWindow.sentTransfers[0] as { transferId: string };
+        const sentPayload = targetWindow.sentTransfers[0] as {transferId: string};
         broker.acknowledgeTransfer(targetWindow.id, {
             transferId: sentPayload.transferId,
             success: false,
@@ -277,7 +271,7 @@ describe('WindowTabTransferBroker', () => {
 
         expect(targetWindow.sentTransfers).toHaveLength(1);
         expect(() => requireOpenPath(djvuPath, targetWindow.id)).not.toThrow();
-        const sentPayload = targetWindow.sentTransfers[0] as { transferId: string };
+        const sentPayload = targetWindow.sentTransfers[0] as {transferId: string};
         const decision = broker.acknowledgeTransfer(targetWindow.id, {
             transferId: sentPayload.transferId,
             success: true,
@@ -301,7 +295,7 @@ describe('WindowTabTransferBroker', () => {
         const transferPromise = broker.requestTransfer(14, createDjvuTransferRequest(targetWindow.id, djvuPath));
         await flushTransferTasks();
         expect(() => requireOpenPath(djvuPath, targetWindow.id)).not.toThrow();
-        const sentPayload = targetWindow.sentTransfers[0] as { transferId: string };
+        const sentPayload = targetWindow.sentTransfers[0] as {transferId: string};
         broker.acknowledgeTransfer(targetWindow.id, {
             transferId: sentPayload.transferId,
             success: false,
@@ -318,12 +312,10 @@ describe('WindowTabTransferBroker', () => {
         windowsById.set(targetWindow.id, targetWindow);
         broker.markWindowReady(targetWindow.id);
 
-        await expect(broker.requestTransfer(15, createDjvuTransferRequest(targetWindow.id, djvuPath)))
-            .resolves
-            .toMatchObject({
-                success: false,
-                error: 'DjVu file is not available to the source window.',
-            });
+        await expect(broker.requestTransfer(15, createDjvuTransferRequest(targetWindow.id, djvuPath))).resolves.toMatchObject({
+            success: false,
+            error: 'DjVu file is not available to the source window.',
+        });
         expect(targetWindow.sentTransfers).toHaveLength(0);
         expect(() => requireOpenPath(djvuPath, targetWindow.id)).toThrow('Path not allowed');
     });
@@ -342,7 +334,7 @@ describe('WindowTabTransferBroker', () => {
         await flushTransferTasks();
         expect(targetWindow.sentTransfers).toHaveLength(1);
 
-        const sentPayload = targetWindow.sentTransfers[0] as { transferId: string };
+        const sentPayload = targetWindow.sentTransfers[0] as {transferId: string};
         broker.acknowledgeTransfer(targetWindow.id, {
             transferId: sentPayload.transferId,
             success: true,
@@ -367,7 +359,7 @@ describe('WindowTabTransferBroker', () => {
         await flushTransferTasks();
         expect(targetWindow.sentTransfers).toHaveLength(1);
 
-        const sentPayload = targetWindow.sentTransfers[0] as { transferId: string };
+        const sentPayload = targetWindow.sentTransfers[0] as {transferId: string};
         broker.acknowledgeTransfer(targetWindow.id, {
             transferId: sentPayload.transferId,
             success: true,
@@ -385,19 +377,14 @@ describe('WindowTabTransferBroker', () => {
         const pendingTransferPromises: Array<Promise<IWindowTabTransferResult>> = [];
 
         for (let sourceWindowId = 1; sourceWindowId <= 32; sourceWindowId += 1) {
-            pendingTransferPromises.push(broker.requestTransfer(
-                sourceWindowId,
-                createTransferRequest(targetWindow.id),
-            ));
+            pendingTransferPromises.push(broker.requestTransfer(sourceWindowId, createTransferRequest(targetWindow.id)));
             await Promise.resolve();
         }
 
-        await expect(broker.requestTransfer(99, createTransferRequest(targetWindow.id)))
-            .resolves
-            .toMatchObject({
-                success: false,
-                error: 'Too many pending tab transfers.',
-            });
+        await expect(broker.requestTransfer(99, createTransferRequest(targetWindow.id))).resolves.toMatchObject({
+            success: false,
+            error: 'Too many pending tab transfers.',
+        });
 
         broker.markWindowClosed(targetWindow.id);
         await expect(Promise.all(pendingTransferPromises)).resolves.toHaveLength(32);
@@ -513,7 +500,7 @@ describe('WindowTabTransferBroker', () => {
         await flushTransferTasks();
 
         expect(createdWindow.sentTransfers).toHaveLength(1);
-        const sentPayload = createdWindow.sentTransfers[0] as { transferId: string };
+        const sentPayload = createdWindow.sentTransfers[0] as {transferId: string};
 
         broker.acknowledgeTransfer(createdWindow.id, {
             transferId: sentPayload.transferId,

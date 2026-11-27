@@ -6,12 +6,9 @@ import type {
     TAgentAssistantProviderId,
     TAgentWorkspaceCommandTarget,
 } from '@contracts/agent';
-import type {
-    TDocumentBackend,
-    TDocumentRef,
-} from '@contracts/documentRef';
-import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
-import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
+import type {TDocumentBackend, TDocumentRef} from '@contracts/documentRef';
+import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
+import type {TDocumentInstanceId} from '@contracts/documentInstanceId';
 import type {TTabId} from '@contracts/windowTabs';
 
 /** The live document grant of the one running assistant turn. */
@@ -32,20 +29,16 @@ export interface IAssistantSessionScopeBinding {
 
 let activeAssistantMcpSessionScope: IAssistantSessionScopeBinding | null = null;
 
-function cloneAssistantSessionScopeBinding(
-    binding: IAssistantSessionScopeBinding,
-): IAssistantSessionScopeBinding {
+function cloneAssistantSessionScopeBinding(binding: IAssistantSessionScopeBinding): IAssistantSessionScopeBinding {
     return {
         ...binding,
-        ...(binding.documentIdentity === null ? {} : { documentIdentity: { ...binding.documentIdentity } }),
+        ...(binding.documentIdentity === null ? {} : {documentIdentity: {...binding.documentIdentity}}),
         ...(binding.commandTarget === undefined ? {} : {commandTarget: {...binding.commandTarget}}),
     };
 }
 
 export function getActiveAssistantMcpSessionScope() {
-    return activeAssistantMcpSessionScope
-        ? cloneAssistantSessionScopeBinding(activeAssistantMcpSessionScope)
-        : null;
+    return activeAssistantMcpSessionScope ? cloneAssistantSessionScopeBinding(activeAssistantMcpSessionScope) : null;
 }
 
 export function setActiveAssistantMcpSessionScope(binding: IAssistantSessionScopeBinding) {
@@ -58,10 +51,7 @@ export function clearAssistantMcpSessionScope(sessionKey?: string) {
     }
 }
 
-export function syncAssistantMcpSessionScope(
-    sessionKey: string,
-    binding: IAssistantSessionScopeBinding | null,
-) {
+export function syncAssistantMcpSessionScope(sessionKey: string, binding: IAssistantSessionScopeBinding | null) {
     if (binding) {
         setActiveAssistantMcpSessionScope(binding);
         return;
@@ -92,21 +82,15 @@ export function resolveAssistantMcpSessionScope(explicitWindowId?: number) {
     return binding;
 }
 
-function getSnapshotBindingTab(
-    snapshot: IAgentWorkspaceSnapshot,
-    binding: IAssistantSessionScopeBinding,
-): IAgentTabSnapshot {
-    const tab = snapshot.tabs.find(candidate => candidate.tabId === binding.tabId);
+function getSnapshotBindingTab(snapshot: IAgentWorkspaceSnapshot, binding: IAssistantSessionScopeBinding): IAgentTabSnapshot {
+    const tab = snapshot.tabs.find((candidate) => candidate.tabId === binding.tabId);
     if (!tab) {
         throw new Error('The active assistant document tab is no longer open.');
     }
     return tab;
 }
 
-export function assertAssistantMcpSnapshotMatchesScope(
-    snapshot: IAgentWorkspaceSnapshot,
-    binding: IAssistantSessionScopeBinding,
-) {
+export function assertAssistantMcpSnapshotMatchesScope(snapshot: IAgentWorkspaceSnapshot, binding: IAssistantSessionScopeBinding) {
     const tab = getSnapshotBindingTab(snapshot, binding);
     assertAssistantMcpTabMatchesBinding(tab, binding);
 }
@@ -119,10 +103,7 @@ export function assertAssistantMcpTabMatchesBinding(
     if (options.tabIdAlreadyResolved !== true && tab.tabId !== binding.tabId) {
         throw new Error('Internal EVB MCP request targeted a different tab than the active assistant turn.');
     }
-    if (
-        binding.commandTarget
-        && !commandTargetsMatch(binding.commandTarget, tab.commandTarget)
-    ) {
+    if (binding.commandTarget && !commandTargetsMatch(binding.commandTarget, tab.commandTarget)) {
         throw new Error('The active assistant document changed before the internal EVB MCP request completed.');
     }
     if ((binding.documentInstanceId ?? null) !== (tab.documentInstanceId ?? null)) {
@@ -132,16 +113,14 @@ export function assertAssistantMcpTabMatchesBinding(
         return;
     }
     if (
-        tab.documentIdentity?.token !== binding.documentIdentity.token
-        || tab.documentIdentity.documentRef !== binding.documentIdentity.documentRef
+        tab.documentIdentity?.token !== binding.documentIdentity.token ||
+        tab.documentIdentity.documentRef !== binding.documentIdentity.documentRef
     ) {
         throw new Error('The active assistant document changed before the internal EVB MCP request completed.');
     }
 }
 
-export function createAssistantCommandExecutionScope(
-    binding: IAssistantSessionScopeBinding,
-): IAgentCommandExecutionScope {
+export function createAssistantCommandExecutionScope(binding: IAssistantSessionScopeBinding): IAgentCommandExecutionScope {
     return {
         windowId: binding.windowId,
         tabId: binding.tabId,
@@ -153,22 +132,19 @@ export function createAssistantCommandExecutionScope(
     };
 }
 
-function commandTargetsMatch(
-    expected: TAgentWorkspaceCommandTarget,
-    actual: TAgentWorkspaceCommandTarget | undefined,
-) {
+function commandTargetsMatch(expected: TAgentWorkspaceCommandTarget, actual: TAgentWorkspaceCommandTarget | undefined) {
     if (!actual) {
         return false;
     }
 
     if (
-        expected.kind !== actual.kind
-        || expected.tabId !== actual.tabId
-        || expected.sessionId !== actual.sessionId
-        || expected.documentRef !== actual.documentRef
-        || expected.documentBackend !== actual.documentBackend
-        || (expected.documentInstanceId ?? null) !== (actual.documentInstanceId ?? null)
-        || expected.documentRevisionToken !== actual.documentRevisionToken
+        expected.kind !== actual.kind ||
+        expected.tabId !== actual.tabId ||
+        expected.sessionId !== actual.sessionId ||
+        expected.documentRef !== actual.documentRef ||
+        expected.documentBackend !== actual.documentBackend ||
+        (expected.documentInstanceId ?? null) !== (actual.documentInstanceId ?? null) ||
+        expected.documentRevisionToken !== actual.documentRevisionToken
     ) {
         return false;
     }

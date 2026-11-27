@@ -1,13 +1,10 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import { isAbortError } from '@contracts/isAbortError';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type { TTranslateFn } from '@i18n-app';
-import type {
-    IDocxExportFileCapability,
-    IDocxExportStreamBeginResult,
-} from '@contracts/docxExport';
-import type { TSessionId } from '@contracts/shared';
+import {isAbortError} from '@contracts/isAbortError';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {TTranslateFn} from '@i18n-app';
+import type {IDocxExportFileCapability, IDocxExportStreamBeginResult} from '@contracts/docxExport';
+import type {TSessionId} from '@contracts/shared';
 import {
     resolveDocxParagraphDirection,
     type TDocxParagraphDirection,
@@ -15,18 +12,9 @@ import {
     type TDocxTextPageSource,
 } from '@app/utils/docxStreaming';
 import {hasRtlOcrLanguage} from '@app/utils/ocr/hasRtlOcrLanguage';
-import {
-    getDocumentRefBaseName,
-    isBrowserDocumentRef,
-} from '@app/utils/documentRef';
-import {
-    loadDocumentTextCatalogPages,
-    prepareDocumentTextCatalogTextPages,
-} from '@app/utils/ocr/loadOcrText';
-import {
-    getDocumentFilesCapability,
-    getDocumentWorkingCopyCapability,
-} from '@app/utils/platformDocuments';
+import {getDocumentRefBaseName, isBrowserDocumentRef} from '@app/utils/documentRef';
+import {loadDocumentTextCatalogPages, prepareDocumentTextCatalogTextPages} from '@app/utils/ocr/loadOcrText';
+import {getDocumentFilesCapability, getDocumentWorkingCopyCapability} from '@app/utils/platformDocuments';
 
 type TDocxChunkBuilder = (
     pages: TDocxTextPageSource,
@@ -38,9 +26,7 @@ function throwIfAborted(signal?: AbortSignal) {
     signal?.throwIfAborted();
 }
 
-function* getNonEmptyPages(
-    catalogPages: ReadonlyArray<Exclude<TDocxTextPage, string>> | null,
-): Generator<TDocxTextPage> {
+function* getNonEmptyPages(catalogPages: ReadonlyArray<Exclude<TDocxTextPage, string>> | null): Generator<TDocxTextPage> {
     for (const page of catalogPages ?? []) {
         const text = page.text.trim();
         if (text) {
@@ -53,11 +39,14 @@ function* getNonEmptyPages(
 }
 
 function hasNonEmptyPage(catalogPages: ReadonlyArray<{text: string}> | null) {
-    return (catalogPages ?? []).some(page => page.text.trim().length > 0);
+    return (catalogPages ?? []).some((page) => page.text.trim().length > 0);
 }
 
 async function writeDocxChunksThroughSerialTransport(
-    stream: Pick<IDocxExportFileCapability, 'beginDocxFileStream' | 'writeDocxFileStreamChunk' | 'commitDocxFileStream' | 'cancelDocxFileStream'>,
+    stream: Pick<
+        IDocxExportFileCapability,
+        'beginDocxFileStream' | 'writeDocxFileStreamChunk' | 'commitDocxFileStream' | 'cancelDocxFileStream'
+    >,
     outPath: TDocumentRef,
     chunks: AsyncIterable<Uint8Array>,
     signal?: AbortSignal,
@@ -70,11 +59,17 @@ async function writeDocxChunksThroughSerialTransport(
         if (!sessionId) {
             return Promise.resolve(false);
         }
-        return cancelPromise ??= stream.cancelDocxFileStream(sessionId).catch(() => false);
+        return (cancelPromise ??= stream.cancelDocxFileStream(sessionId).catch(() => false));
     };
     const handleAbort = () => {
-        if (beginPromise) void beginPromise.then(() => cancelSession(), () => undefined);
-        else void cancelSession();
+        if (beginPromise) {
+            void beginPromise.then(
+                () => cancelSession(),
+                () => undefined,
+            );
+        } else {
+            void cancelSession();
+        }
     };
     throwIfAborted(signal);
     signal?.addEventListener('abort', handleAbort, {once: true});
@@ -89,21 +84,25 @@ async function writeDocxChunksThroughSerialTransport(
         let wroteChunk = false;
         for await (const chunk of chunks) {
             throwIfAborted(signal);
-            if (await stream.writeDocxFileStreamChunk(sessionId, chunk) !== true) {
+            if ((await stream.writeDocxFileStreamChunk(sessionId, chunk)) !== true) {
                 throw new Error('DOCX stream chunk was not accepted');
             }
             wroteChunk = true;
             throwIfAborted(signal);
         }
         throwIfAborted(signal);
-        if (!wroteChunk) throw new Error('DOCX stream requires at least one chunk');
-        if (await stream.commitDocxFileStream(sessionId) !== true) {
+        if (!wroteChunk) {
+            throw new Error('DOCX stream requires at least one chunk');
+        }
+        if ((await stream.commitDocxFileStream(sessionId)) !== true) {
             throw new Error('DOCX stream commit was not accepted');
         }
         committed = true;
         return true;
     } catch (error) {
-        if (!committed) await cancelSession();
+        if (!committed) {
+            await cancelSession();
+        }
         throw error;
     } finally {
         signal?.removeEventListener('abort', handleAbort);
@@ -124,7 +123,7 @@ export async function exportTextAsDocx(params: {
 }) {
     try {
         let documentHasRtlLanguage = params.hasRtl ?? false;
-        const direction: TDocxParagraphDirection = text => resolveDocxParagraphDirection(text, documentHasRtlLanguage);
+        const direction: TDocxParagraphDirection = (text) => resolveDocxParagraphDirection(text, documentHasRtlLanguage);
         throwIfAborted(params.signal);
         const documentFiles = getDocumentFilesCapability();
         const documentWorkingCopy = getDocumentWorkingCopyCapability();
@@ -140,64 +139,51 @@ export async function exportTextAsDocx(params: {
         try {
             throwIfAborted(params.signal);
             const pageCount = params.pdfDocument?.numPages;
-            const knownPageCount = typeof pageCount === 'number'
-                && Number.isSafeInteger(pageCount)
-                && pageCount > 0
-                ? pageCount
-                : undefined;
-            if (
-                params.workingCopyPath
-                && params.documentRevisionToken
-                && knownPageCount !== undefined
-            ) {
-                const textPages = params.signal === undefined
-                    ? await prepareDocumentTextCatalogTextPages(
-                        params.workingCopyPath,
-                        params.documentRevisionToken,
-                        knownPageCount,
-                    )
-                    : await prepareDocumentTextCatalogTextPages(
-                        params.workingCopyPath,
-                        params.documentRevisionToken,
-                        knownPageCount,
-                        params.signal,
-                    );
+            const knownPageCount =
+                typeof pageCount === 'number' && Number.isSafeInteger(pageCount) && pageCount > 0 ? pageCount : undefined;
+            if (params.workingCopyPath && params.documentRevisionToken && knownPageCount !== undefined) {
+                const textPages =
+                    params.signal === undefined
+                        ? await prepareDocumentTextCatalogTextPages(params.workingCopyPath, params.documentRevisionToken, knownPageCount)
+                        : await prepareDocumentTextCatalogTextPages(
+                              params.workingCopyPath,
+                              params.documentRevisionToken,
+                              knownPageCount,
+                              params.signal,
+                          );
                 if (!textPages) {
                     throwIfAborted(params.signal);
                     params.setError(params.t('errors.ocr.noText'));
                     return false;
                 }
-                const docxChunks = params.signal === undefined
-                    ? await params.buildDocxChunks(textPages, direction)
-                    : await params.buildDocxChunks(textPages, direction, params.signal);
+                const docxChunks =
+                    params.signal === undefined
+                        ? await params.buildDocxChunks(textPages, direction)
+                        : await params.buildDocxChunks(textPages, direction, params.signal);
                 await writeDocxChunksThroughSerialTransport(documentFiles, outPath, docxChunks, params.signal);
             } else {
-                const catalogPages = params.workingCopyPath && params.documentRevisionToken
-                    ? params.signal === undefined
-                        ? await loadDocumentTextCatalogPages(
-                            params.workingCopyPath,
-                            params.documentRevisionToken,
-                            knownPageCount,
-                        )
-                        : await loadDocumentTextCatalogPages(
-                            params.workingCopyPath,
-                            params.documentRevisionToken,
-                            knownPageCount,
-                            params.signal,
-                        )
-                    : null;
+                const catalogPages =
+                    params.workingCopyPath && params.documentRevisionToken
+                        ? params.signal === undefined
+                            ? await loadDocumentTextCatalogPages(params.workingCopyPath, params.documentRevisionToken, knownPageCount)
+                            : await loadDocumentTextCatalogPages(
+                                  params.workingCopyPath,
+                                  params.documentRevisionToken,
+                                  knownPageCount,
+                                  params.signal,
+                              )
+                        : null;
                 if (!hasNonEmptyPage(catalogPages)) {
                     throwIfAborted(params.signal);
                     params.setError(params.t('errors.ocr.noText'));
                     return false;
                 }
-                documentHasRtlLanguage ||= hasRtlOcrLanguage(
-                    (catalogPages ?? []).flatMap(page => page.languages ?? []),
-                );
+                documentHasRtlLanguage ||= hasRtlOcrLanguage((catalogPages ?? []).flatMap((page) => page.languages ?? []));
 
-                const docxChunks = params.signal === undefined
-                    ? await params.buildDocxChunks(getNonEmptyPages(catalogPages), direction)
-                    : await params.buildDocxChunks(getNonEmptyPages(catalogPages), direction, params.signal);
+                const docxChunks =
+                    params.signal === undefined
+                        ? await params.buildDocxChunks(getNonEmptyPages(catalogPages), direction)
+                        : await params.buildDocxChunks(getNonEmptyPages(catalogPages), direction, params.signal);
                 await writeDocxChunksThroughSerialTransport(documentFiles, outPath, docxChunks, params.signal);
             }
             params.toast.add({

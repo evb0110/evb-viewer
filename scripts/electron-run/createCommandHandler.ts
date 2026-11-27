@@ -1,48 +1,29 @@
-import { join } from 'node:path';
-import {
-    mkdirSync,
-    realpathSync,
-} from 'node:fs';
-import { countBy } from 'es-toolkit/array';
-import { delay } from 'es-toolkit/promise';
-import type { Page } from 'puppeteer-core';
+import {join} from 'node:path';
+import {mkdirSync, realpathSync} from 'node:fs';
+import {countBy} from 'es-toolkit/array';
+import {delay} from 'es-toolkit/promise';
+import type {Page} from 'puppeteer-core';
 import {
     COMMAND_EXECUTION_TIMEOUT_MS,
     OPEN_PDF_READY_TIMEOUT_MS,
     OPEN_PDF_TRIGGER_TIMEOUT_MS,
 } from '@scripts/electron-run/electronRunTimeouts';
-import { resizeElectronWindowContentArea } from '@scripts/electron-run/resizeElectronWindow';
-import { activateElectronMenuItem } from '@scripts/electron-run/activateElectronMenuItem';
-import type { TApplicationMenuItemQuery } from '@electron/menu';
-import { screenshotDirPath } from '@scripts/electron-run/electronRunSessionPaths';
-import type {
-    ISessionState,
-    TDevtoolsEvent,
-} from '@scripts/electron-run/electronRunSessionTypes';
-import type { TElectronRunCommand } from '@scripts/electron-run/electronRunProtocol';
+import {resizeElectronWindowContentArea} from '@scripts/electron-run/resizeElectronWindow';
+import {activateElectronMenuItem} from '@scripts/electron-run/activateElectronMenuItem';
+import type {TApplicationMenuItemQuery} from '@electron/menu';
+import {screenshotDirPath} from '@scripts/electron-run/electronRunSessionPaths';
+import type {ISessionState, TDevtoolsEvent} from '@scripts/electron-run/electronRunSessionTypes';
+import type {TElectronRunCommand} from '@scripts/electron-run/electronRunProtocol';
 
 const DEFAULT_CONSOLE_LIMIT = 50;
 const DEFAULT_DEVTOOLS_LIMIT = 120;
 const DEFAULT_SCREENSHOT_INTERVAL_MS = 1000;
 const DEFAULT_SCREENSHOT_COUNT = 5;
 const WINDOW_RESIZE_SETTLE_TIMEOUT_MS = 10_000;
-const TRUTHY_BOOLEAN_TOKENS = [
-    '1',
-    'true',
-    'yes',
-    'y',
-    'on',
-    'full',
-] as const;
-const FALSY_BOOLEAN_TOKENS = [
-    '0',
-    'false',
-    'no',
-    'n',
-    'off',
-] as const;
-type TTruthyBooleanToken = typeof TRUTHY_BOOLEAN_TOKENS[number];
-type TFalsyBooleanToken = typeof FALSY_BOOLEAN_TOKENS[number];
+const TRUTHY_BOOLEAN_TOKENS = ['1', 'true', 'yes', 'y', 'on', 'full'] as const;
+const FALSY_BOOLEAN_TOKENS = ['0', 'false', 'no', 'n', 'off'] as const;
+type TTruthyBooleanToken = (typeof TRUTHY_BOOLEAN_TOKENS)[number];
+type TFalsyBooleanToken = (typeof FALSY_BOOLEAN_TOKENS)[number];
 type TRunCommandFunction = (
     page: Page,
     screenshot: (name: string) => Promise<string>,
@@ -61,17 +42,12 @@ interface IElectronRunOpenPdfTrigger {
     error?: string | null;
 }
 
-interface IElectronRunOpenPdfWindow extends Window {__electronRunOpenPdfTrigger?: IElectronRunOpenPdfTrigger;}
+interface IElectronRunOpenPdfWindow extends Window {
+    __electronRunOpenPdfTrigger?: IElectronRunOpenPdfTrigger;
+}
 
-const DEVTOOLS_SECTION_VALUES = [
-    'summary',
-    'console',
-    'network',
-    'errors',
-    'metrics',
-    'all',
-] as const;
-type TDevtoolsSection = typeof DEVTOOLS_SECTION_VALUES[number];
+const DEVTOOLS_SECTION_VALUES = ['summary', 'console', 'network', 'errors', 'metrics', 'all'] as const;
+type TDevtoolsSection = (typeof DEVTOOLS_SECTION_VALUES)[number];
 const DEVTOOLS_EVENT_SUMMARY_TEMPLATE: Record<TDevtoolsEvent['kind'], number> = {
     console: 0,
     request: 0,
@@ -90,12 +66,14 @@ function isFalsyBooleanToken(value: string): value is TFalsyBooleanToken {
 }
 
 function sanitizeSnapshotName(name: string) {
-    return name
-        .trim()
-        .replace(/[^a-zA-Z0-9._-]+/g, '-')
-        .replace(/-+/g, '-')
-        .replace(/^-|-$/g, '')
-        .slice(0, 100) || `screenshot-${Date.now()}`;
+    return (
+        name
+            .trim()
+            .replace(/[^a-zA-Z0-9._-]+/g, '-')
+            .replace(/-+/g, '-')
+            .replace(/^-|-$/g, '')
+            .slice(0, 100) || `screenshot-${Date.now()}`
+    );
 }
 
 function parsePositiveInt(value: unknown, fallback: number, max: number) {
@@ -163,7 +141,7 @@ function normalizeEventLimit(value: unknown, fallback: number) {
 function getDevtoolsSummary(events: readonly TDevtoolsEvent[]) {
     return {
         ...DEVTOOLS_EVENT_SUMMARY_TEMPLATE,
-        ...countBy(events, event => event.kind),
+        ...countBy(events, (event) => event.kind),
     };
 }
 
@@ -230,10 +208,7 @@ function isErrorDevtoolsEvent(event: TDevtoolsEvent) {
 }
 
 async function handleDevtoolsCommand(context: ICommandContext, args: unknown[]) {
-    const {
-        page,
-        devtoolsEvents,
-    } = context.sessionState;
+    const {page, devtoolsEvents} = context.sessionState;
     const section = parseDevtoolsSection(args[0]);
     if (!section) {
         throw new Error('Unknown devtools section. Use summary|console|network|errors|metrics|all');
@@ -254,14 +229,14 @@ async function handleDevtoolsCommand(context: ICommandContext, args: unknown[]) 
         return {
             section,
             limit,
-            events: events.filter(event => event.kind === 'console'),
+            events: events.filter((event) => event.kind === 'console'),
         };
     }
     if (section === 'network') {
         return {
             section,
             limit,
-            events: events.filter(event => event.kind === 'request' || event.kind === 'response' || event.kind === 'requestfailed'),
+            events: events.filter((event) => event.kind === 'request' || event.kind === 'response' || event.kind === 'requestfailed'),
         };
     }
     if (section === 'errors') {
@@ -307,10 +282,7 @@ function createSleepFn() {
 
 async function handleRunCommand(context: ICommandContext, args: unknown[]) {
     const code = parseRequiredStringArg(args, 0, 'No code provided');
-    const asyncFn = new Function(
-        'page', 'screenshot', 'sleep', 'wait',
-        `return (async () => { ${code} })()`,
-    ) as TRunCommandFunction;
+    const asyncFn = new Function('page', 'screenshot', 'sleep', 'wait', `return (async () => { ${code} })()`) as TRunCommandFunction;
     const sleepFn = createSleepFn();
 
     return Promise.race<unknown>([
@@ -320,7 +292,7 @@ async function handleRunCommand(context: ICommandContext, args: unknown[]) {
 }
 
 async function handleClickCommand(context: ICommandContext, args: unknown[]) {
-    const { page } = context.sessionState;
+    const {page} = context.sessionState;
     const selector = parseRequiredStringArg(args, 0, 'No selector provided');
     const timeoutMs = parsePositiveInt(args[1], 8_000, 120_000);
     const targetInfo = await page.evaluate((sel: string) => {
@@ -328,9 +300,8 @@ async function handleClickCommand(context: ICommandContext, args: unknown[]) {
         if (!el) {
             return null;
         }
-        const className = typeof el.className === 'string'
-            ? el.className
-            : ((el.className as SVGAnimatedString | undefined)?.baseVal ?? '');
+        const className =
+            typeof el.className === 'string' ? el.className : ((el.className as SVGAnimatedString | undefined)?.baseVal ?? '');
         const rect = el.getBoundingClientRect();
         return {
             tagName: el.tagName.toLowerCase(),
@@ -362,18 +333,23 @@ async function handleClickCommand(context: ICommandContext, args: unknown[]) {
                 return;
             }
             const target = event.target as HTMLElement | null;
-            const path = typeof event.composedPath === 'function'
-                ? event.composedPath().slice(0, 8).map((node) => {
-                    if (!(node instanceof Element)) {
-                        return '<non-element>';
-                    }
-                    const id = node.id ? `#${node.id}` : '';
-                    const className = typeof node.className === 'string' && node.className.trim().length > 0
-                        ? `.${node.className.trim().replace(/\s+/g, '.')}`
-                        : '';
-                    return `${node.tagName.toLowerCase()}${id}${className}`;
-                })
-                : [];
+            const path =
+                typeof event.composedPath === 'function'
+                    ? event
+                          .composedPath()
+                          .slice(0, 8)
+                          .map((node) => {
+                              if (!(node instanceof Element)) {
+                                  return '<non-element>';
+                              }
+                              const id = node.id ? `#${node.id}` : '';
+                              const className =
+                                  typeof node.className === 'string' && node.className.trim().length > 0
+                                      ? `.${node.className.trim().replace(/\s+/g, '.')}`
+                                      : '';
+                              return `${node.tagName.toLowerCase()}${id}${className}`;
+                          })
+                    : [];
             automationWindow.__electronRunLastClickEvent = {
                 type: event.type,
                 button: event.button,
@@ -387,15 +363,14 @@ async function handleClickCommand(context: ICommandContext, args: unknown[]) {
                 shiftKey: event.shiftKey,
                 target: target
                     ? {
-                        tagName: target.tagName.toLowerCase(),
-                        id: target.id || null,
-                        className: (
-                            typeof target.className === 'string'
-                                ? target.className
-                                : ((target.className as SVGAnimatedString | undefined)?.baseVal ?? '')
-                        ) || null,
-                        text: target.textContent.trim().slice(0, 200),
-                    }
+                          tagName: target.tagName.toLowerCase(),
+                          id: target.id || null,
+                          className:
+                              (typeof target.className === 'string'
+                                  ? target.className
+                                  : ((target.className as SVGAnimatedString | undefined)?.baseVal ?? '')) || null,
+                          text: target.textContent.trim().slice(0, 200),
+                      }
                     : null,
                 path,
                 timestamp: Date.now(),
@@ -407,7 +382,7 @@ async function handleClickCommand(context: ICommandContext, args: unknown[]) {
         });
     });
 
-    await page.waitForSelector(selector, { timeout: timeoutMs });
+    await page.waitForSelector(selector, {timeout: timeoutMs});
     await page.click(selector);
     await delay(40);
 
@@ -455,53 +430,57 @@ function readOpenPdfState(page: Page, triggerToken: string) {
     return page.evaluate((requestedToken: string): IOpenPdfState => {
         const automationWindow = window as IElectronRunOpenPdfWindow;
         const trigger = automationWindow.__electronRunOpenPdfTrigger;
-        const openTrigger = trigger?.token === requestedToken
-            ? {
-                token: trigger.token,
-                status: trigger.status ?? 'pending',
-                error: trigger.error ?? null,
-            }
-            : null;
+        const openTrigger =
+            trigger?.token === requestedToken
+                ? {
+                      token: trigger.token,
+                      status: trigger.status ?? 'pending',
+                      error: trigger.error ?? null,
+                  }
+                : null;
 
         const api = automationWindow.__evbTestApi;
         const toolbar = api?.getActiveToolbarSnapshot?.() ?? null;
-        const workspace = api?.readActiveWorkspaceStateValues?.([
-            'originalPath',
-            'workingCopyPath',
-            'totalPages',
-        ]) ?? null;
+        const workspace = api?.readActiveWorkspaceStateValues?.(['originalPath', 'workingCopyPath', 'totalPages']) ?? null;
 
         const isShown = (element: HTMLElement) => {
             const rect = element.getBoundingClientRect();
             return rect.width > 0 && rect.height > 0;
         };
         const shownViewers = Array.from(document.querySelectorAll<HTMLElement>('#pdf-viewer')).filter(isShown);
-        const activeViewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer');
-        const viewer = activeViewer && shownViewers.includes(activeViewer)
-            ? activeViewer
-            : (shownViewers.length === 1 ? shownViewers[0] ?? null : null);
+        const activeViewer = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+        );
+        const viewer =
+            activeViewer && shownViewers.includes(activeViewer)
+                ? activeViewer
+                : shownViewers.length === 1
+                  ? (shownViewers[0] ?? null)
+                  : null;
         const viewerRect = viewer?.getBoundingClientRect() ?? null;
-        const paintedPageCount = viewer && viewerRect
-            ? Array.from(viewer.querySelectorAll<HTMLElement>('.page_container--rendered')).filter((pageElement) => {
-                const pageRect = pageElement.getBoundingClientRect();
-                const visibleHeight = Math.min(pageRect.bottom, viewerRect.bottom) - Math.max(pageRect.top, viewerRect.top);
-                const canvas = pageElement.querySelector('canvas');
-                return visibleHeight > 8 && pageRect.width > 0 && Boolean(canvas && canvas.width > 0 && canvas.height > 0);
-            }).length
-            : 0;
+        const paintedPageCount =
+            viewer && viewerRect
+                ? Array.from(viewer.querySelectorAll<HTMLElement>('.page_container--rendered')).filter((pageElement) => {
+                      const pageRect = pageElement.getBoundingClientRect();
+                      const visibleHeight = Math.min(pageRect.bottom, viewerRect.bottom) - Math.max(pageRect.top, viewerRect.top);
+                      const canvas = pageElement.querySelector('canvas');
+                      return visibleHeight > 8 && pageRect.width > 0 && Boolean(canvas && canvas.width > 0 && canvas.height > 0);
+                  }).length
+                : 0;
 
         const workspacePages = workspace?.totalPages;
         return {
-            activeDocument: toolbar && workspace
-                ? {
-                    originalPath: typeof workspace.originalPath === 'string' ? workspace.originalPath : null,
-                    workingCopyPath: typeof workspace.workingCopyPath === 'string' ? workspace.workingCopyPath : null,
-                    numPages: typeof workspacePages === 'number' && workspacePages > 0 ? workspacePages : toolbar.totalPages,
-                    currentPage: toolbar.currentPage,
-                    hasPdf: toolbar.hasPdf,
-                    hasOpenError: toolbar.hasOpenError,
-                }
-                : null,
+            activeDocument:
+                toolbar && workspace
+                    ? {
+                          originalPath: typeof workspace.originalPath === 'string' ? workspace.originalPath : null,
+                          workingCopyPath: typeof workspace.workingCopyPath === 'string' ? workspace.workingCopyPath : null,
+                          numPages: typeof workspacePages === 'number' && workspacePages > 0 ? workspacePages : toolbar.totalPages,
+                          currentPage: toolbar.currentPage,
+                          hasPdf: toolbar.hasPdf,
+                          hasOpenError: toolbar.hasOpenError,
+                      }
+                    : null,
             paintedPageCount,
             openTrigger,
         };
@@ -516,92 +495,98 @@ function describeOpenPdfState(state: IOpenPdfState) {
 }
 
 async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
-    const { page } = context.sessionState;
+    const {page} = context.sessionState;
     const pdfPath = parseRequiredStringArg(args, 0, 'PDF path required');
     const requestedPath = toComparablePath(pdfPath);
     await installPageEvaluationShims(page);
 
-    const triggerToken = await page.evaluate((path: string, triggerTimeoutMs: number) => {
-        type TElectronRunOpenPdfWindow = Window & {
-            __allowRendererFileOpenForAutomation?: unknown;
-            __electronRunOpenPdfTrigger?: IElectronRunOpenPdfTrigger;
-            __openFileDirect?: unknown;
-        };
+    const triggerToken = await page.evaluate(
+        (path: string, triggerTimeoutMs: number) => {
+            type TElectronRunOpenPdfWindow = Window & {
+                __allowRendererFileOpenForAutomation?: unknown;
+                __electronRunOpenPdfTrigger?: IElectronRunOpenPdfTrigger;
+                __openFileDirect?: unknown;
+            };
 
-        const automationWindow = window as TElectronRunOpenPdfWindow;
-        const isPathHandler = (value: unknown): value is (path: string) => Promise<boolean> => typeof value === 'function';
-        const token = `open-${crypto.randomUUID()}`;
-        automationWindow.__electronRunOpenPdfTrigger = {
-            token,
-            status: 'pending',
-            error: null,
-        };
-
-        const openFileDirect = automationWindow.__openFileDirect;
-        if (!isPathHandler(openFileDirect)) {
+            const automationWindow = window as TElectronRunOpenPdfWindow;
+            const isPathHandler = (value: unknown): value is (path: string) => Promise<boolean> => typeof value === 'function';
+            const token = `open-${crypto.randomUUID()}`;
             automationWindow.__electronRunOpenPdfTrigger = {
                 token,
-                status: 'rejected',
-                error: 'window.__openFileDirect is not available',
+                status: 'pending',
+                error: null,
             };
-            return token;
-        }
 
-        Promise.resolve()
-            .then(async () => {
-                const allowRendererFileOpenForAutomation = automationWindow.__allowRendererFileOpenForAutomation;
-                if (isPathHandler(allowRendererFileOpenForAutomation)) {
-                    await allowRendererFileOpenForAutomation(path);
-                }
-
-                const opened = await Promise.race([
-                    openFileDirect(path),
-                    new Promise((_, reject) => {
-                        setTimeout(() => reject(new Error('openFileDirect trigger timeout')), triggerTimeoutMs);
-                    }),
-                ]);
-                // The renderer answers false when it refuses or fails the open,
-                // and logs the reason to its console.
-                automationWindow.__electronRunOpenPdfTrigger = opened === false
-                    ? {
-                        token,
-                        status: 'rejected',
-                        error: `The renderer did not open ${path}; its console errors say why (electron:run console error)`,
-                    }
-                    : {
-                        token,
-                        status: 'resolved',
-                        error: null,
-                    };
-            })
-            .catch((error: unknown) => {
-                // This function runs in the page, where none of this module's
-                // imports exist, so the message is read here directly. An error
-                // from another world (the preload bridge) is not instanceof the
-                // page's Error, so its message is read by shape.
-                const message: unknown = typeof error === 'object' && error !== null ? Reflect.get(error, 'message') : undefined;
+            const openFileDirect = automationWindow.__openFileDirect;
+            if (!isPathHandler(openFileDirect)) {
                 automationWindow.__electronRunOpenPdfTrigger = {
                     token,
                     status: 'rejected',
-                    error: typeof message === 'string' ? message : String(error),
+                    error: 'window.__openFileDirect is not available',
                 };
-            });
+                return token;
+            }
 
-        return token;
-    }, pdfPath, OPEN_PDF_TRIGGER_TIMEOUT_MS);
+            Promise.resolve()
+                .then(async () => {
+                    const allowRendererFileOpenForAutomation = automationWindow.__allowRendererFileOpenForAutomation;
+                    if (isPathHandler(allowRendererFileOpenForAutomation)) {
+                        await allowRendererFileOpenForAutomation(path);
+                    }
+
+                    const opened = await Promise.race([
+                        openFileDirect(path),
+                        new Promise((_, reject) => {
+                            setTimeout(() => reject(new Error('openFileDirect trigger timeout')), triggerTimeoutMs);
+                        }),
+                    ]);
+                    // The renderer answers false when it refuses or fails the open,
+                    // and logs the reason to its console.
+                    automationWindow.__electronRunOpenPdfTrigger =
+                        opened === false
+                            ? {
+                                  token,
+                                  status: 'rejected',
+                                  error: `The renderer did not open ${path}; its console errors say why (electron:run console error)`,
+                              }
+                            : {
+                                  token,
+                                  status: 'resolved',
+                                  error: null,
+                              };
+                })
+                .catch((error: unknown) => {
+                    // This function runs in the page, where none of this module's
+                    // imports exist, so the message is read here directly. An error
+                    // from another world (the preload bridge) is not instanceof the
+                    // page's Error, so its message is read by shape.
+                    const message: unknown = typeof error === 'object' && error !== null ? Reflect.get(error, 'message') : undefined;
+                    automationWindow.__electronRunOpenPdfTrigger = {
+                        token,
+                        status: 'rejected',
+                        error: typeof message === 'string' ? message : String(error),
+                    };
+                });
+
+            return token;
+        },
+        pdfPath,
+        OPEN_PDF_TRIGGER_TIMEOUT_MS,
+    );
 
     // The open call has to finish first: before it does, the active tab can
     // still be an earlier tab that shows the same file.
-    const isRequestedDocument = (state: IOpenPdfState) => state.openTrigger?.status === 'resolved'
-        && state.activeDocument?.originalPath != null
-        && toComparablePath(state.activeDocument.originalPath) === requestedPath;
+    const isRequestedDocument = (state: IOpenPdfState) =>
+        state.openTrigger?.status === 'resolved' &&
+        state.activeDocument?.originalPath != null &&
+        toComparablePath(state.activeDocument.originalPath) === requestedPath;
     const startedAt = Date.now();
     let state = await readOpenPdfState(page, triggerToken);
     while (!(
-        isRequestedDocument(state)
-        && state.activeDocument?.hasPdf === true
-        && state.activeDocument.numPages > 0
-        && state.paintedPageCount > 0
+        isRequestedDocument(state) &&
+        state.activeDocument?.hasPdf === true &&
+        state.activeDocument.numPages > 0 &&
+        state.paintedPageCount > 0
     )) {
         if (state.openTrigger?.status === 'rejected') {
             const triggerError = state.openTrigger.error;
@@ -627,11 +612,7 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
 }
 
 async function handleHealthCommand(context: ICommandContext) {
-    const {
-        page,
-        consoleMessages,
-        devtoolsEvents,
-    } = context.sessionState;
+    const {page, consoleMessages, devtoolsEvents} = context.sessionState;
     const health = await page.evaluate(() => {
         const automationWindow = window as Window & {
             __openFileDirect?: unknown;
@@ -650,9 +631,7 @@ async function handleHealthCommand(context: ICommandContext) {
             url: window.location.href,
         };
     });
-    const ready = health.openFileDirect === 'function'
-        && health.electronAPI === 'object'
-        && health.nuxtRootChildren > 0;
+    const ready = health.openFileDirect === 'function' && health.electronAPI === 'object' && health.nuxtRootChildren > 0;
     return {
         ready,
         health,
@@ -684,7 +663,7 @@ const COMMAND_HANDLERS: Record<Exclude<TElectronRunCommand, 'recording'>, TSessi
         const captures: Array<{
             index: number;
             path: string;
-            timestamp: number
+            timestamp: number;
         }> = [];
 
         for (let index = 0; index < count; index += 1) {
@@ -710,9 +689,7 @@ const COMMAND_HANDLERS: Record<Exclude<TElectronRunCommand, 'recording'>, TSessi
         const level = parseStringArg(args, 0) ?? 'all';
         const limit = normalizeEventLimit(args[1], DEFAULT_CONSOLE_LIMIT);
         const messages = context.sessionState.consoleMessages;
-        const filtered = level === 'all'
-            ? messages
-            : messages.filter((message) => message.type === level);
+        const filtered = level === 'all' ? messages : messages.filter((message) => message.type === level);
         return {
             level,
             limit,
@@ -723,10 +700,7 @@ const COMMAND_HANDLERS: Record<Exclude<TElectronRunCommand, 'recording'>, TSessi
     run: handleRunCommand,
     eval(context, args) {
         const code = parseRequiredStringArg(args, 0, 'No code provided');
-        return Promise.race([
-            context.sessionState.page.evaluate(code),
-            commandTimeout('eval'),
-        ]);
+        return Promise.race([context.sessionState.page.evaluate(code), commandTimeout('eval')]);
     },
     click: handleClickCommand,
     async type(context, args) {
@@ -741,12 +715,12 @@ const COMMAND_HANDLERS: Record<Exclude<TElectronRunCommand, 'recording'>, TSessi
     async content(context, args) {
         const selector = parseRequiredStringArg(args, 0, 'No selector provided');
         const el = await context.sessionState.page.$(selector);
-        return el ? el.evaluate(element => element.textContent) : null;
+        return el ? el.evaluate((element) => element.textContent) : null;
     },
     async waitfor(context, args) {
         const selector = parseRequiredStringArg(args, 0, 'No selector provided');
         const timeoutMs = parsePositiveInt(args[1], 10_000, 300_000);
-        await context.sessionState.page.waitForSelector(selector, { timeout: timeoutMs });
+        await context.sessionState.page.waitForSelector(selector, {timeout: timeoutMs});
         return {
             selector,
             found: true,
@@ -762,10 +736,10 @@ const COMMAND_HANDLERS: Record<Exclude<TElectronRunCommand, 'recording'>, TSessi
         );
         if (!result.settled) {
             throw new Error(
-                `The window content area did not reach ${String(size.width)}x${String(size.height)}; `
-                + `it settled at ${String(result.after.contentSize.width)}x${String(result.after.contentSize.height)}. `
-                + 'Either the display is too small for that window plus its frame '
-                + '(on Linux see EVB_XVFB_SCREEN), or an active viewport emulation overrides the reported size.',
+                `The window content area did not reach ${String(size.width)}x${String(size.height)}; ` +
+                    `it settled at ${String(result.after.contentSize.width)}x${String(result.after.contentSize.height)}. ` +
+                    'Either the display is too small for that window plus its frame ' +
+                    '(on Linux see EVB_XVFB_SCREEN), or an active viewport emulation overrides the reported size.',
             );
         }
         return result;
@@ -782,7 +756,7 @@ const COMMAND_HANDLERS: Record<Exclude<TElectronRunCommand, 'recording'>, TSessi
         };
     },
     async viewport(context) {
-        const { page } = context.sessionState;
+        const {page} = context.sessionState;
         const viewport = page.viewport();
         if (viewport) {
             return {
@@ -815,7 +789,7 @@ function createCommandContext(sessionState: ISessionState): ICommandContext {
     return {
         sessionState,
         async takeScreenshot(name: string, fullPage = false) {
-            mkdirSync(ssDirPath, { recursive: true });
+            mkdirSync(ssDirPath, {recursive: true});
             const filepath = join(ssDirPath, `${sanitizeSnapshotName(name)}.png`);
             await sessionState.page.screenshot({
                 path: filepath,
@@ -839,8 +813,6 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
             return sessionState.recording?.manifest ?? {status: 'disabled'};
         }
         const execute = () => Promise.resolve(COMMAND_HANDLERS[command](createCommandContext(sessionState), args));
-        return sessionState.recording
-            ? sessionState.recording.command(command, args, execute)
-            : execute();
+        return sessionState.recording ? sessionState.recording.command(command, args, execute) : execute();
     };
 }

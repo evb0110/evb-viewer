@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     createReaderToolbarSurface,
     DESKTOP_EDITOR_READER_COMMAND_SURFACE,

@@ -9,10 +9,7 @@ export interface IEditorPaneSplitBounds {
     ultraCompact: boolean;
 }
 
-export function resolveEditorPaneSplitBounds(
-    availableSize: number,
-    minPaneSize = EDITOR_PANE_MIN_SIZE_PX,
-): IEditorPaneSplitBounds {
+export function resolveEditorPaneSplitBounds(availableSize: number, minPaneSize = EDITOR_PANE_MIN_SIZE_PX): IEditorPaneSplitBounds {
     if (!Number.isFinite(availableSize) || availableSize <= 0) {
         return {
             minRatio: LEGACY_MIN_SPLIT_RATIO,

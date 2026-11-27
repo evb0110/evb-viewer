@@ -8,12 +8,7 @@ import {
     markUnprovenNativeTermination,
 } from '@contracts/nativeErrors';
 import type {NativeErrorCode} from '@contracts/scan-cleanup/nativeWire.generated';
-import {
-    describe,
-    expect,
-    expectTypeOf,
-    it,
-} from 'vitest';
+import {describe, expect, expectTypeOf, it} from 'vitest';
 
 describe('native error envelopes', () => {
     it('maintains bidirectional compile-time parity with generated NativeErrorCode', () => {
@@ -30,10 +25,12 @@ describe('native error envelopes', () => {
     });
 
     it('rejects unknown and message-only failures', () => {
-        expect(isNativeErrorEnvelope({
-            code: 'search-failed',
-            message: 'detail',
-        })).toBe(false);
+        expect(
+            isNativeErrorEnvelope({
+                code: 'search-failed',
+                message: 'detail',
+            }),
+        ).toBe(false);
         expect(hasNativeErrorCode({message: 'encrypted document'})).toBe(false);
     });
 
@@ -45,13 +42,11 @@ describe('native error envelopes', () => {
         expect(getUnprovenNativeTerminationDetail(new SuppressedError(plain, markedPrimary))).toBe('primary child alive');
         expect(getUnprovenNativeTerminationDetail(new SuppressedError(markedDisposer, plain))).toBe('disposer child alive');
         expect(getUnprovenNativeTerminationDetail(new SuppressedError(markedDisposer, markedPrimary))).toBe('primary child alive');
-        expect(getUnprovenNativeTerminationDetail(new SuppressedError(
-            plain,
-            new AggregateError([
-                plain,
-                new SuppressedError(markedDisposer, plain),
-            ], 'joined'),
-        ))).toBe('disposer child alive');
+        expect(
+            getUnprovenNativeTerminationDetail(
+                new SuppressedError(plain, new AggregateError([plain, new SuppressedError(markedDisposer, plain)], 'joined')),
+            ),
+        ).toBe('disposer child alive');
 
         const cyclicAggregate = new AggregateError([], 'cyclic');
         cyclicAggregate.errors.push(cyclicAggregate);

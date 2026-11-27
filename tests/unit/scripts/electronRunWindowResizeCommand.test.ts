@@ -1,21 +1,10 @@
-import {
-    createContext,
-    runInContext,
-} from 'node:vm';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type { Page } from 'puppeteer-core';
-import { createCommandHandler } from '@scripts/electron-run/createCommandHandler';
-import {
-    isElectronRunCommand,
-    parseElectronRunCommandRequest,
-} from '@scripts/electron-run/electronRunProtocol';
-import type { ISessionState } from '@scripts/electron-run/electronRunSessionTypes';
-import { cast } from '@tests/helpers/cast';
+import {createContext, runInContext} from 'node:vm';
+import {describe, expect, it, vi} from 'vitest';
+import type {Page} from 'puppeteer-core';
+import {createCommandHandler} from '@scripts/electron-run/createCommandHandler';
+import {isElectronRunCommand, parseElectronRunCommandRequest} from '@scripts/electron-run/electronRunProtocol';
+import type {ISessionState} from '@scripts/electron-run/electronRunSessionTypes';
+import {cast} from '@tests/helpers/cast';
 
 // The window a person resizes is the native one. These cases keep the two
 // commands apart: `windowResize` must size the native window's content area,
@@ -70,30 +59,31 @@ function stubRendererWindow(model: INativeWindowModel) {
             return model.contentHeight + model.frameHeight;
         },
         devicePixelRatio: 2,
-        electronAPI: {host: {restoreNormalWindow(contentSize?: {
-            width: number;
-            height: number;
-        }) {
-            if (model.maximized && model.honorsRestore) {
-                model.maximized = false;
-                model.contentWidth = model.normalContentWidth;
-                model.contentHeight = model.normalContentHeight;
-            }
-            // The host sizes the content area natively; a maximized window
-            // keeps the window manager's size.
-            if (contentSize !== undefined) {
-                model.resizeRequests.push(contentSize);
-                if (!model.maximized) {
-                    model.contentWidth = Math.max(model.minimumContentWidth, contentSize.width);
-                    model.contentHeight = contentSize.height;
-                }
-            }
-            return Promise.resolve({
-                fullScreen: false,
-                maximized: model.maximized,
-                supported: true,
-            });
-        }}},
+        electronAPI: {
+            host: {
+                restoreNormalWindow(contentSize?: {width: number; height: number}) {
+                    if (model.maximized && model.honorsRestore) {
+                        model.maximized = false;
+                        model.contentWidth = model.normalContentWidth;
+                        model.contentHeight = model.normalContentHeight;
+                    }
+                    // The host sizes the content area natively; a maximized window
+                    // keeps the window manager's size.
+                    if (contentSize !== undefined) {
+                        model.resizeRequests.push(contentSize);
+                        if (!model.maximized) {
+                            model.contentWidth = Math.max(model.minimumContentWidth, contentSize.width);
+                            model.contentHeight = contentSize.height;
+                        }
+                    }
+                    return Promise.resolve({
+                        fullScreen: false,
+                        maximized: model.maximized,
+                        supported: true,
+                    });
+                },
+            },
+        },
     });
 }
 
@@ -102,10 +92,8 @@ function createHandlerForModel(model: INativeWindowModel) {
     const setViewport = vi.fn();
     const viewport = vi.fn(() => null);
     const page = cast<Page>({
-        evaluate: <TArgs extends unknown[], TResult>(
-            pageFunction: (...args: TArgs) => TResult,
-            ...args: TArgs
-        ) => Promise.resolve(pageFunction(...args)),
+        evaluate: <TArgs extends unknown[], TResult>(pageFunction: (...args: TArgs) => TResult, ...args: TArgs) =>
+            Promise.resolve(pageFunction(...args)),
         setViewport,
         viewport,
     });
@@ -121,18 +109,14 @@ describe('electron run window resize command', () => {
         expect(isElectronRunCommand('windowResize')).toBe(true);
         expect(isElectronRunCommand('emulateViewport')).toBe(true);
         expect(isElectronRunCommand('resize')).toBe(false);
-        expect(parseElectronRunCommandRequest({
+        expect(
+            parseElectronRunCommandRequest({
+                command: 'windowResize',
+                args: [640, 480],
+            }),
+        ).toEqual({
             command: 'windowResize',
-            args: [
-                640,
-                480,
-            ],
-        })).toEqual({
-            command: 'windowResize',
-            args: [
-                640,
-                480,
-            ],
+            args: [640, 480],
         });
     });
 
@@ -140,24 +124,25 @@ describe('electron run window resize command', () => {
         const model = createNativeWindowModel();
         const {handleCommand} = createHandlerForModel(model);
 
-        const result = await handleCommand('windowResize', [
-            '640',
-            '480',
-        ]) as {
-            after: {contentSize: {
-                width: number;
-                height: number;
-            };};
-            before: {contentSize: {width: number;};};
+        const result = (await handleCommand('windowResize', ['640', '480'])) as {
+            after: {
+                contentSize: {
+                    width: number;
+                    height: number;
+                };
+            };
+            before: {contentSize: {width: number}};
             settled: boolean;
         };
 
         // The request names the content area itself, whatever frame the
         // window has, so no frame size is guessed from the renderer.
-        expect(model.resizeRequests).toEqual([{
-            width: 640,
-            height: 480,
-        }]);
+        expect(model.resizeRequests).toEqual([
+            {
+                width: 640,
+                height: 480,
+            },
+        ]);
         expect(result.before.contentSize.width).toBe(900);
         expect(result.after.contentSize).toEqual({
             width: 640,
@@ -174,10 +159,7 @@ describe('electron run window resize command', () => {
         });
         const {handleCommand} = createHandlerForModel(model);
 
-        const result = await handleCommand('windowResize', [
-            '900',
-            '672',
-        ]) as {windowState: {maximized: boolean;};};
+        const result = (await handleCommand('windowResize', ['900', '672'])) as {windowState: {maximized: boolean}};
 
         expect(result.windowState.maximized).toBe(false);
         expect(model.maximized).toBe(false);
@@ -199,10 +181,7 @@ describe('electron run window resize command', () => {
         });
         const {handleCommand} = createHandlerForModel(model);
 
-        await expect(handleCommand('windowResize', [
-            '900',
-            '672',
-        ])).rejects.toThrow(/did not leave its native placement.*maximized=true/u);
+        await expect(handleCommand('windowResize', ['900', '672'])).rejects.toThrow(/did not leave its native placement.*maximized=true/u);
         expect(model.contentWidth).toBe(1280);
     });
 
@@ -210,37 +189,26 @@ describe('electron run window resize command', () => {
         const model = createNativeWindowModel({minimumContentWidth: 700});
         const {handleCommand} = createHandlerForModel(model);
 
-        await expect(handleCommand('windowResize', [
-            '320',
-            '480',
-            '10',
-        ])).rejects.toThrow(/did not reach 320x480; it settled at 700x480/u);
+        await expect(handleCommand('windowResize', ['320', '480', '10'])).rejects.toThrow(/did not reach 320x480; it settled at 700x480/u);
     });
 
     it('requires both dimensions', async () => {
         const {handleCommand} = createHandlerForModel(createNativeWindowModel());
 
         await expect(handleCommand('windowResize', ['640'])).rejects.toThrow('Width and height required');
-        await expect(handleCommand('emulateViewport', [
-            '0',
-            '480',
-        ])).rejects.toThrow('Width and height required');
+        await expect(handleCommand('emulateViewport', ['0', '480'])).rejects.toThrow('Width and height required');
     });
 
     it('emulates a viewport without moving the native window', async () => {
         const model = createNativeWindowModel();
-        const {
-            handleCommand,
-            setViewport,
-        } = createHandlerForModel(model);
+        const {handleCommand, setViewport} = createHandlerForModel(model);
 
-        const result = await handleCommand('emulateViewport', [
-            '1280',
-            '820',
-        ]) as {emulated: {
-            width: number;
-            height: number;
-        };};
+        const result = (await handleCommand('emulateViewport', ['1280', '820'])) as {
+            emulated: {
+                width: number;
+                height: number;
+            };
+        };
 
         expect(setViewport).toHaveBeenCalledWith({
             width: 1280,
@@ -275,28 +243,30 @@ function createRendererView() {
     });
     const viewer = {
         getBoundingClientRect: () => rect(0, 800, 900),
-        querySelectorAll: (selector: string) => (selector === '.page_container--rendered'
-            ? Array.from({length: view.active?.paintedPages ?? 0}, () => ({
-                getBoundingClientRect: () => rect(16, 640, 600),
-                querySelector: () => ({
-                    width: 1200,
-                    height: 1560,
-                }),
-            }))
-            : []),
+        querySelectorAll: (selector: string) =>
+            selector === '.page_container--rendered'
+                ? Array.from({length: view.active?.paintedPages ?? 0}, () => ({
+                      getBoundingClientRect: () => rect(16, 640, 600),
+                      querySelector: () => ({
+                          width: 1200,
+                          height: 1560,
+                      }),
+                  }))
+                : [],
     };
     return {
         view,
         globals: {
             __evbTestApi: {
-                getActiveToolbarSnapshot: () => (view.active
-                    ? {
-                        hasPdf: true,
-                        hasOpenError: view.active.hasOpenError,
-                        currentPage: 1,
-                        totalPages: view.active.totalPages,
-                    }
-                    : null),
+                getActiveToolbarSnapshot: () =>
+                    view.active
+                        ? {
+                              hasPdf: true,
+                              hasOpenError: view.active.hasOpenError,
+                              currentPage: 1,
+                              totalPages: view.active.totalPages,
+                          }
+                        : null,
                 readActiveWorkspaceStateValues: () => ({
                     originalPath: view.active?.originalPath ?? null,
                     workingCopyPath: view.active?.workingCopyPath ?? null,
@@ -328,11 +298,12 @@ describe('electron run openPdf command', () => {
         pageContext.window = pageContext;
         const page = cast<Page>({
             evaluateOnNewDocument: () => Promise.resolve(),
-            evaluate: (pageFunction: string | ((...args: unknown[]) => unknown), ...args: unknown[]) => Promise.resolve(
-                typeof pageFunction === 'string'
-                    ? runInContext(pageFunction, pageContext)
-                    : (runInContext(`(${pageFunction.toString()})`, pageContext) as (...pageArgs: unknown[]) => unknown)(...args),
-            ),
+            evaluate: (pageFunction: string | ((...args: unknown[]) => unknown), ...args: unknown[]) =>
+                Promise.resolve(
+                    typeof pageFunction === 'string'
+                        ? runInContext(pageFunction, pageContext)
+                        : (runInContext(`(${pageFunction.toString()})`, pageContext) as (...pageArgs: unknown[]) => unknown)(...args),
+                ),
         });
         return createCommandHandler(() => cast<ISessionState>({page}));
     }
@@ -352,7 +323,9 @@ describe('electron run openPdf command', () => {
             __openFileDirect: () => Promise.resolve(false),
         });
 
-        await expect(handleCommand('openPdf', ['/documents/missing.pdf'])).rejects.toThrow('The renderer did not open /documents/missing.pdf');
+        await expect(handleCommand('openPdf', ['/documents/missing.pdf'])).rejects.toThrow(
+            'The renderer did not open /documents/missing.pdf',
+        );
     });
 
     it('returns the opened document once its first page is painted', async () => {
@@ -403,21 +376,22 @@ describe('electron run openPdf command', () => {
         const handleCommand = createHandlerForPage({
             ...renderer.globals,
             __allowRendererFileOpenForAutomation: () => Promise.resolve(true),
-            __openFileDirect: () => new Promise((resolve) => {
-                setTimeout(() => {
-                    renderer.view.active = {
-                        originalPath: '/documents/report.pdf',
-                        workingCopyPath: '/tmp/working-copies/report-2.pdf',
-                        totalPages: 4,
-                        hasOpenError: false,
-                        paintedPages: 1,
-                    };
-                    resolve(true);
-                }, 300);
-            }),
+            __openFileDirect: () =>
+                new Promise((resolve) => {
+                    setTimeout(() => {
+                        renderer.view.active = {
+                            originalPath: '/documents/report.pdf',
+                            workingCopyPath: '/tmp/working-copies/report-2.pdf',
+                            totalPages: 4,
+                            hasOpenError: false,
+                            paintedPages: 1,
+                        };
+                        resolve(true);
+                    }, 300);
+                }),
         });
 
-        const result = await handleCommand('openPdf', ['/documents/report.pdf']) as {state: {workingCopyPath: string;};};
+        const result = (await handleCommand('openPdf', ['/documents/report.pdf'])) as {state: {workingCopyPath: string}};
 
         expect(result.state.workingCopyPath).toBe('/tmp/working-copies/report-2.pdf');
     });
@@ -446,7 +420,7 @@ describe('electron run openPdf command', () => {
                 },
             });
 
-            const result = await handleCommand('openPdf', ['/documents/report.pdf']) as {state: {originalPath: string;};};
+            const result = (await handleCommand('openPdf', ['/documents/report.pdf'])) as {state: {originalPath: string}};
 
             expect(result.state.originalPath).toBe('/documents/report.pdf');
         } finally {
@@ -471,6 +445,8 @@ describe('electron run openPdf command', () => {
             },
         });
 
-        await expect(handleCommand('openPdf', ['/documents/damaged.pdf'])).rejects.toThrow('The renderer opened /documents/damaged.pdf with an open error');
+        await expect(handleCommand('openPdf', ['/documents/damaged.pdf'])).rejects.toThrow(
+            'The renderer opened /documents/damaged.pdf with an open error',
+        );
     });
 });

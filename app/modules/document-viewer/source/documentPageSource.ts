@@ -1,10 +1,5 @@
-import type { TDocumentRef } from '@contracts/documentRef';
-import type {
-    IPdfSearchProgress,
-    IPdfSearchResponse,
-    IResolvedSearchMatchOptions,
-    TSearchResultOffset,
-} from '@contracts/search';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {IPdfSearchProgress, IPdfSearchResponse, IResolvedSearchMatchOptions, TSearchResultOffset} from '@contracts/search';
 
 export type TDocumentPageSourceKind = 'pdf' | 'djvu';
 export type TDocumentRenderPriority = 'navigation' | 'visible' | 'nearby' | 'thumbnail' | 'prefetch';
@@ -35,7 +30,9 @@ export interface IDocumentPageRenderRequest {
     signal: AbortSignal;
 }
 
-export interface IDocumentTextProvider {getPageText(pageNumber: number, signal: AbortSignal): Promise<string>;}
+export interface IDocumentTextProvider {
+    getPageText(pageNumber: number, signal: AbortSignal): Promise<string>;
+}
 
 export interface IDocumentSearchRequest {
     resultOffset?: TSearchResultOffset;
@@ -46,7 +43,9 @@ export interface IDocumentSearchRequest {
     signal: AbortSignal;
 }
 
-export interface IDocumentSearchProvider {search(request: IDocumentSearchRequest): Promise<IPdfSearchResponse>;}
+export interface IDocumentSearchProvider {
+    search(request: IDocumentSearchRequest): Promise<IPdfSearchResponse>;
+}
 
 export interface IDocumentOutlineItem {
     title: string;
@@ -54,11 +53,17 @@ export interface IDocumentOutlineItem {
     children: IDocumentOutlineItem[];
 }
 
-export interface IDocumentOutlineProvider {getOutline(signal: AbortSignal): Promise<IDocumentOutlineItem[]>;}
+export interface IDocumentOutlineProvider {
+    getOutline(signal: AbortSignal): Promise<IDocumentOutlineItem[]>;
+}
 
-export interface IDocumentThumbnailProvider {renderThumbnail(request: IDocumentPageRenderRequest): Promise<IDocumentRenderLease>;}
+export interface IDocumentThumbnailProvider {
+    renderThumbnail(request: IDocumentPageRenderRequest): Promise<IDocumentRenderLease>;
+}
 
-export interface IDocumentRasterProvider {renderRaster(request: IDocumentPageRenderRequest): Promise<IDocumentRenderLease>;}
+export interface IDocumentRasterProvider {
+    renderRaster(request: IDocumentPageRenderRequest): Promise<IDocumentRenderLease>;
+}
 
 export interface IDocumentPageSource {
     readonly kind: TDocumentPageSourceKind;

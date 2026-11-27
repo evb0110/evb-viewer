@@ -1,5 +1,5 @@
-import type { ISystemCapability } from '@contracts/systemPlatformFeature';
-import { getPlatformAPI } from '@app/utils/platform';
+import type {ISystemCapability} from '@contracts/systemPlatformFeature';
+import {getPlatformAPI} from '@app/utils/platform';
 
 const fallbackSystemCapability: ISystemCapability = {
     getMemoryInfo: () => null,
@@ -7,6 +7,6 @@ const fallbackSystemCapability: ISystemCapability = {
 };
 
 export function getSystemCapability(): ISystemCapability {
-    const platform = getPlatformAPI() as { system?: ISystemCapability };
+    const platform = getPlatformAPI() as {system?: ISystemCapability};
     return platform.system ?? fallbackSystemCapability;
 }

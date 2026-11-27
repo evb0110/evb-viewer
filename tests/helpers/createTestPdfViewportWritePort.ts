@@ -1,12 +1,5 @@
-import {
-    readonly,
-    ref,
-    shallowRef,
-} from 'vue';
-import type {
-    IPdfViewportWrite,
-    IPdfViewportWritePort,
-} from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
+import {readonly, ref, shallowRef} from 'vue';
+import type {IPdfViewportWrite, IPdfViewportWritePort} from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 
 export function createTestPdfViewportWritePort() {
     const writes: IPdfViewportWrite[] = [];
@@ -32,8 +25,12 @@ export function createTestPdfViewportWritePort() {
         },
         apply(container, write) {
             writes.push(write);
-            if (write.left !== undefined) container.scrollLeft = write.left;
-            if (write.top !== undefined) container.scrollTop = write.top;
+            if (write.left !== undefined) {
+                container.scrollLeft = write.left;
+            }
+            if (write.top !== undefined) {
+                container.scrollTop = write.top;
+            }
             return true;
         },
         consumeAuthorityScroll: () => false,
@@ -45,7 +42,7 @@ export function createTestPdfViewportWritePort() {
         fenceCommandAgainstLiveGesture: () => {
             commandFences.push(++sequence);
         },
-        observeWheelPacket: () => commandResidueLive ? 'command-residue' : 'user-input',
+        observeWheelPacket: () => (commandResidueLive ? 'command-residue' : 'user-input'),
         isCommandResidueLive: () => commandResidueLive,
         observeWheelScrollSequence: () => {},
         userScrollSuppressed,

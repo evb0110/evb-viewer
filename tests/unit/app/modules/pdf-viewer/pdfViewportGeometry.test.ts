@@ -1,4 +1,4 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     createPdfViewportGeometryFromLayout,
     resolveAnchorFromScroll,
@@ -14,19 +14,11 @@ import {
     PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT,
     normalizePageMetrics,
 } from '@app/modules/document-viewer/public';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { getViewportVisibilityFromLayout } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getViewportVisibilityFromDom';
-import type { IPdfPageMetric } from '@app/types/pdfUi';
-import type { TPdfViewMode } from '@contracts/shared';
-import {
-    getViewportGeometryRowForPage,
-    type IPdfViewportGeometry,
-} from '@app/modules/document-viewer/layout/pdfViewportGeometry';
+import {describe, expect, it, vi} from 'vitest';
+import {getViewportVisibilityFromLayout} from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getViewportVisibilityFromDom';
+import type {IPdfPageMetric} from '@app/types/pdfUi';
+import type {TPdfViewMode} from '@contracts/shared';
+import {getViewportGeometryRowForPage, type IPdfViewportGeometry} from '@app/modules/document-viewer/layout/pdfViewportGeometry';
 
 interface IComputePdfViewportGeometryOptions {
     revision: number;
@@ -48,9 +40,7 @@ function getRowEnd(startIndex: number, total: number, mode: TPdfViewMode) {
     return Math.min(total - 1, startIndex + 1);
 }
 /** A simple eager geometry for these pure scroll and anchor projections. */
-function computePdfViewportGeometry(
-    options: IComputePdfViewportGeometryOptions,
-): IPdfViewportGeometry {
+function computePdfViewportGeometry(options: IComputePdfViewportGeometryOptions): IPdfViewportGeometry {
     const scale = Math.max(0.01, options.zoom);
     const gap = Math.max(0, options.gap);
     const padding = Math.max(0, options.padding);
@@ -62,8 +52,8 @@ function computePdfViewportGeometry(
     for (let start = 0; start < options.pages.length;) {
         const end = getRowEnd(start, options.pages.length, options.viewMode);
         const rowPages = options.pages.slice(start, end + 1);
-        const widths = rowPages.map(page => Math.max(0, page.width * scale));
-        const heights = rowPages.map(page => Math.max(0, page.height * scale));
+        const widths = rowPages.map((page) => Math.max(0, page.width * scale));
+        const heights = rowPages.map((page) => Math.max(0, page.height * scale));
         const rowWidth = widths.reduce((sum, width) => sum + width, 0) + gap * (widths.length - 1);
         const rowHeight = Math.max(0, ...heights);
         let left = Math.max(padding, (options.viewportWidth - rowWidth) / 2);
@@ -131,29 +121,55 @@ describe('pdfViewportGeometry', () => {
             gap: 20,
             padding: 20,
         });
-        expect(resolveAnchorFromScroll(mixed, {
-            left: 0,
-            top: 20,
-        }).page).toBe(2);
-        expect(resolvePageIndicatorFromScroll(mixed, {
-            left: 0,
-            top: 20,
-        }, 1)).toBe(1);
-        expect(resolvePageIndicatorFromScroll(mixed, {
-            left: 0,
-            top: 80,
-        }, 1)).toBe(1);
-        expect(resolvePageIndicatorFromScroll(mixed, {
-            left: 0,
-            top: 180,
-        }, 1)).toBe(2);
-        expect(resolvePageIndicatorFromScroll({
-            ...mixed,
-            physicalScrollOrigin: 240,
-        }, {
-            left: 0,
-            top: 0,
-        }, 1)).toBe(2);
+        expect(
+            resolveAnchorFromScroll(mixed, {
+                left: 0,
+                top: 20,
+            }).page,
+        ).toBe(2);
+        expect(
+            resolvePageIndicatorFromScroll(
+                mixed,
+                {
+                    left: 0,
+                    top: 20,
+                },
+                1,
+            ),
+        ).toBe(1);
+        expect(
+            resolvePageIndicatorFromScroll(
+                mixed,
+                {
+                    left: 0,
+                    top: 80,
+                },
+                1,
+            ),
+        ).toBe(1);
+        expect(
+            resolvePageIndicatorFromScroll(
+                mixed,
+                {
+                    left: 0,
+                    top: 180,
+                },
+                1,
+            ),
+        ).toBe(2);
+        expect(
+            resolvePageIndicatorFromScroll(
+                {
+                    ...mixed,
+                    physicalScrollOrigin: 240,
+                },
+                {
+                    left: 0,
+                    top: 0,
+                },
+                1,
+            ),
+        ).toBe(2);
         const spread = computePdfViewportGeometry({
             revision: 2,
             pages: [
@@ -173,22 +189,40 @@ describe('pdfViewportGeometry', () => {
             gap: 20,
             padding: 20,
         });
-        expect(resolvePageIndicatorFromScroll(spread, {
-            left: 0,
-            top: 0,
-        }, 2)).toBe(1);
-        expect(resolvePageIndicatorFromScroll(spread, {
-            left: 220,
-            top: 0,
-        }, 1)).toBe(2);
+        expect(
+            resolvePageIndicatorFromScroll(
+                spread,
+                {
+                    left: 0,
+                    top: 0,
+                },
+                2,
+            ),
+        ).toBe(1);
+        expect(
+            resolvePageIndicatorFromScroll(
+                spread,
+                {
+                    left: 220,
+                    top: 0,
+                },
+                1,
+            ),
+        ).toBe(2);
         const visibleSpread = {
             ...spread,
             viewportHeight: 1_000,
         };
-        expect(resolvePageIndicatorFromScroll(visibleSpread, {
-            left: 0,
-            top: 0,
-        }, 2)).toBe(2);
+        expect(
+            resolvePageIndicatorFromScroll(
+                visibleSpread,
+                {
+                    left: 0,
+                    top: 0,
+                },
+                2,
+            ),
+        ).toBe(2);
     });
 
     const pages = [
@@ -208,10 +242,12 @@ describe('pdfViewportGeometry', () => {
 
     it('includes page-track padding when projecting a horizontally panned zoomed page', () => {
         const layout = buildPageLayoutMetrics({
-            pageMetrics: [{
-                width: 600,
-                height: 800,
-            }],
+            pageMetrics: [
+                {
+                    width: 600,
+                    height: 800,
+                },
+            ],
             totalPages: 1,
             viewMode: 'single',
             scale: 3,
@@ -219,23 +255,33 @@ describe('pdfViewportGeometry', () => {
             paddingTop: 20,
             paddingBottom: 20,
         });
-        if (!layout) throw new Error('Expected layout');
-        const geometry = createPdfViewportGeometryFromLayout(layout, {
-            width: 1_000,
-            height: 800,
-            paddingInline: 20,
-        }, 1);
+        if (!layout) {
+            throw new Error('Expected layout');
+        }
+        const geometry = createPdfViewportGeometryFromLayout(
+            layout,
+            {
+                width: 1_000,
+                height: 800,
+                paddingInline: 20,
+            },
+            1,
+        );
         expect(geometry.contentWidth).toBe(1_840);
         const anchor = resolveAnchorFromScroll(geometry, {
             left: 400,
             top: 600,
         });
         expect(anchor.pageXFraction).toBe(880 / 1_800);
-        const resized = createPdfViewportGeometryFromLayout(layout, {
-            width: 800,
-            height: 800,
-            paddingInline: 20,
-        }, 2);
+        const resized = createPdfViewportGeometryFromLayout(
+            layout,
+            {
+                width: 800,
+                height: 800,
+                paddingInline: 20,
+            },
+            2,
+        );
         expect(resolveScrollForAnchor(resized, anchor)).toEqual({
             left: 500,
             top: 600,
@@ -245,10 +291,12 @@ describe('pdfViewportGeometry', () => {
     it('retains a semantic resize anchor when narrow geometry clamps its projected scroll', () => {
         const wide = computePdfViewportGeometry({
             revision: 1,
-            pages: [{
-                width: 600,
-                height: 800,
-            }],
+            pages: [
+                {
+                    width: 600,
+                    height: 800,
+                },
+            ],
             viewportWidth: 900,
             viewportHeight: 600,
             zoom: 1.5,
@@ -262,10 +310,12 @@ describe('pdfViewportGeometry', () => {
         });
         const narrow = computePdfViewportGeometry({
             revision: 2,
-            pages: [{
-                width: 600,
-                height: 800,
-            }],
+            pages: [
+                {
+                    width: 600,
+                    height: 800,
+                },
+            ],
             viewportWidth: 360,
             viewportHeight: 600,
             zoom: 0.5,
@@ -276,15 +326,11 @@ describe('pdfViewportGeometry', () => {
         const clamped = resolveScrollForAnchor(narrow, intendedAnchor);
 
         expect(clamped.top).toBe(0);
-        expect(resolveAnchorFromScroll(narrow, clamped).pageYFraction)
-            .not.toBeCloseTo(intendedAnchor.pageYFraction, 3);
-        expect(resolveRetainedAnchorFromScroll(narrow, clamped, intendedAnchor))
-            .toEqual(intendedAnchor);
-        expect(resolveScrollForAnchor(wide, resolveRetainedAnchorFromScroll(
-            narrow,
-            clamped,
-            intendedAnchor,
-        ))).toEqual(resolveScrollForAnchor(wide, intendedAnchor));
+        expect(resolveAnchorFromScroll(narrow, clamped).pageYFraction).not.toBeCloseTo(intendedAnchor.pageYFraction, 3);
+        expect(resolveRetainedAnchorFromScroll(narrow, clamped, intendedAnchor)).toEqual(intendedAnchor);
+        expect(resolveScrollForAnchor(wide, resolveRetainedAnchorFromScroll(narrow, clamped, intendedAnchor))).toEqual(
+            resolveScrollForAnchor(wide, intendedAnchor),
+        );
     });
 
     it('resolves the visible page from the session-owned physical scroll origin', () => {
@@ -361,10 +407,12 @@ describe('pdfViewportGeometry', () => {
 
         expect(anchor.page).toBe(2);
         expect(resolveScrollForAnchor(corrected, anchor).top).toBeGreaterThan(840);
-        expect(anchor).toEqual(resolveAnchorFromScroll(before, {
-            left: 0,
-            top: 840,
-        }));
+        expect(anchor).toEqual(
+            resolveAnchorFromScroll(before, {
+                left: 0,
+                top: 840,
+            }),
+        );
     });
 
     it('builds facing rows atomically and keeps DPR outside CSS geometry', () => {
@@ -378,18 +426,9 @@ describe('pdfViewportGeometry', () => {
             gap: 12,
             padding: 16,
         });
-        expect(geometry.rows.map(row => [
-            row.startPage,
-            row.endPage,
-        ])).toEqual([
-            [
-                1,
-                1,
-            ],
-            [
-                2,
-                3,
-            ],
+        expect(geometry.rows.map((row) => [row.startPage, row.endPage])).toEqual([
+            [1, 1],
+            [2, 3],
         ]);
         expect(geometry.pageRects).toHaveLength(3);
         const rightPage = geometry.pageRects[2]!;
@@ -462,17 +501,12 @@ describe('pdfViewportGeometry', () => {
         }
 
         const geometry = createPdfViewportGeometryFromLayout(layout, viewport, 1);
-        const [
-            leftPage,
-            rightPage,
-        ] = geometry.pageRects;
+        const [leftPage, rightPage] = geometry.pageRects;
         expect(getLayoutContentHeight(layout)).toBe(viewport.height);
         expect(leftPage?.top).toBe(margin);
         expect(leftPage?.height).toBe(viewport.height - margin * 2);
         expect((rightPage?.left ?? 0) - ((leftPage?.left ?? 0) + (leftPage?.width ?? 0))).toBe(margin);
-        expect(geometry.rows[0]?.rect.width).toBe(
-            (leftPage?.width ?? 0) + margin + (rightPage?.width ?? 0),
-        );
+        expect(geometry.rows[0]?.rect.width).toBe((leftPage?.width ?? 0) + margin + (rightPage?.width ?? 0));
     });
 
     it('keeps million-page viewport geometry indexed and avoids whole-document iteration', () => {
@@ -517,14 +551,18 @@ describe('pdfViewportGeometry', () => {
                 throw new Error('Expected million-page layout');
             }
 
-            const geometry = createPdfViewportGeometryFromLayout(layout, {
-                width: 900,
-                height: 700,
-            }, 1);
+            const geometry = createPdfViewportGeometryFromLayout(
+                layout,
+                {
+                    width: 900,
+                    height: 700,
+                },
+                1,
+            );
             expect(geometry.pageRects.length).toBe(totalPages);
             expect(geometry.rows.length).toBe(500_000);
-            expect(Object.keys(geometry.pageRects).filter(key => /^\d+$/.test(key))).toHaveLength(0);
-            expect(Object.keys(geometry.rows).filter(key => /^\d+$/.test(key))).toHaveLength(0);
+            expect(Object.keys(geometry.pageRects).filter((key) => /^\d+$/.test(key))).toHaveLength(0);
+            expect(Object.keys(geometry.rows).filter((key) => /^\d+$/.test(key))).toHaveLength(0);
 
             const firstPage = geometry.pageRects[0]!;
             const lastPage = geometry.pageRects[totalPages - 1]!;
@@ -561,22 +599,26 @@ describe('pdfViewportGeometry', () => {
             padding: 20,
         });
 
-        expect(resolveScrollForAnchor(geometry, {
-            page: 1,
-            pageXFraction: 0.5,
-            pageYFraction: 0,
-            viewportXFraction: 0.5,
-            viewportYFraction: 0,
-            affinity: 'start',
-        }).top).toBe(0);
-        expect(resolveScrollForAnchor(geometry, {
-            page: 2,
-            pageXFraction: 0.5,
-            pageYFraction: 0,
-            viewportXFraction: 0.5,
-            viewportYFraction: 0,
-            affinity: 'start',
-        }).top).toBe(820);
+        expect(
+            resolveScrollForAnchor(geometry, {
+                page: 1,
+                pageXFraction: 0.5,
+                pageYFraction: 0,
+                viewportXFraction: 0.5,
+                viewportYFraction: 0,
+                affinity: 'start',
+            }).top,
+        ).toBe(0);
+        expect(
+            resolveScrollForAnchor(geometry, {
+                page: 2,
+                pageXFraction: 0.5,
+                pageYFraction: 0,
+                viewportXFraction: 0.5,
+                viewportYFraction: 0,
+                affinity: 'start',
+            }).top,
+        ).toBe(820);
     });
 });
 
@@ -599,7 +641,9 @@ function createPhysicalScrollLayout(mixedHeights: boolean, scale = 2) {
         paddingTop: 20,
         paddingBottom: 20,
     });
-    if (!layout) throw new Error('Expected page layout');
+    if (!layout) {
+        throw new Error('Expected page layout');
+    }
     return layout;
 }
 
@@ -626,7 +670,10 @@ describe.each([
     it('keeps the owned origin until a viewport enters an end margin and then recentres the same document offset', () => {
         const layout = createPhysicalScrollLayout(mixedHeights);
         const origin = resolveLayoutPhysicalScrollOrigin(
-            layout, PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT + viewportHeight, viewportHeight, null,
+            layout,
+            PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT + viewportHeight,
+            viewportHeight,
+            null,
         );
         expect(origin).toBeGreaterThan(0);
         for (const top of [
@@ -637,10 +684,7 @@ describe.each([
             expect(resolveLayoutPhysicalScrollOrigin(layout, top, viewportHeight, origin)).toBe(origin);
         }
 
-        for (const top of [
-            origin + viewportHeight - 1,
-            origin + PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT - 2 * viewportHeight + 1,
-        ]) {
+        for (const top of [origin + viewportHeight - 1, origin + PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT - 2 * viewportHeight + 1]) {
             const nextOrigin = resolveLayoutPhysicalScrollOrigin(layout, top, viewportHeight, origin);
             if (top < origin + viewportHeight) {
                 expect(nextOrigin).toBeLessThan(origin);
@@ -663,7 +707,9 @@ describe.each([
         const origin = resolveLayoutPhysicalScrollOrigin(before, top, viewportHeight, null);
         const reflowed = resolveLayoutPhysicalScrollOrigin(after, top, viewportHeight, origin);
         const segment = getLayoutPhysicalScrollSegment(after, reflowed);
-        if (!segment) throw new Error('Expected physical scroll segment');
+        if (!segment) {
+            throw new Error('Expected physical scroll segment');
+        }
         const firstRow = after.base.pageRowIndices[segment.firstPage - 1]!;
         expect(reflowed).not.toBe(origin);
         expect(getLayoutRowTop(after, firstRow) - reflowed).toBe(after.paddingTop);
@@ -681,7 +727,9 @@ describe.each([
         ]) {
             const origin = resolveLayoutPhysicalScrollOrigin(layout, top, viewportHeight, null);
             const segment = getLayoutPhysicalScrollSegment(layout, origin);
-            if (!segment) throw new Error('Expected physical scroll segment');
+            if (!segment) {
+                throw new Error('Expected physical scroll segment');
+            }
             const firstRow = layout.base.pageRowIndices[segment.firstPage - 1]!;
             expect(segment.origin).toBe(origin);
             expect(getLayoutRowTop(layout, firstRow) - origin).toBe(layout.paddingTop);
@@ -698,15 +746,14 @@ describe.each([
         const contentHeight = getLayoutContentHeight(layout);
         const lastOrigin = resolveLayoutPhysicalScrollOrigin(layout, contentHeight - viewportHeight, viewportHeight, 0);
         const last = getLayoutPhysicalScrollSegment(layout, lastOrigin);
-        if (!last) throw new Error('Expected last physical scroll segment');
+        if (!last) {
+            throw new Error('Expected last physical scroll segment');
+        }
         expect(last.origin + last.height).toBe(contentHeight);
         expect(last.lastPage).toBe(layout.base.totalPages);
         expect(last.height).toBeGreaterThan(PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT);
-        expect(last.height).toBeLessThan(
-            PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT + layout.base.maxPageHeight * layout.scale + layout.gap,
-        );
-        expect(resolveLayoutPhysicalScrollOrigin(layout, contentHeight - viewportHeight, viewportHeight, lastOrigin))
-            .toBe(lastOrigin);
+        expect(last.height).toBeLessThan(PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT + layout.base.maxPageHeight * layout.scale + layout.gap);
+        expect(resolveLayoutPhysicalScrollOrigin(layout, contentHeight - viewportHeight, viewportHeight, lastOrigin)).toBe(lastOrigin);
 
         const firstOrigin = resolveLayoutPhysicalScrollOrigin(layout, 0, viewportHeight, lastOrigin);
         expect(firstOrigin).toBe(0);
@@ -716,8 +763,8 @@ describe.each([
 
     it('keeps a row crossing the 8 MiB mark wholly inside the segment shown over it', () => {
         const layout = createPhysicalScrollLayout(mixedHeights);
-        const row = layout.base.rowStartPages.findIndex((_, index) =>
-            getLayoutRowTop(layout, index) + getLayoutRowHeight(layout, index) > PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT,
+        const row = layout.base.rowStartPages.findIndex(
+            (_, index) => getLayoutRowTop(layout, index) + getLayoutRowHeight(layout, index) > PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT,
         );
         expect(row).toBeGreaterThan(0);
         const rowTop = getLayoutRowTop(layout, row);
@@ -726,7 +773,9 @@ describe.each([
         expect(rowBottom).toBeGreaterThan(PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT);
         const origin = resolveLayoutPhysicalScrollOrigin(layout, PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT, viewportHeight, 0);
         const segment = getLayoutPhysicalScrollSegment(layout, origin);
-        if (!segment) throw new Error('Expected physical scroll segment');
+        if (!segment) {
+            throw new Error('Expected physical scroll segment');
+        }
         expect(segment.firstPage).toBeLessThanOrEqual(layout.base.rowStartPages[row]!);
         expect(segment.lastPage).toBeGreaterThanOrEqual(layout.base.rowEndPages[row]!);
         expect(rowTop - origin).toBeGreaterThanOrEqual(layout.paddingTop);
@@ -735,30 +784,25 @@ describe.each([
 
     it('clamps anchor scroll targets to the physical segment height rather than the remaining document height', () => {
         const layout = createPhysicalScrollLayout(mixedHeights);
-        for (const top of [
-            0,
-            PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT + 12_345,
-            getLayoutContentHeight(layout) - viewportHeight,
-        ]) {
+        for (const top of [0, PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT + 12_345, getLayoutContentHeight(layout) - viewportHeight]) {
             const origin = resolveLayoutPhysicalScrollOrigin(layout, top, viewportHeight, null);
             const segment = getLayoutPhysicalScrollSegment(layout, origin);
-            if (!segment) throw new Error('Expected physical scroll segment');
-            const geometry = createPdfViewportGeometryFromLayout(layout, {
-                width: 1_000,
-                height: viewportHeight,
-            }, 1, origin);
+            if (!segment) {
+                throw new Error('Expected physical scroll segment');
+            }
+            const geometry = createPdfViewportGeometryFromLayout(
+                layout,
+                {
+                    width: 1_000,
+                    height: viewportHeight,
+                },
+                1,
+                origin,
+            );
             expect(geometry.physicalScrollHeight).toBe(segment.height);
             const maxTop = geometry.physicalScrollHeight - viewportHeight;
-            for (const page of [
-                segment.firstPage,
-                segment.lastPage,
-                layout.base.totalPages,
-            ]) {
-                for (const pageYFraction of [
-                    0,
-                    0.5,
-                    1,
-                ]) {
+            for (const page of [segment.firstPage, segment.lastPage, layout.base.totalPages]) {
+                for (const pageYFraction of [0, 0.5, 1]) {
                     const scroll = resolveScrollForAnchor(geometry, {
                         page,
                         pageXFraction: 0.5,
@@ -769,7 +813,9 @@ describe.each([
                     });
                     expect(scroll.top).toBeGreaterThanOrEqual(0);
                     expect(scroll.top).toBeLessThanOrEqual(maxTop);
-                    if (page === layout.base.totalPages && pageYFraction === 1) expect(scroll.top).toBe(maxTop);
+                    if (page === layout.base.totalPages && pageYFraction === 1) {
+                        expect(scroll.top).toBe(maxTop);
+                    }
                 }
             }
         }

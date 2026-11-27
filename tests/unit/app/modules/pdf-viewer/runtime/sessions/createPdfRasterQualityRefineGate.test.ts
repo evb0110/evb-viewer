@@ -1,21 +1,16 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { createPdfRasterQualityRefineGate } from '@app/modules/pdf-viewer/runtime/sessions/createPdfRasterQualityRefineGate';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {createPdfRasterQualityRefineGate} from '@app/modules/pdf-viewer/runtime/sessions/createPdfRasterQualityRefineGate';
 
 const QUALITY_REFINE_INPUT_IDLE_MS = 160;
 
-function createGate(overrides: {
-    hasActiveTransaction?: () => boolean;
-    getInteractionEpoch?: () => number;
-} = {}) {
+function createGate(
+    overrides: {
+        hasActiveTransaction?: () => boolean;
+        getInteractionEpoch?: () => number;
+    } = {},
+) {
     const requestReconcileFrame = vi.fn();
     const gate = createPdfRasterQualityRefineGate({
         getClampedVisibleRefineMode: () => 'input-idle',
@@ -54,10 +49,7 @@ describe('createPdfRasterQualityRefineGate', () => {
     });
 
     it('comes back when the open idle window closes rather than a full window later', () => {
-        const {
-            gate,
-            requestReconcileFrame,
-        } = createGate();
+        const {gate, requestReconcileFrame} = createGate();
 
         vi.advanceTimersByTime(60);
         expect(gate.canRefineVisibleRaster()).toBe(false);
@@ -73,10 +65,7 @@ describe('createPdfRasterQualityRefineGate', () => {
 
     it('holds the refine without polling while a live transaction blocks it', () => {
         let activeTransaction = true;
-        const {
-            gate,
-            requestReconcileFrame,
-        } = createGate({hasActiveTransaction: () => activeTransaction});
+        const {gate, requestReconcileFrame} = createGate({hasActiveTransaction: () => activeTransaction});
 
         // The idle window is long gone; only the transaction holds the refine.
         vi.advanceTimersByTime(QUALITY_REFINE_INPUT_IDLE_MS + 40);
@@ -93,10 +82,7 @@ describe('createPdfRasterQualityRefineGate', () => {
 
     it('keeps the quiet window under a transaction, then waits for the transaction alone', () => {
         let activeTransaction = true;
-        const {
-            gate,
-            requestReconcileFrame,
-        } = createGate({hasActiveTransaction: () => activeTransaction});
+        const {gate, requestReconcileFrame} = createGate({hasActiveTransaction: () => activeTransaction});
 
         vi.advanceTimersByTime(60);
         expect(gate.canRefineVisibleRaster()).toBe(false);
@@ -114,10 +100,7 @@ describe('createPdfRasterQualityRefineGate', () => {
 
     it('restarts the idle window whenever the interaction epoch moves', () => {
         let epoch = 1;
-        const {
-            gate,
-            requestReconcileFrame,
-        } = createGate({getInteractionEpoch: () => epoch});
+        const {gate, requestReconcileFrame} = createGate({getInteractionEpoch: () => epoch});
 
         vi.advanceTimersByTime(120);
         expect(gate.canRefineVisibleRaster()).toBe(false);
@@ -136,10 +119,7 @@ describe('createPdfRasterQualityRefineGate', () => {
     });
 
     it('drops a pending retry when the idle timer is cleared', () => {
-        const {
-            gate,
-            requestReconcileFrame,
-        } = createGate();
+        const {gate, requestReconcileFrame} = createGate();
 
         expect(gate.canRefineVisibleRaster()).toBe(false);
         gate.clearIdleTimer();

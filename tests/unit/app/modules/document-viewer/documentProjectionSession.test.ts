@@ -1,54 +1,50 @@
 import {readFileSync} from 'node:fs';
 // @vitest-environment happy-dom
 
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
-import type { IPagePreviewSource } from '@app/modules/document-viewer/pagePreviewSource';
+import type {IPagePreviewSource} from '@app/modules/document-viewer/pagePreviewSource';
 import {createDjvuPagePreviewSourceFromPath} from '@app/platform/browser-api/createDjvuWorkerFromPath';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import { createDjvuPageSource } from '@app/modules/document-viewer/source/createDjvuPageSource';
-import {
-    createDocumentProjectionSession,
-    ensurePdfProjection,
-} from '@app/modules/document-viewer/session/documentProjectionSession';
-import { createWorkspaceSurfaceBudgetController } from '@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController';
+import {createDjvuPageSource} from '@app/modules/document-viewer/source/createDjvuPageSource';
+import {createDocumentProjectionSession, ensurePdfProjection} from '@app/modules/document-viewer/session/documentProjectionSession';
+import {createWorkspaceSurfaceBudgetController} from '@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController';
 
 const djvuRouteMocks = vi.hoisted(() => ({createBrowserDjvuWorker: vi.fn()}));
 
-vi.mock(import('@app/platform/browser-api/browserDjvuWorkerClient'), async importOriginal => ({
-    ...await importOriginal(),
+vi.mock(import('@app/platform/browser-api/browserDjvuWorkerClient'), async (importOriginal) => ({
+    ...(await importOriginal()),
     createBrowserDjvuWorker: djvuRouteMocks.createBrowserDjvuWorker,
 }));
 
 describe('document page sources', () => {
     it('exposes one cancellable full-document DjVu search provider with the known page count', async () => {
         const searchText = vi.fn().mockResolvedValue({
-            results: [{
-                pageNumber: 3,
-                pageMatchIndex: 0,
-                matchIndex: 0,
-                startOffset: 0,
-                endOffset: 6,
-                excerpt: {
-                    before: '',
-                    match: 'needle',
-                    after: '',
+            results: [
+                {
+                    pageNumber: 3,
+                    pageMatchIndex: 0,
+                    matchIndex: 0,
+                    startOffset: 0,
+                    endOffset: 6,
+                    excerpt: {
+                        before: '',
+                        match: 'needle',
+                        after: '',
+                    },
                 },
-            }],
+            ],
             truncated: false,
         });
         const previewSource = {
-            getPageSizes: vi.fn().mockResolvedValue(Array.from({length: 4}, () => ({
-                width: 600,
-                height: 800,
-                dpi: 300,
-            }))),
+            getPageSizes: vi.fn().mockResolvedValue(
+                Array.from({length: 4}, () => ({
+                    width: 600,
+                    height: 800,
+                    dpi: 300,
+                })),
+            ),
             searchText,
             renderPageObjectUrl: vi.fn(),
             revokeObjectURL: vi.fn(),
@@ -73,11 +69,13 @@ describe('document page sources', () => {
         });
 
         expect(response?.results[0]?.pageNumber).toBe(3);
-        expect(searchText).toHaveBeenCalledWith(expect.objectContaining({
-            requestId: 'source-search',
-            pageCount: 4,
-            signal: controller.signal,
-        }));
+        expect(searchText).toHaveBeenCalledWith(
+            expect.objectContaining({
+                requestId: 'source-search',
+                pageCount: 4,
+                signal: controller.signal,
+            }),
+        );
         source.dispose();
     });
 
@@ -226,18 +224,14 @@ describe('document page sources', () => {
         vi.stubGlobal('window', {electronAPI: electronApi});
 
         try {
-            const browserPreview = await createDjvuPagePreviewSourceFromPath(
-                requireDocumentRef('/tmp/small-many-pages.djvu'),
-            );
+            const browserPreview = await createDjvuPagePreviewSourceFromPath(requireDocumentRef('/tmp/small-many-pages.djvu'));
             await expect(browserPreview.getPageSizes()).resolves.toHaveLength(501);
             expect(nativeGetInfo).toHaveBeenCalledOnce();
             expect(browserGetComponentDirectory).toHaveBeenCalledOnce();
             browserPreview.terminate();
 
             pageCount = 10_001;
-            const nativePreview = await createDjvuPagePreviewSourceFromPath(
-                requireDocumentRef('/tmp/small-many-pages.djvu'),
-            );
+            const nativePreview = await createDjvuPagePreviewSourceFromPath(requireDocumentRef('/tmp/small-many-pages.djvu'));
             const source = await createDjvuPageSource(
                 requireDocumentRef('/tmp/small-many-pages.djvu'),
                 nativePreview,
@@ -257,17 +251,21 @@ describe('document page sources', () => {
 
     it('exposes leased raster, thumbnail, text, outline, and annotation providers', async () => {
         const previewSource = {
-            getPageSizes: vi.fn().mockResolvedValue([{
-                width: 1_200,
-                height: 1_800,
-                dpi: 300,
-            }]),
+            getPageSizes: vi.fn().mockResolvedValue([
+                {
+                    width: 1_200,
+                    height: 1_800,
+                    dpi: 300,
+                },
+            ]),
             getPageText: vi.fn().mockResolvedValue('DjVu page text'),
-            getOutline: vi.fn().mockResolvedValue([{
-                title: 'Chapter',
-                pageNumber: 1,
-                children: [],
-            }]),
+            getOutline: vi.fn().mockResolvedValue([
+                {
+                    title: 'Chapter',
+                    pageNumber: 1,
+                    children: [],
+                },
+            ]),
             renderPageObjectUrl: vi.fn().mockResolvedValue({
                 objectUrl: 'blob:page-1',
                 renderedPx: 200,
@@ -283,11 +281,13 @@ describe('document page sources', () => {
         const controller = new AbortController();
 
         expect(await source.textProvider?.getPageText(1, controller.signal)).toBe('DjVu page text');
-        expect(await source.outlineProvider?.getOutline(controller.signal)).toEqual([{
-            title: 'Chapter',
-            pageNumber: 1,
-            children: [],
-        }]);
+        expect(await source.outlineProvider?.getOutline(controller.signal)).toEqual([
+            {
+                title: 'Chapter',
+                pageNumber: 1,
+                children: [],
+            },
+        ]);
         const thumbnail = await source.thumbnailProvider!.renderThumbnail({
             pageNumber: 1,
             widthPx: 200,
@@ -308,11 +308,13 @@ describe('document page sources', () => {
     it('does not start a full-resolution browser DjVu decode without a transient reservation', async () => {
         const previewSource = {
             fullResolutionDecodeBeforeScale: true,
-            getPageSizes: vi.fn().mockResolvedValue([{
-                width: 1_200,
-                height: 1_800,
-                dpi: 300,
-            }]),
+            getPageSizes: vi.fn().mockResolvedValue([
+                {
+                    width: 1_200,
+                    height: 1_800,
+                    dpi: 300,
+                },
+            ]),
             renderPageObjectUrl: vi.fn().mockResolvedValue({
                 objectUrl: 'blob:oversized-page',
                 renderedPx: 200,
@@ -326,12 +328,14 @@ describe('document page sources', () => {
             createWorkspaceSurfaceBudgetController(100),
         );
 
-        await expect(source.renderPage({
-            pageNumber: 1,
-            widthPx: 200,
-            priority: 'prefetch',
-            signal: new AbortController().signal,
-        })).rejects.toThrow('DjVu preview exceeds the available raster surface budget');
+        await expect(
+            source.renderPage({
+                pageNumber: 1,
+                widthPx: 200,
+                priority: 'prefetch',
+                signal: new AbortController().signal,
+            }),
+        ).rejects.toThrow('DjVu preview exceeds the available raster surface budget');
         expect(previewSource.renderPageObjectUrl).not.toHaveBeenCalled();
         expect(previewSource.revokeObjectURL).not.toHaveBeenCalled();
         source.dispose();
@@ -339,11 +343,13 @@ describe('document page sources', () => {
 
     it('revokes a decoded DjVu surface when its retained reservation is refused', async () => {
         const previewSource = {
-            getPageSizes: vi.fn().mockResolvedValue([{
-                width: 1_200,
-                height: 1_800,
-                dpi: 300,
-            }]),
+            getPageSizes: vi.fn().mockResolvedValue([
+                {
+                    width: 1_200,
+                    height: 1_800,
+                    dpi: 300,
+                },
+            ]),
             renderPageObjectUrl: vi.fn().mockResolvedValue({
                 objectUrl: 'blob:retained-budget-refused',
                 renderedPx: 200,
@@ -352,21 +358,21 @@ describe('document page sources', () => {
             terminate: vi.fn(),
         } satisfies IPagePreviewSource;
         const transientRelease = vi.fn();
-        const tryReserve = vi.fn()
-            .mockReturnValueOnce({release: transientRelease})
-            .mockReturnValueOnce(null);
+        const tryReserve = vi.fn().mockReturnValueOnce({release: transientRelease}).mockReturnValueOnce(null);
         const source = await createDjvuPageSource(requireDocumentRef('/book.djvu'), previewSource, {
             reserve: vi.fn(),
             tryReserve,
             releaseScope: vi.fn(),
         });
 
-        await expect(source.renderPage({
-            pageNumber: 1,
-            widthPx: 200,
-            priority: 'prefetch',
-            signal: new AbortController().signal,
-        })).rejects.toThrow('DjVu preview exceeds the available raster surface budget');
+        await expect(
+            source.renderPage({
+                pageNumber: 1,
+                widthPx: 200,
+                priority: 'prefetch',
+                signal: new AbortController().signal,
+            }),
+        ).rejects.toThrow('DjVu preview exceeds the available raster surface budget');
         expect(transientRelease).toHaveBeenCalledOnce();
         expect(previewSource.renderPageObjectUrl).toHaveBeenCalledOnce();
         expect(previewSource.revokeObjectURL).toHaveBeenCalledWith('blob:retained-budget-refused');
@@ -377,14 +383,19 @@ describe('document page sources', () => {
         let rejectRender!: (error: Error) => void;
         const previewSource = {
             cancelPagePreview: vi.fn(() => rejectRender(new Error('canceled'))),
-            getPageSizes: vi.fn().mockResolvedValue([{
-                width: 1_200,
-                height: 1_800,
-                dpi: 300,
-            }]),
-            renderPageObjectUrl: vi.fn(() => new Promise<never>((_resolve, reject) => {
-                rejectRender = reject;
-            })),
+            getPageSizes: vi.fn().mockResolvedValue([
+                {
+                    width: 1_200,
+                    height: 1_800,
+                    dpi: 300,
+                },
+            ]),
+            renderPageObjectUrl: vi.fn(
+                () =>
+                    new Promise<never>((_resolve, reject) => {
+                        rejectRender = reject;
+                    }),
+            ),
             revokeObjectURL: vi.fn(),
             terminate: vi.fn(),
         } satisfies IPagePreviewSource;
@@ -410,23 +421,25 @@ describe('document page sources', () => {
     });
 
     it('releases the transient DjVu reservation before canceled native work settles', async () => {
-        let resolveRender!: (value: {
-            objectUrl: string;
-            renderedPx: number;
-        }) => void;
+        let resolveRender!: (value: {objectUrl: string; renderedPx: number}) => void;
         const previewSource = {
             cancelPagePreview: vi.fn(),
-            getPageSizes: vi.fn().mockResolvedValue([{
-                width: 1_200,
-                height: 1_800,
-                dpi: 300,
-            }]),
-            renderPageObjectUrl: vi.fn(() => new Promise<{
-                objectUrl: string;
-                renderedPx: number;
-            }>((resolve) => {
-                resolveRender = resolve;
-            })),
+            getPageSizes: vi.fn().mockResolvedValue([
+                {
+                    width: 1_200,
+                    height: 1_800,
+                    dpi: 300,
+                },
+            ]),
+            renderPageObjectUrl: vi.fn(
+                () =>
+                    new Promise<{
+                        objectUrl: string;
+                        renderedPx: number;
+                    }>((resolve) => {
+                        resolveRender = resolve;
+                    }),
+            ),
             revokeObjectURL: vi.fn(),
             terminate: vi.fn(),
         } satisfies IPagePreviewSource;
@@ -445,10 +458,7 @@ describe('document page sources', () => {
 
         controller.abort();
 
-        expect(previewSource.cancelPagePreview).toHaveBeenCalledWith(
-            1,
-            expect.stringMatching(/^djvu-page-source:\d+:1:1$/u),
-        );
+        expect(previewSource.cancelPagePreview).toHaveBeenCalledWith(1, expect.stringMatching(/^djvu-page-source:\d+:1:1$/u));
         expect(budget.getSnapshot().reservedBytesByCategory['djvu-preview']).toBe(0);
 
         resolveRender({
@@ -461,22 +471,24 @@ describe('document page sources', () => {
     });
 
     it('revokes a late DjVu.js URL after abort without committing a retained lease', async () => {
-        let resolveRender!: (value: {
-            objectUrl: string;
-            renderedPx: number;
-        }) => void;
+        let resolveRender!: (value: {objectUrl: string; renderedPx: number}) => void;
         const previewSource = {
-            getPageSizes: vi.fn().mockResolvedValue([{
-                width: 1_200,
-                height: 1_800,
-                dpi: 300,
-            }]),
-            renderPageObjectUrl: vi.fn(() => new Promise<{
-                objectUrl: string;
-                renderedPx: number;
-            }>((resolve) => {
-                resolveRender = resolve;
-            })),
+            getPageSizes: vi.fn().mockResolvedValue([
+                {
+                    width: 1_200,
+                    height: 1_800,
+                    dpi: 300,
+                },
+            ]),
+            renderPageObjectUrl: vi.fn(
+                () =>
+                    new Promise<{
+                        objectUrl: string;
+                        renderedPx: number;
+                    }>((resolve) => {
+                        resolveRender = resolve;
+                    }),
+            ),
             revokeObjectURL: vi.fn(),
             terminate: vi.fn(),
         } satisfies IPagePreviewSource;
@@ -505,11 +517,13 @@ describe('document page sources', () => {
 
     it('notifies a mounted DjVu surface when later memory pressure invalidates it', async () => {
         const previewSource = {
-            getPageSizes: vi.fn().mockResolvedValue([{
-                width: 1_200,
-                height: 1_800,
-                dpi: 300,
-            }]),
+            getPageSizes: vi.fn().mockResolvedValue([
+                {
+                    width: 1_200,
+                    height: 1_800,
+                    dpi: 300,
+                },
+            ]),
             renderPageObjectUrl: vi.fn().mockResolvedValue({
                 objectUrl: 'blob:pressure-page',
                 renderedPx: 200,
@@ -537,11 +551,13 @@ describe('document page sources', () => {
 
     it('protects a visible DjVu surface from pressure eviction', async () => {
         const previewSource = {
-            getPageSizes: vi.fn().mockResolvedValue([{
-                width: 1_200,
-                height: 1_800,
-                dpi: 300,
-            }]),
+            getPageSizes: vi.fn().mockResolvedValue([
+                {
+                    width: 1_200,
+                    height: 1_800,
+                    dpi: 300,
+                },
+            ]),
             renderPageObjectUrl: vi.fn().mockResolvedValue({
                 objectUrl: 'blob:visible-page',
                 renderedPx: 200,
@@ -571,19 +587,22 @@ describe('document page sources', () => {
     it('admits independent required surfaces for two visible DjVu panes under pressure', async () => {
         const budget = createWorkspaceSurfaceBudgetController(600);
         let nextObjectUrl = 0;
-        const createPreviewSource = () => ({
-            getPageSizes: vi.fn().mockResolvedValue([{
-                width: 10,
-                height: 10,
-                dpi: 300,
-            }]),
-            renderPageObjectUrl: vi.fn().mockImplementation(async () => ({
-                objectUrl: `blob:visible-pane-${String(++nextObjectUrl)}`,
-                renderedPx: 10,
-            })),
-            revokeObjectURL: vi.fn(),
-            terminate: vi.fn(),
-        }) satisfies IPagePreviewSource;
+        const createPreviewSource = () =>
+            ({
+                getPageSizes: vi.fn().mockResolvedValue([
+                    {
+                        width: 10,
+                        height: 10,
+                        dpi: 300,
+                    },
+                ]),
+                renderPageObjectUrl: vi.fn().mockImplementation(async () => ({
+                    objectUrl: `blob:visible-pane-${String(++nextObjectUrl)}`,
+                    renderedPx: 10,
+                })),
+                revokeObjectURL: vi.fn(),
+                terminate: vi.fn(),
+            }) satisfies IPagePreviewSource;
         const firstPreviewSource = createPreviewSource();
         const secondPreviewSource = createPreviewSource();
         const firstSource = await createDjvuPageSource(requireDocumentRef('/first.djvu'), firstPreviewSource, budget);
@@ -620,11 +639,13 @@ describe('document page sources', () => {
 
     it('promotes a completed DjVu surface lease without rerendering the page', async () => {
         const previewSource = {
-            getPageSizes: vi.fn().mockResolvedValue([{
-                width: 1_200,
-                height: 1_800,
-                dpi: 300,
-            }]),
+            getPageSizes: vi.fn().mockResolvedValue([
+                {
+                    width: 1_200,
+                    height: 1_800,
+                    dpi: 300,
+                },
+            ]),
             renderPageObjectUrl: vi.fn().mockResolvedValue({
                 objectUrl: 'blob:promoted-page',
                 renderedPx: 200,
@@ -635,7 +656,7 @@ describe('document page sources', () => {
         const promotePriority = vi.fn();
         const setPriority = vi.fn();
         let canEvict: (() => boolean) | undefined;
-        const reserve = vi.fn((options: {canEvict?: (() => boolean) | undefined;}) => {
+        const reserve = vi.fn((options: {canEvict?: (() => boolean) | undefined}) => {
             canEvict = options.canEvict;
             return {
                 promotePriority,
@@ -698,14 +719,21 @@ describe('document page sources', () => {
             capabilities,
         });
 
-        await ensurePdfProjection(session, {build: vi.fn().mockResolvedValue({
-            documentRef: requireDocumentRef('/book.pdf'),
-            source: pdfSource,
-            capabilities: {
-                ...capabilities,
-                pageEdits: true,
+        await ensurePdfProjection(
+            session,
+            {
+                build: vi.fn().mockResolvedValue({
+                    documentRef: requireDocumentRef('/book.pdf'),
+                    source: pdfSource,
+                    capabilities: {
+                        ...capabilities,
+                        pageEdits: true,
+                    },
+                }),
             },
-        })}, 'edit', new AbortController().signal);
+            'edit',
+            new AbortController().signal,
+        );
 
         expect(session.source).toBe(pdfSource);
         expect(session.capabilities.pageEdits).toBe(true);

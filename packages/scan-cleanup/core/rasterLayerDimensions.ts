@@ -1,19 +1,10 @@
 import type {Stats} from 'fs';
 import {open} from 'fs/promises';
 import {pipeline} from 'stream/promises';
-import {
-    constants as zlibConstants,
-    crc32,
-    createDeflate,
-} from 'zlib';
+import {constants as zlibConstants, crc32, createDeflate} from 'zlib';
 
 export interface IScanCleanupOpenFileHandle {
-    read: (
-        buffer: Uint8Array,
-        offset: number,
-        length: number,
-        position: number,
-    ) => Promise<{bytesRead: number}>;
+    read: (buffer: Uint8Array, offset: number, length: number, position: number) => Promise<{bytesRead: number}>;
     stat: () => Promise<Stats>;
     close: () => Promise<void>;
 }
@@ -22,16 +13,7 @@ const defaultOpenFile: TScanCleanupOpenFile = (path, flags) => open(path, flags)
 
 const NETPBM_HEADER_MAX_BYTES = 4_096;
 const PPM_READ_CHUNK_BYTES = 1024 * 1024;
-const PNG_SIGNATURE = Buffer.from([
-    0x89,
-    0x50,
-    0x4e,
-    0x47,
-    0x0d,
-    0x0a,
-    0x1a,
-    0x0a,
-]);
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 /** Rows and compressed output move through the PNG encoder in blocks this size. */
 const PNG_ENCODE_BLOCK_BYTES = 1024 * 1024;
 
@@ -60,21 +42,10 @@ export interface IReadPpmRasterOptions {
 }
 
 function fileIdentity(stats: Stats) {
-    return [
-        stats.dev,
-        stats.ino,
-        stats.size,
-        stats.mtimeMs,
-        stats.ctimeMs,
-    ].join(':');
+    return [stats.dev, stats.ino, stats.size, stats.mtimeMs, stats.ctimeMs].join(':');
 }
 
-async function readExactly(
-    handle: IScanCleanupOpenFileHandle,
-    buffer: Buffer,
-    position: number,
-    signal?: AbortSignal,
-) {
+async function readExactly(handle: IScanCleanupOpenFileHandle, buffer: Buffer, position: number, signal?: AbortSignal) {
     let offset = 0;
     while (offset < buffer.byteLength) {
         signal?.throwIfAborted();
@@ -88,19 +59,12 @@ async function readExactly(
     return offset;
 }
 
-async function inspectPngHeader(
-    path: string,
-    invalidHeaderMessage: string,
-    openFile: TScanCleanupOpenFile = defaultOpenFile,
-) {
+async function inspectPngHeader(path: string, invalidHeaderMessage: string, openFile: TScanCleanupOpenFile = defaultOpenFile) {
     const handle = await openFile(path, 'r');
     try {
         const header = Buffer.alloc(26);
         const {bytesRead} = await handle.read(header, 0, header.byteLength, 0);
-        if (
-            bytesRead !== header.byteLength
-            || header.subarray(0, 8).compare(PNG_SIGNATURE) !== 0
-        ) {
+        if (bytesRead !== header.byteLength || header.subarray(0, 8).compare(PNG_SIGNATURE) !== 0) {
             throw new Error(invalidHeaderMessage);
         }
         const width = header.readUInt32BE(16);
@@ -127,30 +91,9 @@ export function readPngHeader(path: string, openFile: TScanCleanupOpenFile = def
     });
 }
 
-export async function readPngDimensions(
-    path: string,
-    openFile: TScanCleanupOpenFile = defaultOpenFile,
-) {
-    const {
-        colorType,
-        width,
-        height,
-    } = await inspectPngHeader(
-        path,
-        `Unable to inspect raster dimensions for ${path}`,
-        openFile,
-    );
-    if (
-        width === 0
-        || height === 0
-        || ![
-            0,
-            2,
-            3,
-            4,
-            6,
-        ].includes(colorType)
-    ) {
+export async function readPngDimensions(path: string, openFile: TScanCleanupOpenFile = defaultOpenFile) {
+    const {colorType, width, height} = await inspectPngHeader(path, `Unable to inspect raster dimensions for ${path}`, openFile);
+    if (width === 0 || height === 0 || ![0, 2, 3, 4, 6].includes(colorType)) {
         throw new Error(`Invalid PNG header for ${path}`);
     }
     return {
@@ -189,11 +132,7 @@ async function inspectNetpbm(
             }
         }
         const start = state.offset;
-        while (
-            state.offset < data.length
-            && data[state.offset]! >= 0x30
-            && data[state.offset]! <= 0x39
-        ) {
+        while (state.offset < data.length && data[state.offset]! >= 0x30 && data[state.offset]! <= 0x39) {
             state.offset += 1;
         }
         if (start === state.offset) {
@@ -216,9 +155,7 @@ async function inspectNetpbm(
         throw new Error(`Invalid ${format} header terminator for ${path}`);
     }
     state.offset += terminator === 0x0d && data[state.offset + 1] === 0x0a ? 2 : 1;
-    const rowBytes = magic === 'P4'
-        ? Math.ceil(width / 8)
-        : width * (magic === 'P5' ? 1 : 3) * (maxValue > 255 ? 2 : 1);
+    const rowBytes = magic === 'P4' ? Math.ceil(width / 8) : width * (magic === 'P5' ? 1 : 3) * (maxValue > 255 ? 2 : 1);
     const payloadByteLength = rowBytes * height;
     const expectedBytes = state.offset + payloadByteLength;
     if (!Number.isSafeInteger(payloadByteLength) || !Number.isSafeInteger(expectedBytes)) {
@@ -264,7 +201,7 @@ export function readPgmDimensions(path: string, openFile: TScanCleanupOpenFile =
 }
 
 export function readPpmDimensions(path: string, openFile: TScanCleanupOpenFile = defaultOpenFile) {
-    return readNetpbmDimensions(path, 'P6', openFile).then(dimensions => ({
+    return readNetpbmDimensions(path, 'P6', openFile).then((dimensions) => ({
         ...dimensions,
         isColor: true,
     }));
@@ -275,10 +212,7 @@ function assertPpmRasterLimits(options: IReadPpmRasterOptions) {
         maxPixels: options.maxPixels,
         maxDimensionPx: options.maxDimensionPx,
     };
-    for (const [
-        label,
-        value,
-    ] of Object.entries(limits)) {
+    for (const [label, value] of Object.entries(limits)) {
         if (!Number.isSafeInteger(value) || value < 1) {
             throw new TypeError(`PPM raster ${label} must be a positive safe integer`);
         }
@@ -286,23 +220,17 @@ function assertPpmRasterLimits(options: IReadPpmRasterOptions) {
 }
 
 /** Inspects an 8-bit P6 raster and refuses one over the caller's limits before reading its pixels. */
-async function inspectBoundedPpm(
-    handle: IScanCleanupOpenFileHandle,
-    path: string,
-    options: IReadPpmRasterOptions,
-) {
+async function inspectBoundedPpm(handle: IScanCleanupOpenFileHandle, path: string, options: IReadPpmRasterOptions) {
     const inspected = await inspectNetpbm(handle, path, 'P6', options.signal);
     if (inspected.maxValue !== 255) {
         throw new Error(`Unsupported PPM max value for ${path}`);
     }
     if (
-        inspected.width > options.maxDimensionPx
-        || inspected.height > options.maxDimensionPx
-        || inspected.width * inspected.height > options.maxPixels
+        inspected.width > options.maxDimensionPx ||
+        inspected.height > options.maxDimensionPx ||
+        inspected.width * inspected.height > options.maxPixels
     ) {
-        throw new RangeError(
-            `PPM raster ${String(inspected.width)}x${String(inspected.height)} exceeds limits for ${path}`,
-        );
+        throw new RangeError(`PPM raster ${String(inspected.width)}x${String(inspected.height)} exceeds limits for ${path}`);
     }
     return inspected;
 }
@@ -313,21 +241,13 @@ export async function readPpmRaster(path: string, options: IReadPpmRasterOptions
     try {
         const inspected = await inspectBoundedPpm(handle, path, options);
         const pixels = Buffer.allocUnsafe(inspected.payloadByteLength);
-        const bytesRead = await readExactly(
-            handle,
-            pixels,
-            inspected.payloadOffset,
-            options.signal,
-        );
+        const bytesRead = await readExactly(handle, pixels, inspected.payloadOffset, options.signal);
         if (bytesRead !== pixels.byteLength) {
             throw new Error(`Truncated PPM payload for ${path}`);
         }
         options.signal?.throwIfAborted();
         const finalStats = await handle.stat();
-        if (
-            finalStats.size !== inspected.fileSize
-            || fileIdentity(finalStats) !== inspected.fileIdentity
-        ) {
+        if (finalStats.size !== inspected.fileSize || fileIdentity(finalStats) !== inspected.fileIdentity) {
             throw new Error(`PPM raster changed while it was being read: ${path}`);
         }
         return {
@@ -376,21 +296,13 @@ async function streamPngFromPpm(
         header[9] = 2;
         const sink = await createSink();
         try {
-            await sink.write(Buffer.concat([
-                PNG_SIGNATURE,
-                pngChunk('IHDR', header),
-            ]));
+            await sink.write(Buffer.concat([PNG_SIGNATURE, pngChunk('IHDR', header)]));
             await pipeline(
                 async function* scanlines() {
                     for (let row = 0; row < inspected.height; row += rowsPerBlock) {
                         const rows = Math.min(rowsPerBlock, inspected.height - row);
                         const pixels = Buffer.allocUnsafe(rows * rowBytes);
-                        const bytesRead = await readExactly(
-                            input,
-                            pixels,
-                            inspected.payloadOffset + row * rowBytes,
-                            options.signal,
-                        );
+                        const bytesRead = await readExactly(input, pixels, inspected.payloadOffset + row * rowBytes, options.signal);
                         if (bytesRead !== pixels.byteLength) {
                             throw new Error(`Truncated PPM payload for ${ppmPath}`);
                         }
@@ -440,7 +352,7 @@ export async function writePngFromPpm(ppmPath: string, pngPath: string, options:
     return streamPngFromPpm(ppmPath, options, async () => {
         const output = await open(pngPath, 'w');
         return {
-            write: async chunk => {
+            write: async (chunk) => {
                 await output.write(chunk);
             },
             close: () => output.close(),
@@ -452,25 +364,21 @@ export async function writePngFromPpm(ppmPath: string, pngPath: string, options:
  * Encodes a Poppler PPM to lossless 8-bit RGB PNG bytes through the streaming
  * zlib thread pool, rejecting mid-stream if `maxOutputBytes` is exceeded.
  */
-export async function encodePngFromPpm(
-    ppmPath: string,
-    options: IReadPpmRasterOptions & {maxOutputBytes?: number},
-) {
-    if (
-        options.maxOutputBytes !== undefined
-        && (!Number.isSafeInteger(options.maxOutputBytes) || options.maxOutputBytes < 1)
-    ) {
+export async function encodePngFromPpm(ppmPath: string, options: IReadPpmRasterOptions & {maxOutputBytes?: number}) {
+    if (options.maxOutputBytes !== undefined && (!Number.isSafeInteger(options.maxOutputBytes) || options.maxOutputBytes < 1)) {
         throw new TypeError('PNG output byte limit must be a positive safe integer');
     }
     const chunks: Uint8Array[] = [];
     let totalBytes = 0;
-    const dimensions = await streamPngFromPpm(ppmPath, options, async () => ({write: chunk => {
-        totalBytes += chunk.byteLength;
-        if (options.maxOutputBytes !== undefined && totalBytes > options.maxOutputBytes) {
-            throw new RangeError(`Encoded PNG exceeds ${String(options.maxOutputBytes)} bytes`);
-        }
-        chunks.push(chunk);
-    }}));
+    const dimensions = await streamPngFromPpm(ppmPath, options, async () => ({
+        write: (chunk) => {
+            totalBytes += chunk.byteLength;
+            if (options.maxOutputBytes !== undefined && totalBytes > options.maxOutputBytes) {
+                throw new RangeError(`Encoded PNG exceeds ${String(options.maxOutputBytes)} bytes`);
+            }
+            chunks.push(chunk);
+        },
+    }));
     return {
         ...dimensions,
         bytes: Buffer.concat(chunks, totalBytes),

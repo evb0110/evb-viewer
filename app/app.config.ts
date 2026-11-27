@@ -1,71 +1,79 @@
-export default defineAppConfig({ui: {
-    colors: {
-        primary: 'brand',
-        neutral: 'zinc',
-    },
-    dropdownMenu: {slots: {viewport: 'app-scrollbar app-scroll-region--balanced'}},
-    icons: {
-        arrowDown: 'i-ph-arrow-down',
-        arrowLeft: 'i-ph-arrow-left',
-        arrowRight: 'i-ph-arrow-right',
-        arrowUp: 'i-ph-arrow-up',
-        caution: 'i-ph-warning-circle',
-        check: 'i-ph-check',
-        chevronDoubleLeft: 'i-ph-caret-double-left',
-        chevronDoubleRight: 'i-ph-caret-double-right',
-        chevronDown: 'i-ph-caret-down',
-        chevronLeft: 'i-ph-caret-left',
-        chevronRight: 'i-ph-caret-right',
-        chevronUp: 'i-ph-caret-up',
-        close: 'i-ph-x',
-        copy: 'i-ph-copy',
-        copyCheck: 'i-ph-check',
-        ellipsis: 'i-ph-dots-three',
-        error: 'i-ph-x-circle',
-        external: 'i-ph-arrow-square-out',
-        eye: 'i-ph-eye',
-        eyeOff: 'i-ph-eye-slash',
-        file: 'i-ph-file',
-        folder: 'i-ph-folder',
-        folderOpen: 'i-ph-folder-open',
-        hash: 'i-ph-hash',
-        info: 'i-ph-info',
-        loading: 'i-ph-circle-notch',
-        menu: 'i-ph-list',
-        minus: 'i-ph-minus',
-        monitor: 'i-ph-monitor',
-        moon: 'i-ph-moon',
-        panelClose: 'i-ph-sidebar-simple',
-        panelOpen: 'i-ph-sidebar-simple',
-        plus: 'i-ph-plus',
-        reload: 'i-ph-arrows-clockwise',
-        search: 'i-ph-magnifying-glass',
-        stop: 'i-ph-stop-circle',
-        success: 'i-ph-check-circle',
-        sun: 'i-ph-sun',
-        tip: 'i-ph-lightbulb',
-        upload: 'i-ph-upload',
-        warning: 'i-ph-warning',
-    },
-    modal: {
-        slots: {body: 'app-scrollbar'},
-        variants: {scrollable: {
-            false: {
-                // Keep fixed chrome aligned with a classically scrolling body.
-                body: 'app-scroll-region--balanced',
-                footer: 'overflow-hidden app-scroll-region--balanced',
-                header: 'overflow-hidden app-scroll-region--balanced',
+export default defineAppConfig({
+    ui: {
+        colors: {
+            primary: 'brand',
+            neutral: 'zinc',
+        },
+        dropdownMenu: {slots: {viewport: 'app-scrollbar app-scroll-region--balanced'}},
+        icons: {
+            arrowDown: 'i-ph-arrow-down',
+            arrowLeft: 'i-ph-arrow-left',
+            arrowRight: 'i-ph-arrow-right',
+            arrowUp: 'i-ph-arrow-up',
+            caution: 'i-ph-warning-circle',
+            check: 'i-ph-check',
+            chevronDoubleLeft: 'i-ph-caret-double-left',
+            chevronDoubleRight: 'i-ph-caret-double-right',
+            chevronDown: 'i-ph-caret-down',
+            chevronLeft: 'i-ph-caret-left',
+            chevronRight: 'i-ph-caret-right',
+            chevronUp: 'i-ph-caret-up',
+            close: 'i-ph-x',
+            copy: 'i-ph-copy',
+            copyCheck: 'i-ph-check',
+            ellipsis: 'i-ph-dots-three',
+            error: 'i-ph-x-circle',
+            external: 'i-ph-arrow-square-out',
+            eye: 'i-ph-eye',
+            eyeOff: 'i-ph-eye-slash',
+            file: 'i-ph-file',
+            folder: 'i-ph-folder',
+            folderOpen: 'i-ph-folder-open',
+            hash: 'i-ph-hash',
+            info: 'i-ph-info',
+            loading: 'i-ph-circle-notch',
+            menu: 'i-ph-list',
+            minus: 'i-ph-minus',
+            monitor: 'i-ph-monitor',
+            moon: 'i-ph-moon',
+            panelClose: 'i-ph-sidebar-simple',
+            panelOpen: 'i-ph-sidebar-simple',
+            plus: 'i-ph-plus',
+            reload: 'i-ph-arrows-clockwise',
+            search: 'i-ph-magnifying-glass',
+            stop: 'i-ph-stop-circle',
+            success: 'i-ph-check-circle',
+            sun: 'i-ph-sun',
+            tip: 'i-ph-lightbulb',
+            upload: 'i-ph-upload',
+            warning: 'i-ph-warning',
+        },
+        modal: {
+            slots: {body: 'app-scrollbar'},
+            variants: {
+                scrollable: {
+                    false: {
+                        // Keep fixed chrome aligned with a classically scrolling body.
+                        body: 'app-scroll-region--balanced',
+                        footer: 'overflow-hidden app-scroll-region--balanced',
+                        header: 'overflow-hidden app-scroll-region--balanced',
+                    },
+                    // In this mode Nuxt UI moves scroll ownership to the overlay.
+                    true: {overlay: 'app-scrollbar app-scroll-region--balanced'},
+                },
             },
-            // In this mode Nuxt UI moves scroll ownership to the overlay.
-            true: {overlay: 'app-scrollbar app-scroll-region--balanced'},
-        }},
+        },
+        // Card and segmented choices share one selected look, drawn by `.app-choice`
+        // in main.css, instead of the theme's half-strength accent tint.
+        radioGroup: {
+            variants: {
+                variant: {
+                    card: {item: 'app-choice'},
+                    table: {item: 'app-choice'},
+                },
+            },
+        },
+        select: {slots: {viewport: 'app-scrollbar app-scroll-region--balanced'}},
+        selectMenu: {slots: {viewport: 'app-scrollbar app-scroll-region--balanced'}},
     },
-    // Card and segmented choices share one selected look, drawn by `.app-choice`
-    // in main.css, instead of the theme's half-strength accent tint.
-    radioGroup: {variants: {variant: {
-        card: {item: 'app-choice'},
-        table: {item: 'app-choice'},
-    }}},
-    select: {slots: {viewport: 'app-scrollbar app-scroll-region--balanced'}},
-    selectMenu: {slots: {viewport: 'app-scrollbar app-scroll-region--balanced'}},
-}});
+});

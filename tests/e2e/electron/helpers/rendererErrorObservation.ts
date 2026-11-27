@@ -1,9 +1,6 @@
-import type {
-    ConsoleMessage,
-    Page,
-} from 'puppeteer-core';
-import { getErrorMessage } from '@contracts/getErrorMessage';
-import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
+import type {ConsoleMessage, Page} from 'puppeteer-core';
+import {getErrorMessage} from '@contracts/getErrorMessage';
+import {evaluateInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 
 // What a user notices when something breaks: an error toast, a broken document
@@ -38,13 +35,17 @@ const ERROR_SURFACE_SELECTORS = [
     '[data-error="true"]',
 ];
 
-interface IUnhandledRejectionWindow extends Window {__evbUnhandledRejections?: string[];}
+interface IUnhandledRejectionWindow extends Window {
+    __evbUnhandledRejections?: string[];
+}
 
 export function isRendererErrorReportClean(report: IRendererErrorReport) {
-    return report.consoleErrors.length === 0
-        && report.pageErrors.length === 0
-        && report.unhandledRejections.length === 0
-        && report.visibleErrorSurfaces.length === 0;
+    return (
+        report.consoleErrors.length === 0 &&
+        report.pageErrors.length === 0 &&
+        report.unhandledRejections.length === 0 &&
+        report.visibleErrorSurfaces.length === 0
+    );
 }
 
 /**
@@ -65,7 +66,7 @@ export async function observeRendererErrors(page: Page): Promise<IRendererErrorO
     page.on('console', onConsole);
     page.on('pageerror', onPageError);
     const baselineErrorSurfaces = await readVisibleErrorSurfaces(page);
-    const baselineKeys = new Set(baselineErrorSurfaces.map(surface => `${surface.selector}::${surface.text}`));
+    const baselineKeys = new Set(baselineErrorSurfaces.map((surface) => `${surface.selector}::${surface.text}`));
 
     await evaluateInPage(page, () => {
         const target = window as IUnhandledRejectionWindow;
@@ -77,9 +78,7 @@ export async function observeRendererErrors(page: Page): Promise<IRendererErrorO
         target.__evbUnhandledRejections = collected;
         window.addEventListener('unhandledrejection', (event) => {
             const reason: unknown = event.reason;
-            collected.push(reason instanceof Error
-                ? `${reason.name}: ${reason.message}`
-                : String(reason));
+            collected.push(reason instanceof Error ? `${reason.name}: ${reason.message}` : String(reason));
         });
     });
 
@@ -87,12 +86,13 @@ export async function observeRendererErrors(page: Page): Promise<IRendererErrorO
         collect: async () => ({
             consoleErrors: [...consoleErrors],
             pageErrors: [...pageErrors],
-            unhandledRejections: await evaluateInPage(page, () => (
-                [...((window as IUnhandledRejectionWindow).__evbUnhandledRejections ?? [])]
-            )) as string[],
+            unhandledRejections: (await evaluateInPage(page, () => [
+                ...((window as IUnhandledRejectionWindow).__evbUnhandledRejections ?? []),
+            ])) as string[],
             baselineErrorSurfaces,
-            visibleErrorSurfaces: (await readVisibleErrorSurfaces(page))
-                .filter(surface => !baselineKeys.has(`${surface.selector}::${surface.text}`)),
+            visibleErrorSurfaces: (await readVisibleErrorSurfaces(page)).filter(
+                (surface) => !baselineKeys.has(`${surface.selector}::${surface.text}`),
+            ),
         }),
         dispose: () => {
             page.off('console', onConsole);
@@ -112,13 +112,13 @@ export interface IRuntimeErrorReportEntry {
  * only: call it when a failure has already been told.
  */
 export async function readRuntimeErrorReportDetails(page: Page): Promise<IRuntimeErrorReportEntry[]> {
-    return page.evaluate(() => Array.from(
-        document.querySelectorAll<HTMLElement>('.app-toast-failure'),
-    ).map(toast => ({
-        detail: toast.querySelector('[data-slot="description"]')?.textContent?.trim().slice(0, 1_500) ?? '',
-        id: toast.querySelector('.app-toast-error-id')?.textContent?.trim() ?? '',
-        title: toast.querySelector('[data-slot="title"]')?.textContent?.trim().slice(0, 300) ?? '',
-    })));
+    return page.evaluate(() =>
+        Array.from(document.querySelectorAll<HTMLElement>('.app-toast-failure')).map((toast) => ({
+            detail: toast.querySelector('[data-slot="description"]')?.textContent?.trim().slice(0, 1_500) ?? '',
+            id: toast.querySelector('.app-toast-error-id')?.textContent?.trim() ?? '',
+            title: toast.querySelector('[data-slot="title"]')?.textContent?.trim().slice(0, 300) ?? '',
+        })),
+    );
 }
 
 /**
@@ -141,29 +141,33 @@ export async function dismissRuntimeErrorReports(page: Page) {
 }
 
 export async function readVisibleErrorSurfaces(page: Page) {
-    return evaluateInPage(page, (selectors: string[]) => {
-        const surfaces: Array<{
-            selector: string;
-            text: string;
-        }> = [];
-        for (const selector of selectors) {
-            for (const element of document.querySelectorAll<HTMLElement>(selector)) {
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                if (
-                    rect.width > 4
-                    && rect.height > 4
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0
-                ) {
-                    surfaces.push({
-                        selector,
-                        text: (element.innerText || element.textContent || '').trim().slice(0, 300),
-                    });
+    return evaluateInPage(
+        page,
+        (selectors: string[]) => {
+            const surfaces: Array<{
+                selector: string;
+                text: string;
+            }> = [];
+            for (const selector of selectors) {
+                for (const element of document.querySelectorAll<HTMLElement>(selector)) {
+                    const rect = element.getBoundingClientRect();
+                    const style = window.getComputedStyle(element);
+                    if (
+                        rect.width > 4 &&
+                        rect.height > 4 &&
+                        style.display !== 'none' &&
+                        style.visibility !== 'hidden' &&
+                        Number(style.opacity || '1') > 0
+                    ) {
+                        surfaces.push({
+                            selector,
+                            text: (element.innerText || element.textContent || '').trim().slice(0, 300),
+                        });
+                    }
                 }
             }
-        }
-        return surfaces;
-    }, ERROR_SURFACE_SELECTORS) as Promise<IVisibleErrorSurface[]>;
+            return surfaces;
+        },
+        ERROR_SURFACE_SELECTORS,
+    ) as Promise<IVisibleErrorSurface[]>;
 }

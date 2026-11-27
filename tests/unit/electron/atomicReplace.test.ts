@@ -2,24 +2,10 @@ import type * as TFsPromisesOriginalModule from 'fs/promises';
 import type * as TNodeCryptoOriginalModule from 'node:crypto';
 import type * as TViMockOriginalModule from '@electron/file-access/workingCopyMutationCommitSignal';
 
-import {
-    mkdtempSync,
-    readFileSync,
-    readlinkSync,
-    rmSync,
-    symlinkSync,
-    writeFileSync,
-} from 'node:fs';
+import {mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     close: vi.fn(),
@@ -48,12 +34,14 @@ vi.mock('fs/promises', async (importOriginal) => ({
     unlink: (...args: unknown[]) => mocks.unlink(...args),
 }));
 
-vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
-    debug: vi.fn(),
-    error: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-})}));
+vi.mock('@electron/utils/createLogger', () => ({
+    createLogger: () => ({
+        debug: vi.fn(),
+        error: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+    }),
+}));
 vi.mock('@electron/file-access/workingCopyMutationCommitSignal', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
     markActiveWorkingCopyMutationCommitStarted: mocks.markMutationCommitStarted,
@@ -88,10 +76,10 @@ describe('atomicReplace', () => {
 
     it('still rejects unexpected temp-file fsync failures', async () => {
         setPlatform('darwin');
-        const fsyncError = Object.assign(new Error('operation not permitted, fsync'), { code: 'EPERM' });
+        const fsyncError = Object.assign(new Error('operation not permitted, fsync'), {code: 'EPERM'});
         mocks.sync.mockRejectedValueOnce(fsyncError);
 
-        const { atomicReplace } = await import('@electron/utils/atomicReplace');
+        const {atomicReplace} = await import('@electron/utils/atomicReplace');
 
         await expect(atomicReplace('/out/tmp.pdf', '/out/extract.pdf')).rejects.toThrow('operation not permitted');
 
@@ -101,7 +89,7 @@ describe('atomicReplace', () => {
 
     it('uses one same-directory rename on POSIX so the destination is never moved aside first', async () => {
         setPlatform('darwin');
-        const { atomicReplace } = await import('@electron/utils/atomicReplace');
+        const {atomicReplace} = await import('@electron/utils/atomicReplace');
 
         await expect(atomicReplace('/out/tmp.pdf', '/out/extract.pdf')).resolves.toBeUndefined();
 
@@ -129,8 +117,7 @@ describe('atomicReplace', () => {
         const assertDestinationCurrent = vi.fn().mockRejectedValue(conflict);
         const {atomicReplace} = await import('@electron/utils/atomicReplace');
 
-        await expect(atomicReplace('C:\\out\\tmp.pdf', 'C:\\out\\extract.pdf', {assertDestinationCurrent}))
-            .rejects.toBe(conflict);
+        await expect(atomicReplace('C:\\out\\tmp.pdf', 'C:\\out\\extract.pdf', {assertDestinationCurrent})).rejects.toBe(conflict);
 
         expect(assertDestinationCurrent).toHaveBeenCalledOnce();
         expect(mocks.markMutationCommitStarted).not.toHaveBeenCalled();
@@ -151,14 +138,9 @@ describe('atomicReplace', () => {
         });
         const {atomicReplace} = await import('@electron/utils/atomicReplace');
 
-        await expect(atomicReplace('/out/tmp.pdf', '/out/extract.pdf', {assertDestinationCurrent}))
-            .resolves.toBeUndefined();
+        await expect(atomicReplace('/out/tmp.pdf', '/out/extract.pdf', {assertDestinationCurrent})).resolves.toBeUndefined();
 
-        expect(order).toEqual([
-            'assert',
-            'mark',
-            'rename',
-        ]);
+        expect(order).toEqual(['assert', 'mark', 'rename']);
     });
 
     it('rejects a symlink destination before replacing its leaf', async () => {
@@ -174,9 +156,9 @@ describe('atomicReplace', () => {
         try {
             const {atomicReplace} = await import('@electron/utils/atomicReplace');
 
-            await expect(atomicReplace(sourcePath, destinationPath))
-                .rejects
-                .toThrow(`Invalid file path: symlink path segment is not allowed (${destinationPath})`);
+            await expect(atomicReplace(sourcePath, destinationPath)).rejects.toThrow(
+                `Invalid file path: symlink path segment is not allowed (${destinationPath})`,
+            );
 
             expect(mocks.rename).not.toHaveBeenCalled();
             expect(readlinkSync(destinationPath)).toBe(referentPath);
@@ -193,13 +175,9 @@ describe('atomicReplace', () => {
         setPlatform('darwin');
         const {atomicReplace} = await import('@electron/utils/atomicReplace');
 
-        await expect(atomicReplace('/tmp/evb-atomic-replace-source.tmp', '/tmp/evb-atomic-replace-target.pdf'))
-            .resolves.toBeUndefined();
+        await expect(atomicReplace('/tmp/evb-atomic-replace-source.tmp', '/tmp/evb-atomic-replace-target.pdf')).resolves.toBeUndefined();
 
-        expect(mocks.rename).toHaveBeenCalledWith(
-            '/tmp/evb-atomic-replace-source.tmp',
-            '/tmp/evb-atomic-replace-target.pdf',
-        );
+        expect(mocks.rename).toHaveBeenCalledWith('/tmp/evb-atomic-replace-source.tmp', '/tmp/evb-atomic-replace-target.pdf');
     });
 
     it('propagates an unsupported Windows replacement error without moving the destination aside', async () => {
@@ -207,25 +185,26 @@ describe('atomicReplace', () => {
         const replacementError = Object.assign(new Error('replacement failed'), {code: 'EIO'});
         mocks.rename.mockRejectedValueOnce(replacementError);
 
-        const { atomicReplace } = await import('@electron/utils/atomicReplace');
+        const {atomicReplace} = await import('@electron/utils/atomicReplace');
 
-        await expect(atomicReplace('C:\\out\\tmp.pdf', 'C:\\out\\extract.pdf'))
-            .rejects.toBe(replacementError);
+        await expect(atomicReplace('C:\\out\\tmp.pdf', 'C:\\out\\extract.pdf')).rejects.toBe(replacementError);
         expect(mocks.rename).toHaveBeenCalledOnce();
         expect(mocks.rename).toHaveBeenCalledWith('C:\\out\\tmp.pdf', 'C:\\out\\extract.pdf');
     });
 
     it('moves a live Windows destination aside for a non-durable cache publication', async () => {
         setPlatform('win32');
-        const { atomicReplace } = await import('@electron/utils/atomicReplace');
+        const {atomicReplace} = await import('@electron/utils/atomicReplace');
 
         // A retained scan-cleanup raster is republished over a path a sidecar
         // manifest may still be reading. A bare rename onto that destination
         // fails EPERM/EACCES on Windows; the replace moves it aside first.
-        await expect(atomicReplace('C:\\scratch\\page.part.png', 'C:\\scratch\\page-1-150.png', {
-            durable: false,
-            markMutationCommitStarted: false,
-        })).resolves.toBeUndefined();
+        await expect(
+            atomicReplace('C:\\scratch\\page.part.png', 'C:\\scratch\\page-1-150.png', {
+                durable: false,
+                markMutationCommitStarted: false,
+            }),
+        ).resolves.toBeUndefined();
 
         expect(mocks.rename).toHaveBeenNthCalledWith(1, 'C:\\scratch\\page.part.png', 'C:\\scratch\\page-1-150.png');
         // A within-run cache lives in a scratch directory that is discarded on
@@ -237,84 +216,90 @@ describe('atomicReplace', () => {
         setPlatform('win32');
         const denyDelete = Object.assign(new Error('sharing violation'), {code: 'EIO'});
         mocks.rename.mockRejectedValueOnce(denyDelete);
-        const { atomicReplace } = await import('@electron/utils/atomicReplace');
+        const {atomicReplace} = await import('@electron/utils/atomicReplace');
 
-        await expect(atomicReplace('C:\\out\\tmp.pdf', 'C:\\out\\extract.pdf'))
-            .rejects.toBe(denyDelete);
+        await expect(atomicReplace('C:\\out\\tmp.pdf', 'C:\\out\\extract.pdf')).rejects.toBe(denyDelete);
         expect(mocks.rename).toHaveBeenCalledOnce();
         expect(mocks.rename).toHaveBeenCalledWith('C:\\out\\tmp.pdf', 'C:\\out\\extract.pdf');
     });
 
     it('keeps the destination readable when Windows cannot remove the moved-aside file', async () => {
         setPlatform('win32');
-        const { atomicReplace } = await import('@electron/utils/atomicReplace');
+        const {atomicReplace} = await import('@electron/utils/atomicReplace');
 
         // The reader still holding the old bytes keeps them; the new raster is
         // in place regardless.
-        await expect(atomicReplace('C:\\scratch\\page.part.png', 'C:\\scratch\\page-1-150.png', {
-            durable: false,
-            markMutationCommitStarted: false,
-        })).resolves.toBeUndefined();
+        await expect(
+            atomicReplace('C:\\scratch\\page.part.png', 'C:\\scratch\\page-1-150.png', {
+                durable: false,
+                markMutationCommitStarted: false,
+            }),
+        ).resolves.toBeUndefined();
 
         expect(mocks.rename).toHaveBeenCalledWith('C:\\scratch\\page.part.png', 'C:\\scratch\\page-1-150.png');
     });
 
-    it.each([
-        'extract.pdf',
-        'extract.txt',
-    ])('refuses to move aside a %s that changed after the first replacement was refused', async (name) => {
-        setPlatform('win32');
-        const root = mkdtempSync(join(tmpdir(), 'evb-atomic-replace-fallback-'));
-        try {
-            const destinationPath = join(root, name);
-            const sourcePath = join(root, 'staged.tmp');
-            writeFileSync(destinationPath, 'OPENED-REVISION');
-            writeFileSync(sourcePath, 'EVB-REVISION');
-            const actualFs = await vi.importActual<typeof TFsPromisesOriginalModule>('fs/promises');
-            mocks.open.mockImplementation(actualFs.open);
-            mocks.rename.mockImplementationOnce(async () => {
-                // Another editor writes its revision while the first attempt is refused.
-                writeFileSync(destinationPath, 'OTHER-EDITOR-REVISION');
-                throw Object.assign(new Error('sharing violation'), {code: 'EBUSY'});
-            });
-            mocks.rename.mockImplementation(actualFs.rename);
-            const admitted = readFileSync(destinationPath, 'utf8');
-            const {atomicReplace} = await import('@electron/utils/atomicReplace');
+    it.each(['extract.pdf', 'extract.txt'])(
+        'refuses to move aside a %s that changed after the first replacement was refused',
+        async (name) => {
+            setPlatform('win32');
+            const root = mkdtempSync(join(tmpdir(), 'evb-atomic-replace-fallback-'));
+            try {
+                const destinationPath = join(root, name);
+                const sourcePath = join(root, 'staged.tmp');
+                writeFileSync(destinationPath, 'OPENED-REVISION');
+                writeFileSync(sourcePath, 'EVB-REVISION');
+                const actualFs = await vi.importActual<typeof TFsPromisesOriginalModule>('fs/promises');
+                mocks.open.mockImplementation(actualFs.open);
+                mocks.rename.mockImplementationOnce(async () => {
+                    // Another editor writes its revision while the first attempt is refused.
+                    writeFileSync(destinationPath, 'OTHER-EDITOR-REVISION');
+                    throw Object.assign(new Error('sharing violation'), {code: 'EBUSY'});
+                });
+                mocks.rename.mockImplementation(actualFs.rename);
+                const admitted = readFileSync(destinationPath, 'utf8');
+                const {atomicReplace} = await import('@electron/utils/atomicReplace');
 
-            const assertDestinationCurrent = async () => {
-                if (readFileSync(destinationPath, 'utf8') !== admitted) throw new Error('Original file changed on disk');
-            };
+                const assertDestinationCurrent = async () => {
+                    if (readFileSync(destinationPath, 'utf8') !== admitted) {
+                        throw new Error('Original file changed on disk');
+                    }
+                };
 
-            await expect(atomicReplace(sourcePath, destinationPath, {assertDestinationCurrent}))
-                .rejects.toThrow('Original file changed on disk');
+                await expect(atomicReplace(sourcePath, destinationPath, {assertDestinationCurrent})).rejects.toThrow(
+                    'Original file changed on disk',
+                );
 
-            expect(readFileSync(destinationPath, 'utf8')).toBe('OTHER-EDITOR-REVISION');
-            expect(readFileSync(sourcePath, 'utf8')).toBe('EVB-REVISION');
-        } finally {
-            rmSync(root, {
-                force: true,
-                recursive: true,
-            });
-        }
-    });
+                expect(readFileSync(destinationPath, 'utf8')).toBe('OTHER-EDITOR-REVISION');
+                expect(readFileSync(sourcePath, 'utf8')).toBe('EVB-REVISION');
+            } finally {
+                rmSync(root, {
+                    force: true,
+                    recursive: true,
+                });
+            }
+        },
+    );
     // T3: the no-hard-link fallback must preserve occupied directory entries.
-    it.each([
-        'file',
-        'symlink',
-        'missing',
-    ] as const)('keeps a no-link destination safe: %s', async (kind) => {
+    it.each(['file', 'symlink', 'missing'] as const)('keeps a no-link destination safe: %s', async (kind) => {
         const root = mkdtempSync(join(tmpdir(), 'evb-move-no-link-'));
         const fs = await vi.importActual<typeof TFsPromisesOriginalModule>('fs/promises');
         vi.doMock('fs/promises', () => ({
             ...fs,
-            link: async () => { throw Object.assign(new Error('No hard links'), {code: 'ENOTSUP'}); },
+            link: async () => {
+                throw Object.assign(new Error('No hard links'), {code: 'ENOTSUP'});
+            },
         }));
         try {
             const source = join(root, 'staged.tmp');
             const destination = join(root, 'export.png');
             await fs.writeFile(source, 'export bytes');
-            if (kind === 'file') await fs.writeFile(destination, 'earlier bytes');
-            if (kind === 'symlink') await fs.symlink(join(root, 'absent'), destination);
+            if (kind === 'file') {
+                await fs.writeFile(destination, 'earlier bytes');
+            }
+            if (kind === 'symlink') {
+                await fs.symlink(join(root, 'absent'), destination);
+            }
             const {moveFileToMissingPath} = await import('@electron/utils/atomicReplace');
             if (kind === 'missing') {
                 await moveFileToMissingPath(source, destination);
@@ -322,8 +307,11 @@ describe('atomicReplace', () => {
             } else {
                 await expect(moveFileToMissingPath(source, destination)).rejects.toMatchObject({code: 'EEXIST'});
                 expect(await fs.readFile(source, 'utf8')).toBe('export bytes');
-                if (kind === 'file') expect(await fs.readFile(destination, 'utf8')).toBe('earlier bytes');
-                else expect(await fs.readlink(destination)).toBe(join(root, 'absent'));
+                if (kind === 'file') {
+                    expect(await fs.readFile(destination, 'utf8')).toBe('earlier bytes');
+                } else {
+                    expect(await fs.readlink(destination)).toBe(join(root, 'absent'));
+                }
             }
         } finally {
             vi.doUnmock('fs/promises');
@@ -335,37 +323,21 @@ describe('atomicReplace', () => {
     });
 
     it.each([
-        [
-            'journal',
-            false,
-        ],
-        [
-            'journal',
-            true,
-        ],
-        [
-            'displace',
-            false,
-        ],
-        [
-            'displace',
-            true,
-        ],
-        [
-            'install',
-            false,
-        ],
-        [
-            'install',
-            true,
-        ],
+        ['journal', false],
+        ['journal', true],
+        ['displace', false],
+        ['displace', true],
+        ['install', false],
+        ['install', true],
     ] as const)('restores a no-link Windows crash at %s, edited=%s', async (cut, edited) => {
         setPlatform('win32');
         const root = mkdtempSync(join(tmpdir(), 'evb-atomic-no-link-crash-'));
         const fs = await vi.importActual<typeof TFsPromisesOriginalModule>('fs/promises');
         vi.doMock('fs/promises', () => ({
             ...fs,
-            link: async () => { throw Object.assign(new Error('No hard links'), {code: 'ENOTSUP'}); },
+            link: async () => {
+                throw Object.assign(new Error('No hard links'), {code: 'ENOTSUP'});
+            },
         }));
         try {
             const destination = join(root, 'original.pdf');
@@ -376,27 +348,39 @@ describe('atomicReplace', () => {
             const {capturePathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
             const destinationSnapshot = (await capturePathSaveWitness(destination))!.getSnapshotForJournal();
             const sourceSnapshot = (await capturePathSaveWitness(staged))!.getSnapshotForJournal();
-            await fs.writeFile(`${destination}.evb-atomic-replace.json`, JSON.stringify({
-                version: 1,
-                sourcePath: staged,
-                destinationPath: destination,
-                backupPath: backup,
-                destinationSnapshot,
-                sourceSnapshot,
-            }));
+            await fs.writeFile(
+                `${destination}.evb-atomic-replace.json`,
+                JSON.stringify({
+                    version: 1,
+                    sourcePath: staged,
+                    destinationPath: destination,
+                    backupPath: backup,
+                    destinationSnapshot,
+                    sourceSnapshot,
+                }),
+            );
             if (cut !== 'journal') {
-                if (edited) await fs.writeFile(destination, 'external');
+                if (edited) {
+                    await fs.writeFile(destination, 'external');
+                }
                 await fs.rename(destination, backup);
-                if (cut === 'install') await fs.rename(staged, destination);
+                if (cut === 'install') {
+                    await fs.rename(staged, destination);
+                }
             }
             const {atomicReplace} = await import('@electron/utils/atomicReplace');
             await atomicReplace(staged, destination, {
                 durable: false,
-                assertDestinationCurrent: async () => { throw new Error('Stop after recovery'); },
+                assertDestinationCurrent: async () => {
+                    throw new Error('Stop after recovery');
+                },
             }).catch(() => undefined);
-            expect(readFileSync(destination, 'utf8')).toBe(cut === 'install' ? 'accepted-saved-work'
-                : cut === 'displace' && edited ? 'external' : 'original');
-            if (cut === 'install' && edited) expect(readFileSync(backup, 'utf8')).toBe('external');
+            expect(readFileSync(destination, 'utf8')).toBe(
+                cut === 'install' ? 'accepted-saved-work' : cut === 'displace' && edited ? 'external' : 'original',
+            );
+            if (cut === 'install' && edited) {
+                expect(readFileSync(backup, 'utf8')).toBe('external');
+            }
         } finally {
             vi.doUnmock('fs/promises');
             rmSync(root, {
@@ -405,5 +389,4 @@ describe('atomicReplace', () => {
             });
         }
     });
-
 });

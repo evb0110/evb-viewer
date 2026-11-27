@@ -20,11 +20,7 @@ const WORKER_TASK_ERROR_FRAME_OBJECT_SCHEMA = v.object({
 export const WORKER_TASK_ERROR_FRAME_SCHEMA = v.pipe(
     v.unknown(),
     v.check(isRecord, 'Expected worker task error frame object'),
-    v.rawTransform(({
-        dataset,
-        addIssue,
-        NEVER,
-    }) => {
+    v.rawTransform(({dataset, addIssue, NEVER}) => {
         const result = v.safeParse(WORKER_TASK_ERROR_FRAME_OBJECT_SCHEMA, dataset.value, {abortEarly: true});
         if (!result.success) {
             for (const issue of result.issues) {

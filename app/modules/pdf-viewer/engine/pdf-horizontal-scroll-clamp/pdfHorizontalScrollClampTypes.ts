@@ -1,5 +1,3 @@
-
-
 export interface IPageBoundedHorizontalScrollInput {
     scrollLeft: number;
     viewportWidth: number;

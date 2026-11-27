@@ -1,9 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { resolveCustomReloadZoomMultiplier } from '@app/modules/pdf-viewer/runtime/reload-zoom/resolveCustomReloadZoomMultiplier';
+import {describe, expect, it} from 'vitest';
+import {resolveCustomReloadZoomMultiplier} from '@app/modules/pdf-viewer/runtime/reload-zoom/resolveCustomReloadZoomMultiplier';
 
 describe('resolveCustomReloadZoomMultiplier', () => {
     it('preserves the target display zoom as the custom zoom value', () => {

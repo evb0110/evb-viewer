@@ -1,8 +1,4 @@
-
-import {
-    isEpochMs,
-    type TEpochMs,
-} from '@contracts/timestamps';
+import {isEpochMs, type TEpochMs} from '@contracts/timestamps';
 
 export type FailureSeverity = 'error' | 'fatal';
 
@@ -32,12 +28,7 @@ export interface FailureReceipt {
     severity: FailureSeverity;
 }
 
-const FAILURE_RECEIPT_KEYS = [
-    'eventId',
-    'code',
-    'occurredAt',
-    'severity',
-] as const;
+const FAILURE_RECEIPT_KEYS = ['eventId', 'code', 'occurredAt', 'severity'] as const;
 const EVENT_ID_PATTERN = /^[0-9a-f]{32}$/u;
 const CODE_PATTERN = /^[A-Z][A-Z0-9_]{1,79}$/u;
 
@@ -60,12 +51,12 @@ export function decodeFailureReceipt(value: unknown): FailureReceipt | null {
     try {
         const keys = Reflect.ownKeys(value);
         if (
-            keys.length !== FAILURE_RECEIPT_KEYS.length
-            || !keys.every(key => typeof key === 'string' && FAILURE_RECEIPT_KEYS.some(allowedKey => allowedKey === key))
-            || !isFailureEventId(value.eventId)
-            || !isFailureCode(value.code)
-            || !isEpochMs(value.occurredAt)
-            || !isFailureSeverity(value.severity)
+            keys.length !== FAILURE_RECEIPT_KEYS.length ||
+            !keys.every((key) => typeof key === 'string' && FAILURE_RECEIPT_KEYS.some((allowedKey) => allowedKey === key)) ||
+            !isFailureEventId(value.eventId) ||
+            !isFailureCode(value.code) ||
+            !isEpochMs(value.occurredAt) ||
+            !isFailureSeverity(value.severity)
         ) {
             return null;
         }
@@ -95,7 +86,7 @@ export const EXPECTED_OUTCOME_CODES = [
     'temporarily-unavailable',
 ] as const;
 
-export type ExpectedOutcomeCode = typeof EXPECTED_OUTCOME_CODES[number];
+export type ExpectedOutcomeCode = (typeof EXPECTED_OUTCOME_CODES)[number];
 
 export interface ExpectedOutcome {
     kind: 'expected';
@@ -120,13 +111,15 @@ export function isExpectedOutcome(value: unknown): value is ExpectedOutcome {
     }
     try {
         const keys = Reflect.ownKeys(value);
-        return keys.length === 2
-            && keys.every(key => key === 'kind' || key === 'code')
-            && Object.hasOwn(value, 'kind')
-            && Object.hasOwn(value, 'code')
-            && value.kind === 'expected'
-            && typeof value.code === 'string'
-            && EXPECTED_OUTCOME_CODES.some(code => code === value.code);
+        return (
+            keys.length === 2 &&
+            keys.every((key) => key === 'kind' || key === 'code') &&
+            Object.hasOwn(value, 'kind') &&
+            Object.hasOwn(value, 'code') &&
+            value.kind === 'expected' &&
+            typeof value.code === 'string' &&
+            EXPECTED_OUTCOME_CODES.some((code) => code === value.code)
+        );
     } catch {
         return false;
     }

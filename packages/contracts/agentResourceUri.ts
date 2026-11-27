@@ -28,6 +28,6 @@ export function parseAgentResourceUri(uri: string): IAgentResourceUri {
         parts: parsed.pathname
             .split('/')
             .filter(Boolean)
-            .map(part => decodeURIComponent(part)),
+            .map((part) => decodeURIComponent(part)),
     };
 }

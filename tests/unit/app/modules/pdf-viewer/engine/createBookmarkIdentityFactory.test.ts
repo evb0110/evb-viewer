@@ -1,22 +1,12 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import type {
-    IBookmarkIdentityInput,
-    IBookmarkItem,
-} from '@app/types/pdfOutline';
+import {describe, expect, it} from 'vitest';
+import type {IBookmarkIdentityInput, IBookmarkItem} from '@app/types/pdfOutline';
 import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
 import {buildOutlineFromBookmarkEntries} from '@app/utils/pdfOutlineHelpers';
-import { createBookmarkIdentityFactory } from '@app/modules/pdf-viewer/engine/pdf-outline-identity/createBookmarkIdentityFactory';
-import { cast } from '@tests/helpers/cast';
+import {createBookmarkIdentityFactory} from '@app/modules/pdf-viewer/engine/pdf-outline-identity/createBookmarkIdentityFactory';
+import {cast} from '@tests/helpers/cast';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
-function createEntry(
-    title: string,
-    overrides: Partial<IPdfBookmarkEntry> = {},
-): IPdfBookmarkEntry {
+function createEntry(title: string, overrides: Partial<IPdfBookmarkEntry> = {}): IPdfBookmarkEntry {
     return {
         title,
         pageIndex: requirePageIndex(0),
@@ -35,18 +25,12 @@ function buildOutline(entries: IPdfBookmarkEntry[]) {
     return buildOutlineFromBookmarkEntries(entries, identity.createBookmarkId);
 }
 
-function collectIdsByTitlePath(
-    items: readonly IBookmarkItem[],
-    prefix = '',
-) {
+function collectIdsByTitlePath(items: readonly IBookmarkItem[], prefix = '') {
     const ids = new Map<string, string>();
     for (const item of items) {
         const path = `${prefix}/${item.title}`;
         ids.set(path, item.id);
-        for (const [
-            childPath,
-            childId,
-        ] of collectIdsByTitlePath(item.items, path)) {
+        for (const [childPath, childId] of collectIdsByTitlePath(item.items, path)) {
             ids.set(childPath, childId);
         }
     }
@@ -54,43 +38,23 @@ function collectIdsByTitlePath(
 }
 
 function collectAllIds(items: readonly IBookmarkItem[]): string[] {
-    return items.flatMap(item => [
-        item.id,
-        ...collectAllIds(item.items),
-    ]);
+    return items.flatMap((item) => [item.id, ...collectAllIds(item.items)]);
 }
 
 describe('createBookmarkIdentityFactory', () => {
     it('keeps identity stable when unrelated siblings are inserted, removed, or reordered', () => {
-        const first = createEntry('Alpha', { pageIndex: requirePageIndex(1) });
-        const second = createEntry('Beta', { pageIndex: requirePageIndex(2) });
-        const third = createEntry('Gamma', { pageIndex: requirePageIndex(3) });
+        const first = createEntry('Alpha', {pageIndex: requirePageIndex(1)});
+        const second = createEntry('Beta', {pageIndex: requirePageIndex(2)});
+        const third = createEntry('Gamma', {pageIndex: requirePageIndex(3)});
 
-        const baseline = collectIdsByTitlePath(buildOutline([
-            first,
-            second,
-            third,
-        ]));
-        const withInsertion = collectIdsByTitlePath(buildOutline([
-            createEntry('Inserted', { pageIndex: requirePageIndex(0) }),
-            first,
-            second,
-            third,
-        ]));
-        const withRemoval = collectIdsByTitlePath(buildOutline([
-            first,
-            third,
-        ]));
-        const reordered = collectIdsByTitlePath(buildOutline([
-            third,
-            second,
-            first,
-        ]));
+        const baseline = collectIdsByTitlePath(buildOutline([first, second, third]));
+        const withInsertion = collectIdsByTitlePath(
+            buildOutline([createEntry('Inserted', {pageIndex: requirePageIndex(0)}), first, second, third]),
+        );
+        const withRemoval = collectIdsByTitlePath(buildOutline([first, third]));
+        const reordered = collectIdsByTitlePath(buildOutline([third, second, first]));
 
-        for (const path of [
-            '/Alpha',
-            '/Gamma',
-        ]) {
+        for (const path of ['/Alpha', '/Gamma']) {
             expect(withInsertion.get(path)).toBe(baseline.get(path));
             expect(withRemoval.get(path)).toBe(baseline.get(path));
             expect(reordered.get(path)).toBe(baseline.get(path));
@@ -104,10 +68,7 @@ describe('createBookmarkIdentityFactory', () => {
             pageIndex: requirePageIndex(7),
             namedDest: 'intro',
         });
-        const outline = buildOutline([
-            createEntry('Part one', { items: [child] }),
-            createEntry('Part two', { items: [child] }),
-        ]);
+        const outline = buildOutline([createEntry('Part one', {items: [child]}), createEntry('Part two', {items: [child]})]);
 
         const firstChildId = outline[0]?.items[0]?.id;
         const secondChildId = outline[1]?.items[0]?.id;
@@ -121,46 +82,45 @@ describe('createBookmarkIdentityFactory', () => {
             pageIndex: requirePageIndex(12),
             namedDest: 'plate',
         });
-        const baseline = collectAllIds(buildOutline([
-            duplicate,
-            duplicate,
-            createEntry('Notes', { pageIndex: requirePageIndex(20) }),
-        ]));
-        const withUnrelatedInsertion = collectAllIds(buildOutline([
-            createEntry('Preface', { pageIndex: requirePageIndex(1) }),
-            duplicate,
-            duplicate,
-            createEntry('Notes', { pageIndex: requirePageIndex(20) }),
-        ]));
+        const baseline = collectAllIds(buildOutline([duplicate, duplicate, createEntry('Notes', {pageIndex: requirePageIndex(20)})]));
+        const withUnrelatedInsertion = collectAllIds(
+            buildOutline([
+                createEntry('Preface', {pageIndex: requirePageIndex(1)}),
+                duplicate,
+                duplicate,
+                createEntry('Notes', {pageIndex: requirePageIndex(20)}),
+            ]),
+        );
 
         expect(new Set(baseline).size).toBe(baseline.length);
         expect(withUnrelatedInsertion.slice(1)).toEqual(baseline);
         // Duplicates are told apart by their occurrence, which is part of the
         // hashed content path. The uniqueness suffix is a last resort for hash
         // collisions and must not be what carries ordinary duplicate labels.
-        expect(baseline.filter(id => id.includes('~'))).toEqual([]);
+        expect(baseline.filter((id) => id.includes('~'))).toEqual([]);
     });
 
     it('rebuilds the same identity from persisted entries after a reload', () => {
         const entries = [
-            createEntry('Cover', { pageIndex: requirePageIndex(0) }),
+            createEntry('Cover', {pageIndex: requirePageIndex(0)}),
             createEntry('Chapter', {
                 pageIndex: requirePageIndex(4),
                 namedDest: 'chapter-1',
-                items: [createEntry('Section', {
-                    pageIndex: requirePageIndex(5),
-                    pageYRatio: 0.25,
-                })],
+                items: [
+                    createEntry('Section', {
+                        pageIndex: requirePageIndex(5),
+                        pageYRatio: 0.25,
+                    }),
+                ],
             }),
         ];
 
-        expect(collectAllIds(buildOutline(entries)))
-            .toEqual(collectAllIds(buildOutline(structuredClone(entries))));
+        expect(collectAllIds(buildOutline(entries))).toEqual(collectAllIds(buildOutline(structuredClone(entries))));
     });
 
     it('normalizes the title exactly as persistence writes it', () => {
         function mintId(title: string) {
-            return createBookmarkIdentityFactory({ untitledLabel: 'Untitled' }).createBookmarkId({
+            return createBookmarkIdentityFactory({untitledLabel: 'Untitled'}).createBookmarkId({
                 parentId: null,
                 title,
                 pageIndex: requirePageIndex(2),
@@ -178,22 +138,16 @@ describe('createBookmarkIdentityFactory', () => {
 
     it('keeps deep-path identity distinct per branch and stable across root insertions', () => {
         function createChain(rootTitle: string, depth: number): IPdfBookmarkEntry {
-            let entry = createEntry('Leaf', { pageIndex: requirePageIndex(depth) });
+            let entry = createEntry('Leaf', {pageIndex: requirePageIndex(depth)});
             for (let level = depth; level > 0; level -= 1) {
-                entry = createEntry(`Level ${level}`, { items: [entry] });
+                entry = createEntry(`Level ${level}`, {items: [entry]});
             }
-            return createEntry(rootTitle, { items: [entry] });
+            return createEntry(rootTitle, {items: [entry]});
         }
 
-        const branches = [
-            createChain('Branch A', 60),
-            createChain('Branch B', 60),
-        ];
+        const branches = [createChain('Branch A', 60), createChain('Branch B', 60)];
         const baseline = buildOutline(branches);
-        const withRootInsertion = buildOutline([
-            createEntry('New root', { pageIndex: requirePageIndex(0) }),
-            ...branches,
-        ]);
+        const withRootInsertion = buildOutline([createEntry('New root', {pageIndex: requirePageIndex(0)}), ...branches]);
 
         const baselineIds = collectAllIds(baseline);
         const insertionIds = collectAllIds(withRootInsertion);
@@ -202,10 +156,12 @@ describe('createBookmarkIdentityFactory', () => {
     });
 
     it('issues collision-free ids for a large synthetic outline', () => {
-        const entries = Array.from({ length: 600 }, (_unused, sectionIndex) => createEntry('Section', {
-            pageIndex: requirePageIndex(sectionIndex % 7),
-            items: Array.from({ length: 5 }, () => createEntry('Figure', { pageIndex: requirePageIndex(sectionIndex % 7) })),
-        }));
+        const entries = Array.from({length: 600}, (_unused, sectionIndex) =>
+            createEntry('Section', {
+                pageIndex: requirePageIndex(sectionIndex % 7),
+                items: Array.from({length: 5}, () => createEntry('Figure', {pageIndex: requirePageIndex(sectionIndex % 7)})),
+            }),
+        );
 
         const ids = collectAllIds(buildOutline(entries));
 
@@ -223,7 +179,7 @@ describe('createBookmarkIdentityFactory', () => {
                 color: null,
                 items: [],
             }),
-            createEntry('Named', { pageIndex: requirePageIndex(2) }),
+            createEntry('Named', {pageIndex: requirePageIndex(2)}),
         ]);
 
         const ids = collectAllIds(outline);
@@ -239,15 +195,9 @@ describe('createBookmarkIdentityFactory', () => {
             pageIndex: requirePageIndex(0),
             dest: null,
         });
-        const drafts = [
-            identity.createDraftBookmarkId(),
-            identity.createDraftBookmarkId(),
-        ];
+        const drafts = [identity.createDraftBookmarkId(), identity.createDraftBookmarkId()];
 
-        expect(new Set([
-            contentId,
-            ...drafts,
-        ]).size).toBe(3);
+        expect(new Set([contentId, ...drafts]).size).toBe(3);
     });
 
     it('keeps identity fields unambiguous when a title carries the separator and adjacent-looking digits', () => {
@@ -403,16 +353,10 @@ describe('createBookmarkIdentityFactory', () => {
 
         const isolatedIds = cases.map(({input}) => createBookmarkIdentityFactory().createBookmarkId(input));
         const labelsById = new Map<string, string[]>();
-        for (const [
-            index,
-            id,
-        ] of isolatedIds.entries()) {
-            labelsById.set(id, [
-                ...labelsById.get(id) ?? [],
-                cases[index]?.label ?? '',
-            ]);
+        for (const [index, id] of isolatedIds.entries()) {
+            labelsById.set(id, [...(labelsById.get(id) ?? []), cases[index]?.label ?? '']);
         }
-        const collisions = [...labelsById.values()].filter(labels => labels.length > 1);
+        const collisions = [...labelsById.values()].filter((labels) => labels.length > 1);
         expect(collisions).toEqual([]);
 
         // Minted from one factory the ids must be identical, which they can only
@@ -421,18 +365,20 @@ describe('createBookmarkIdentityFactory', () => {
         expect(cases.map(({input}) => sharedIdentity.createBookmarkId(input))).toEqual(isolatedIds);
     });
 
-    it('keeps outline ids distinct when a label impersonates a sibling\'s page index', () => {
-        const ids = collectAllIds(buildOutline([
-            createEntry('Chapter|7', { pageIndex: null }),
-            createEntry('Chapter', { pageIndex: requirePageIndex(7) }),
-            createEntry('Chapter', {
-                pageIndex: null,
-                namedDest: '7',
-            }),
-        ]));
+    it("keeps outline ids distinct when a label impersonates a sibling's page index", () => {
+        const ids = collectAllIds(
+            buildOutline([
+                createEntry('Chapter|7', {pageIndex: null}),
+                createEntry('Chapter', {pageIndex: requirePageIndex(7)}),
+                createEntry('Chapter', {
+                    pageIndex: null,
+                    namedDest: '7',
+                }),
+            ]),
+        );
 
         expect(ids).toHaveLength(3);
         expect(new Set(ids).size).toBe(3);
-        expect(ids.filter(id => id.includes('~'))).toEqual([]);
+        expect(ids.filter((id) => id.includes('~'))).toEqual([]);
     });
 });

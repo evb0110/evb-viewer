@@ -1,32 +1,11 @@
 import {cast} from '@tests/helpers/cast';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    accessSync,
-    chmodSync,
-    constants,
-    existsSync,
-    mkdirSync,
-    mkdtempSync,
-    readFileSync,
-    rmSync,
-    writeFileSync,
-} from 'node:fs';
-import { spawnSync } from 'node:child_process';
-import { tmpdir } from 'node:os';
-import { pathToFileURL } from 'node:url';
-import {
-    getStaticYAMLValue,
-    parseYAML,
-} from 'yaml-eslint-parser';
-import {
-    delimiter,
-    join,
-    resolve,
-} from 'node:path';
+import {describe, expect, it} from 'vitest';
+import {accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {spawnSync} from 'node:child_process';
+import {tmpdir} from 'node:os';
+import {pathToFileURL} from 'node:url';
+import {getStaticYAMLValue, parseYAML} from 'yaml-eslint-parser';
+import {delimiter, join, resolve} from 'node:path';
 interface IWorkflowStep {
     env?: Record<string, string>;
     if?: string;
@@ -40,11 +19,7 @@ interface IMacUpdaterFileInfo {
     sha512: string;
     size: number;
 }
-type TRunCommand = (
-    command: string,
-    args: string[],
-    options: IRunCommandOptions,
-) => unknown;
+type TRunCommand = (command: string, args: string[], options: IRunCommandOptions) => unknown;
 
 interface IReleaseTarget {
     arch: string;
@@ -69,10 +44,12 @@ interface IReleaseGatePolicyManifest {
             owner: string;
         };
         localVerify: {
-            gates: Array<IReleaseCommand & {
-                id: string;
-                owner: string;
-            }>;
+            gates: Array<
+                IReleaseCommand & {
+                    id: string;
+                    owner: string;
+                }
+            >;
             owner: string;
         };
     };
@@ -85,72 +62,40 @@ interface IRunCommandOptions {
 }
 
 interface IReleasePolicyModule {
-    assertPublishUpdaterMetadataReferences: (
-        artifactNames: string[],
-        readMetadataText: (fileName: string) => string,
-    ) => boolean;
-    assertPublishUpdaterMetadataPolicy: (
-        artifactNames: string[],
-        env?: TReleaseEnv,
-    ) => void;
+    assertPublishUpdaterMetadataReferences: (artifactNames: string[], readMetadataText: (fileName: string) => string) => boolean;
+    assertPublishUpdaterMetadataPolicy: (artifactNames: string[], env?: TReleaseEnv) => void;
     detectHostReleasePlatform: (nodePlatform?: string) => TReleasePlatform;
-    expectsUpdaterMetadata: (
-        target: IReleaseTarget,
-        env?: TReleaseEnv,
-    ) => boolean;
-    getLocalReleaseTargets: (options?: {
-        arch?: TReleaseArch;
-        platform?: NodeJS.Platform;
-    }) => IReleaseTarget[];
+    expectsUpdaterMetadata: (target: IReleaseTarget, env?: TReleaseEnv) => boolean;
+    getLocalReleaseTargets: (options?: {arch?: TReleaseArch; platform?: NodeJS.Platform}) => IReleaseTarget[];
     getGatePolicyManifest: () => IReleaseGatePolicyManifest;
-    getReleaseAutomationEnv: (
-        baseEnv?: TReleaseEnv,
-    ) => TReleaseEnv;
+    getReleaseAutomationEnv: (baseEnv?: TReleaseEnv) => TReleaseEnv;
     getSupplementalReleaseAssetNames: (version: string) => string[];
-    getRequiredArtifactPatterns: (
-        target: IReleaseTarget,
-        env?: TReleaseEnv,
-    ) => RegExp[];
+    getRequiredArtifactPatterns: (target: IReleaseTarget, env?: TReleaseEnv) => RegExp[];
     isSupplementalReleaseAsset: (fileName: string, version?: string) => boolean;
-    parseUpdaterMetadataFileUrls: (
-        metadataFileName: string,
-        metadataText: string,
-    ) => string[];
-    shouldVerifyPackagedStartup: (
-        target: IReleaseTarget,
-        env?: TReleaseEnv,
-    ) => boolean;
+    parseUpdaterMetadataFileUrls: (metadataFileName: string, metadataText: string) => string[];
+    shouldVerifyPackagedStartup: (target: IReleaseTarget, env?: TReleaseEnv) => boolean;
 }
 
 interface IReleaseChecksModule {
-    assertReleaseVerifySkipAcknowledged: (
-        skippedScripts: string[],
-        options?: { allowSkip?: boolean },
-    ) => void;
+    assertReleaseVerifySkipAcknowledged: (skippedScripts: string[], options?: {allowSkip?: boolean}) => void;
     getLocalReleaseCheckCommands: () => IReleaseCommand[];
-    isReleaseVerifySkipAcknowledged: (options?: {
-        argv?: string[];
-        env?: TReleaseEnv;
-    }) => boolean;
-    parseReleaseVerifySkipList: (
-        rawSkipList: string | undefined,
-        options?: { knownScripts?: string[] },
-    ) => string[];
+    isReleaseVerifySkipAcknowledged: (options?: {argv?: string[]; env?: TReleaseEnv}) => boolean;
+    parseReleaseVerifySkipList: (rawSkipList: string | undefined, options?: {knownScripts?: string[]}) => string[];
     runLocalReleaseChecks: (options?: {
         allowSkip?: boolean;
         argv?: string[];
         env?: TReleaseEnv;
         runCommand?: TRunCommand;
         skipList?: string;
-        stderr?: { write: (message: string) => void };
+        stderr?: {write: (message: string) => void};
         validateBuildReceipt?: (
             receiptPath: string,
-            options: { env: TReleaseEnv },
+            options: {env: TReleaseEnv},
         ) => {
             reason?: string;
             valid: boolean;
         };
-        writeBuildReceipt?: (receiptPath: string, options: { env: TReleaseEnv }) => unknown;
+        writeBuildReceipt?: (receiptPath: string, options: {env: TReleaseEnv}) => unknown;
     }) => void;
 }
 
@@ -161,10 +106,7 @@ interface IReleaseVerifySnapshot {
 }
 
 interface IReleaseVerifyModule {
-    assertReleaseVerifyDidNotMutateWorktree: (
-        before: IReleaseVerifySnapshot,
-        after: IReleaseVerifySnapshot,
-    ) => void;
+    assertReleaseVerifyDidNotMutateWorktree: (before: IReleaseVerifySnapshot, after: IReleaseVerifySnapshot) => void;
     getLocalReleaseVerifyCommands: () => IReleaseCommand[];
     runLocalReleaseVerify: (options?: {
         env?: TReleaseEnv;
@@ -176,10 +118,7 @@ interface IReleaseVerifyModule {
 
 interface IReleasePackageModule {
     getLocalReleaseBuildCommand: () => IReleaseCommand;
-    getPackagingArgs: (
-        target: IReleaseTarget,
-        env?: TReleaseEnv,
-    ) => string[];
+    getPackagingArgs: (target: IReleaseTarget, env?: TReleaseEnv) => string[];
 }
 
 interface IMacDmgNotarizationModule {
@@ -189,12 +128,15 @@ interface IMacDmgNotarizationModule {
         readMetadataText: (fileName: string) => string;
     }) => boolean;
     computeArtifactFileInfo: (filePath: string) => IMacUpdaterFileInfo;
-    findAppBuilderExecutable: (projectRoot: string, options?: {
-        arch?: string;
-        env?: TReleaseEnv;
-        platform?: NodeJS.Platform;
-        projectRoot?: string;
-    }) => string;
+    findAppBuilderExecutable: (
+        projectRoot: string,
+        options?: {
+            arch?: string;
+            env?: TReleaseEnv;
+            platform?: NodeJS.Platform;
+            projectRoot?: string;
+        },
+    ) => string;
     notarizeMacDmgArtifacts: (options?: {
         arch?: string;
         artifactsDir?: string;
@@ -222,9 +164,7 @@ interface IMacDmgNotarizationModule {
 }
 
 function getPackageScripts(): Record<string, string> {
-    const packageJson = JSON.parse(
-        readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'),
-    ) as { scripts?: Record<string, string> };
+    const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')) as {scripts?: Record<string, string>};
 
     return packageJson.scripts ?? {};
 }
@@ -240,23 +180,20 @@ const {
     getRequiredArtifactPatterns,
     parseUpdaterMetadataFileUrls,
     shouldVerifyPackagedStartup,
-} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/policy.mjs')).href) as IReleasePolicyModule;
+} = (await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/policy.mjs')).href)) as IReleasePolicyModule;
 const {
     assertReleaseVerifySkipAcknowledged,
     getLocalReleaseCheckCommands,
     isReleaseVerifySkipAcknowledged,
     parseReleaseVerifySkipList,
     runLocalReleaseChecks,
-} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local-checks.mjs')).href) as IReleaseChecksModule;
-const {
-    assertReleaseVerifyDidNotMutateWorktree,
-    getLocalReleaseVerifyCommands,
-    runLocalReleaseVerify,
-} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local.mjs')).href) as IReleaseVerifyModule;
-const {
-    getLocalReleaseBuildCommand,
-    getPackagingArgs,
-} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local-package.mjs')).href) as IReleasePackageModule;
+} = (await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local-checks.mjs')).href)) as IReleaseChecksModule;
+const {assertReleaseVerifyDidNotMutateWorktree, getLocalReleaseVerifyCommands, runLocalReleaseVerify} = (await import(
+    pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local.mjs')).href
+)) as IReleaseVerifyModule;
+const {getLocalReleaseBuildCommand, getPackagingArgs} = (await import(
+    pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local-package.mjs')).href
+)) as IReleasePackageModule;
 const {
     assertMacUpdaterMetadataHashes,
     computeArtifactFileInfo,
@@ -264,9 +201,8 @@ const {
     notarizeMacDmgArtifacts,
     parseMacUpdaterFileEntries,
     updateMacUpdaterMetadataArtifactInfo,
-} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/notarize-macos-dmgs.mjs')).href) as IMacDmgNotarizationModule;
+} = (await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/notarize-macos-dmgs.mjs')).href)) as IMacDmgNotarizationModule;
 const {filterIgnoredFiles} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/shared.mjs')).href);
-
 
 function writeExecutable(filePath: string, lines: string[]): void {
     writeFileSync(filePath, `${lines.join('\n')}\n`);
@@ -276,11 +212,7 @@ function writeExecutable(filePath: string, lines: string[]): void {
 function createFakeDmgNotaryTools(binDir: string): string {
     // Shell fixtures keep the real subprocess boundary without starting a Node
     // runtime for every codesign, notarytool, stapler and blockmap operation.
-    writeExecutable(join(binDir, 'codesign'), [
-        '#!/bin/sh',
-        'if [ "$1" = "-dv" ]; then echo "not signed" >&2; exit 1; fi',
-        'exit 0',
-    ]);
+    writeExecutable(join(binDir, 'codesign'), ['#!/bin/sh', 'if [ "$1" = "-dv" ]; then echo "not signed" >&2; exit 1; fi', 'exit 0']);
     writeExecutable(join(binDir, 'xcrun'), [
         '#!/bin/sh',
         'case "$1 $2" in',
@@ -295,15 +227,15 @@ function createFakeDmgNotaryTools(binDir: string): string {
     const appBuilderPath = join(binDir, 'app-builder');
     writeExecutable(appBuilderPath, [
         '#!/usr/bin/env node',
-        'const { createHash } = require(\'node:crypto\');',
-        'const { readFileSync, statSync, writeFileSync } = require(\'node:fs\');',
+        "const { createHash } = require('node:crypto');",
+        "const { readFileSync, statSync, writeFileSync } = require('node:fs');",
         'const args = process.argv.slice(2);',
-        'if (args[0] !== \'blockmap\') process.exit(2);',
-        'const inputPath = args[args.indexOf(\'--input\') + 1];',
-        'const outputPath = args[args.indexOf(\'--output\') + 1];',
-        'writeFileSync(outputPath, \'blockmap\');',
+        "if (args[0] !== 'blockmap') process.exit(2);",
+        "const inputPath = args[args.indexOf('--input') + 1];",
+        "const outputPath = args[args.indexOf('--output') + 1];",
+        "writeFileSync(outputPath, 'blockmap');",
         'process.stdout.write(JSON.stringify({',
-        '    sha512: createHash(\'sha512\').update(readFileSync(inputPath)).digest(\'base64\'),',
+        "    sha512: createHash('sha512').update(readFileSync(inputPath)).digest('base64'),",
         '    size: statSync(inputPath).size,',
         '}));',
     ]);
@@ -322,25 +254,33 @@ describe('release policy', () => {
     });
 
     it('derives local release targets from host platform and arch', () => {
-        expect(getLocalReleaseTargets({
-            arch: 'arm64',
-            platform: 'darwin',
-        })).toEqual([{
-            arch: 'arm64',
-            expectsUpdaterMetadata: true,
-            isPrimaryHostTarget: true,
-            platform: 'mac',
-        }]);
+        expect(
+            getLocalReleaseTargets({
+                arch: 'arm64',
+                platform: 'darwin',
+            }),
+        ).toEqual([
+            {
+                arch: 'arm64',
+                expectsUpdaterMetadata: true,
+                isPrimaryHostTarget: true,
+                platform: 'mac',
+            },
+        ]);
 
-        expect(getLocalReleaseTargets({
-            arch: 'x64',
-            platform: 'win32',
-        })).toEqual([{
-            arch: 'x64',
-            expectsUpdaterMetadata: true,
-            isPrimaryHostTarget: true,
-            platform: 'win',
-        }]);
+        expect(
+            getLocalReleaseTargets({
+                arch: 'x64',
+                platform: 'win32',
+            }),
+        ).toEqual([
+            {
+                arch: 'x64',
+                expectsUpdaterMetadata: true,
+                isPrimaryHostTarget: true,
+                platform: 'win',
+            },
+        ]);
     });
 
     it('keeps updater metadata and startup verification aligned with signing state', () => {
@@ -358,13 +298,13 @@ describe('release policy', () => {
 
         expect(expectsUpdaterMetadata(macTarget, unsignedEnv)).toBe(false);
         expect(expectsUpdaterMetadata(macTarget, signedEnv)).toBe(true);
-        expect(expectsUpdaterMetadata(macTarget, { EVB_RELEASE_HAS_MAC_SIGNING: 'true' })).toBe(true);
+        expect(expectsUpdaterMetadata(macTarget, {EVB_RELEASE_HAS_MAC_SIGNING: 'true'})).toBe(true);
         expect(shouldVerifyPackagedStartup(macTarget, unsignedEnv)).toBe(false);
         expect(shouldVerifyPackagedStartup(macTarget, signedEnv)).toBe(true);
     });
 
     it('provides a release automation env that stays in CI mode', () => {
-        expect(getReleaseAutomationEnv({ FOO: 'bar' })).toEqual({
+        expect(getReleaseAutomationEnv({FOO: 'bar'})).toEqual({
             CI: 'true',
             EVB_AUTOMATION_HIDE_WINDOW: '1',
             EVB_AUTOMATION_NO_FOCUS: '1',
@@ -376,112 +316,107 @@ describe('release policy', () => {
         expect(detectHostReleasePlatform('darwin')).toBe('mac');
         expect(detectHostReleasePlatform('linux')).toBe('linux');
         expect(detectHostReleasePlatform('win32')).toBe('win');
-        expect(() => detectHostReleasePlatform('freebsd')).toThrow(
-            'Unsupported local release platform "freebsd"',
-        );
+        expect(() => detectHostReleasePlatform('freebsd')).toThrow('Unsupported local release platform "freebsd"');
 
-        expect(getRequiredArtifactPatterns({
-            arch: 'arm64',
-            expectsUpdaterMetadata: true,
-            platform: 'mac',
-        }, {
-            CSC_KEY_PASSWORD: 'password',
-            CSC_LINK: 'certificate',
-        }).map((pattern: RegExp) => pattern.source)).toEqual([
-            '\\.dmg$',
-            '\\.zip$',
-        ]);
+        expect(
+            getRequiredArtifactPatterns(
+                {
+                    arch: 'arm64',
+                    expectsUpdaterMetadata: true,
+                    platform: 'mac',
+                },
+                {
+                    CSC_KEY_PASSWORD: 'password',
+                    CSC_LINK: 'certificate',
+                },
+            ).map((pattern: RegExp) => pattern.source),
+        ).toEqual(['\\.dmg$', '\\.zip$']);
 
-        expect(getRequiredArtifactPatterns({
-            arch: 'arm64',
-            expectsUpdaterMetadata: true,
-            platform: 'mac',
-        }, { EVB_RELEASE_HAS_MAC_SIGNING: 'true' }).map((pattern: RegExp) => pattern.source)).toEqual([
-            '\\.dmg$',
-            '\\.zip$',
-        ]);
+        expect(
+            getRequiredArtifactPatterns(
+                {
+                    arch: 'arm64',
+                    expectsUpdaterMetadata: true,
+                    platform: 'mac',
+                },
+                {EVB_RELEASE_HAS_MAC_SIGNING: 'true'},
+            ).map((pattern: RegExp) => pattern.source),
+        ).toEqual(['\\.dmg$', '\\.zip$']);
 
-        expect(getRequiredArtifactPatterns({
-            arch: 'arm64',
-            expectsUpdaterMetadata: true,
-            platform: 'mac',
-        }, {}).map((pattern: RegExp) => pattern.source)).toEqual([ '\\.dmg$' ]);
+        expect(
+            getRequiredArtifactPatterns(
+                {
+                    arch: 'arm64',
+                    expectsUpdaterMetadata: true,
+                    platform: 'mac',
+                },
+                {},
+            ).map((pattern: RegExp) => pattern.source),
+        ).toEqual(['\\.dmg$']);
     });
 
     it('rejects publish-time updater metadata that does not match signing policy', () => {
-        expect(() => assertPublishUpdaterMetadataPolicy([
-            'EVB Viewer-0.1.0-arm64.dmg',
-            'latest-mac.yml',
-            'EVB Viewer-0.1.0-arm64.dmg.blockmap',
-        ], {
-            EVB_RELEASE_HAS_MAC_SIGNING: 'false',
-            EVB_RELEASE_HAS_WINDOWS_SIGNING: 'false',
-        })).toThrow('latest-mac.yml');
+        expect(() =>
+            assertPublishUpdaterMetadataPolicy(['EVB Viewer-0.1.0-arm64.dmg', 'latest-mac.yml', 'EVB Viewer-0.1.0-arm64.dmg.blockmap'], {
+                EVB_RELEASE_HAS_MAC_SIGNING: 'false',
+                EVB_RELEASE_HAS_WINDOWS_SIGNING: 'false',
+            }),
+        ).toThrow('latest-mac.yml');
 
-        expect(() => assertPublishUpdaterMetadataPolicy([
-            'EVB Viewer Setup 0.1.0.exe',
-            'latest.yml',
-            'EVB Viewer Setup 0.1.0.exe.blockmap',
-        ], {
-            EVB_RELEASE_HAS_MAC_SIGNING: 'false',
-            EVB_RELEASE_HAS_WINDOWS_SIGNING: 'false',
-        })).not.toThrow();
+        expect(() =>
+            assertPublishUpdaterMetadataPolicy(['EVB Viewer Setup 0.1.0.exe', 'latest.yml', 'EVB Viewer Setup 0.1.0.exe.blockmap'], {
+                EVB_RELEASE_HAS_MAC_SIGNING: 'false',
+                EVB_RELEASE_HAS_WINDOWS_SIGNING: 'false',
+            }),
+        ).not.toThrow();
 
-        expect(() => assertPublishUpdaterMetadataPolicy([
-            'EVB Viewer-0.1.0.AppImage',
-            'latest-linux.yml',
-        ], {
-            EVB_RELEASE_HAS_MAC_SIGNING: 'false',
-            EVB_RELEASE_HAS_WINDOWS_SIGNING: 'true',
-        })).toThrow('latest-linux.yml');
+        expect(() =>
+            assertPublishUpdaterMetadataPolicy(['EVB Viewer-0.1.0.AppImage', 'latest-linux.yml'], {
+                EVB_RELEASE_HAS_MAC_SIGNING: 'false',
+                EVB_RELEASE_HAS_WINDOWS_SIGNING: 'true',
+            }),
+        ).toThrow('latest-linux.yml');
 
-        expect(() => assertPublishUpdaterMetadataPolicy([
-            'EVB Viewer-0.1.0-arm64.dmg',
-            'latest-mac.yml',
-            'EVB Viewer-0.1.0-arm64.dmg.blockmap',
-            'EVB Viewer Setup 0.1.0.exe',
-            'latest.yml',
-            'EVB Viewer Setup 0.1.0.exe.blockmap',
-        ], {
-            EVB_RELEASE_HAS_MAC_SIGNING: 'true',
-            EVB_RELEASE_HAS_WINDOWS_SIGNING: 'true',
-        })).not.toThrow();
+        expect(() =>
+            assertPublishUpdaterMetadataPolicy(
+                [
+                    'EVB Viewer-0.1.0-arm64.dmg',
+                    'latest-mac.yml',
+                    'EVB Viewer-0.1.0-arm64.dmg.blockmap',
+                    'EVB Viewer Setup 0.1.0.exe',
+                    'latest.yml',
+                    'EVB Viewer Setup 0.1.0.exe.blockmap',
+                ],
+                {
+                    EVB_RELEASE_HAS_MAC_SIGNING: 'true',
+                    EVB_RELEASE_HAS_WINDOWS_SIGNING: 'true',
+                },
+            ),
+        ).not.toThrow();
     });
 
     it('validates publish-time updater metadata asset references without shell parsing', () => {
         const metadata = new Map([
-            [
-                'latest-mac.yml',
-                [
-                    'version: 0.1.0',
-                    'path: "EVB Viewer-0.1.0-arm64.dmg"',
-                    'sha512: abc',
-                ].join('\n'),
-            ],
-            [
-                'latest.yml',
-                [
-                    'version: 0.1.0',
-                    'path: \'EVB Viewer Setup 0.1.0.exe\'',
-                    'sha512: def',
-                ].join('\n'),
-            ],
+            ['latest-mac.yml', ['version: 0.1.0', 'path: "EVB Viewer-0.1.0-arm64.dmg"', 'sha512: abc'].join('\n')],
+            ['latest.yml', ['version: 0.1.0', "path: 'EVB Viewer Setup 0.1.0.exe'", 'sha512: def'].join('\n')],
         ]);
 
-        expect(assertPublishUpdaterMetadataReferences([
-            'EVB Viewer-0.1.0-arm64.dmg',
-            'EVB Viewer Setup 0.1.0.exe',
-            'latest-mac.yml',
-            'latest.yml',
-        ], (fileName: string) => metadata.get(fileName) ?? '')).toBe(true);
+        expect(
+            assertPublishUpdaterMetadataReferences(
+                ['EVB Viewer-0.1.0-arm64.dmg', 'EVB Viewer Setup 0.1.0.exe', 'latest-mac.yml', 'latest.yml'],
+                (fileName: string) => metadata.get(fileName) ?? '',
+            ),
+        ).toBe(true);
     });
 
     it('rejects publish-time updater metadata that points at missing or unsafe assets', () => {
-        expect(() => assertPublishUpdaterMetadataReferences([ 'latest-mac.yml' ], () => 'path: "Missing.dmg"\n'))
-            .toThrow('Missing.dmg not found');
+        expect(() => assertPublishUpdaterMetadataReferences(['latest-mac.yml'], () => 'path: "Missing.dmg"\n')).toThrow(
+            'Missing.dmg not found',
+        );
 
-        expect(() => assertPublishUpdaterMetadataReferences([ 'latest.yml' ], () => 'path: "../EVB Viewer Setup 0.1.0.exe"\n'))
-            .toThrow('Unsafe path entry');
+        expect(() => assertPublishUpdaterMetadataReferences(['latest.yml'], () => 'path: "../EVB Viewer Setup 0.1.0.exe"\n')).toThrow(
+            'Unsafe path entry',
+        );
     });
 
     describe('updater metadata file url validation', () => {
@@ -503,26 +438,15 @@ describe('release policy', () => {
         });
 
         it('rejects metadata whose files[].url is not among the artifacts', () => {
-            const artifacts = [
-                'latest-mac.yml',
-                'EVB-Viewer-0.1.0-arm64.zip',
-            ];
-            expect(() => assertPublishUpdaterMetadataReferences(
-                artifacts,
-                () => metadataText,
-            )).toThrow(/EVB-Viewer-0\.1\.0-arm64\.dmg not found/u);
+            const artifacts = ['latest-mac.yml', 'EVB-Viewer-0.1.0-arm64.zip'];
+            expect(() => assertPublishUpdaterMetadataReferences(artifacts, () => metadataText)).toThrow(
+                /EVB-Viewer-0\.1\.0-arm64\.dmg not found/u,
+            );
         });
 
         it('accepts metadata whose path and files[].url all exist', () => {
-            const artifacts = [
-                'latest-mac.yml',
-                'EVB-Viewer-0.1.0-arm64.zip',
-                'EVB-Viewer-0.1.0-arm64.dmg',
-            ];
-            expect(assertPublishUpdaterMetadataReferences(
-                artifacts,
-                () => metadataText,
-            )).toBe(true);
+            const artifacts = ['latest-mac.yml', 'EVB-Viewer-0.1.0-arm64.zip', 'EVB-Viewer-0.1.0-arm64.dmg'];
+            expect(assertPublishUpdaterMetadataReferences(artifacts, () => metadataText)).toBe(true);
         });
 
         it('rejects unsafe url entries', () => {
@@ -604,43 +528,37 @@ describe('release policy', () => {
                 return info;
             };
 
-            expect(assertMacUpdaterMetadataHashes({
-                artifactNames: [
-                    'EVB-Viewer-0.1.0-arm64.zip',
-                    'EVB-Viewer-0.1.0-arm64.dmg',
-                    'latest-mac.yml',
-                ],
-                readArtifactInfo,
-                readMetadataText: () => macMetadata,
-            })).toBe(true);
+            expect(
+                assertMacUpdaterMetadataHashes({
+                    artifactNames: ['EVB-Viewer-0.1.0-arm64.zip', 'EVB-Viewer-0.1.0-arm64.dmg', 'latest-mac.yml'],
+                    readArtifactInfo,
+                    readMetadataText: () => macMetadata,
+                }),
+            ).toBe(true);
 
             artifactInfo.set('EVB-Viewer-0.1.0-arm64.dmg', {
                 sha512: 'new-dmg-hash',
                 size: 250,
             });
-            expect(() => assertMacUpdaterMetadataHashes({
-                artifactNames: [
-                    'EVB-Viewer-0.1.0-arm64.zip',
-                    'EVB-Viewer-0.1.0-arm64.dmg',
-                    'latest-mac.yml',
-                ],
-                readArtifactInfo,
-                readMetadataText: () => macMetadata,
-            })).toThrow(/hash mismatch/u);
+            expect(() =>
+                assertMacUpdaterMetadataHashes({
+                    artifactNames: ['EVB-Viewer-0.1.0-arm64.zip', 'EVB-Viewer-0.1.0-arm64.dmg', 'latest-mac.yml'],
+                    readArtifactInfo,
+                    readMetadataText: () => macMetadata,
+                }),
+            ).toThrow(/hash mismatch/u);
 
             artifactInfo.set('EVB-Viewer-0.1.0-arm64.dmg', {
                 sha512: 'dmg-hash',
                 size: 251,
             });
-            expect(() => assertMacUpdaterMetadataHashes({
-                artifactNames: [
-                    'EVB-Viewer-0.1.0-arm64.zip',
-                    'EVB-Viewer-0.1.0-arm64.dmg',
-                    'latest-mac.yml',
-                ],
-                readArtifactInfo,
-                readMetadataText: () => macMetadata,
-            })).toThrow(/size mismatch/u);
+            expect(() =>
+                assertMacUpdaterMetadataHashes({
+                    artifactNames: ['EVB-Viewer-0.1.0-arm64.zip', 'EVB-Viewer-0.1.0-arm64.dmg', 'latest-mac.yml'],
+                    readArtifactInfo,
+                    readMetadataText: () => macMetadata,
+                }),
+            ).toThrow(/size mismatch/u);
         });
 
         // macOS codesign and xcrun fixtures are POSIX executables; notarization never runs on Windows.
@@ -650,8 +568,8 @@ describe('release policy', () => {
             try {
                 const artifactsDir = join(projectRoot, 'release');
                 const binDir = join(projectRoot, 'bin');
-                mkdirSync(artifactsDir, { recursive: true });
-                mkdirSync(binDir, { recursive: true });
+                mkdirSync(artifactsDir, {recursive: true});
+                mkdirSync(binDir, {recursive: true});
 
                 const appBuilderPath = createFakeDmgNotaryTools(binDir);
                 const dmgName = 'EVB-Viewer-0.1.0-arm64.dmg';
@@ -663,33 +581,38 @@ describe('release policy', () => {
                 writeFileSync(zipPath, 'zip-bytes');
 
                 const zipInfo = computeArtifactFileInfo(zipPath);
-                writeFileSync(metadataPath, [
-                    'version: 0.1.0',
-                    'files:',
-                    `  - url: ${zipName}`,
-                    `    sha512: ${zipInfo.sha512}`,
-                    `    size: ${zipInfo.size}`,
-                    `  - url: ${dmgName}`,
-                    '    sha512: stale-dmg-hash',
-                    '    size: 1',
-                    `path: ${zipName}`,
-                    `sha512: ${zipInfo.sha512}`,
-                ].join('\n'));
+                writeFileSync(
+                    metadataPath,
+                    [
+                        'version: 0.1.0',
+                        'files:',
+                        `  - url: ${zipName}`,
+                        `    sha512: ${zipInfo.sha512}`,
+                        `    size: ${zipInfo.size}`,
+                        `  - url: ${dmgName}`,
+                        '    sha512: stale-dmg-hash',
+                        '    size: 1',
+                        `path: ${zipName}`,
+                        `sha512: ${zipInfo.sha512}`,
+                    ].join('\n'),
+                );
 
-                expect(notarizeMacDmgArtifacts({
-                    arch: 'arm64',
-                    artifactsDir: 'release',
-                    env: {
-                        APP_BUILDER_BINARY: appBuilderPath,
-                        APPLE_API_ISSUER: 'issuer',
-                        APPLE_API_KEY: '/tmp/AuthKey_Test.p8',
-                        APPLE_API_KEY_ID: 'key-id',
-                        CSC_NAME: 'Developer ID Application: Example (TEAMID)',
-                        PATH: `${binDir}${delimiter}${process.env.PATH ?? ''}`,
-                    },
-                    platform: 'darwin',
-                    projectRoot,
-                })).toEqual({
+                expect(
+                    notarizeMacDmgArtifacts({
+                        arch: 'arm64',
+                        artifactsDir: 'release',
+                        env: {
+                            APP_BUILDER_BINARY: appBuilderPath,
+                            APPLE_API_ISSUER: 'issuer',
+                            APPLE_API_KEY: '/tmp/AuthKey_Test.p8',
+                            APPLE_API_KEY_ID: 'key-id',
+                            CSC_NAME: 'Developer ID Application: Example (TEAMID)',
+                            PATH: `${binDir}${delimiter}${process.env.PATH ?? ''}`,
+                        },
+                        platform: 'darwin',
+                        projectRoot,
+                    }),
+                ).toEqual({
                     processed: 1,
                     skipped: false,
                 });
@@ -710,10 +633,7 @@ describe('release policy', () => {
                         url: dmgName,
                     },
                 ]);
-                expect(updatedMetadata.split(/\r?\n/u).slice(-2)).toEqual([
-                    `path: ${zipName}`,
-                    `sha512: ${zipInfo.sha512}`,
-                ]);
+                expect(updatedMetadata.split(/\r?\n/u).slice(-2)).toEqual([`path: ${zipName}`, `sha512: ${zipInfo.sha512}`]);
             } finally {
                 rmSync(projectRoot, {
                     force: true,
@@ -725,25 +645,18 @@ describe('release policy', () => {
 
     it('keeps release checks in the policy-owned lint/static gate', () => {
         const manifest = getGatePolicyManifest();
-        const commandArgs: string[][] = getLocalReleaseCheckCommands()
-            .map((command: { args: string[] }) => command.args);
+        const commandArgs: string[][] = getLocalReleaseCheckCommands().map((command: {args: string[]}) => command.args);
         const packageScripts = getPackageScripts();
-        const lintAndStaticGate = manifest.release.localChecks.gateGroups.find(group => group.id === 'lint-static');
-        const scriptNames = manifest.release.localChecks.gateGroups.flatMap(group => group.scripts);
+        const lintAndStaticGate = manifest.release.localChecks.gateGroups.find((group) => group.id === 'lint-static');
+        const scriptNames = manifest.release.localChecks.gateGroups.flatMap((group) => group.scripts);
 
         expect(manifest.schemaVersion).toBe(2);
         expect(manifest.release.localChecks.owner).toBe('release');
-        expect(manifest.release.localChecks.gateGroups.map(group => group.id)).toEqual(['lint-static']);
+        expect(manifest.release.localChecks.gateGroups.map((group) => group.id)).toEqual(['lint-static']);
         expect(lintAndStaticGate?.owner).toBe('release');
-        expect(lintAndStaticGate?.scripts).toEqual([
-            'check:electron:install',
-            'check:electron-builder:asar-unpack',
-        ]);
-        expect(scriptNames.every(scriptName => Boolean(packageScripts[scriptName]))).toBe(true);
-        expect(commandArgs).toEqual(scriptNames.map(scriptName => [
-            'run',
-            scriptName,
-        ]));
+        expect(lintAndStaticGate?.scripts).toEqual(['check:electron:install', 'check:electron-builder:asar-unpack']);
+        expect(scriptNames.every((scriptName) => Boolean(packageScripts[scriptName]))).toBe(true);
+        expect(commandArgs).toEqual(scriptNames.map((scriptName) => ['run', scriptName]));
         expect(scriptNames).not.toContain('build:strict');
         expect(scriptNames).not.toContain('validate');
         expect(scriptNames).not.toContain('test:release');
@@ -753,9 +666,9 @@ describe('release policy', () => {
 
     it('uses the unified tag-triggered five-target release workflow', () => {
         const workflowSource = readFileSync(resolve(process.cwd(), '.github/workflows/release.yml'), 'utf8');
-        const workflow = getStaticYAMLValue(parseYAML(workflowSource)) as {jobs: {finalize: {steps: Array<{id?: string}>;};};};
+        const workflow = getStaticYAMLValue(parseYAML(workflowSource)) as {jobs: {finalize: {steps: Array<{id?: string}>}}};
         const workflowText = workflowSource;
-        expect(workflowText).toContain('tags: [\'v*\']');
+        expect(workflowText).toContain("tags: ['v*']");
         expect(workflowText).toContain('windows-11-arm');
         expect(workflowText).toContain('name: Validate assets, checksum, mirror, promote');
         expect(workflowText).toContain('wait-for-exact-sha-ci.mjs');
@@ -766,8 +679,8 @@ describe('release policy', () => {
         expect(workflowText).toContain('Promote real release draft');
         expect(workflowText).not.toContain('release-supplemental.yml');
         expect(workflowText).not.toContain('release-artifacts.yml');
-        const promoteIndex = workflow.jobs.finalize.steps.findIndex(step => step.id === 'promote');
-        const mirrorActivationIndex = workflow.jobs.finalize.steps.findIndex(step => step.id === 'mirror_stage');
+        const promoteIndex = workflow.jobs.finalize.steps.findIndex((step) => step.id === 'promote');
+        const mirrorActivationIndex = workflow.jobs.finalize.steps.findIndex((step) => step.id === 'mirror_stage');
         expect(promoteIndex).toBeGreaterThanOrEqual(0);
         expect(mirrorActivationIndex).toBeGreaterThanOrEqual(0);
         expect(promoteIndex).toBeLessThan(mirrorActivationIndex);
@@ -775,9 +688,11 @@ describe('release policy', () => {
 
     it.skipIf(process.platform === 'win32')('requires packaging credentials only when the gate builds packages', () => {
         const workflowSource = readFileSync(resolve(process.cwd(), '.github/workflows/release.yml'), 'utf8');
-        const workflow = getStaticYAMLValue(parseYAML(workflowSource)) as {jobs: {gate: {steps: Array<Pick<IWorkflowStep, keyof IWorkflowStep>>;};};};
+        const workflow = getStaticYAMLValue(parseYAML(workflowSource)) as {
+            jobs: {gate: {steps: Array<Pick<IWorkflowStep, keyof IWorkflowStep>>}};
+        };
         const gateStep = (name: string) => {
-            const step = workflow.jobs.gate.steps.find(candidate => candidate.name === name);
+            const step = workflow.jobs.gate.steps.find((candidate) => candidate.name === name);
             if (!step?.run) {
                 throw new Error(`The gate has no ${name} step.`);
             }
@@ -785,10 +700,12 @@ describe('release policy', () => {
         };
         // A public release is resumed without packaging, so it skips the signing step.
         const finalize = cast<{jobs: {finalize: {steps: IWorkflowStep[]}}}>(getStaticYAMLValue(parseYAML(workflowSource))).jobs.finalize;
-        const validate = finalize.steps.find(step => step.name === 'Validate final updater artifacts');
-        expect(validate?.env?.EVB_RELEASE_HAS_MAC_SIGNING).toBe('${{ needs.gate.outputs.public_release == \'true\' || (secrets.CSC_LINK != \'\' && secrets.CSC_KEY_PASSWORD != \'\') }}');
+        const validate = finalize.steps.find((step) => step.name === 'Validate final updater artifacts');
+        expect(validate?.env?.EVB_RELEASE_HAS_MAC_SIGNING).toBe(
+            "${{ needs.gate.outputs.public_release == 'true' || (secrets.CSC_LINK != '' && secrets.CSC_KEY_PASSWORD != '') }}",
+        );
         const signing = gateStep('Validate signing credentials');
-        expect(signing.if).toBe('${{ steps.published.outputs.public != \'true\' }}');
+        expect(signing.if).toBe("${{ steps.published.outputs.public != 'true' }}");
         const mirror = gateStep('Validate mirror credentials');
         expect(mirror.if).toBeUndefined();
 
@@ -798,57 +715,52 @@ describe('release policy', () => {
             MIRROR_S3_ACCESS_KEY_ID: 'fixture',
             MIRROR_S3_SECRET_KEY: 'fixture',
         };
-        const runStep = (step: IWorkflowStep, env: Record<string, string>) => spawnSync('bash', [
-            '-c',
-            step.run ?? '',
-        ], {
-            encoding: 'utf8',
-            env: {
-                PATH: process.env.PATH ?? '',
-                ...env,
-            },
-        }).status;
+        const runStep = (step: IWorkflowStep, env: Record<string, string>) =>
+            spawnSync('bash', ['-c', step.run ?? ''], {
+                encoding: 'utf8',
+                env: {
+                    PATH: process.env.PATH ?? '',
+                    ...env,
+                },
+            }).status;
         expect(runStep(mirror, mirrorOnly)).toBe(0);
-        expect(runStep(mirror, {
-            ...mirrorOnly,
-            MIRROR_S3_SECRET_KEY: '',
-        })).toBe(1);
+        expect(
+            runStep(mirror, {
+                ...mirrorOnly,
+                MIRROR_S3_SECRET_KEY: '',
+            }),
+        ).toBe(1);
         expect(runStep(signing, mirrorOnly)).toBe(1);
     });
 
     it('keeps standalone release verification split into check and package gates', () => {
         const manifest = getGatePolicyManifest();
         const packageScripts = getPackageScripts();
-        const manifestCommands = manifest.release.localVerify.gates.map(gate => ({
+        const manifestCommands = manifest.release.localVerify.gates.map((gate) => ({
             args: gate.args,
             command: gate.command,
         }));
 
         expect(manifest.release.localVerify.owner).toBe('release');
-        expect(manifest.release.localVerify.gates.map(gate => gate.id)).toEqual([
-            'checks',
-            'package-local',
-        ]);
-        expect(manifest.release.localVerify.gates.every((gate) => {
-            const scriptName = gate.args[1];
-            return gate.command === 'pnpm'
-                && gate.args[0] === 'run'
-                && typeof scriptName === 'string'
-                && Boolean(packageScripts[scriptName]);
-        })).toBe(true);
+        expect(manifest.release.localVerify.gates.map((gate) => gate.id)).toEqual(['checks', 'package-local']);
+        expect(
+            manifest.release.localVerify.gates.every((gate) => {
+                const scriptName = gate.args[1];
+                return (
+                    gate.command === 'pnpm' &&
+                    gate.args[0] === 'run' &&
+                    typeof scriptName === 'string' &&
+                    Boolean(packageScripts[scriptName])
+                );
+            }),
+        ).toBe(true);
         expect(getLocalReleaseVerifyCommands()).toEqual(manifestCommands);
     });
 
     it('can ignore landing-only worktree changes for main app releases', () => {
-        expect(filterIgnoredFiles([
-            'package.json',
-            'landing/app/pages/index.vue',
-            'landing/package.json',
-            'app/app.vue',
-        ], [ 'landing' ])).toEqual([
-            'package.json',
-            'app/app.vue',
-        ]);
+        expect(
+            filterIgnoredFiles(['package.json', 'landing/app/pages/index.vue', 'landing/package.json', 'app/app.vue'], ['landing']),
+        ).toEqual(['package.json', 'app/app.vue']);
     });
 
     it('runs release checks under the supplied CI-mode environment', () => {
@@ -863,19 +775,19 @@ describe('release policy', () => {
                 CI: 'true',
                 FOO: 'bar',
             },
-            runCommand: (command: string, args: string[], options: { env?: Record<string, string> }) => {
+            runCommand: (command: string, args: string[], options: {env?: Record<string, string>}) => {
                 calls.push({
                     args,
                     command,
-                    ...(options.env === undefined ? {} : { env: options.env }),
+                    ...(options.env === undefined ? {} : {env: options.env}),
                 });
             },
         });
 
         expect(calls).toHaveLength(getLocalReleaseCheckCommands().length);
-        expect(calls.every(call => call.command === 'pnpm')).toBe(true);
-        expect(calls.every(call => call.env?.CI === 'true')).toBe(true);
-        expect(calls.every(call => call.env?.FOO === 'bar')).toBe(true);
+        expect(calls.every((call) => call.command === 'pnpm')).toBe(true);
+        expect(calls.every((call) => call.env?.CI === 'true')).toBe(true);
+        expect(calls.every((call) => call.env?.FOO === 'bar')).toBe(true);
     });
 
     it('defaults release checks to the shared CI-mode environment', () => {
@@ -884,21 +796,21 @@ describe('release policy', () => {
             command: string;
             env?: Record<string, string>;
         }> = [];
-        const runCommand = (command: string, args: string[], options: { env?: Record<string, string> }) => {
+        const runCommand = (command: string, args: string[], options: {env?: Record<string, string>}) => {
             calls.push({
                 args,
                 command,
-                ...(options.env === undefined ? {} : { env: options.env }),
+                ...(options.env === undefined ? {} : {env: options.env}),
             });
         };
 
-        runLocalReleaseChecks({ runCommand });
+        runLocalReleaseChecks({runCommand});
 
         expect(calls).toHaveLength(getLocalReleaseCheckCommands().length);
-        expect(calls.every(call => call.command === 'pnpm')).toBe(true);
-        expect(calls.every(call => call.env?.CI === 'true')).toBe(true);
-        expect(calls.every(call => call.env?.EVB_AUTOMATION_HIDE_WINDOW === undefined)).toBe(true);
-        expect(calls.every(call => call.env?.EVB_AUTOMATION_NO_FOCUS === undefined)).toBe(true);
+        expect(calls.every((call) => call.command === 'pnpm')).toBe(true);
+        expect(calls.every((call) => call.env?.CI === 'true')).toBe(true);
+        expect(calls.every((call) => call.env?.EVB_AUTOMATION_HIDE_WINDOW === undefined)).toBe(true);
+        expect(calls.every((call) => call.env?.EVB_AUTOMATION_NO_FOCUS === undefined)).toBe(true);
     });
 
     it('records a strict-build receipt after the policy-owned release checks', () => {
@@ -913,42 +825,26 @@ describe('release policy', () => {
                 EVB_RELEASE_VERIFY_SKIP: '',
                 EVB_RELEASE_VERIFY_SKIP_ACK: '1',
             },
-            runCommand: (
-                _command: string,
-                args: string[],
-                options: {env?: Record<string, string>},
-            ) => {
+            runCommand: (_command: string, args: string[], options: {env?: Record<string, string>}) => {
                 const script = args[1] ?? args[0] ?? '';
                 scripts.push(script);
                 childEnvironments.set(script, options.env ?? {});
             },
             stderr: {write: () => {}},
-            writeBuildReceipt: receiptPath => receipts.push(receiptPath),
+            writeBuildReceipt: (receiptPath) => receipts.push(receiptPath),
         });
 
-        expect(scripts.indexOf('build:strict')).toBeGreaterThan(
-            scripts.indexOf('check:electron-builder:asar-unpack'),
-        );
-        expect(scripts).toEqual([
-            'check:electron:install',
-            'check:electron-builder:asar-unpack',
-            'build:strict',
-        ]);
+        expect(scripts.indexOf('build:strict')).toBeGreaterThan(scripts.indexOf('check:electron-builder:asar-unpack'));
+        expect(scripts).toEqual(['check:electron:install', 'check:electron-builder:asar-unpack', 'build:strict']);
         expect(receipts).toEqual(['/tmp/release-build-receipt.json']);
         expect(childEnvironments.get('check:electron:install')).toMatchObject({
             EVB_RELEASE_BUILD_RECEIPT: '/tmp/release-build-receipt.json',
             EVB_RELEASE_VERIFY_SKIP: '',
             EVB_RELEASE_VERIFY_SKIP_ACK: '1',
         });
-        expect(childEnvironments.get('check:electron-builder:asar-unpack')).toHaveProperty(
-            'EVB_RELEASE_BUILD_RECEIPT',
-        );
-        expect(childEnvironments.get('check:electron-builder:asar-unpack')).toHaveProperty(
-            'EVB_RELEASE_VERIFY_SKIP',
-        );
-        expect(childEnvironments.get('check:electron-builder:asar-unpack')).toHaveProperty(
-            'EVB_RELEASE_VERIFY_SKIP_ACK',
-        );
+        expect(childEnvironments.get('check:electron-builder:asar-unpack')).toHaveProperty('EVB_RELEASE_BUILD_RECEIPT');
+        expect(childEnvironments.get('check:electron-builder:asar-unpack')).toHaveProperty('EVB_RELEASE_VERIFY_SKIP');
+        expect(childEnvironments.get('check:electron-builder:asar-unpack')).toHaveProperty('EVB_RELEASE_VERIFY_SKIP_ACK');
     });
 
     it('reuses a validated strict build from the same all-gates run', () => {
@@ -965,52 +861,53 @@ describe('release policy', () => {
             runCommand: (_command: string, args: string[]) => {
                 scripts.push(args[1] ?? args[0] ?? '');
             },
-            stderr: {write: message => stderrLines.push(message)},
+            stderr: {write: (message) => stderrLines.push(message)},
             validateBuildReceipt: () => ({valid: true}),
-            writeBuildReceipt: receiptPath => receipts.push(receiptPath),
+            writeBuildReceipt: (receiptPath) => receipts.push(receiptPath),
         });
 
         expect(scripts).not.toContain('build:strict');
-        expect(scripts).toEqual([
-            'check:electron:install',
-            'check:electron-builder:asar-unpack',
-        ]);
+        expect(scripts).toEqual(['check:electron:install', 'check:electron-builder:asar-unpack']);
         expect(receipts).toEqual([]);
         expect(stderrLines.join('')).toContain('Reusing strict-build receipt');
     });
 
     it('fails closed instead of rebuilding when an all-gates receipt is stale', () => {
-        expect(() => runLocalReleaseChecks({
-            env: {
-                CI: 'true',
-                EVB_RELEASE_BUILD_RECEIPT: '/tmp/stale-release-build-receipt.json',
-                EVB_RELEASE_VERIFY_REUSE_BUILD_RECEIPT: '1',
-            },
-            stderr: {write: () => {}},
-            validateBuildReceipt: () => ({
-                reason: 'outputs-changed',
-                valid: false,
+        expect(() =>
+            runLocalReleaseChecks({
+                env: {
+                    CI: 'true',
+                    EVB_RELEASE_BUILD_RECEIPT: '/tmp/stale-release-build-receipt.json',
+                    EVB_RELEASE_VERIFY_REUSE_BUILD_RECEIPT: '1',
+                },
+                stderr: {write: () => {}},
+                validateBuildReceipt: () => ({
+                    reason: 'outputs-changed',
+                    valid: false,
+                }),
             }),
-        })).toThrow(
-            'Cannot reuse strict-build receipt /tmp/stale-release-build-receipt.json: outputs-changed',
-        );
+        ).toThrow('Cannot reuse strict-build receipt /tmp/stale-release-build-receipt.json: outputs-changed');
     });
 
     it('rejects explicit receipt reuse when no complete handoff is available', () => {
-        expect(() => runLocalReleaseChecks({
-            env: {EVB_RELEASE_VERIFY_REUSE_BUILD_RECEIPT: '1'},
-            stderr: {write: () => {}},
-        })).toThrow('Cannot reuse the all-gates strict build: EVB_RELEASE_BUILD_RECEIPT is missing');
+        expect(() =>
+            runLocalReleaseChecks({
+                env: {EVB_RELEASE_VERIFY_REUSE_BUILD_RECEIPT: '1'},
+                stderr: {write: () => {}},
+            }),
+        ).toThrow('Cannot reuse the all-gates strict build: EVB_RELEASE_BUILD_RECEIPT is missing');
 
-        expect(() => runLocalReleaseChecks({
-            allowSkip: true,
-            env: {
-                EVB_RELEASE_BUILD_RECEIPT: '/tmp/release-build-receipt.json',
-                EVB_RELEASE_VERIFY_REUSE_BUILD_RECEIPT: '1',
-            },
-            skipList: 'check:electron:install',
-            stderr: {write: () => {}},
-        })).toThrow('Cannot reuse strict-build receipt /tmp/release-build-receipt.json: missing');
+        expect(() =>
+            runLocalReleaseChecks({
+                allowSkip: true,
+                env: {
+                    EVB_RELEASE_BUILD_RECEIPT: '/tmp/release-build-receipt.json',
+                    EVB_RELEASE_VERIFY_REUSE_BUILD_RECEIPT: '1',
+                },
+                skipList: 'check:electron:install',
+                stderr: {write: () => {}},
+            }),
+        ).toThrow('Cannot reuse strict-build receipt /tmp/release-build-receipt.json: missing');
     });
 
     it('skips explicitly listed release gates without changing the default gate list', () => {
@@ -1023,10 +920,10 @@ describe('release policy', () => {
                 calls.push(args);
             },
             skipList: 'check:electron:install, check:electron-builder:asar-unpack',
-            stderr: { write: (message: string) => stderrLines.push(message) },
+            stderr: {write: (message: string) => stderrLines.push(message)},
         });
 
-        const scriptNames = calls.map(args => args[1]);
+        const scriptNames = calls.map((args) => args[1]);
         expect(scriptNames).not.toContain('check:electron-builder:asar-unpack');
         expect(scriptNames).not.toContain('check:electron:install');
         expect(calls).toHaveLength(getLocalReleaseCheckCommands().length - 2);
@@ -1035,47 +932,63 @@ describe('release policy', () => {
     });
 
     it('requires explicit acknowledgement before release verification skips gates', () => {
-        expect(isReleaseVerifySkipAcknowledged({
-            argv: [],
-            env: {},
-        })).toBe(false);
-        expect(isReleaseVerifySkipAcknowledged({
-            argv: ['--allow-skip'],
-            env: {},
-        })).toBe(true);
-        expect(isReleaseVerifySkipAcknowledged({
-            argv: [],
-            env: {EVB_RELEASE_VERIFY_SKIP_ACK: '1'},
-        })).toBe(true);
-        expect(() => assertReleaseVerifySkipAcknowledged(['check:electron:install'], {allowSkip: false}))
-            .toThrow(/without explicit acknowledgement/u);
-        expect(() => runLocalReleaseChecks({
-            runCommand: () => {},
-            skipList: 'check:electron:install',
-            stderr: { write: () => {} },
-        })).toThrow(/EVB_RELEASE_VERIFY_SKIP was set without explicit acknowledgement/u);
+        expect(
+            isReleaseVerifySkipAcknowledged({
+                argv: [],
+                env: {},
+            }),
+        ).toBe(false);
+        expect(
+            isReleaseVerifySkipAcknowledged({
+                argv: ['--allow-skip'],
+                env: {},
+            }),
+        ).toBe(true);
+        expect(
+            isReleaseVerifySkipAcknowledged({
+                argv: [],
+                env: {EVB_RELEASE_VERIFY_SKIP_ACK: '1'},
+            }),
+        ).toBe(true);
+        expect(() => assertReleaseVerifySkipAcknowledged(['check:electron:install'], {allowSkip: false})).toThrow(
+            /without explicit acknowledgement/u,
+        );
+        expect(() =>
+            runLocalReleaseChecks({
+                runCommand: () => {},
+                skipList: 'check:electron:install',
+                stderr: {write: () => {}},
+            }),
+        ).toThrow(/EVB_RELEASE_VERIFY_SKIP was set without explicit acknowledgement/u);
     });
 
     it('rejects unknown gate names in the release verify skip list', () => {
-        expect(() => runLocalReleaseChecks({
-            runCommand: () => {},
-            skipList: 'test:coferage',
-            stderr: { write: () => {} },
-        })).toThrow(/unknown release gates: test:coferage/u);
+        expect(() =>
+            runLocalReleaseChecks({
+                runCommand: () => {},
+                skipList: 'test:coferage',
+                stderr: {write: () => {}},
+            }),
+        ).toThrow(/unknown release gates: test:coferage/u);
         expect(parseReleaseVerifySkipList(undefined)).toEqual([]);
         expect(parseReleaseVerifySkipList('')).toEqual([]);
     });
 
     it('fails standalone release verification when the worktree snapshot changes', () => {
-        expect(() => assertReleaseVerifyDidNotMutateWorktree({
-            stagedDiff: '',
-            trackedDiff: '',
-            untrackedFiles: [],
-        }, {
-            stagedDiff: '',
-            trackedDiff: 'diff --git a/package.json b/package.json',
-            untrackedFiles: [],
-        })).toThrow('tracked diff');
+        expect(() =>
+            assertReleaseVerifyDidNotMutateWorktree(
+                {
+                    stagedDiff: '',
+                    trackedDiff: '',
+                    untrackedFiles: [],
+                },
+                {
+                    stagedDiff: '',
+                    trackedDiff: 'diff --git a/package.json b/package.json',
+                    untrackedFiles: [],
+                },
+            ),
+        ).toThrow('tracked diff');
     });
 
     it('checks standalone release verification mutations after successful commands', () => {
@@ -1085,23 +998,25 @@ describe('release policy', () => {
         }> = [];
         let snapshotCount = 0;
 
-        expect(() => runLocalReleaseVerify({
-            runCommand: (command: string, args: string[]) => {
-                calls.push({
-                    args,
-                    command,
-                });
-                return '';
-            },
-            snapshotGetter: () => {
-                snapshotCount += 1;
-                return {
-                    stagedDiff: '',
-                    trackedDiff: snapshotCount === 1 ? '' : 'changed',
-                    untrackedFiles: [],
-                };
-            },
-        })).toThrow('tracked diff');
+        expect(() =>
+            runLocalReleaseVerify({
+                runCommand: (command: string, args: string[]) => {
+                    calls.push({
+                        args,
+                        command,
+                    });
+                    return '';
+                },
+                snapshotGetter: () => {
+                    snapshotCount += 1;
+                    return {
+                        stagedDiff: '',
+                        trackedDiff: snapshotCount === 1 ? '' : 'changed',
+                        untrackedFiles: [],
+                    };
+                },
+            }),
+        ).toThrow('tracked diff');
 
         expect(calls).toEqual(getLocalReleaseVerifyCommands());
     });
@@ -1162,9 +1077,7 @@ describe('release policy', () => {
                 snapshotGetter: snapshot,
             });
 
-            expect(childReceiptPaths).toEqual(
-                getLocalReleaseVerifyCommands().map(() => receiptPath),
-            );
+            expect(childReceiptPaths).toEqual(getLocalReleaseVerifyCommands().map(() => receiptPath));
             expect(existsSync(receiptPath)).toBe(true);
         } finally {
             rmSync(receiptPath, {force: true});
@@ -1173,10 +1086,7 @@ describe('release policy', () => {
 
     it('keeps strict build enforcement in the local packaging phase', () => {
         expect(getLocalReleaseBuildCommand()).toEqual({
-            args: [
-                'run',
-                'build:strict',
-            ],
+            args: ['run', 'build:strict'],
             command: 'pnpm',
         });
     });
@@ -1187,44 +1097,35 @@ describe('release policy', () => {
         expect(scripts['test:electron-bundle-static-integrity']).toBe(
             'pnpm run build:electron && pnpm run test:electron-bundle-static-integrity:no-build && node scripts/prune-build-artifacts.mjs && pnpm run check:build-artifacts:hygiene',
         );
-        expect(scripts['test:electron-bundle-static-integrity:no-build']).toBe(
-            'vitest run --project electron-bundle-static-integrity',
-        );
+        expect(scripts['test:electron-bundle-static-integrity:no-build']).toBe('vitest run --project electron-bundle-static-integrity');
     });
 
     it('uses a DMG-only local package check for unsigned macOS arm64 builds', () => {
-        expect(getPackagingArgs({
-            arch: 'arm64',
-            expectsUpdaterMetadata: true,
-            platform: 'mac',
-        }, {})).toEqual([
-            'exec',
-            'electron-builder',
-            '--publish',
-            'never',
-            '--mac',
-            'dmg',
-            '--arm64',
-        ]);
+        expect(
+            getPackagingArgs(
+                {
+                    arch: 'arm64',
+                    expectsUpdaterMetadata: true,
+                    platform: 'mac',
+                },
+                {},
+            ),
+        ).toEqual(['exec', 'electron-builder', '--publish', 'never', '--mac', 'dmg', '--arm64']);
     });
 
     it('keeps ZIP generation for signed macOS arm64 builds with updater metadata', () => {
-        expect(getPackagingArgs({
-            arch: 'arm64',
-            expectsUpdaterMetadata: true,
-            platform: 'mac',
-        }, {
-            CSC_KEY_PASSWORD: 'password',
-            CSC_LINK: 'certificate',
-        })).toEqual([
-            'exec',
-            'electron-builder',
-            '--publish',
-            'never',
-            '--mac',
-            '--arm64',
-        ]);
+        expect(
+            getPackagingArgs(
+                {
+                    arch: 'arm64',
+                    expectsUpdaterMetadata: true,
+                    platform: 'mac',
+                },
+                {
+                    CSC_KEY_PASSWORD: 'password',
+                    CSC_LINK: 'certificate',
+                },
+            ),
+        ).toEqual(['exec', 'electron-builder', '--publish', 'never', '--mac', '--arm64']);
     });
-
-
 });

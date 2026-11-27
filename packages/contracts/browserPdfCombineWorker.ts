@@ -1,7 +1,4 @@
-import {
-    isRecord,
-    isSafeWorkerRequestId,
-} from '@contracts/runtimeGuards';
+import {isRecord, isSafeWorkerRequestId} from '@contracts/runtimeGuards';
 import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
 import type {INativeErrorEnvelope} from '@contracts/nativeErrors';
 import * as v from 'valibot';
@@ -13,10 +10,10 @@ export const BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES = 0x7fff_ffff;
 export const BROWSER_PDF_COMBINE_MAX_IMAGE_PIXELS = 80_000_000;
 
 const requestIdSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
-const byteArraySchema = v.custom<Uint8Array>(value => value instanceof Uint8Array);
+const byteArraySchema = v.custom<Uint8Array>((value) => value instanceof Uint8Array);
 const pdfBytesSchema = v.pipe(
     byteArraySchema,
-    v.check(value => value.byteLength >= 8 && new TextDecoder().decode(value.subarray(0, 5)) === '%PDF-'),
+    v.check((value) => value.byteLength >= 8 && new TextDecoder().decode(value.subarray(0, 5)) === '%PDF-'),
 );
 const jpegQualitySchema = v.pipe(v.number(), v.safeInteger(), v.minValue(1), v.maxValue(100));
 const ppiCapSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0), v.maxValue(1200));
@@ -24,11 +21,14 @@ const rgbChannelSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0), v.ma
 const positiveFiniteNumber = v.pipe(
     v.number(),
     v.finite(),
-    v.check(value => value > 0),
+    v.check((value) => value > 0),
 );
 
 const inputSchema = v.object({
-    fileName: v.pipe(v.string(), v.check(value => value.trim().length > 0)),
+    fileName: v.pipe(
+        v.string(),
+        v.check((value) => value.trim().length > 0),
+    ),
     data: byteArraySchema,
 });
 
@@ -41,21 +41,8 @@ const pageSpecShared = {
     pageSize: pageSizeSchema,
     jpegQuality: v.optional(jpegQualitySchema),
     ppiCap: v.optional(ppiCapSchema),
-    rotationDegrees: v.optional(v.picklist([
-        0,
-        90,
-        180,
-        270,
-        360,
-        450,
-        540,
-        630,
-    ])),
-    foregroundColor: v.optional(v.strictTuple([
-        rgbChannelSchema,
-        rgbChannelSchema,
-        rgbChannelSchema,
-    ])),
+    rotationDegrees: v.optional(v.picklist([0, 90, 180, 270, 360, 450, 540, 630])),
+    foregroundColor: v.optional(v.strictTuple([rgbChannelSchema, rgbChannelSchema, rgbChannelSchema])),
     image: v.optional(inputSchema),
     background: v.optional(inputSchema),
     mask: v.optional(inputSchema),
@@ -83,11 +70,7 @@ const pageSpecSchemas = [
         kind: v.literal('layered-color'),
         background: inputSchema,
         mask: inputSchema,
-        foregroundColor: v.strictTuple([
-            rgbChannelSchema,
-            rgbChannelSchema,
-            rgbChannelSchema,
-        ]),
+        foregroundColor: v.strictTuple([rgbChannelSchema, rgbChannelSchema, rgbChannelSchema]),
     }),
     // Desktop Optimize's `image-bw` page: its shared black-and-white route.
     v.object({
@@ -114,15 +97,26 @@ const imagePreprocessingSchema = v.object({
     pageSizes: v.optional(v.array(pageSizeSchema)),
     pageSpecs: v.optional(v.pipe(v.array(pageSpecSchema), v.minLength(1))),
     // Desktop compact manifest lines, one page each; their planes name inputs.
-    compactManifestLines: v.optional(v.pipe(
-        v.array(v.pipe(v.string(), v.minLength(1), v.check(value => !/[\r\n]/u.test(value)))),
-        v.minLength(1),
-    )),
+    compactManifestLines: v.optional(
+        v.pipe(
+            v.array(
+                v.pipe(
+                    v.string(),
+                    v.minLength(1),
+                    v.check((value) => !/[\r\n]/u.test(value)),
+                ),
+            ),
+            v.minLength(1),
+        ),
+    ),
 });
-const combinePayloadSchema = v.pipe(v.object({
-    inputs: v.array(inputSchema),
-    wasmImagePreprocessing: v.optional(imagePreprocessingSchema),
-}), v.check(value => value.inputs.length > 0 || (value.wasmImagePreprocessing?.pageSpecs?.length ?? 0) > 0));
+const combinePayloadSchema = v.pipe(
+    v.object({
+        inputs: v.array(inputSchema),
+        wasmImagePreprocessing: v.optional(imagePreprocessingSchema),
+    }),
+    v.check((value) => value.inputs.length > 0 || (value.wasmImagePreprocessing?.pageSpecs?.length ?? 0) > 0),
+);
 
 const requestSchema = v.object({
     id: requestIdSchema,
@@ -147,7 +141,9 @@ const workerResponseSchema = v.union([
     }),
 ]);
 
-interface IBrowserPdfCombineWorkerRequestMap {combinePdfs: v.InferOutput<typeof combinePayloadSchema>;}
+interface IBrowserPdfCombineWorkerRequestMap {
+    combinePdfs: v.InferOutput<typeof combinePayloadSchema>;
+}
 type IBrowserPdfCombineWorkerResultMap = {
     [K in keyof typeof resultSchemas]: v.InferOutput<(typeof resultSchemas)[K]>;
 };
@@ -167,9 +163,7 @@ type TBrowserPdfCombineWasmPageKind = IBrowserPdfCombineWasmPageSpec['kind'];
 type TBrowserPdfCombineRgb = NonNullable<IBrowserPdfCombineWasmPageSpec['foregroundColor']>;
 
 export function getBrowserPdfCombineWorkerRequestId(value: unknown) {
-    return isRecord(value) && isSafeWorkerRequestId(value.id)
-        ? value.id
-        : null;
+    return isRecord(value) && isSafeWorkerRequestId(value.id) ? value.id : null;
 }
 
 export function parseBrowserPdfCombineWorkerRequest(value: unknown): TBrowserPdfCombineWorkerRequest | null {
@@ -177,9 +171,7 @@ export function parseBrowserPdfCombineWorkerRequest(value: unknown): TBrowserPdf
     return result.success ? result.output : null;
 }
 
-export {
-    resultSchemas as BROWSER_PDF_COMBINE_WORKER_RESULT_SCHEMAS,
-};
+export {resultSchemas as BROWSER_PDF_COMBINE_WORKER_RESULT_SCHEMAS};
 
 export type {
     IBrowserPdfCombineInput,

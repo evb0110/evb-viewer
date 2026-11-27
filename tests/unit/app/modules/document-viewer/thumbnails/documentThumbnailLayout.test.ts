@@ -1,6 +1,4 @@
-import {
-    describe, expect, it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     DEFAULT_DOCUMENT_THUMBNAIL_ASPECT_RATIO,
     DOCUMENT_THUMBNAIL_SCROLL_SEGMENT_MAX_HEIGHT,
@@ -15,24 +13,8 @@ describe('DocumentThumbnailLayout', () => {
             renderWidth: 100,
             itemChromeHeight: 30,
         });
-        expect([
-            1,
-            2,
-            3,
-        ].map(page => layout.getPageHeight(page))).toEqual([
-            172,
-            172,
-            172,
-        ]);
-        expect([
-            1,
-            2,
-            3,
-        ].map(page => layout.getPageTop(page))).toEqual([
-            0,
-            180,
-            360,
-        ]);
+        expect([1, 2, 3].map((page) => layout.getPageHeight(page))).toEqual([172, 172, 172]);
+        expect([1, 2, 3].map((page) => layout.getPageTop(page))).toEqual([0, 180, 360]);
         expect(layout.getTotalHeight()).toBe(532);
         layout.reset({
             pageCount: 3,
@@ -42,7 +24,7 @@ describe('DocumentThumbnailLayout', () => {
         expect(layout.getPageTop(3)).toBe(432);
     });
 
-    it('shapes every slot like the document\'s pages', () => {
+    it("shapes every slot like the document's pages", () => {
         // A book scanned as two-page spreads: 793 x 566 pt sheets.
         const spreadAspectRatio = resolveDocumentThumbnailAspectRatio([
             {
@@ -83,20 +65,23 @@ describe('DocumentThumbnailLayout', () => {
             widthPoints: 396,
             heightPoints: 566,
         };
-        expect(resolveDocumentThumbnailAspectRatio([
-            cover,
-            spread,
-            spread,
-        ])).toBeCloseTo(566 / 793);
-        expect(resolveDocumentThumbnailAspectRatio([{
-            widthPoints: 200,
-            heightPoints: 800,
-        }]))
-            .toBe(DEFAULT_DOCUMENT_THUMBNAIL_ASPECT_RATIO);
-        expect(resolveDocumentThumbnailAspectRatio([{
-            widthPoints: 1000,
-            heightPoints: 100,
-        }])).toBe(0.5);
+        expect(resolveDocumentThumbnailAspectRatio([cover, spread, spread])).toBeCloseTo(566 / 793);
+        expect(
+            resolveDocumentThumbnailAspectRatio([
+                {
+                    widthPoints: 200,
+                    heightPoints: 800,
+                },
+            ]),
+        ).toBe(DEFAULT_DOCUMENT_THUMBNAIL_ASPECT_RATIO);
+        expect(
+            resolveDocumentThumbnailAspectRatio([
+                {
+                    widthPoints: 1000,
+                    heightPoints: 100,
+                },
+            ]),
+        ).toBe(0.5);
         expect(resolveDocumentThumbnailAspectRatio([])).toBe(DEFAULT_DOCUMENT_THUMBNAIL_ASPECT_RATIO);
     });
 
@@ -107,7 +92,10 @@ describe('DocumentThumbnailLayout', () => {
         });
         const segmentIndex = layout.getScrollSegmentIndexForPage(999_900);
         const range = layout.resolveVirtualRangeInScrollSegment(
-            layout.getPageTopInScrollSegment(999_900, segmentIndex), 800, 700, segmentIndex,
+            layout.getPageTopInScrollSegment(999_900, segmentIndex),
+            800,
+            700,
+            segmentIndex,
         );
         expect(range.startPage).toBeLessThanOrEqual(999_900);
         expect(range.endPage).toBeGreaterThanOrEqual(999_900);
