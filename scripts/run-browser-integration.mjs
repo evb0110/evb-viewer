@@ -25,28 +25,73 @@ const SHUTDOWN_SIGNALS = [
 ];
 
 /**
- * @param {number} pid
- * @param {{
+ * @typedef {{
  *   collectDescendantPidsUnix: (rootPid: number) => number[],
+ *   findFreePort: () => Promise<number>,
  *   isProcessAlive: (rootPid: number) => boolean,
  *   killPids: (pids: number[], options?: { signal?: NodeJS.Signals | number }) => void,
- * }} processTree
+ *   killProcessTree: (pid: number, graceMs?: number, options?: { force?: boolean }) => Promise<boolean>,
+ * }} IProcessTreeHelper
  */
-function forceKillProcessTreeSync(pid, processTree) {
-    if (!processTree.isProcessAlive(pid)) return;
+
+/**
+ * @param {number} pid
+ * @param {IProcessTreeHelper} processTree
+ * @param {Set<number>} knownPids
+ */
+function recordProcessTreePids(pid, processTree, knownPids) {
+    knownPids.add(pid);
+    if (process.platform === 'win32') return;
+    for (const descendant of processTree.collectDescendantPidsUnix(pid)) {
+        knownPids.add(descendant);
+    }
+}
+
+/**
+ * @param {Iterable<number>} pids
+ * @param {IProcessTreeHelper} processTree
+ */
+function forceKillPidsSync(pids, processTree) {
+    const alive = [...new Set(pids)].filter(pid => processTree.isProcessAlive(pid));
+    if (alive.length === 0) return;
     if (process.platform === 'win32') {
-        spawnSync('taskkill', [
-            '/PID',
-            String(pid),
-            '/T',
-            '/F',
-        ], { stdio: 'ignore' });
+        for (const pid of alive) {
+            spawnSync('taskkill', [
+                '/PID',
+                String(pid),
+                '/T',
+                '/F',
+            ], { stdio: 'ignore' });
+        }
         return;
     }
-    processTree.killPids([
-        ...processTree.collectDescendantPidsUnix(pid),
-        pid,
-    ], { signal: 'SIGKILL' });
+    const expanded = new Set(alive);
+    for (const pid of alive) {
+        for (const descendant of processTree.collectDescendantPidsUnix(pid)) {
+            expanded.add(descendant);
+        }
+    }
+    processTree.killPids([...expanded], { signal: 'SIGKILL' });
+}
+
+/**
+ * @param {number} pid
+ * @param {string} label
+ * @param {IProcessTreeHelper} processTree
+ * @param {Set<number>} knownPids
+ */
+async function terminateTrackedProcessTree(pid, label, processTree, knownPids) {
+    recordProcessTreePids(pid, processTree, knownPids);
+    const rootWasAlive = processTree.isProcessAlive(pid);
+    const terminated = rootWasAlive ? await processTree.killProcessTree(pid) : true;
+    const survivors = [...knownPids].filter(targetPid => processTree.isProcessAlive(targetPid));
+    if (survivors.length > 0) {
+        forceKillPidsSync(survivors, processTree);
+    }
+    const remainingSurvivors = [...knownPids].filter(targetPid => processTree.isProcessAlive(targetPid));
+    if ((rootWasAlive && !terminated) || remainingSurvivors.length > 0) {
+        throw new Error(`The ${label} process tree did not exit`);
+    }
 }
 
 /** @param {NodeJS.Signals} signal */
@@ -77,11 +122,7 @@ async function startBrowserIntegrationHarness({
         tsImport('./electron-run/electronRunLaunchConfig.ts', import.meta.url),
         launchChromiumServer ? import('playwright') : Promise.resolve(null),
     ]);
-    const {
-        findFreePort,
-        isProcessAlive,
-        killProcessTree,
-    } = processTree;
+    const { findFreePort } = processTree;
 
     const port = await findFreePort();
     const origin = `http://127.0.0.1:${String(port)}`;
@@ -93,6 +134,10 @@ async function startBrowserIntegrationHarness({
     let browserServerPromise = null;
     /** @type {number | null} */
     let browserPid = null;
+    /** @type {Set<number>} */
+    const browserKnownPids = new Set();
+    /** @type {Set<number>} */
+    const devServerKnownPids = new Set();
     let serverOutput = '';
     const devServer = spawn(process.execPath, [
         resolve(process.cwd(), 'node_modules/nuxt/bin/nuxt.mjs'),
@@ -121,11 +166,17 @@ async function startBrowserIntegrationHarness({
     devServer.stdout.on('data', captureOutput);
     devServer.stderr.on('data', captureOutput);
 
-    // Synchronous fallback for abrupt process.exit() (such as Vitest's own
-    // signal exit when invoked directly without the CLI supervisor).
+    // Synchronous fallback for abrupt process.exit() or rejected async teardown.
+    // Targets both roots and any previously recorded descendant PIDs in case a
+    // root exited while leaving a descendant behind.
     const forceKillOnExit = () => {
-        if (browserPid) forceKillProcessTreeSync(browserPid, processTree);
-        if (devServer.pid) forceKillProcessTreeSync(devServer.pid, processTree);
+        const allPids = new Set([
+            ...browserKnownPids,
+            ...devServerKnownPids,
+        ]);
+        if (browserPid) recordProcessTreePids(browserPid, processTree, allPids);
+        if (devServer.pid) recordProcessTreePids(devServer.pid, processTree, allPids);
+        forceKillPidsSync(allPids, processTree);
         rmSync(outputPath, { force: true });
     };
     process.on('exit', forceKillOnExit);
@@ -136,6 +187,7 @@ async function startBrowserIntegrationHarness({
         browserServerPromise = null;
         if (!activeServer) return;
         const pid = activeServer.process()?.pid ?? browserPid;
+        if (pid) recordProcessTreePids(pid, processTree, browserKnownPids);
         try {
             await Promise.race([
                 activeServer.close(),
@@ -147,11 +199,8 @@ async function startBrowserIntegrationHarness({
         } catch {
             await activeServer.kill().catch(() => {});
         }
-        if (pid && isProcessAlive(pid)) {
-            await killProcessTree(pid);
-            if (isProcessAlive(pid)) {
-                throw new Error('The browser integration Chromium server process did not exit');
-            }
+        if (pid) {
+            await terminateTrackedProcessTree(pid, 'browser integration Chromium server', processTree, browserKnownPids);
         }
         browserPid = null;
     };
@@ -159,10 +208,7 @@ async function startBrowserIntegrationHarness({
     const stopDevServer = async () => {
         try {
             if (!devServer.pid) return;
-            await killProcessTree(devServer.pid);
-            if (isProcessAlive(devServer.pid)) {
-                throw new Error('The browser lifecycle Nuxt process did not exit');
-            }
+            await terminateTrackedProcessTree(devServer.pid, 'browser lifecycle Nuxt', processTree, devServerKnownPids);
         } finally {
             rmSync(outputPath, { force: true });
         }
@@ -198,12 +244,14 @@ async function startBrowserIntegrationHarness({
                 handleSIGHUP: false,
             }).then((server) => {
                 browserPid = server.process()?.pid ?? null;
+                if (browserPid) recordProcessTreePids(browserPid, processTree, browserKnownPids);
                 return server;
             });
             // Prevent unhandled rejection if devServer startup fails before we await browserServerPromise.
             browserServerPromise.catch(() => {});
         }
         await once(devServer, 'spawn');
+        if (devServer.pid) recordProcessTreePids(devServer.pid, processTree, devServerKnownPids);
         const deadline = Date.now() + 90_000;
         while (true) {
             if (abortSignal?.aborted) {
@@ -271,7 +319,6 @@ async function runSupervisedCli() {
 
     const { tsImport } = await import('tsx/esm/api');
     const processTree = await tsImport('./electron-run/electronRunProcessTree.ts', import.meta.url);
-    const { killSpawnedProcessTree } = processTree;
 
     const abortController = new AbortController();
     /** @type {Promise<Awaited<ReturnType<typeof startBrowserIntegrationHarness>>> | null} */
@@ -280,6 +327,8 @@ async function runSupervisedCli() {
     let harness = null;
     /** @type {import('node:child_process').ChildProcess | null} */
     let vitestChild = null;
+    /** @type {Set<number>} */
+    const vitestKnownPids = new Set();
     /** @type {NodeJS.Signals | null} */
     let receivedSignal = null;
     /** @type {Promise<void> | null} */
@@ -300,6 +349,11 @@ async function runSupervisedCli() {
         return true;
     };
 
+    const stopVitestChild = async () => {
+        if (!vitestChild?.pid) return;
+        await terminateTrackedProcessTree(vitestChild.pid, 'Vitest browser integration', processTree, vitestKnownPids);
+    };
+
     /** @param {NodeJS.Signals | null} signal */
     const teardown = (signal) => {
         if (signal && !receivedSignal) {
@@ -313,12 +367,13 @@ async function runSupervisedCli() {
             // terminate the supervisor before child processes are reaped.
             const resolvedHarness = harness ?? (harnessPromise ? await harnessPromise.catch(() => null) : null);
             const results = await Promise.allSettled([
-                vitestChild ? killSpawnedProcessTree(vitestChild, 1_500) : Promise.resolve(),
+                stopVitestChild(),
                 resolvedHarness ? resolvedHarness.stop() : Promise.resolve(),
             ]);
             const rejected = results.find(result => result.status === 'rejected');
             if (rejected) {
-                if (vitestChild?.pid) forceKillProcessTreeSync(vitestChild.pid, processTree);
+                if (vitestChild?.pid) recordProcessTreePids(vitestChild.pid, processTree, vitestKnownPids);
+                forceKillPidsSync(vitestKnownPids, processTree);
                 resolvedHarness?.forceStop();
                 if (!receivedSignal) {
                     throw rejected.reason;
@@ -364,6 +419,7 @@ async function runSupervisedCli() {
                 [BROWSER_WS_ENDPOINT_ENV]: /** @type {string} */ (harness.wsEndpoint),
             },
         });
+        if (vitestChild.pid) recordProcessTreePids(vitestChild.pid, processTree, vitestKnownPids);
         const [
             exitCode,
             exitSignal,
