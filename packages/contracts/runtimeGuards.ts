@@ -2,6 +2,20 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+export interface ISuppressedErrorLike {
+    error?: unknown;
+    suppressed?: unknown;
+}
+
+export function isSuppressedErrorLike(value: unknown): value is ISuppressedErrorLike {
+    if (!isRecord(value)) {
+        return false;
+    }
+    const SuppressedErrorCtor = (globalThis as {SuppressedError?: unknown}).SuppressedError;
+    return (typeof SuppressedErrorCtor === 'function' && value instanceof SuppressedErrorCtor)
+        || value.name === 'SuppressedError';
+}
+
 export function isFiniteNumber(value: unknown): value is number {
     return typeof value === 'number' && Number.isFinite(value);
 }

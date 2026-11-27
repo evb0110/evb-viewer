@@ -30,6 +30,7 @@ import type {
     TScanCleanupSummary,
     TScanCleanupWarningEvent,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {isAbortError} from '@contracts/isAbortError';
 import {getUnprovenNativeTerminationDetail} from '@contracts/nativeErrors';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import {
@@ -463,15 +464,6 @@ async function readOptionalFileSize(path: string) {
         }
         throw error;
     }
-}
-
-function isAbortError(error: unknown) {
-    return error !== null
-        && typeof error === 'object'
-        && (
-            ('name' in error && error.name === 'AbortError')
-            || ('code' in error && error.code === 'ABORT_ERR')
-        );
 }
 
 export async function observeScanCleanupAnalysisReleasePromises(

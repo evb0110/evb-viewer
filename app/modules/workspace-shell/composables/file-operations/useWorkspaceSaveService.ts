@@ -11,6 +11,7 @@ import type {
     IPdfOptimizeOptions,
     IPdfOptimizeResult,
 } from '@contracts/electronApiDocuments';
+import { isAbortError } from '@contracts/isAbortError';
 import {
     getDocumentMutationErrorPayload,
     isStaleRevisionError,
@@ -325,7 +326,7 @@ async function executeNativeMutationSave(
         const replacedPages = pageIndices !== undefined && await parse(pageIndices).then(
             parsed => saveTransaction.replaceFromDocument!(parsed, deleteEffects?.deletedReplyRefs),
             (error: unknown) => {
-                if (isStaleRevisionError(error) || (error instanceof Error && error.name === 'AbortError')) {
+                if (isStaleRevisionError(error) || isAbortError(error)) {
                     throw error;
                 }
                 BrowserLogger.warn('workspace', 'Parsing the saved pages failed; parsing the whole document', {error});
@@ -669,7 +670,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                     // A Save in another owner's turn (Close, a switch) ends at its durable result; that owner decides what follows.
                     if (!holder && result.persisted.adoption) acceptance = deps.lifecycle.acceptAdoption?.(result.persisted.adoption);
                 } catch (error) {
-                    if (error instanceof DOMException && error.name === 'AbortError') return false;
+                    if (isAbortError(error)) return false;
                     // The revision moved after this save captured it: a conflict,
                     // told once. The user's edits stay unsaved for the next Save.
                     if (isStaleRevisionError(error)) {

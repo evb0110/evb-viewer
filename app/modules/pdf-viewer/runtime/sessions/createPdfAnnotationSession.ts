@@ -1,3 +1,4 @@
+import { isAbortError } from '@contracts/isAbortError';
 import type {
     ComputedRef,
     Ref,
@@ -307,7 +308,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                 isCurrent,
                 commit: accept,
             }).catch((error: unknown) => {
-                if (!(error instanceof DOMException && error.name === 'AbortError') || options.isActive.value && documentSession.pdfDocument.value === document) {
+                if (!isAbortError(error) || options.isActive.value && documentSession.pdfDocument.value === document) {
                     throw error;
                 }
                 return false;

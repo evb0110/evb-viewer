@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {isAbortError} from '@contracts/isAbortError';
 import {getMainOperationErrorEnvelope} from '@contracts/mainOperationErrors';
 import {
     beginMainOperationShutdown,
@@ -481,5 +482,67 @@ describe('mainOperationLifecycle', () => {
             pending: [],
         });
         expect(snapshotMainOperations()).toEqual([]);
+    });
+
+    it('aborts operations with canonical AbortError identity across shutdown, owner, close, and user cancellations', () => {
+        const shutdownOp = registerMainOperation({kind: 'abortable-work'});
+        const ownerOp = registerMainOperation({
+            kind: 'abortable-work',
+            ownerWebContentsId: 19,
+        });
+        const closingOp = registerMainOperation({
+            kind: 'abortable-work',
+            workingCopyPath: '/tmp/abort-identity.pdf',
+            cancel: vi.fn(),
+        });
+        const userOp = registerMainOperation({
+            kind: 'critical-write',
+            workingCopyPath: '/tmp/user-cancel-identity.pdf',
+            userCancel: {
+                scope: 'page-ops',
+                ownerWebContentsId: 21,
+            },
+        });
+
+        cancelMainOperationsForOwner(19, 'Renderer destroyed');
+        cancelMainOperationsForClosingWorkingCopy('/tmp/abort-identity.pdf', 'Working copy is closing', OWNS_REGISTRATION);
+        cancelUserCancellableMainOperations({
+            scope: 'page-ops',
+            ownerWebContentsId: 21,
+            workingCopyPath: '/tmp/user-cancel-identity.pdf',
+        });
+        cancelAllMainOperations('app shutdown');
+
+        for (const [
+            op,
+            expectedMessage,
+            expectedUserCancel,
+        ] of [
+            [
+                ownerOp,
+                'Renderer destroyed',
+                false,
+            ],
+            [
+                closingOp,
+                'Working copy is closing',
+                false,
+            ],
+            [
+                userOp,
+                'Canceled by the user',
+                true,
+            ],
+            [
+                shutdownOp,
+                'app shutdown',
+                false,
+            ],
+        ] as const) {
+            expect(op.signal.aborted).toBe(true);
+            expect(isAbortError(op.signal.reason)).toBe(true);
+            expect((op.signal.reason as Error).message).toBe(expectedMessage);
+            expect(isMainOperationUserCanceled(op.signal)).toBe(expectedUserCancel);
+        }
     });
 });

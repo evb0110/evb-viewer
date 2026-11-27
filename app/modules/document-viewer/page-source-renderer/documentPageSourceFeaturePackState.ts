@@ -1,3 +1,4 @@
+import { isAbortError } from '@contracts/isAbortError';
 import type {
     ComponentPublicInstance,
     Ref,
@@ -405,7 +406,7 @@ export async function openDocumentPageSource(
                 }
                 context.scheduleRender();
             } catch (error) {
-                if (transition.isCurrent() && !(error instanceof DOMException && error.name === 'AbortError')) {
+                if (transition.isCurrent() && !isAbortError(error)) {
                     context.emit('loadError', error);
                 }
             } finally {
@@ -417,7 +418,7 @@ export async function openDocumentPageSource(
         })();
         return true;
     } catch (error) {
-        if (transition.isCurrent() && !(error instanceof DOMException && error.name === 'AbortError')) {
+        if (transition.isCurrent() && !isAbortError(error)) {
             context.isLoading.value = false;
             const pageNumber = Math.max(1, Math.trunc(context.readCurrentPage()));
             const message = context.commitPageTerminalError(pageNumber, error);

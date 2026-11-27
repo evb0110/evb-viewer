@@ -18,6 +18,7 @@ import type {
     IScanCleanupRunCommandOptions,
 } from '@evb/scan-cleanup/core/types';
 import {getErrorMessage} from '@contracts/getErrorMessage';
+import {isAbortError} from '@contracts/isAbortError';
 import {mapScanCleanupRasterPages} from '@evb/scan-cleanup/core/resolveRasterHandoff';
 import {
     decode as decodePng,
@@ -108,11 +109,6 @@ type TPdfMrcMaskDecode = IPdfMrcLayers['selectionMaskDecode'];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isAbortError(error: unknown) {
-    return isRecord(error)
-        && (error.name === 'AbortError' || error.code === 'ABORT_ERR');
 }
 
 function qpdfObjectTable(value: unknown) {

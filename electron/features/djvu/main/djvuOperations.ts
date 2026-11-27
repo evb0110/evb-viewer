@@ -49,11 +49,15 @@ import { searchIndexedDocument } from '@electron/features/search/public';
 import { validateSearchQuery } from '@pdf-core';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import {
+    abortErrorFromSignal,
     createAbortError,
     isAbortError,
 } from '@electron/utils/abort';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
-import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
+import {
+    getCurrentMainOperationCancellationSignal,
+    registerMainOperation,
+} from '@electron/operation-lifecycle/mainOperationLifecycle';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import { pageIndexToPageNumber } from '@contracts/pageNumbers';
 import type {
@@ -211,7 +215,7 @@ async function cancelPreviewOperation(ownerWebContentsId: number, requestId: str
         return false;
     }
     if (!active.abortController.signal.aborted) {
-        active.abortController.abort(new Error(reason));
+        active.abortController.abort(createAbortError(reason));
     }
     await cancelConversion(active.cancelGroup);
     return true;
@@ -234,7 +238,7 @@ function clearPreviewStateForSender(ownerWebContentsId: number, reason: string) 
     state.latestRequestIds.clear();
     state.reservedRequestIds.clear();
     for (const pending of state.pendingRequests.values()) {
-        pending.abortController.abort(new Error(reason));
+        pending.abortController.abort(createAbortError(reason));
     }
     state.pendingRequests.clear();
     previewStateBySender.delete(ownerWebContentsId);
@@ -363,7 +367,7 @@ function recordPreviewRequest(state: IDjvuPreviewSenderState, ownerWebContentsId
             && pendingRequestId !== request.requestId
             && isPreviewRequestSuperseded(state, pending.request)
         ) {
-            pending.abortController.abort(new Error('DjVu preview request superseded'));
+            pending.abortController.abort(createAbortError('DjVu preview request superseded'));
             state.pendingRequests.delete(pendingRequestId);
         }
     }
@@ -410,6 +414,21 @@ async function runCoalescedPreviewRequest<TResult>(
         state.reservedRequestIds.add(requestId);
     }
     const abortController = new AbortController();
+    const invokeCancellationSignal = getCurrentMainOperationCancellationSignal();
+    const abortFromInvokeSignal = () => {
+        if (!abortController.signal.aborted) {
+            abortController.abort(
+                invokeCancellationSignal?.reason instanceof Error
+                    ? invokeCancellationSignal.reason
+                    : createAbortError('DjVu preview operation canceled'),
+            );
+        }
+    };
+    if (invokeCancellationSignal?.aborted) {
+        abortFromInvokeSignal();
+    } else {
+        invokeCancellationSignal?.addEventListener('abort', abortFromInvokeSignal, { once: true });
+    }
     state.pendingRequests.set(requestId, {
         abortController,
         request,
@@ -418,8 +437,11 @@ async function runCoalescedPreviewRequest<TResult>(
     registerPreviewSenderCleanup(sender);
 
     try {
+        if (abortController.signal.aborted) {
+            throw abortErrorFromSignal(abortController.signal);
+        }
         if (!hasImmediateReservation && isPreviewRequestSuperseded(state, request)) {
-            throw new Error('DjVu preview request superseded');
+            throw createAbortError('DjVu preview request superseded');
         }
         return await mainJobBroker.run({
             ownerId: `djvu-preview:${senderId}`,
@@ -437,10 +459,10 @@ async function runCoalescedPreviewRequest<TResult>(
         }, async (brokerRun) => {
             state.pendingRequests.delete(requestId);
             if (sender.isDestroyed()) {
-                throw new Error('DjVu preview operation canceled');
+                throw createAbortError('DjVu preview operation canceled');
             }
             if (!hasImmediateReservation && isPreviewRequestSuperseded(state, request)) {
-                throw new Error('DjVu preview request superseded');
+                throw createAbortError('DjVu preview request superseded');
             }
             const operationKey = getActivePreviewOperationKey(senderId, request.requestId);
             const cancelGroup = `djvu-preview:${senderId}:${request.requestId}`;
@@ -449,7 +471,13 @@ async function runCoalescedPreviewRequest<TResult>(
                 ownerWebContentsId: senderId,
                 workingCopyPath: documentKey,
                 cancel: (reason) => {
-                    abortController.abort(new Error(reason));
+                    if (!abortController.signal.aborted) {
+                        abortController.abort(
+                            invokeCancellationSignal?.aborted && invokeCancellationSignal.reason instanceof Error
+                                ? invokeCancellationSignal.reason
+                                : createAbortError(reason),
+                        );
+                    }
                     void cancelConversion(cancelGroup);
                 },
             });
@@ -462,11 +490,19 @@ async function runCoalescedPreviewRequest<TResult>(
             activePreviewOperationsBySenderRequestKey.set(operationKey, activeOperation);
             const abortMainOperation = () => {
                 if (!abortController.signal.aborted) {
-                    abortController.abort(new Error('DjVu preview operation canceled'));
+                    abortController.abort(
+                        mainOperation.signal.reason instanceof Error
+                            ? mainOperation.signal.reason
+                            : createAbortError('DjVu preview operation canceled'),
+                    );
                 }
                 void cancelConversion(cancelGroup);
             };
-            mainOperation.signal.addEventListener('abort', abortMainOperation, { once: true });
+            if (mainOperation.signal.aborted) {
+                abortMainOperation();
+            } else {
+                mainOperation.signal.addEventListener('abort', abortMainOperation, { once: true });
+            }
             try {
                 return await render({
                     brokerRun,
@@ -483,6 +519,7 @@ async function runCoalescedPreviewRequest<TResult>(
             }
         });
     } finally {
+        invokeCancellationSignal?.removeEventListener('abort', abortFromInvokeSignal);
         state.reservedRequestIds.delete(requestId);
         state.pendingRequests.delete(requestId);
         if (state.latestRequestIds.get(requestKey) === requestId) {
@@ -637,7 +674,7 @@ export async function handleDjvuCancelPagePreview(
 ) {
     const pending = previewStateBySender.get(context.senderId)?.pendingRequests.get(requestId);
     if (pending && !pending.abortController.signal.aborted) {
-        pending.abortController.abort(new Error('DjVu preview request canceled'));
+        pending.abortController.abort(createAbortError('DjVu preview request canceled'));
         return {canceled: true};
     }
 
@@ -665,7 +702,7 @@ export async function handleDjvuSearchText(
     const normalizedDjvuPath = requireDjvuOpenPath(djvuPath, context.sender);
     const operationKey = getActiveTextSearchKey(context.senderId, requestId);
     const previous = activeTextSearchesBySenderRequestKey.get(operationKey);
-    previous?.abortController.abort(new Error('DjVu text search superseded'));
+    previous?.abortController.abort(createAbortError('DjVu text search superseded'));
     const abortController = new AbortController();
     const activeOperation: IActiveDjvuTextSearchOperation = {
         abortController,
@@ -691,7 +728,7 @@ export async function handleDjvuSearchText(
         });
     };
     const stopSenderLifetime = onSenderLifetimeEnd(context.sender, () => {
-        abortController.abort(new Error('Renderer lifecycle ended'));
+        abortController.abort(createAbortError('Renderer lifecycle ended'));
     });
 
     try {
@@ -780,7 +817,7 @@ export function handleDjvuCancelTextSearch(
     if (!operation || operation.abortController.signal.aborted) {
         return Promise.resolve({canceled: false});
     }
-    operation.abortController.abort(new Error('DjVu text search canceled'));
+    operation.abortController.abort(createAbortError('DjVu text search canceled'));
     return Promise.resolve({canceled: true});
 }
 
@@ -860,9 +897,7 @@ export async function handleDjvuEstimateSizes(
         const pageCount = await getDjvuPageCount(normalizedDjvuPath, { signal: mainOperation.signal });
         return await estimateSizes(normalizedDjvuPath, pageCount, { signal: mainOperation.signal });
     } catch (error) {
-        // The lifecycle aborts with its plain reason; an abort error keeps the
-        // rejection a cancellation for the IPC layer.
-        throw mainOperation.signal.aborted ? createAbortError(getErrorMessage(mainOperation.signal.reason)) : error;
+        throw mainOperation.signal.aborted ? abortErrorFromSignal(mainOperation.signal) : error;
     } finally {
         activeEstimateOperationsById.delete(operationId);
         unregisterEstimateSenderCleanupIfIdle(context.senderId);

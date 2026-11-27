@@ -1,3 +1,4 @@
+import { isAbortError } from '@contracts/isAbortError';
 import type { TDocumentRef } from '@contracts/documentRef';
 import {
     BROWSER_DOCUMENT_CHUNK_SIZE,
@@ -234,7 +235,7 @@ export async function pickFiles(options: {
                 })),
             );
         } catch (error) {
-            if (error instanceof DOMException && error.name === 'AbortError') {
+            if (isAbortError(error)) {
                 return [];
             }
 
@@ -567,7 +568,7 @@ async function saveBlobToPickerOrDownload(
                 handle,
             };
         } catch (error) {
-            if (error instanceof DOMException && error.name === 'AbortError') {
+            if (isAbortError(error)) {
                 return {
                     canceled: true,
                     fileName: suggestedName,
@@ -623,7 +624,7 @@ export async function pickSaveTarget(options: {
             handle,
         };
     } catch (error) {
-        if (error instanceof DOMException && error.name === 'AbortError') {
+        if (isAbortError(error)) {
             return {
                 canceled: true,
                 fileName: options.suggestedName,

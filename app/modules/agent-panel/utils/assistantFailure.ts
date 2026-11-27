@@ -2,6 +2,7 @@ import type {FailurePresentation} from '@app/composables/useFailureToast';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {getErrorMessage} from '@app/utils/error';
 import {captureFailureForPresentation} from '@app/utils/failureReporter';
+import {isAbortError} from '@contracts/isAbortError';
 import {isRecord} from '@contracts/runtimeGuards';
 import {
     getFailureReceipt,
@@ -46,12 +47,15 @@ function getAssistantErrorEnvelopeCode(error: unknown) {
 }
 
 function isCancellationError(error: unknown) {
+    if (isAbortError(error)) {
+        return true;
+    }
+
     const name = isRecord(error) && typeof error.name === 'string'
         ? error.name
         : null;
     if (
-        name === 'AbortError'
-        || name === 'AbortException'
+        name === 'AbortException'
         || name === 'RenderingCancelledException'
     ) {
         return true;
@@ -60,7 +64,7 @@ function isCancellationError(error: unknown) {
     const code = isRecord(error) && typeof error.code === 'string'
         ? error.code
         : null;
-    return code === 'ABORT_ERR' || code === 'ERR_CANCELED';
+    return code === 'ERR_CANCELED';
 }
 
 export function getAssistantExpectedOutcome(

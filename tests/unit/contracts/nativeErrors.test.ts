@@ -1,7 +1,9 @@
 import {
     NATIVE_ERROR_CODES,
+    getUnprovenNativeTerminationDetail,
     hasNativeErrorCode,
     isNativeErrorEnvelope,
+    markUnprovenNativeTermination,
 } from '@contracts/nativeErrors';
 import {
     describe,
@@ -25,5 +27,31 @@ describe('native error envelopes', () => {
             message: 'detail',
         })).toBe(false);
         expect(hasNativeErrorCode({message: 'encrypted document'})).toBe(false);
+    });
+
+    it('unwraps unproven native termination details across SuppressedError, AggregateError, and cycles', () => {
+        const markedPrimary = markUnprovenNativeTermination(new Error('primary'), 'primary child alive');
+        const markedDisposer = markUnprovenNativeTermination(new Error('disposer'), 'disposer child alive');
+        const plain = new Error('plain');
+
+        expect(getUnprovenNativeTerminationDetail(new SuppressedError(plain, markedPrimary))).toBe('primary child alive');
+        expect(getUnprovenNativeTerminationDetail(new SuppressedError(markedDisposer, plain))).toBe('disposer child alive');
+        expect(getUnprovenNativeTerminationDetail(new SuppressedError(markedDisposer, markedPrimary))).toBe('primary child alive');
+        expect(getUnprovenNativeTerminationDetail(new SuppressedError(
+            plain,
+            new AggregateError([
+                plain,
+                new SuppressedError(markedDisposer, plain),
+            ], 'joined'),
+        ))).toBe('disposer child alive');
+
+        const cyclicAggregate = new AggregateError([], 'cyclic');
+        cyclicAggregate.errors.push(cyclicAggregate);
+        expect(getUnprovenNativeTerminationDetail(cyclicAggregate)).toBeUndefined();
+
+        const cyclicSuppressed = new SuppressedError(plain, plain);
+        cyclicSuppressed.suppressed = cyclicSuppressed;
+        cyclicSuppressed.error = cyclicSuppressed;
+        expect(getUnprovenNativeTerminationDetail(cyclicSuppressed)).toBeUndefined();
     });
 });

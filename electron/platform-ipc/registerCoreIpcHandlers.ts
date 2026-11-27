@@ -28,7 +28,7 @@ import {
 import {
     CORE_IPC_CHANNELS,
     CORE_IPC_SEND_CHANNELS,
-    decodeIpcInvokeRequestId,
+    decodeIpcInvokeCancelPayload,
 } from '@electron/platform-ipc/coreContract';
 import {cancelIpcInvoke} from '@electron/platform-ipc/ipcInvokeCancellation';
 import type {IRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
@@ -143,9 +143,9 @@ export function registerCoreIpcHandlers(
         }
     });
     eventRegistrar.on(CORE_IPC_SEND_CHANNELS.ipcInvokeCanceled, (event, payload) => {
-        const requestId = decodeIpcInvokeRequestId(payload);
-        if (requestId !== null) {
-            cancelIpcInvoke(event.sender, requestId);
+        const decoded = decodeIpcInvokeCancelPayload(payload);
+        if (decoded !== null) {
+            cancelIpcInvoke(event.sender, decoded.requestId, undefined, {timedOut: decoded.kind === 'timeout'});
         }
     });
 

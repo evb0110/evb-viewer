@@ -1,4 +1,5 @@
 import type {WebContents} from 'electron';
+import {createAbortError} from '@contracts/isAbortError';
 import type {TRequestId} from '@contracts/shared';
 
 interface IIpcInvokeCancellationRegistration {
@@ -33,10 +34,23 @@ export function beginIpcInvokeCancellation(
     };
 }
 
-export function cancelIpcInvoke(sender: WebContents, requestId: TRequestId, reason = 'IPC invoke canceled') {
+function createIpcInvokeTimeoutError(reason: string) {
+    const error = new Error(reason);
+    error.name = 'TimeoutError';
+    return error;
+}
+
+export function cancelIpcInvoke(
+    sender: WebContents,
+    requestId: TRequestId,
+    reason?: string,
+    options?: {timedOut?: boolean},
+) {
     const controller = activeInvokes.get(sender)?.get(requestId);
     if (!controller || controller.signal.aborted) {
         return;
     }
-    controller.abort(new Error(reason));
+    const timedOut = options?.timedOut === true;
+    const effectiveReason = reason ?? (timedOut ? 'IPC invoke timed out' : 'IPC invoke canceled');
+    controller.abort(timedOut ? createIpcInvokeTimeoutError(effectiveReason) : createAbortError(effectiveReason));
 }

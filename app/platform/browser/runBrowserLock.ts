@@ -1,3 +1,6 @@
+import { isAbortError } from '@contracts/isAbortError';
+import { isTimeoutError } from '@contracts/isTimeoutError';
+
 function lockManager() {
     return typeof navigator === 'undefined' ? undefined : navigator.locks as LockManager | undefined;
 }
@@ -36,7 +39,7 @@ export function holdBrowserLock(name: string, waitMs = 0): Promise<(() => void) 
             resolve(lock ? release : null);
             return lock ? held : undefined;
         }).catch((error: unknown) => {
-            if (error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError')) resolve(null);
+            if (isAbortError(error) || isTimeoutError(error)) resolve(null);
             else reject(error);
         });
     });

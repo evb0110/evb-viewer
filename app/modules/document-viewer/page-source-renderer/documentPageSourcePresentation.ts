@@ -1,3 +1,4 @@
+import { isAbortError } from '@contracts/isAbortError';
 import type {TTranslateFn} from '@i18n-app';
 import type {
     IDocumentPageMetrics,
@@ -437,7 +438,7 @@ export function createDocumentPageSourcePresentation(options: {
                 return;
             }
         } catch (error) {
-            if (!(error instanceof DOMException && error.name === 'AbortError') && isCurrent()) {
+            if (!isAbortError(error) && isCurrent()) {
                 const message = commitTerminalError(pageNumber, error);
                 if (pageNumber === options.readCurrentPage()) {
                     options.emit('loadError', error instanceof Error ? error : createFailureError(pageNumber, message));
@@ -589,7 +590,7 @@ export function createDocumentPageSourcePresentation(options: {
                 && (preserveExistingVisual
                     ? current === previous
                     : current?.generation === renderAttempt.generation)
-                && !(error instanceof DOMException && error.name === 'AbortError')
+                && !isAbortError(error)
             ) {
                 // A refused page (invalid DjVu, raster limit) fails the same way every time.
                 if (current && current.retryCount < 2 && !findSerializableErrorEnvelope(error, DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA)) {

@@ -1,3 +1,4 @@
+import {createAbortError} from '@contracts/isAbortError';
 import {getUnprovenNativeTerminationDetail} from '@contracts/nativeErrors';
 import { getErrorMessage } from '@electron/utils/error';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
@@ -42,7 +43,7 @@ function abortIfRequested(signal?: AbortSignal) {
     if (!signal?.aborted) {
         return;
     }
-    throw signal.reason instanceof Error ? signal.reason : new Error('OCR job aborted');
+    throw signal.reason instanceof Error ? signal.reason : createAbortError('OCR job aborted');
 }
 
 async function readPageSizes(

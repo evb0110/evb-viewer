@@ -1,3 +1,4 @@
+import { isAbortError } from '@contracts/isAbortError';
 import type {
     IPdfSemanticAnchor,
     IDocumentNavigationRequest,
@@ -136,10 +137,6 @@ interface IViewportAuthorityDependencies {
 
 function createViewportAbortError() {
     return new DOMException('Viewport intent superseded', 'AbortError');
-}
-
-function isAbortError(error: unknown) {
-    return error instanceof DOMException && error.name === 'AbortError';
 }
 
 /**

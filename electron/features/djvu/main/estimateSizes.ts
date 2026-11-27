@@ -21,7 +21,10 @@ import {
 import { createLogger } from '@electron/utils/createLogger';
 import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
 import type { IDjvuSizeEstimate } from '@contracts/electronApiDjvu';
-import { abortErrorFromSignal } from '@electron/utils/abort';
+import {
+    abortErrorFromSignal,
+    createAbortError,
+} from '@electron/utils/abort';
 
 const logger = createLogger('djvu-estimate');
 const DJVU_ESTIMATE_MAX_SAMPLE_PIXELS = 12_000_000;
@@ -171,7 +174,7 @@ function waitForInFlightEstimate(
         };
 
         handleAbort = () => {
-            const abortReason = signal ? abortErrorFromSignal(signal) : new Error('DjVu estimate canceled');
+            const abortReason = signal ? abortErrorFromSignal(signal) : createAbortError('DjVu estimate canceled');
             release(abortReason);
             reject(abortReason);
         };

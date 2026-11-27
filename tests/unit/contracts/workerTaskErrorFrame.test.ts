@@ -149,4 +149,32 @@ describe('consolidated serializable IPC error prefixes', () => {
         expect(getDocumentMutationErrorPayload(cyclic)).toBeNull();
         expect(getMainOperationErrorEnvelope(cyclic)).toBeNull();
     });
+
+    it('unwraps SuppressedError chains for serializable error envelopes cycle-safely', () => {
+        const primary = createMainOperationShuttingDownError('primary shutdown');
+        const disposer = createMainOperationShuttingDownError('disposer shutdown');
+        const plain = new Error('cleanup failed');
+
+        expect(getMainOperationErrorEnvelope(new SuppressedError(plain, primary))).toEqual({
+            code: 'shutting-down',
+            message: 'primary shutdown',
+        });
+        expect(getMainOperationErrorEnvelope(new SuppressedError(disposer, plain))).toEqual({
+            code: 'shutting-down',
+            message: 'disposer shutdown',
+        });
+        expect(getMainOperationErrorEnvelope(new SuppressedError(disposer, primary))).toEqual({
+            code: 'shutting-down',
+            message: 'primary shutdown',
+        });
+        expect(getMainOperationErrorEnvelope(new Error('wrapped', {cause: new SuppressedError(plain, primary)}))).toEqual({
+            code: 'shutting-down',
+            message: 'primary shutdown',
+        });
+
+        const cyclicSuppressed = new SuppressedError(plain, plain);
+        cyclicSuppressed.suppressed = cyclicSuppressed;
+        cyclicSuppressed.error = cyclicSuppressed;
+        expect(getMainOperationErrorEnvelope(cyclicSuppressed)).toBeNull();
+    });
 });

@@ -1,3 +1,4 @@
+import { isAbortError } from '@contracts/isAbortError';
 import type {
     IDocumentPageRenderRequest,
     IDocumentRenderLease,
@@ -82,12 +83,6 @@ function isCommittedDemandSatisfied(entry: ICommittedEntry, demand: IDocumentThu
     // A larger committed raster is already sharp at this size. Keep it through
     // temporary pane narrowing, so widening back can reuse the same pixels.
     return entry.requestWidthPx >= demand.widthPx;
-}
-
-function isAbortError(error: unknown) {
-    return typeof DOMException !== 'undefined'
-        && error instanceof DOMException
-        && error.name === 'AbortError';
 }
 
 export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSchedulerOptions) {

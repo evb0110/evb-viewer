@@ -11,7 +11,9 @@ import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {DOCUMENT_WORKING_COPY_PLATFORM_FEATURE} from '@contracts/documentsPlatformFeature';
 import {getRawElectronPlatformApi} from '@app/utils/electronPlatformBridge';
 import {
-    CORE_IPC_SEND_CHANNELS, IPC_INVOKE_REQUEST_ID_FIELD,
+    CORE_IPC_SEND_CHANNELS,
+    IPC_INVOKE_CANCEL_REASON_FIELD,
+    IPC_INVOKE_REQUEST_ID_FIELD,
 } from '@electron/platform-ipc/coreContract';
 import {
     IpcInvokeTimeoutError,
@@ -56,7 +58,10 @@ describe('createIpcInvoker timeout policy', () => {
         );
         expect(ipcRenderer.send).toHaveBeenCalledWith(
             'ipc:invokeCanceled',
-            {[IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String)},
+            {
+                [IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String),
+                [IPC_INVOKE_CANCEL_REASON_FIELD]: 'timeout',
+            },
         );
     });
 
@@ -222,7 +227,10 @@ describe('renderer IPC abort propagation', () => {
         await vi.advanceTimersByTimeAsync(30 * 60 * 1_000);
         await timedOut;
         controller.abort();
-        expect(ipcRenderer.send).toHaveBeenCalledTimes(1);
+        expect(ipcRenderer.send).toHaveBeenCalledExactlyOnceWith(CORE_IPC_SEND_CHANNELS.ipcInvokeCanceled, {
+            [IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String),
+            [IPC_INVOKE_CANCEL_REASON_FIELD]: 'timeout',
+        });
     });
 });
 

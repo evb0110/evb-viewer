@@ -13,6 +13,7 @@ import type {
     MessagePortMain,
     WebContents,
 } from 'electron';
+import { createAbortError } from '@contracts/isAbortError';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import {
@@ -671,7 +672,7 @@ async function handlePortMessage(
             );
         }
         if (session.lifecycleOperation.signal.aborted && !session.isCommitting) {
-            throw new Error('PDF persistence stream canceled during shutdown');
+            throw createAbortError('PDF persistence stream canceled during shutdown');
         }
         const normalizedMessage = normalizePdfPersistencePreloadToMainPayload(message);
         if (!isPdfPersistencePreloadToMainPayload(normalizedMessage)) {
@@ -681,7 +682,7 @@ async function handlePortMessage(
         if (payload.type === 'chunk') {
             errorPhase = 'streaming';
             if (session.lifecycleOperation.signal.aborted && !session.isCommitting) {
-                throw new Error('PDF persistence stream canceled during shutdown');
+                throw createAbortError('PDF persistence stream canceled during shutdown');
             }
             errorSeq = typeof payload.seq === 'number' ? payload.seq : undefined;
             if (payload.seq !== session.nextSeq) {
@@ -713,7 +714,7 @@ async function handlePortMessage(
         if (payload.type === 'complete') {
             errorPhase = 'complete';
             if (session.lifecycleOperation.signal.aborted && !session.isCommitting) {
-                throw new Error('PDF persistence stream canceled during shutdown');
+                throw createAbortError('PDF persistence stream canceled during shutdown');
             }
             refreshSessionTimeout(session, 'result');
             const stageResult = await stageSession(session);

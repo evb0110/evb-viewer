@@ -1,3 +1,4 @@
+import {isAbortError} from '@contracts/isAbortError';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import type {
     IPdfValidationResult,
@@ -281,7 +282,7 @@ export function createDocumentPersistence(
             return await operation(workingPath, deps.captureHistoryCleanState());
         } catch (e) {
             // A canceled operation reaches the save flow's cancellation, not its failure toast.
-            if (isStaleRevisionError(e) || (e instanceof DOMException && e.name === 'AbortError')) {
+            if (isStaleRevisionError(e) || isAbortError(e)) {
                 throw e;
             }
             return createFailedPersistResult(saveMode, didSaveAs, refusedPersistFailure('persist', 'write', 'write-failed', {
@@ -877,7 +878,7 @@ export function createDocumentPersistence(
                     ...(annotationDeleteEffects ? {annotationDeleteEffects} : {}),
                 };
             } catch (saveError) {
-                if (isStaleRevisionError(saveError)) {
+                if (isStaleRevisionError(saveError) || isAbortError(saveError)) {
                     throw saveError;
                 }
                 BrowserLogger.warn('workspace', 'Native PDF mutation save failed', {

@@ -9,6 +9,7 @@ import { useWindowDevicePixelRatio } from '@app/composables/useWindowDevicePixel
 import {useTypedI18n} from '@app/composables/useTypedI18n';
 import { useResizeObserver } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
+import { isAbortError } from '@contracts/isAbortError';
 import type { IPdfSemanticAnchor } from '@contracts/recentReadingView';
 import type { IZoomStateAccess } from '@contracts/shared';
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
@@ -962,7 +963,7 @@ export const useDocumentPageSourceRuntime = (options: {
                     && props.value.isActive
                     && source.value === activeSource
                     && !signal.aborted
-                    && !(error instanceof DOMException && error.name === 'AbortError')
+                    && !isAbortError(error)
                 ) {
                     const message = presentation.commitTerminalError(targetPage, error);
                     if (targetPage === currentPage.value) {

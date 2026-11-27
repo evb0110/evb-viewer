@@ -13,7 +13,9 @@ import type {
     IncomingMessage,
     Server,
 } from 'node:http';
+import { connect as createNetConnection } from 'node:net';
 import type { AddressInfo } from 'node:net';
+import { isAbortError } from '@contracts/isAbortError';
 import { createHttpHandler } from '@electron/features/agent/mcp/createHttpHandler';
 import { abortAssistantToolRequestsForBinding } from '@electron/features/agent/mcpServer';
 import type { IAssistantSessionScopeBinding } from '@electron/features/agent/assistantMcpSessionScope';
@@ -437,5 +439,91 @@ describe('createHttpHandler', () => {
             message: 'JSON-RPC batch is too large.',
         });
         expect(options.getWorkspaceSnapshot).not.toHaveBeenCalled();
+    });
+
+    it('preserves transport errors instead of classifying partial-body TCP resets as AbortError', async () => {
+        const activeRequestControllers = new Map<AbortController, unknown>();
+        const observedReasons: unknown[] = [];
+        const baseHandler = createHttpHandler(createOptions(), {
+            bearerToken: 'secret',
+            activeRequestControllers,
+        });
+        const capturedController = Promise.withResolvers<AbortController>();
+        const url = await listen((request, response) => {
+            const promise = baseHandler(request, response);
+            const [controller] = activeRequestControllers.keys();
+            if (controller) {
+                controller.signal.addEventListener('abort', () => {
+                    observedReasons.push(controller.signal.reason);
+                }, {once: true});
+                capturedController.resolve(controller);
+            }
+            return promise;
+        });
+        const parsed = new URL(url);
+        const socket = createNetConnection(Number(parsed.port), parsed.hostname, () => {
+            socket.write(
+                'POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer secret\r\nContent-Length: 128\r\n\r\n{"jsonrpc":',
+            );
+        });
+        const controller = await capturedController.promise;
+        socket.resetAndDestroy();
+
+        await vi.waitFor(() => expect(controller.signal.aborted).toBe(true));
+        expect(observedReasons).toHaveLength(1);
+        expect(observedReasons[0]).toBeInstanceOf(Error);
+        expect(isAbortError(observedReasons[0])).toBe(false);
+    });
+
+    it('preserves transport errors instead of classifying post-body TCP resets as AbortError', async () => {
+        const started = Promise.withResolvers<undefined>();
+        let receivedSignal: AbortSignal | undefined;
+        const options = createOptions();
+        options.getWorkspaceSnapshot = vi.fn().mockResolvedValue({
+            activeTabId: 'tab-1',
+            tabs: [{
+                tabId: 'tab-1',
+                kind: 'pdf',
+                fileName: 'test.pdf',
+                originalPath: '/tmp/test.pdf',
+                currentPage: 1,
+                totalPages: 1,
+            }],
+        });
+        options.inspectDocumentText = vi.fn().mockImplementation(async (
+            _input,
+            _windowId,
+            signal: AbortSignal | undefined,
+        ) => {
+            receivedSignal = signal;
+            started.resolve(undefined);
+            await new Promise<void>((_resolve, reject) => {
+                signal?.addEventListener('abort', () => reject(signal.reason), {once: true});
+            });
+            return {};
+        });
+        const url = await listen(createHttpHandler(options, {bearerToken: 'secret'}));
+        const body = JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/call',
+            params: {
+                name: 'evb_inspect_document_text',
+                arguments: {tabId: 'tab-1'},
+            },
+        });
+        const parsed = new URL(url);
+        const socket = createNetConnection(Number(parsed.port), parsed.hostname, () => {
+            socket.write(
+                `POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer secret\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
+            );
+        });
+
+        await started.promise;
+        socket.resetAndDestroy();
+
+        await vi.waitFor(() => expect(receivedSignal?.aborted).toBe(true));
+        expect(receivedSignal?.reason).toBeInstanceOf(Error);
+        expect(isAbortError(receivedSignal?.reason)).toBe(false);
     });
 });

@@ -17,6 +17,7 @@ import {
     resolveOcrLaneResources,
     sumOcrModelBytes,
 } from '@electron/features/ocr/main/ocrRuntimePolicy';
+import {createAbortError} from '@contracts/isAbortError';
 import type {TOcrModelCode} from '@contracts/ocrLanguages';
 import type {
     IOcrEngineLaneReply,
@@ -270,7 +271,7 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
                 park(entry);
                 broker.recheck();
                 signal.throwIfAborted();
-                throw new Error('OCR pass aborted');
+                throw createAbortError('OCR pass aborted');
             }
             // The grant and the worker's end can land in one turn, before
             // this code resumes; a pass posted to that worker never runs.
@@ -364,7 +365,7 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
                 };
                 const onAbort = () => {
                     discardWorker();
-                    settle(signal.reason instanceof Error ? signal.reason : new Error('OCR was canceled'));
+                    settle(signal.reason instanceof Error ? signal.reason : createAbortError('OCR was canceled'));
                 };
                 const timer = setTimeout(() => {
                     discardWorker();

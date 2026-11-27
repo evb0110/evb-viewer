@@ -2,6 +2,7 @@ import {
     readPdfPageDocumentTeardownSignal,
     type IPdfPage,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import { isAbortError } from '@contracts/isAbortError';
 import type { TPageNumber } from '@contracts/pageNumbers';
 import type { usePdfTextLayerRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer';
 import type { IPdfLayerRenderResult } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
@@ -12,7 +13,7 @@ import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
 export function isRenderCancellation(error: unknown) {
     const name = error && typeof error === 'object' ? (error as {name?: unknown}).name : undefined;
-    return name === 'AbortError' || name === 'RenderingCancelledException';
+    return isAbortError(error) || name === 'RenderingCancelledException';
 }
 
 export interface IPdfLayerStageFailure {

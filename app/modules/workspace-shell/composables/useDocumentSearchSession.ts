@@ -1,3 +1,4 @@
+import { isAbortError } from '@contracts/isAbortError';
 import { getErrorMessage } from '@app/utils/error';
 import type { MaybeRefOrGetter } from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
@@ -25,13 +26,6 @@ interface IUseDocumentSearchSessionOptions {
     documentRevision?: MaybeRefOrGetter<string | null | undefined>;
     onNavigate?: ((match: IDocumentSearchMatch, index: number) => void) | undefined;
     normalizeError?: ((error: unknown) => string) | undefined;
-}
-
-function isAbortError(error: unknown) {
-    return typeof error === 'object'
-        && error !== null
-        && 'name' in error
-        && error.name === 'AbortError';
 }
 
 function defaultSearchError(error: unknown) {

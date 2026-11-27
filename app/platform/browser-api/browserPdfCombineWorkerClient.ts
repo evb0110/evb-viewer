@@ -7,6 +7,7 @@ import type {
     TBrowserPdfCombineWorkerRequestType,
 } from '@contracts/browserPdfCombineWorker';
 import {BROWSER_PDF_COMBINE_WORKER_RESULT_SCHEMAS} from '@contracts/browserPdfCombineWorker';
+import {isAbortError} from '@contracts/isAbortError';
 import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
 import {isPdfCombineOutputTooLargeError} from '@contracts/pdfCombineOutputPolicy';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
@@ -63,7 +64,7 @@ function getWorkerFailureReceipt(error: unknown) {
 }
 
 function isExpectedWorkerFailure(error: Error) {
-    return error.name === 'AbortError'
+    return isAbortError(error)
         || isPdfCombineOutputTooLargeError(error)
         || error.message === 'ERR_BROWSER_PDF_COMBINE_WASM_UNAVAILABLE'
         || error.message === 'ERR_BROWSER_PDF_COMBINE_WORKER_UNSUPPORTED_INPUT';

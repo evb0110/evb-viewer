@@ -16,7 +16,7 @@ import {
     isTrustedWebContentsSender,
 } from '@electron/platform-ipc/trustedIpcSender';
 import { getErrorMessage } from '@electron/utils/error';
-import { isAbortError } from '@electron/utils/abort';
+import { isAbortError } from '@contracts/isAbortError';
 import { createLogger } from '@electron/utils/createLogger';
 import {
     decodeIpcInvokeRequestId,
@@ -26,7 +26,6 @@ import {beginIpcInvokeCancellation} from '@electron/platform-ipc/ipcInvokeCancel
 import {runWithMainOperationCancellationSignal} from '@electron/operation-lifecycle/mainOperationLifecycle';
 
 const ipcLogger = createLogger('ipc');
-const IPC_CANCELLATION_PATTERN = /\b(?:cancel(?:l)?ed|aborted|Renderer destroyed)\b/iu;
 
 /**
  * Electron prints a rejected invoke to stderr only. Record it here so the
@@ -37,7 +36,7 @@ function logIpcHandlerRejection(channel: string, error: unknown) {
         channel,
         error,
     };
-    if (isAbortError(error) || IPC_CANCELLATION_PATTERN.test(getErrorMessage(error))) {
+    if (isAbortError(error)) {
         ipcLogger.debug('IPC handler rejected', data);
         return;
     }

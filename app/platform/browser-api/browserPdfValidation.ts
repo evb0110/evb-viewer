@@ -7,6 +7,7 @@ import type {
     IPdfValidationResult,
 } from '@contracts/pdfConformance';
 import type {IPdfPathValidationOptions} from '@contracts/pdfValidationPathArgs';
+import {isAbortError} from '@contracts/isAbortError';
 import {BROWSER_QPDF_MAX_INPUT_BYTES} from '@contracts/browserQpdfEngine';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {
@@ -138,7 +139,7 @@ async function validateQpdfInput(
             ...extractQpdfWarnings(display(result.stderr)),
         ]);
     } catch (error) {
-        if ((error instanceof Error && error.name === 'AbortError') || isBrowserQpdfEngineUnavailableError(error) || isBrowserFullReadTooLargeError(error)) throw error;
+        if (isAbortError(error) || isBrowserQpdfEngineUnavailableError(error) || isBrowserFullReadTooLargeError(error)) throw error;
         const message = error instanceof BrowserQpdfEngineTimeoutError
             ? `${label} timed out after ${error.timeoutMs}ms`
             : display(getErrorMessage(error));
@@ -147,7 +148,7 @@ async function validateQpdfInput(
                 await readPdfStructuralFacts(new Blob([await readFallbackInput() as BlobPart]), signal);
                 return validationResult(true, [], [`qpdf validation timed out after ${timeoutMs}ms; fallback PDF structure validation succeeded.`]);
             } catch (fallbackError) {
-                if (fallbackError instanceof Error && fallbackError.name === 'AbortError') throw fallbackError;
+                if (isAbortError(fallbackError)) throw fallbackError;
                 return validationResult(false, [`${message}; fallback PDF structure validation failed: ${display(getErrorMessage(fallbackError))}`]);
             }
         }
@@ -188,7 +189,7 @@ export async function validateBrowserPdfLoadability(source: Blob): Promise<IPdfV
             warnings: [COMPATIBILITY_WARNING],
         };
     } catch (error) {
-        if (error instanceof Error && error.name === 'AbortError') throw error;
+        if (isAbortError(error)) throw error;
         return {
             isValid: false,
             tool: 'browser',

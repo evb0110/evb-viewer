@@ -1,6 +1,7 @@
 import { captureFailureForPresentation } from '@app/utils/failureReporter';
 import { useFailureToast } from '@app/composables/useFailureToast';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { createAbortError } from '@contracts/isAbortError';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
 
@@ -182,7 +183,7 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
     function clearPendingImagePlacement(options: {invalidatePendingStarts?: boolean;} = {}) {
         if (options.invalidatePendingStarts !== false) {
             latestImagePlacementRequestId += 1;
-            imagePlacementAbortController?.abort(new Error('Image placement superseded'));
+            imagePlacementAbortController?.abort(createAbortError('Image placement superseded'));
             imagePlacementAbortController = null;
         }
         imageFinalizationAbortController?.abort();
@@ -238,7 +239,7 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
         isPendingImagePlacementFinalizing.value = false;
         const requestId = latestImagePlacementRequestId + 1;
         latestImagePlacementRequestId = requestId;
-        imagePlacementAbortController?.abort(new Error('Image placement superseded'));
+        imagePlacementAbortController?.abort(createAbortError('Image placement superseded'));
         const abortController = new AbortController();
         imagePlacementAbortController = abortController;
         const target = getImagePlacementTarget(optionsOverride);

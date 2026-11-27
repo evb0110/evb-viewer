@@ -1,3 +1,4 @@
+import { isAbortError } from '@contracts/isAbortError';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
 
@@ -16,13 +17,12 @@ function isErrorWithName(error: unknown, name: string) {
 }
 
 function isExpectedCancellation(error: unknown, options: IGuardAsyncOptions) {
-    if (options.signal?.aborted) {
+    if (options.signal?.aborted || isAbortError(error)) {
         return true;
     }
 
     if (
-        isErrorWithName(error, 'AbortError')
-        || isErrorWithName(error, 'RenderingCancelledException')
+        isErrorWithName(error, 'RenderingCancelledException')
         || isErrorWithName(error, 'AbortException')
     ) {
         return true;
@@ -30,7 +30,7 @@ function isExpectedCancellation(error: unknown, options: IGuardAsyncOptions) {
 
     if (error && typeof error === 'object' && 'code' in error) {
         const code = (error as {code?: unknown}).code;
-        return code === 'ABORT_ERR' || code === 'ERR_CANCELED';
+        return code === 'ERR_CANCELED';
     }
 
     return false;

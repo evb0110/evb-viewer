@@ -42,12 +42,46 @@ export const CORE_IPC_SEND_CHANNELS = {
  * decoder runs, and the renderer names the same id on `ipc:invokeCanceled`.
  */
 export const IPC_INVOKE_REQUEST_ID_FIELD = '__evbIpcInvokeRequestId';
+export const IPC_INVOKE_CANCEL_REASON_FIELD = '__evbIpcInvokeCancelReason';
+export type TIpcInvokeCancelKind = 'abort' | 'timeout';
 
 export function decodeIpcInvokeRequestId(value: unknown): TRequestId | null {
     if (!isRecord(value) || Object.keys(value).length !== 1) {
         return null;
     }
     return parseRequestId(value[IPC_INVOKE_REQUEST_ID_FIELD]);
+}
+
+export function decodeIpcInvokeCancelPayload(value: unknown): {
+    requestId: TRequestId;
+    kind: TIpcInvokeCancelKind;
+} | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    const keys = Object.keys(value);
+    if (keys.length === 1) {
+        const requestId = parseRequestId(value[IPC_INVOKE_REQUEST_ID_FIELD]);
+        return requestId === null ? null : {
+            requestId,
+            kind: 'abort',
+        };
+    }
+    if (
+        keys.length === 2
+        && Object.hasOwn(value, IPC_INVOKE_REQUEST_ID_FIELD)
+        && Object.hasOwn(value, IPC_INVOKE_CANCEL_REASON_FIELD)
+    ) {
+        const requestId = parseRequestId(value[IPC_INVOKE_REQUEST_ID_FIELD]);
+        const reason = value[IPC_INVOKE_CANCEL_REASON_FIELD];
+        if (requestId !== null && (reason === 'abort' || reason === 'timeout')) {
+            return {
+                requestId,
+                kind: reason,
+            };
+        }
+    }
+    return null;
 }
 
 export const DIAGNOSTICS_POLICY_ARGUMENT_PREFIX = '--evb-diagnostics-policy=';

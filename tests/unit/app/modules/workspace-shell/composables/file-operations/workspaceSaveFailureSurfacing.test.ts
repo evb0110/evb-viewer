@@ -10,7 +10,9 @@ import {
     computed, ref,
 } from 'vue';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
+import { createAbortError } from '@contracts/isAbortError';
 import { createStaleRevisionError } from '@contracts/documentMutationErrors';
+import { createDocumentPersistence } from '@app/modules/workspace-shell/composables/document-session/createDocumentPersistence';
 import {requireEpochMs} from '@contracts/timestamps';
 import { requireDocumentRef } from '@contracts/documentRef';
 import { requirePageIndex } from '@contracts/pageNumbers';
@@ -1221,5 +1223,55 @@ describe('workspace save failure surfacing', () => {
             description: toastDescriptionContaining('disk exploded'),
         }));
         expect(service.hasSaveFailure.value).toBe(true);
+    });
+
+    it.each([
+        [
+            'canonical Error-based AbortError',
+            () => createAbortError('IPC invoke canceled'),
+        ],
+        [
+            'DOMException AbortError',
+            () => new DOMException('Save canceled', 'AbortError'),
+        ],
+        [
+            'SuppressedError wrapping AbortError',
+            () => new SuppressedError(new Error('cleanup failed'), createAbortError('save canceled')),
+        ],
+    ])('agrees on %s across createDocumentPersistence and useWorkspaceSaveService without error toasts', async (_label, makeAbortError) => {
+        const workingPath = requireDocumentRef('/tmp/work.pdf');
+        const originalPath = requireDocumentRef('/tmp/source.pdf');
+        const revisionToken = requireDocumentRevisionToken('rev-1');
+        const abortError = makeAbortError();
+
+        const persistence = createDocumentPersistence(
+            cast({
+                workingCopyPath: ref(workingPath),
+                originalPath: ref(originalPath),
+                documentRevisionToken: ref(revisionToken),
+                isActiveWorkingCopy: (path: string) => path === workingPath,
+            }),
+            cast({
+                captureHistoryCleanState: () => vi.fn(async () => undefined),
+                shouldForceSaveAsForWorkingCopy: vi.fn(async () => {
+                    throw abortError;
+                }),
+            }),
+        );
+
+        await expect(persistence.saveWorkingCopy()).rejects.toBe(abortError);
+
+        const { deps } = createDeps({
+            ...unsavedShapeEdit(),
+            trySavePdfNativeMutations: vi.fn(async () => {
+                throw abortError;
+            }),
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(service.handleSave()).resolves.toBe(false);
+        expect(toastAddMock).not.toHaveBeenCalled();
+        expect(service.hasSaveFailure.value).toBe(false);
+        expectWorkspaceSaveNotMarked(deps);
     });
 });

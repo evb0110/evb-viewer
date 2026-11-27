@@ -1,5 +1,6 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/public';
 import { uniq } from 'es-toolkit/array';
+import { isAbortError } from '@contracts/isAbortError';
 import { createRequestId } from '@contracts/shared';
 import type {
     IOcrLanguage,
@@ -734,7 +735,7 @@ export const useOcr = () => {
                 localizeError: e => localizeOcrError(e, 'errors.ocr.exportDocx'),
             });
         } catch (e) {
-            if (abortController.signal.aborted || (e instanceof Error && e.name === 'AbortError')) {
+            if (abortController.signal.aborted || isAbortError(e)) {
                 return false;
             }
             throw e;
