@@ -239,4 +239,91 @@ describe('DjVu text search (DjVuLibre WASM)', () => {
             docHandle.close();
         }
     });
+
+    it('preserves the 256-box cap and resolves 500 late hits on a 10,000-word DjVu page via binary search', async () => {
+        const wordCount = 10_000;
+        const zones = Array.from({length: wordCount}, (_, index) => ({
+            type: 'word' as const,
+            lineId: Math.floor(index / 100),
+            xmin: (index % 100) * 10,
+            ymin: 1900 - Math.floor(index / 100) * 12,
+            xmax: (index % 100) * 10 + 8,
+            ymax: 1910 - Math.floor(index / 100) * 12,
+            text: `tok${index}`,
+        }));
+        mocks.runDjvuEngine.mockResolvedValueOnce({
+            text: '',
+            pageWidth: 1200,
+            pageHeight: 2000,
+            zones,
+        });
+
+        // Compute exact assembled offsets matching space/newline separators.
+        const lateRanges: Array<{
+            startOffset: number;
+            endOffset: number;
+            expectedText: string;
+        }> = [];
+        let cursor = 0;
+        for (let index = 0; index < wordCount; index += 1) {
+            const zone = zones[index]!;
+            const startOffset = cursor;
+            const endOffset = startOffset + zone.text.length;
+            if (index >= wordCount - 500) {
+                lateRanges.push({
+                    startOffset,
+                    endOffset,
+                    expectedText: zone.text,
+                });
+            }
+            const nextZone = zones[index + 1];
+            cursor = endOffset + (nextZone ? 1 : 0);
+        }
+
+        const hits = [
+            // Full-page span verifying the 256-word cap.
+            {
+                pageNumber: requirePageNumber(1),
+                pageMatchIndex: 0,
+                matchIndex: 0,
+                startOffset: 0,
+                endOffset: cursor,
+                excerpt: {
+                    prefix: false,
+                    suffix: false,
+                    before: '',
+                    match: 'all',
+                    after: '',
+                },
+            },
+            ...lateRanges.map((range, idx) => ({
+                pageNumber: requirePageNumber(1),
+                pageMatchIndex: idx + 1,
+                matchIndex: idx + 1,
+                startOffset: range.startOffset,
+                endOffset: range.endOffset,
+                excerpt: {
+                    prefix: false,
+                    suffix: false,
+                    before: '',
+                    match: range.expectedText,
+                    after: '',
+                },
+            })),
+        ];
+
+        const startedAt = performance.now();
+        const withGeometry = await addDjvuMatchGeometry('/library/dense.djvu', hits);
+        const elapsedMs = performance.now() - startedAt;
+
+        expect(withGeometry[0]?.words).toHaveLength(256);
+        expect(withGeometry[0]?.words?.[0]?.text).toBe('tok0');
+        expect(withGeometry[0]?.words?.[255]?.text).toBe('tok255');
+        for (let idx = 0; idx < lateRanges.length; idx += 1) {
+            const matched = withGeometry[idx + 1];
+            expect(matched?.words).toHaveLength(1);
+            expect(matched?.words?.[0]?.text).toBe(lateRanges[idx]!.expectedText);
+        }
+        expect(elapsedMs).toBeLessThan(300);
+    });
 });

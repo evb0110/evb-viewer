@@ -486,4 +486,86 @@ describe('scan-cleanup provenance stamp contract', () => {
             buildIds: buildFixtureBuildIds(),
         })).toThrow('Cannot canonicalize non-finite number');
     });
+
+    it('preserves first-occurrence option matching on duplicate source pages and validates 5,000 pages linearly', async () => {
+        const v = await import('valibot');
+        const {SCAN_CLEANUP_PROVENANCE_STAMP_SCHEMA} = await import('@evb/scan-cleanup/core/provenanceStamp');
+        const firstRecord = effectiveOptions(1);
+        const secondRecord = {
+            sourcePage: 1,
+            options: {
+                ...firstRecord.options,
+                dpi: 600,
+            },
+        };
+        const stampMatchingFirst = buildScanCleanupProvenanceStamp({
+            sourceSha256: 'a'.repeat(64),
+            effectiveOptions: [
+                firstRecord,
+                secondRecord,
+            ],
+            outputMappings: [{
+                sourcePage: 1,
+                half: 'full',
+                outputOrdinal: 1,
+                rotationDegrees: 0,
+                excluded: false,
+                blank: false,
+            }],
+            pagePlanDigests: [buildScanCleanupPagePlanDigest(1, firstRecord.options, {})],
+            buildIds: buildFixtureBuildIds(),
+        });
+        expect(() => v.parse(SCAN_CLEANUP_PROVENANCE_STAMP_SCHEMA, stampMatchingFirst, {abortEarly: true})).not.toThrow();
+
+        const stampMatchingSecondOnly = buildScanCleanupProvenanceStamp({
+            sourceSha256: 'a'.repeat(64),
+            effectiveOptions: [
+                firstRecord,
+                secondRecord,
+            ],
+            outputMappings: [{
+                sourcePage: 1,
+                half: 'full',
+                outputOrdinal: 1,
+                rotationDegrees: 0,
+                excluded: false,
+                blank: false,
+            }],
+            pagePlanDigests: [buildScanCleanupPagePlanDigest(1, secondRecord.options, {})],
+            buildIds: buildFixtureBuildIds(),
+        });
+        expect(() => v.parse(SCAN_CLEANUP_PROVENANCE_STAMP_SCHEMA, stampMatchingSecondOnly, {abortEarly: true}))
+            .toThrow('pagePlanDigests do not match effective options');
+
+        const pageCount = 5_000;
+        const baseRecord = effectiveOptions(1);
+        const baseDigest = buildScanCleanupPagePlanDigest(1, baseRecord.options, {});
+        const perSourcePage = Array.from({length: pageCount}, (_, index) => ({
+            sourcePage: index + 1,
+            options: baseRecord.options,
+        }));
+        const outputMappings = perSourcePage.map(record => ({
+            sourcePage: record.sourcePage,
+            half: 'full' as const,
+            outputOrdinal: record.sourcePage,
+            rotationDegrees: 0 as const,
+            excluded: false,
+            blank: false,
+        }));
+        const pagePlanDigests = perSourcePage.map(record => ({
+            ...baseDigest,
+            sourcePage: record.sourcePage,
+        }));
+        const largeStamp = buildScanCleanupProvenanceStamp({
+            sourceSha256: 'a'.repeat(64),
+            effectiveOptions: perSourcePage,
+            outputMappings,
+            pagePlanDigests,
+            buildIds: buildFixtureBuildIds(),
+        });
+
+        const startedAt = performance.now();
+        expect(() => v.parse(SCAN_CLEANUP_PROVENANCE_STAMP_SCHEMA, largeStamp, {abortEarly: true})).not.toThrow();
+        expect(performance.now() - startedAt).toBeLessThan(2_000);
+    });
 });

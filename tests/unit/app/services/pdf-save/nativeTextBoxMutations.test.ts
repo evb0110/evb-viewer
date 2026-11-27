@@ -22,6 +22,10 @@ import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
+import {
+    recordPdfDocumentLoadedRevision,
+    recordPdfDocumentOriginalAnnotations,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
 import {cast} from '@tests/helpers/cast';
 
 const {renderTextBoxAppearance} = vi.hoisted(() => ({renderTextBoxAppearance: vi.fn()}));
@@ -412,5 +416,140 @@ describe('accepted text-box appearance', () => {
 
         expect(renderTextBoxAppearance).toHaveBeenCalledTimes(2);
         expect(input.nativeAnnotationAppearance?.pdf).toEqual([new Uint8Array([9])]);
+    });
+
+    it('maps multi-batch text-box appearance documents accurately and scales across 500 pages x 2,000 parsed annotations', async () => {
+        // Multi-batch test: >256 text boxes forces multiple native appearance batches plus committed reuse.
+        const boxCount = 260;
+        const entities = Array.from({length: boxCount}, (_, index) => textBox(`batch-box-${index}`, {
+            text: `Box ${index}`,
+        }));
+        let batchSeq = 0;
+        renderTextBoxAppearance.mockReset().mockImplementation(async (_path: string | null, request: {
+            textBoxes: Array<{textBox: {stableKey: string}}>;
+        }) => {
+            batchSeq += 1;
+            return {
+                data: new Uint8Array([batchSeq]),
+                textBoxes: request.textBoxes.map(entry => ({
+                    stableKey: entry.textBox.stableKey,
+                    fittedFontSize: 16,
+                })),
+            };
+        });
+
+        const firstPaint = await prepareNativeTextBoxPagePaint({
+            document: cast<IPdfDocument>({}),
+            page,
+            annotations: [],
+            entities,
+            excludedIds: new Set(),
+            editingId: null,
+            editingDraft: false,
+            writerParse: null,
+            workingCopyPath: null,
+            signature: 'batch-1',
+        });
+
+        expect(renderTextBoxAppearance).toHaveBeenCalledTimes(2);
+        expect(firstPaint.nativeTextBoxInputs).toHaveLength(boxCount);
+        expect(firstPaint.nativeTextBoxInputs?.[0]).toMatchObject({
+            id: 'batch-box-0',
+            appearanceDocument: 0,
+            appearanceIndex: 0,
+        });
+        expect(firstPaint.nativeTextBoxInputs?.[256]).toMatchObject({
+            id: 'batch-box-256',
+            appearanceDocument: 1,
+            appearanceIndex: 0,
+        });
+
+        // Second paint reuses committed appearances for all unchanged boxes and only renders the 1 edited box.
+        const editedEntities = [
+            ...entities.slice(0, 10),
+            textBox('batch-box-10', {text: 'Edited box 10'}),
+            ...entities.slice(11),
+        ];
+        const secondPaint = await prepareNativeTextBoxPagePaint({
+            document: cast<IPdfDocument>({}),
+            page,
+            annotations: [],
+            entities: editedEntities,
+            excludedIds: new Set(),
+            editingId: null,
+            editingDraft: false,
+            writerParse: null,
+            workingCopyPath: null,
+            currentInput: firstPaint,
+            signature: 'batch-2',
+        });
+
+        expect(renderTextBoxAppearance).toHaveBeenCalledTimes(3);
+        expect(secondPaint.nativeTextBoxInputs?.[0]).toMatchObject({
+            id: 'batch-box-0',
+            appearanceDocument: 0,
+            appearanceIndex: 0,
+        });
+        expect(secondPaint.nativeTextBoxInputs?.[10]).toMatchObject({
+            id: 'batch-box-10',
+            appearanceDocument: 2,
+            appearanceIndex: 0,
+        });
+
+        // 500 pages x 2,000 parsed annotations indexed once by page.
+        const parsedEntities = Array.from({length: 2_000}, (_, index) => ({
+            kind: 'note' as const,
+            name: `note-${index}`,
+            objectNumber: index + 10,
+            generationNumber: 0,
+            pageIndex: index % 500,
+            contents: `c-${index}`,
+            position: {
+                left: 0.1,
+                top: 0.1,
+                width: 0.05,
+                height: 0.05,
+            },
+            color: '#ffcc00',
+            open: false,
+            author: null,
+            createdAt: null,
+            modifiedAt: null,
+        }));
+        const doc = cast<IPdfDocument>({});
+        const rev = requireDocumentRevisionToken('rev-paint-scale');
+        recordPdfDocumentLoadedRevision(doc, rev);
+        await recordPdfDocumentOriginalAnnotations(doc, cast<IPdfAnnotationParseResult>({
+            documentRevisionToken: rev,
+            entities: parsedEntities,
+        }));
+
+        const startedAt = performance.now();
+        for (let pageNumber = 1; pageNumber <= 500; pageNumber += 1) {
+            const paintInput = await prepareNativeTextBoxPagePaint({
+                document: doc,
+                page: cast<IPdfPage>({
+                    pageNumber,
+                    rotate: 0,
+                    view: [
+                        0,
+                        0,
+                        600,
+                        800,
+                    ],
+                    getViewport: () => ({userUnit: 1}),
+                }),
+                annotations: [],
+                entities: [],
+                excludedIds: new Set(),
+                editingId: null,
+                editingDraft: false,
+                writerParse: null,
+                workingCopyPath: null,
+                signature: `sig-${pageNumber}`,
+            });
+            expect(paintInput.excludedIds.size).toBe(4);
+        }
+        expect(performance.now() - startedAt).toBeLessThan(300);
     });
 });

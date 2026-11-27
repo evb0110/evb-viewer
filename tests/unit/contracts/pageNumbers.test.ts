@@ -9,6 +9,8 @@ import {
     clampPageNumber,
     createAllPageSelection,
     createComplementOfPageSelection,
+    createComplementPageSelection,
+    createExceptionPageSelection,
     createExplicitPageSelection,
     createMappedPageSelection,
     createPageMoveRange,
@@ -18,6 +20,7 @@ import {
     invertPageSelection,
     isPageMoveNoOp,
     isPageSelected,
+    iteratePageSelection,
     iteratePageSelectionBatches,
     iteratePageSelectionRanges,
     mapPageNumberAfterPageMove,
@@ -348,5 +351,143 @@ describe('page number contracts', () => {
             3,
             8,
         ]]);
+    });
+
+    it('preserves exact outputs for exceptions, complements, and chained multi-range moves', () => {
+        const base = createRangePageSelection(12, 2, 10);
+        // Includes 1 (outside base), 5 (already in base), 6 (also excluded -> stays excluded), 12 (outside base).
+        const exceptions = createExceptionPageSelection(base, [
+            1,
+            5,
+            6,
+            12,
+        ], [
+            3,
+            6,
+            9,
+        ]);
+        const expectedExceptionPages = [
+            1,
+            2,
+            4,
+            5,
+            7,
+            8,
+            10,
+            12,
+        ];
+        expect([...iteratePageSelection(exceptions)]).toEqual(expectedExceptionPages);
+        expect([...iteratePageSelectionRanges(exceptions)]).toEqual([
+            {
+                startPage: 1,
+                endPage: 2,
+            },
+            {
+                startPage: 4,
+                endPage: 5,
+            },
+            {
+                startPage: 7,
+                endPage: 8,
+            },
+            {
+                startPage: 10,
+                endPage: 10,
+            },
+            {
+                startPage: 12,
+                endPage: 12,
+            },
+        ]);
+        for (let page = 1; page <= 12; page += 1) {
+            expect(isPageSelected(exceptions, page)).toBe(expectedExceptionPages.includes(page));
+        }
+
+        const move1 = createPageMoveRanges(12, [
+            {
+                startPage: 2,
+                endPage: 3,
+            },
+            {
+                startPage: 8,
+                endPage: 9,
+            },
+        ], 12);
+        const move2 = createPageMoveRanges(12, [
+            {
+                startPage: 1,
+                endPage: 1,
+            },
+            {
+                startPage: 5,
+                endPage: 6,
+            },
+        ], 0);
+        const mappedComplement = createMappedPageSelection(
+            createMappedPageSelection(createComplementPageSelection(12, [
+                2,
+                4,
+                7,
+                11,
+            ]), move1),
+            move2,
+        );
+        const mappedPages = [...iteratePageSelection(mappedComplement)];
+        const mappedFromRanges = [...iteratePageSelectionRanges(mappedComplement)].flatMap((segment) => {
+            const pages: number[] = [];
+            for (let page = segment.startPage; page <= segment.endPage; page += 1) {
+                pages.push(page);
+            }
+            return pages;
+        });
+        expect(mappedPages).toEqual(mappedFromRanges);
+        for (let page = 1; page <= 12; page += 1) {
+            expect(isPageSelected(mappedComplement, page)).toBe(mappedPages.includes(page));
+        }
+    });
+
+    it('handles 20,000 alternating exception and mapped explicit selections without quadratic scaling', () => {
+        const pageCount = 20_000;
+        const evenPages: number[] = [];
+        const oddPages: number[] = [];
+        for (let page = 1; page <= pageCount; page += 1) {
+            if (page % 2 === 0) {
+                evenPages.push(page);
+            } else {
+                oddPages.push(page);
+            }
+        }
+
+        const exceptionSelection = createExceptionPageSelection(
+            createAllPageSelection(pageCount),
+            [],
+            evenPages,
+        );
+        const moveRanges = Array.from({length: 1_500}, (_, index) => ({
+            startPage: index * 4 + 1,
+            endPage: index * 4 + 1,
+        }));
+        const firstMove = createPageMoveRanges(pageCount, moveRanges, pageCount);
+        const secondMove = createPageMoveRanges(pageCount, moveRanges.map(segment => ({
+            startPage: segment.startPage + 2,
+            endPage: segment.endPage + 2,
+        })), 0);
+        const mappedExplicit = createMappedPageSelection(
+            createMappedPageSelection(createExplicitPageSelection(pageCount, oddPages), firstMove),
+            secondMove,
+        );
+
+        const startedAt = performance.now();
+        const exceptionIterated = [...iteratePageSelection(exceptionSelection)];
+        const mappedIterated = [...iteratePageSelection(mappedExplicit)];
+        const mappedRanges = [...iteratePageSelectionRanges(mappedExplicit)];
+        const elapsedMs = performance.now() - startedAt;
+
+        expect(exceptionIterated).toHaveLength(10_000);
+        expect(exceptionIterated[0]).toBe(1);
+        expect(exceptionIterated[9_999]).toBe(19_999);
+        expect(mappedIterated).toHaveLength(10_000);
+        expect(mappedRanges.reduce((sum, segment) => sum + segment.endPage - segment.startPage + 1, 0)).toBe(10_000);
+        expect(elapsedMs).toBeLessThan(350);
     });
 });

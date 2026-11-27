@@ -642,18 +642,45 @@ function rectBounds(rect: IAnnotationMarkerRect) {
     };
 }
 
-function rectanglesOverlap(left: IAnnotationMarkerRect, right: IAnnotationMarkerRect) {
-    const leftBounds = rectBounds(left);
-    const rightBounds = rectBounds(right);
-    return Math.min(leftBounds.right, rightBounds.right) > Math.max(leftBounds.left, rightBounds.left)
-        && Math.min(leftBounds.bottom, rightBounds.bottom) > Math.max(leftBounds.top, rightBounds.top);
+function minHeapPush(heap: number[], value: number) {
+    heap.push(value);
+    let index = heap.length - 1;
+    while (index > 0) {
+        const parent = (index - 1) >>> 1;
+        if (heap[parent]! <= value) {
+            break;
+        }
+        heap[index] = heap[parent]!;
+        index = parent;
+    }
+    heap[index] = value;
 }
 
-function geometryOverlaps(
-    left: readonly IAnnotationMarkerRect[],
-    right: readonly IAnnotationMarkerRect[],
-) {
-    return left.some(source => right.some(candidate => rectanglesOverlap(source, candidate)));
+function minHeapPop(heap: number[]) {
+    const min = heap[0]!;
+    const last = heap.pop()!;
+    if (heap.length > 0) {
+        let index = 0;
+        const length = heap.length;
+        while (true) {
+            const left = (index << 1) + 1;
+            const right = left + 1;
+            let smallest = index;
+            if (left < length && heap[left]! < last) {
+                smallest = left;
+            }
+            if (right < length && heap[right]! < (smallest === index ? last : heap[smallest]!)) {
+                smallest = right;
+            }
+            if (smallest === index) {
+                break;
+            }
+            heap[index] = heap[smallest]!;
+            index = smallest;
+        }
+        heap[index] = last;
+    }
+    return min;
 }
 
 /**
@@ -666,73 +693,140 @@ function unionTextMarkupGeometry(
     geometries: ReadonlyArray<readonly IAnnotationMarkerRect[]>,
 ) {
     const epsilon = 1e-9;
-    const sources = geometries.flatMap(geometry => geometry.flatMap((rect) => {
-        const rawBounds = rectBounds(rect);
-        // PDF parsing introduces float32 drift. Round shared edges before
-        // partitioning, otherwise tiny slabs can become zero-width save quads.
-        const bounds = {
-            left: roundNumber(rawBounds.left, 6),
-            right: roundNumber(rawBounds.right, 6),
-            top: roundNumber(rawBounds.top, 6),
-            bottom: roundNumber(rawBounds.bottom, 6),
-        };
-        return bounds.right - bounds.left > epsilon && bounds.bottom - bounds.top > epsilon
-            ? [{
-                left: bounds.left,
-                right: bounds.right,
-                top: bounds.top,
-                bottom: bounds.bottom,
-            }]
-            : [];
-    }));
+    const sources: Array<{
+        left: number;
+        right: number;
+        top: number;
+        bottom: number;
+    }> = [];
+    for (const geometry of geometries) {
+        for (const rect of geometry) {
+            const rawBounds = rectBounds(rect);
+            // PDF parsing introduces float32 drift. Round shared edges before
+            // partitioning, otherwise tiny slabs can become zero-width save quads.
+            const left = roundNumber(rawBounds.left, 6);
+            const right = roundNumber(rawBounds.right, 6);
+            const top = roundNumber(rawBounds.top, 6);
+            const bottom = roundNumber(rawBounds.bottom, 6);
+            if (right - left > epsilon && bottom - top > epsilon) {
+                sources.push({
+                    left,
+                    right,
+                    top,
+                    bottom,
+                });
+            }
+        }
+    }
     if (sources.length === 0) {
         return [];
     }
 
-    const xBreaks = [...new Set(sources.flatMap(source => [
-        source.left,
-        source.right,
-    ]))]
-        .sort((left, right) => left - right);
-    const slabs: IAnnotationMarkerRect[] = [];
-    for (let index = 0; index + 1 < xBreaks.length; index += 1) {
-        const left = xBreaks[index]!;
-        const right = xBreaks[index + 1]!;
-        if (right - left <= epsilon) {
-            continue;
-        }
-        const intervals = sources
-            .filter(source => source.left < right - epsilon && source.right > left + epsilon)
-            .map(source => ({
-                top: source.top,
-                bottom: source.bottom,
-            }))
-            .sort((first, second) => first.top - second.top || first.bottom - second.bottom);
-        const bands: Array<{
-            top: number;
-            bottom: number
-        }> = [];
-        intervals.forEach((interval) => {
-            const previous = bands.at(-1);
-            if (!previous || interval.top > previous.bottom + epsilon) {
-                bands.push({...interval});
-            } else {
-                previous.bottom = Math.max(previous.bottom, interval.bottom);
-            }
-        });
-        bands.forEach((band) => {
-            slabs.push({
-                left: roundNumber(left, 6),
-                top: roundNumber(band.top, 6),
-                width: roundNumber(right - left, 6),
-                height: roundNumber(band.bottom - band.top, 6),
-            });
-        });
+    const rawYs = new Array<number>(sources.length * 2);
+    for (let index = 0; index < sources.length; index += 1) {
+        const source = sources[index]!;
+        rawYs[index * 2] = source.top;
+        rawYs[index * 2 + 1] = source.bottom;
     }
+    rawYs.sort((left, right) => left - right);
+    const ys: number[] = [];
+    for (const y of rawYs) {
+        if (ys.length === 0 || ys[ys.length - 1] !== y) {
+            ys.push(y);
+        }
+    }
+    const yIntervalCount = ys.length - 1;
+    if (yIntervalCount <= 0) {
+        return [];
+    }
+    const yIndexByValue = new Map<number, number>();
+    for (let index = 0; index < ys.length; index += 1) {
+        yIndexByValue.set(ys[index]!, index);
+    }
+
+    const events: Array<{
+        x: number;
+        y0: number;
+        y1: number;
+        delta: 1 | -1;
+    }> = [];
+    for (const source of sources) {
+        const y0 = yIndexByValue.get(source.top)!;
+        const y1 = yIndexByValue.get(source.bottom)!;
+        events.push(
+            {
+                x: source.left,
+                y0,
+                y1,
+                delta: 1,
+            },
+            {
+                x: source.right,
+                y0,
+                y1,
+                delta: -1,
+            },
+        );
+    }
+    events.sort((left, right) => left.x - right.x);
+
+    const treeSize = Math.max(2, yIntervalCount * 4);
+    const coverCount = new Int32Array(treeSize);
+    // 0 = uncovered, 1 = partially covered, 2 = completely covered
+    const coveredState = new Uint8Array(treeSize);
+
+    const refreshCoveredState = (node: number, lo: number, hi: number) => {
+        if (coverCount[node]! > 0) {
+            coveredState[node] = 2;
+            return;
+        }
+        if (lo + 1 === hi) {
+            coveredState[node] = 0;
+            return;
+        }
+        const leftState = coveredState[node << 1]!;
+        const rightState = coveredState[(node << 1) | 1]!;
+        if (leftState === 2 && rightState === 2) {
+            coveredState[node] = 2;
+        } else if (leftState === 0 && rightState === 0) {
+            coveredState[node] = 0;
+        } else {
+            coveredState[node] = 1;
+        }
+    };
+
+    const updateCoverage = (
+        node: number,
+        lo: number,
+        hi: number,
+        qL: number,
+        qR: number,
+        delta: 1 | -1,
+    ) => {
+        if (qL <= lo && hi <= qR) {
+            coverCount[node] = coverCount[node]! + delta;
+            refreshCoveredState(node, lo, hi);
+            return;
+        }
+        const mid = (lo + hi) >>> 1;
+        if (qL < mid) {
+            updateCoverage(node << 1, lo, mid, qL, qR, delta);
+        }
+        if (qR > mid) {
+            updateCoverage((node << 1) | 1, mid, hi, qL, qR, delta);
+        }
+        refreshCoveredState(node, lo, hi);
+    };
 
     const result: IAnnotationMarkerRect[] = [];
     const lastRectByBand = new Map<string, IAnnotationMarkerRect>();
-    slabs.forEach((slab) => {
+    const appendBand = (left: number, right: number, top: number, bottom: number) => {
+        const slab: IAnnotationMarkerRect = {
+            left: roundNumber(left, 6),
+            top: roundNumber(top, 6),
+            width: roundNumber(right - left, 6),
+            height: roundNumber(bottom - top, 6),
+        };
         const band = `${slab.top}:${slab.height}`;
         const previous = lastRectByBand.get(band);
         if (previous && Math.abs(previous.left + previous.width - slab.left) <= epsilon) {
@@ -741,7 +835,60 @@ function unionTextMarkupGeometry(
         }
         result.push(slab);
         lastRectByBand.set(band, slab);
-    });
+    };
+
+    let eventIndex = 0;
+    while (eventIndex < events.length) {
+        const left = events[eventIndex]!.x;
+        while (eventIndex < events.length && events[eventIndex]!.x === left) {
+            const event = events[eventIndex]!;
+            updateCoverage(1, 0, yIntervalCount, event.y0, event.y1, event.delta);
+            eventIndex += 1;
+        }
+        if (eventIndex >= events.length) {
+            break;
+        }
+        const right = events[eventIndex]!.x;
+        if (right - left <= epsilon || coveredState[1] === 0) {
+            continue;
+        }
+
+        let hasOpenBand = false;
+        let openTop = 0;
+        let openBottom = 0;
+        const emitCovered = (node: number, lo: number, hi: number) => {
+            const state = coveredState[node]!;
+            if (state === 0) {
+                return;
+            }
+            if (state === 2) {
+                const bandTop = ys[lo]!;
+                const bandBottom = ys[hi]!;
+                if (!hasOpenBand) {
+                    hasOpenBand = true;
+                    openTop = bandTop;
+                    openBottom = bandBottom;
+                } else if (bandTop <= openBottom + epsilon) {
+                    if (bandBottom > openBottom) {
+                        openBottom = bandBottom;
+                    }
+                } else {
+                    appendBand(left, right, openTop, openBottom);
+                    openTop = bandTop;
+                    openBottom = bandBottom;
+                }
+                return;
+            }
+            const mid = (lo + hi) >>> 1;
+            emitCovered(node << 1, lo, mid);
+            emitCovered((node << 1) | 1, mid, hi);
+        };
+        emitCovered(1, 0, yIntervalCount);
+        if (hasOpenBand) {
+            appendBand(left, right, openTop, openBottom);
+        }
+    }
+
     return result;
 }
 
@@ -796,24 +943,254 @@ function connectedHighlightEntities(
     created: ITextMarkupEntity,
     candidates: readonly ITextMarkupEntity[],
 ) {
-    const connected: ITextMarkupEntity[] = [];
-    let frontier = [...created.quadPoints];
-    let changed = true;
-    while (changed) {
-        changed = false;
-        candidates.forEach((candidate) => {
-            if (connected.some(entity => entity.identity.id === candidate.identity.id)
-                || !geometryOverlaps(frontier, candidate.quadPoints)) {
-                return;
-            }
-            connected.push(candidate);
-            frontier = [
-                ...frontier,
-                ...candidate.quadPoints,
-            ];
-            changed = true;
-        });
+    if (candidates.length === 0 || created.quadPoints.length === 0) {
+        return [];
     }
+
+    const rects: Array<{
+        left: number;
+        right: number;
+        top: number;
+        bottom: number;
+        owner: number;
+        y0: number;
+        y1: number;
+    }> = [];
+    let hasCreatedRect = false;
+    for (const quad of created.quadPoints) {
+        const bounds = rectBounds(quad);
+        if (bounds.left < bounds.right && bounds.top < bounds.bottom) {
+            hasCreatedRect = true;
+            rects.push({
+                left: bounds.left,
+                right: bounds.right,
+                top: bounds.top,
+                bottom: bounds.bottom,
+                owner: 0,
+                y0: 0,
+                y1: 0,
+            });
+        }
+    }
+    if (!hasCreatedRect) {
+        return [];
+    }
+    for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
+        const candidate = candidates[candidateIndex]!;
+        for (const quad of candidate.quadPoints) {
+            const bounds = rectBounds(quad);
+            if (bounds.left < bounds.right && bounds.top < bounds.bottom) {
+                rects.push({
+                    left: bounds.left,
+                    right: bounds.right,
+                    top: bounds.top,
+                    bottom: bounds.bottom,
+                    owner: candidateIndex + 1,
+                    y0: 0,
+                    y1: 0,
+                });
+            }
+        }
+    }
+
+    const rawYs = new Array<number>(rects.length * 2);
+    for (let index = 0; index < rects.length; index += 1) {
+        const rect = rects[index]!;
+        rawYs[index * 2] = rect.top;
+        rawYs[index * 2 + 1] = rect.bottom;
+    }
+    rawYs.sort((left, right) => left - right);
+    const ys: number[] = [];
+    for (const y of rawYs) {
+        if (ys.length === 0 || ys[ys.length - 1] !== y) {
+            ys.push(y);
+        }
+    }
+    const yIntervalCount = ys.length - 1;
+    if (yIntervalCount <= 0) {
+        return [];
+    }
+    const yIndexByValue = new Map<number, number>();
+    for (let index = 0; index < ys.length; index += 1) {
+        yIndexByValue.set(ys[index]!, index);
+    }
+
+    // type 0 = leave (processed before enter at equal x so touching edges do not overlap)
+    const events: Array<{
+        x: number;
+        type: 0 | 1;
+        rectIndex: number;
+    }> = [];
+    for (let index = 0; index < rects.length; index += 1) {
+        const rect = rects[index]!;
+        rect.y0 = yIndexByValue.get(rect.top)!;
+        rect.y1 = yIndexByValue.get(rect.bottom)!;
+        events.push(
+            {
+                x: rect.left,
+                type: 1,
+                rectIndex: index,
+            },
+            {
+                x: rect.right,
+                type: 0,
+                rectIndex: index,
+            },
+        );
+    }
+    events.sort((left, right) => left.x - right.x || left.type - right.type);
+
+    const treeSize = Math.max(2, yIntervalCount * 4);
+    const cover: Array<Set<number> | undefined> = new Array(treeSize);
+    const totalCount = new Int32Array(treeSize);
+    const ownerCount = candidates.length + 1;
+    const adjacency: number[][] = Array.from({length: ownerCount}, () => []);
+    const seenOwnerStamp = new Int32Array(ownerCount);
+    let currentStamp = 0;
+
+    const insertRect = (
+        node: number,
+        lo: number,
+        hi: number,
+        qL: number,
+        qR: number,
+        rectIndex: number,
+    ) => {
+        totalCount[node] = totalCount[node]! + 1;
+        if (qL <= lo && hi <= qR) {
+            let bucket = cover[node];
+            if (!bucket) {
+                bucket = new Set();
+                cover[node] = bucket;
+            }
+            bucket.add(rectIndex);
+            return;
+        }
+        const mid = (lo + hi) >>> 1;
+        if (qL < mid) {
+            insertRect(node << 1, lo, mid, qL, qR, rectIndex);
+        }
+        if (qR > mid) {
+            insertRect((node << 1) | 1, mid, hi, qL, qR, rectIndex);
+        }
+    };
+
+    const removeRect = (
+        node: number,
+        lo: number,
+        hi: number,
+        qL: number,
+        qR: number,
+        rectIndex: number,
+    ) => {
+        totalCount[node] = totalCount[node]! - 1;
+        if (qL <= lo && hi <= qR) {
+            cover[node]?.delete(rectIndex);
+            return;
+        }
+        const mid = (lo + hi) >>> 1;
+        if (qL < mid) {
+            removeRect(node << 1, lo, mid, qL, qR, rectIndex);
+        }
+        if (qR > mid) {
+            removeRect((node << 1) | 1, mid, hi, qL, qR, rectIndex);
+        }
+    };
+
+    const queryOverlaps = (
+        node: number,
+        lo: number,
+        hi: number,
+        qL: number,
+        qR: number,
+        owner: number,
+    ) => {
+        if (totalCount[node] === 0) {
+            return;
+        }
+        const bucket = cover[node];
+        if (bucket && bucket.size > 0) {
+            for (const otherRectIndex of bucket) {
+                const otherOwner = rects[otherRectIndex]!.owner;
+                if (seenOwnerStamp[otherOwner] !== currentStamp) {
+                    seenOwnerStamp[otherOwner] = currentStamp;
+                    adjacency[owner]!.push(otherOwner);
+                    adjacency[otherOwner]!.push(owner);
+                }
+            }
+        }
+        if (lo + 1 === hi) {
+            return;
+        }
+        const mid = (lo + hi) >>> 1;
+        if (qL < mid) {
+            queryOverlaps(node << 1, lo, mid, qL, qR, owner);
+        }
+        if (qR > mid) {
+            queryOverlaps((node << 1) | 1, mid, hi, qL, qR, owner);
+        }
+    };
+
+    for (const event of events) {
+        const rect = rects[event.rectIndex]!;
+        if (event.type === 1) {
+            currentStamp += 1;
+            seenOwnerStamp[rect.owner] = currentStamp;
+            queryOverlaps(1, 0, yIntervalCount, rect.y0, rect.y1, rect.owner);
+            insertRect(1, 0, yIntervalCount, rect.y0, rect.y1, event.rectIndex);
+        } else {
+            removeRect(1, 0, yIntervalCount, rect.y0, rect.y1, event.rectIndex);
+        }
+    }
+
+    // Two-pass min-heap traversal reproduces the exact discovery order of the
+    // fixed-point candidate scan (same-pass forward edges before next-pass
+    // backward edges) while visiting each edge at most once.
+    const connected: ITextMarkupEntity[] = [];
+    const queued = new Uint8Array(candidates.length);
+    const visitedIds = new Set<AnnotationId>();
+    let currentPass: number[] = [];
+    let nextPass: number[] = [];
+
+    for (const neighborOwner of adjacency[0]!) {
+        if (neighborOwner > 0) {
+            const candidateIndex = neighborOwner - 1;
+            if (!queued[candidateIndex]) {
+                queued[candidateIndex] = 1;
+                minHeapPush(currentPass, candidateIndex);
+            }
+        }
+    }
+
+    while (currentPass.length > 0) {
+        while (currentPass.length > 0) {
+            const candidateIndex = minHeapPop(currentPass);
+            const candidate = candidates[candidateIndex]!;
+            if (visitedIds.has(candidate.identity.id)) {
+                continue;
+            }
+            visitedIds.add(candidate.identity.id);
+            connected.push(candidate);
+            for (const neighborOwner of adjacency[candidateIndex + 1]!) {
+                if (neighborOwner === 0) {
+                    continue;
+                }
+                const nextIndex = neighborOwner - 1;
+                if (queued[nextIndex] || visitedIds.has(candidates[nextIndex]!.identity.id)) {
+                    continue;
+                }
+                queued[nextIndex] = 1;
+                if (nextIndex > candidateIndex) {
+                    minHeapPush(currentPass, nextIndex);
+                } else {
+                    minHeapPush(nextPass, nextIndex);
+                }
+            }
+        }
+        currentPass = nextPass;
+        nextPass = [];
+    }
+
     return connected;
 }
 

@@ -572,15 +572,6 @@ function addCommentIdentityAliases(ids: Set<string>, comment: IAnnotationComment
     addEmbeddedAnnotationIdFromStableKey(ids, comment.stableKey);
 }
 
-function areAnnotationIdentityAliasesEqual(
-    left: string | null | undefined,
-    right: string | null | undefined,
-) {
-    const normalizedLeft = normalizePdfJsAnnotationId(left);
-    const normalizedRight = normalizePdfJsAnnotationId(right);
-    return normalizedLeft !== null && normalizedLeft === normalizedRight;
-}
-
 function isTextMarkupComment(comment: IAnnotationCommentSummary) {
     return comment.subtype === 'Highlight'
         || comment.subtype === 'Underline'
@@ -594,17 +585,41 @@ function isCanonicalTextBoxComment(comment: IAnnotationCommentSummary) {
         && comment.subtype?.trim().toLowerCase() === 'freetext';
 }
 
-function nativeTextBoxCoversComment(
-    textBox: {
+function buildNativeTextBoxIdentityIndex(
+    textBoxes: ReadonlyArray<{
         stableKey: string;
-        annotationId?: string | null
-    },
-    comment: IAnnotationCommentSummary,
+        annotationId?: string | null;
+    }>,
 ) {
-    const textBoxIdentities = [
-        textBox.stableKey,
-        textBox.annotationId,
-    ];
+    const rawIdentities = new Set<string>();
+    const normalizedIdentities = new Set<string>();
+    for (const textBox of textBoxes) {
+        rawIdentities.add(textBox.stableKey);
+        const normalizedStableKey = normalizePdfJsAnnotationId(textBox.stableKey);
+        if (normalizedStableKey !== null) {
+            normalizedIdentities.add(normalizedStableKey);
+        }
+        if (typeof textBox.annotationId === 'string') {
+            rawIdentities.add(textBox.annotationId);
+            const normalizedAnnotationId = normalizePdfJsAnnotationId(textBox.annotationId);
+            if (normalizedAnnotationId !== null) {
+                normalizedIdentities.add(normalizedAnnotationId);
+            }
+        }
+    }
+    return {
+        rawIdentities,
+        normalizedIdentities,
+    };
+}
+
+function isCommentCoveredByNativeTextBoxIndex(
+    comment: IAnnotationCommentSummary,
+    index: {
+        rawIdentities: ReadonlySet<string>;
+        normalizedIdentities: ReadonlySet<string>;
+    },
+) {
     const commentIdentities = [
         comment.appAnnotationId,
         comment.annotationId,
@@ -612,12 +627,16 @@ function nativeTextBoxCoversComment(
         comment.uid,
         comment.stableKey,
     ];
-    return textBoxIdentities.some(textBoxIdentity => (
-        commentIdentities.some(commentIdentity => (
-            textBoxIdentity === commentIdentity
-            || areAnnotationIdentityAliasesEqual(textBoxIdentity, commentIdentity)
-        ))
-    ));
+    return commentIdentities.some((commentIdentity) => {
+        if (typeof commentIdentity !== 'string') {
+            return false;
+        }
+        if (index.rawIdentities.has(commentIdentity)) {
+            return true;
+        }
+        const normalized = normalizePdfJsAnnotationId(commentIdentity);
+        return normalized !== null && index.normalizedIdentities.has(normalized);
+    });
 }
 
 function buildClassifiedNativeMutationProjection(
@@ -683,10 +702,11 @@ function buildClassifiedNativeMutationProjection(
     // Native text-box mutations are already a bounded projection. They remain
     // valid when other changed annotations select the writer route.
     const textBoxes = capabilities.nativeTextBoxes ?? [];
+    const textBoxIdentityIndex = buildNativeTextBoxIdentityIndex(textBoxes);
     if (
         changedComments
             .filter(isCanonicalTextBoxComment)
-            .some(comment => !textBoxes.some(textBox => nativeTextBoxCoversComment(textBox, comment)))
+            .some(comment => !isCommentCoveredByNativeTextBoxIndex(comment, textBoxIdentityIndex))
     ) {
         return 'native-text-box-payload-unavailable';
     }

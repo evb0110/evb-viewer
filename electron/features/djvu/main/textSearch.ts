@@ -35,6 +35,12 @@ interface IDjvuTextZone {
     word?: IOcrWord | undefined;
 }
 
+interface IDjvuWordSpan {
+    startOffset: number;
+    endOffset: number;
+    word: IOcrWord;
+}
+
 interface IDjvuParsedTextPage {
     pageNumber: number;
     width: number;
@@ -45,6 +51,7 @@ interface IDjvuParsedTextPage {
         startOffset: number;
         endOffset: number;
     }>;
+    wordSpans: IDjvuWordSpan[];
 }
 
 function buildParsedTextPage(pageNumber: number, raw: IDjvuPageTextRaw): IDjvuParsedTextPage {
@@ -107,16 +114,31 @@ function buildParsedTextPage(pageNumber: number, raw: IDjvuPageTextRaw): IDjvuPa
         throw new Error(`DjVu page ${pageNumber} text exceeds the supported limit`);
     }
 
+    const zoneOffsets = assembled.itemOffsets.map(offset => ({
+        startOffset: offset.startOffset,
+        endOffset: offset.endOffset,
+    }));
+    const wordSpans: IDjvuWordSpan[] = [];
+    for (let index = 0; index < zoneOffsets.length; index += 1) {
+        const offset = zoneOffsets[index];
+        const word = zones[index]?.word;
+        if (offset && word && offset.endOffset > offset.startOffset) {
+            wordSpans.push({
+                startOffset: offset.startOffset,
+                endOffset: offset.endOffset,
+                word,
+            });
+        }
+    }
+
     return {
         pageNumber,
         width: pageWidth,
         height: pageHeight,
         text: assembled.text,
         zones,
-        zoneOffsets: assembled.itemOffsets.map(offset => ({
-            startOffset: offset.startOffset,
-            endOffset: offset.endOffset,
-        })),
+        zoneOffsets,
+        wordSpans,
     };
 }
 
@@ -157,20 +179,29 @@ export async function readDjvuPageText(
 }
 
 function wordsForPageRange(page: IDjvuParsedTextPage, startOffset: number, endOffset: number) {
+    const { wordSpans } = page;
+    if (wordSpans.length === 0) {
+        return [];
+    }
+    let low = 0;
+    let high = wordSpans.length;
+    while (low < high) {
+        const middle = low + ((high - low) >>> 1);
+        if (wordSpans[middle]!.endOffset <= startOffset) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
     const words: IOcrWord[] = [];
-    for (let index = 0; index < page.zoneOffsets.length; index += 1) {
-        const offset = page.zoneOffsets[index];
-        const word = page.zones[index]?.word;
-        if (
-            offset
-            && word
-            && offset.endOffset > startOffset
-            && offset.startOffset < endOffset
-        ) {
-            words.push(word);
-            if (words.length >= DJVU_SEARCH_MAX_WORDS_PER_MATCH) {
-                break;
-            }
+    for (let index = low; index < wordSpans.length; index += 1) {
+        const span = wordSpans[index]!;
+        if (span.startOffset >= endOffset) {
+            break;
+        }
+        words.push(span.word);
+        if (words.length >= DJVU_SEARCH_MAX_WORDS_PER_MATCH) {
+            break;
         }
     }
     return words;

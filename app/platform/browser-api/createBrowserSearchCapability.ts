@@ -21,7 +21,11 @@ import {
     buildPdfSearchExcerpt,
     validateSearchQuery,
 } from '@pdf-core/pdfSearchCore';
-import {collectSearchMatchWords} from '@pdf-core/collectSearchMatchWords';
+import {
+    collectSearchMatchWordsFromIndex,
+    createSearchPageWordIndex,
+    type ISearchPageWordIndex,
+} from '@pdf-core/collectSearchMatchWords';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
     SEARCH_PLATFORM_FEATURE,
@@ -494,10 +498,18 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                 await doc.destroy();
             }
         }
+        const wordIndexes = new Map<number, ISearchPageWordIndex | null>();
         return results.map(result => {
             const geometry = resolvedGeometries.get(result.pageNumber) ?? cached.pageGeometries.get(result.pageNumber);
             if (!geometry) return result;
-            const words = collectSearchMatchWords(geometry, result.startOffset, result.endOffset);
+            let wordIndex = wordIndexes.get(result.pageNumber);
+            if (wordIndex === undefined) {
+                wordIndex = createSearchPageWordIndex(geometry);
+                wordIndexes.set(result.pageNumber, wordIndex);
+            }
+            const words = wordIndex === null
+                ? undefined
+                : collectSearchMatchWordsFromIndex(wordIndex, result.startOffset, result.endOffset);
             return words === undefined
                 ? result
                 : {
@@ -714,6 +726,9 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                             completedAllPages = false;
                             break;
                         }
+                        const pageWordIndex = matchResult.matches.length > 0
+                            ? createSearchPageWordIndex(page)
+                            : null;
                         for (const match of matchResult.matches) {
                             if (resultOffset !== 'last' && results.length >= SEARCH_RESULT_LIMIT) {
                                 truncated = true;
@@ -730,7 +745,9 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                                 break;
                             }
                             const matchIndex = matchedCount + match.pageMatchIndex;
-                            const words = collectSearchMatchWords(page, match.startOffset, match.endOffset);
+                            const words = pageWordIndex === null
+                                ? undefined
+                                : collectSearchMatchWordsFromIndex(pageWordIndex, match.startOffset, match.endOffset);
                             const hit: IPdfSearchResult = {
                                 pageNumber: requirePageNumber(page.pageNumber),
                                 pageMatchIndex: match.pageMatchIndex,

@@ -95,19 +95,14 @@ interface IParsedAnnotationIndex {
     length: number;
     byName: Map<string, TPdfAnnotationParseEntity>;
     byRef: Map<string, TPdfAnnotationParseEntity>;
+    byPage: Map<number, TPdfAnnotationParseEntity[]>;
 }
 
 const parsedAnnotationIndexes = new WeakMap<IPdfAnnotationParseResult, IParsedAnnotationIndex>();
 
-/**
- * Native parse identity is bound to its captured revision, never a
- * clean-state guess. Page templates ask this for every annotation they
- * paint, so a parse is indexed once, first entry per name and per
- * reference, instead of being searched whole for each annotation.
- */
-export function parsedAnnotationForEntity(entity: AnnotationEntity, parsed: IPdfAnnotationParseResult | null) {
+function getParsedAnnotationIndex(parsed: IPdfAnnotationParseResult | null) {
     if (!parsed) {
-        return undefined;
+        return null;
     }
     let index = parsedAnnotationIndexes.get(parsed);
     if (index?.entities !== parsed.entities || index.length !== parsed.entities.length) {
@@ -116,13 +111,34 @@ export function parsedAnnotationForEntity(entity: AnnotationEntity, parsed: IPdf
             length: parsed.entities.length,
             byName: new Map(),
             byRef: new Map(),
+            byPage: new Map(),
         };
         for (const entry of parsed.entities) {
             if (!index.byName.has(entry.name)) index.byName.set(entry.name, entry);
             const ref = normalizePdfJsAnnotationId(`${entry.objectNumber} ${entry.generationNumber} R`);
             if (ref !== null && !index.byRef.has(ref)) index.byRef.set(ref, entry);
+            const pageEntries = index.byPage.get(entry.pageIndex);
+            if (pageEntries) {
+                pageEntries.push(entry);
+            } else {
+                index.byPage.set(entry.pageIndex, [entry]);
+            }
         }
         parsedAnnotationIndexes.set(parsed, index);
+    }
+    return index;
+}
+
+/**
+ * Native parse identity is bound to its captured revision, never a
+ * clean-state guess. Page templates ask this for every annotation they
+ * paint, so a parse is indexed once, first entry per name and per
+ * reference, instead of being searched whole for each annotation.
+ */
+export function parsedAnnotationForEntity(entity: AnnotationEntity, parsed: IPdfAnnotationParseResult | null) {
+    const index = getParsedAnnotationIndex(parsed);
+    if (!index) {
+        return undefined;
     }
     const ref = normalizePdfJsAnnotationId(entity.identity.pdfRef);
     return index.byName.get(entity.identity.id) ?? (ref === null ? undefined : index.byRef.get(ref));
@@ -269,7 +285,7 @@ export async function prepareNativeTextBoxPagePaint(options: {
     const original = readPdfDocumentOriginalAnnotations(document);
     const excludedIds = new Set(options.excludedIds);
     const loadedIds = new Set(annotations.flatMap(annotation => normalizePdfJsAnnotationId(annotation.id) ?? []));
-    const originalEntries = original?.entities.filter(entry => entry.pageIndex + 1 === page.pageNumber) ?? [];
+    const originalEntries = getParsedAnnotationIndex(original)?.byPage.get(page.pageNumber - 1) ?? [];
     originalEntries.forEach(entry => {
         if (entry.kind !== 'text-box' || !entry.readOnly) excludedIds.add(normalizePdfJsAnnotationId(`${entry.objectNumber} ${entry.generationNumber} R`)!);
     });
@@ -290,17 +306,29 @@ export async function prepareNativeTextBoxPagePaint(options: {
     const retained = entities.filter(entity => entity.kind !== 'note' && sourceId(entity)
         && !(entity.identity.id === options.editingId && options.editingDraft)
         && matchesParsed(entity, entryFor(entity)));
+    const retainedSet = new Set(retained);
     // Flatten unchanged source siblings with text boxes so PDF order/blending stays in one canvas.
     if (entities.some(entity => entity.kind === 'text-box')) retained.forEach(entity => excludedIds.delete(sourceId(entity)!));
     const derived = entities.filter((entity): entity is ITextBoxEntity => entity.kind === 'text-box' && !entity.readOnly
-        && !retained.includes(entity) && entity.identity.id !== options.editingId);
+        && !retainedSet.has(entity) && entity.identity.id !== options.editingId);
     const pageInput = appearancePage(page);
     const requests = derived.map(entity => appearanceRequest(entity, page, writerParse, true, original));
     const previous = options.currentInput?.nativeAnnotationAppearance?.pdf;
     const previousPdfs = previous instanceof Uint8Array ? [previous] : previous ?? [];
+    const committedByIdAndKey = new Map<string, Map<string, NonNullable<IPdfAnnotationRenderInput['nativeTextBoxInputs']>[number]>>();
+    for (const committedInput of options.currentInput?.nativeTextBoxInputs ?? []) {
+        let byKey = committedByIdAndKey.get(committedInput.id);
+        if (!byKey) {
+            byKey = new Map();
+            committedByIdAndKey.set(committedInput.id, byKey);
+        }
+        if (!byKey.has(committedInput.key)) {
+            byKey.set(committedInput.key, committedInput);
+        }
+    }
     // A request the committed render or the accepted text box's fit already answered keeps that appearance.
     const answers = requests.map((request) => {
-        const committed = options.currentInput?.nativeTextBoxInputs?.find(input => input.id === request.id && input.key === request.key);
+        const committed = committedByIdAndKey.get(request.id)?.get(request.key);
         const pdf = committed && previousPdfs[committed.appearanceDocument];
         if (committed && pdf) {
             return {
@@ -314,14 +342,26 @@ export async function prepareNativeTextBoxPagePaint(options: {
         } : null;
     });
     const pdfs = [...new Set(answers.flatMap(answer => answer?.pdf ?? []))];
+    const pdfIndexByBytes = new Map<Uint8Array, number>();
+    pdfs.forEach((pdf, index) => {
+        pdfIndexByBytes.set(pdf, index);
+    });
     let outputBytes = pdfs.reduce((sum, pdf) => sum + pdf.byteLength, 0);
     if (outputBytes) options.reserveAppearanceBytes?.(outputBytes);
-    const batches: Array<typeof requests> = [];
-    let batch: typeof requests = [];
+    interface IIndexedAppearanceRequest {
+        request: (typeof requests)[number];
+        requestIndex: number;
+    }
+    const batches: IIndexedAppearanceRequest[][] = [];
+    let batch: IIndexedAppearanceRequest[] = [];
     let textBytes = 0;
     let requestBytes = 1024;
     const encoder = new TextEncoder();
-    for (const request of requests.filter((_, index) => !answers[index])) {
+    for (let requestIndex = 0; requestIndex < requests.length; requestIndex += 1) {
+        if (answers[requestIndex]) {
+            continue;
+        }
+        const request = requests[requestIndex]!;
         const text = encoder.encode(request.input.textBox.text).byteLength;
         const bytes = encoder.encode(JSON.stringify(request.input)).byteLength;
         if (batch.length && (batch.length === PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS.textBoxes
@@ -332,7 +372,10 @@ export async function prepareNativeTextBoxPagePaint(options: {
             textBytes = 0;
             requestBytes = 1024;
         }
-        batch.push(request);
+        batch.push({
+            request,
+            requestIndex,
+        });
         textBytes += text;
         requestBytes += bytes;
     }
@@ -341,17 +384,21 @@ export async function prepareNativeTextBoxPagePaint(options: {
         signal?.throwIfAborted();
         const result = await getPageOpsCapability().renderTextBoxAppearance(options.workingCopyPath, {
             page: pageInput,
-            textBoxes: chunk.map(request => request.input),
+            textBoxes: chunk.map(entry => entry.request.input),
         }, signal ? {signal} : {});
         signal?.throwIfAborted();
-        if (result.textBoxes.length !== chunk.length || result.textBoxes.some((entry, index) => entry.stableKey !== chunk[index]!.id)) {
+        if (result.textBoxes.length !== chunk.length || result.textBoxes.some((entry, index) => entry.stableKey !== chunk[index]!.request.id)) {
             throw new Error('Native text appearance identities do not match the captured page');
         }
         outputBytes += result.data.byteLength;
         options.reserveAppearanceBytes?.(outputBytes);
+        const documentIndex = pdfs.length;
         pdfs.push(result.data);
-        chunk.forEach((request, appearanceIndex) => {
-            answers[requests.indexOf(request)] = {
+        if (!pdfIndexByBytes.has(result.data)) {
+            pdfIndexByBytes.set(result.data, documentIndex);
+        }
+        chunk.forEach((entry, appearanceIndex) => {
+            answers[entry.requestIndex] = {
                 pdf: result.data,
                 appearanceIndex,
             };
@@ -360,7 +407,7 @@ export async function prepareNativeTextBoxPagePaint(options: {
     const nativeTextBoxInputs = requests.map((request, index) => ({
         id: request.id,
         key: request.key,
-        appearanceDocument: pdfs.indexOf(answers[index]!.pdf),
+        appearanceDocument: pdfIndexByBytes.get(answers[index]!.pdf)!,
         appearanceIndex: answers[index]!.appearanceIndex,
     }));
     const derivedById = new Map<string, ITextBoxEntity>(derived.map(entity => [
@@ -377,16 +424,24 @@ export async function prepareNativeTextBoxPagePaint(options: {
         appearanceIndex: input.appearanceIndex,
     }));
     actions.forEach(entry => excludedIds.delete(entry.id));
-    const hash = async (bytes: Uint8Array) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes.slice())), byte => byte.toString(16).padStart(2, '0')).join('');
-    const pdfDigests: string[] = [];
-    for (const pdf of pdfs) pdfDigests.push(await hash(pdf));
-    const digest = await hash(new TextEncoder().encode(JSON.stringify([
-        original?.documentRevisionToken ?? null,
-        page.pageNumber,
-        actions,
-        requests.map(request => request.key),
-        pdfDigests,
-    ])));
+    let nativeAnnotationAppearance: IPdfAnnotationRenderInput['nativeAnnotationAppearance'];
+    if (actions.length) {
+        const hash = async (bytes: Uint8Array) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes.slice())), byte => byte.toString(16).padStart(2, '0')).join('');
+        const pdfDigests: string[] = [];
+        for (const pdf of pdfs) pdfDigests.push(await hash(pdf));
+        const digest = await hash(new TextEncoder().encode(JSON.stringify([
+            original?.documentRevisionToken ?? null,
+            page.pageNumber,
+            actions,
+            requests.map(request => request.key),
+            pdfDigests,
+        ])));
+        nativeAnnotationAppearance = Object.freeze({
+            digest,
+            pdf: pdfs.length ? pdfs : null,
+            annotations: Object.freeze(actions),
+        });
+    }
     signal?.throwIfAborted();
     return Object.freeze({
         document,
@@ -400,11 +455,7 @@ export async function prepareNativeTextBoxPagePaint(options: {
         }))),
         signature: options.signature,
         nativeTextBoxInputs: Object.freeze([...nativeTextBoxInputs]),
-        ...(actions.length ? {nativeAnnotationAppearance: Object.freeze({
-            digest,
-            pdf: pdfs.length ? pdfs : null,
-            annotations: Object.freeze(actions),
-        })} : {}),
+        ...(nativeAnnotationAppearance ? {nativeAnnotationAppearance} : {}),
     });
 }
 

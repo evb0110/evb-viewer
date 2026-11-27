@@ -183,7 +183,7 @@ function hasKindFields(entity: Record<string, unknown>) {
     }
 }
 
-function assertHeldFieldsValid(heldFields: unknown, entityIds: ReadonlySet<string>) {
+function assertHeldFieldsValid(heldFields: unknown, entityIds: Pick<ReadonlySet<string>, 'has'>) {
     if (heldFields !== undefined && (!isRecord(heldFields) || !Object.entries(heldFields).every(([id, digests]) => entityIds.has(id)
         && isRecord(digests) && Object.entries(digests).every(([name, digest]) => SEMANTIC_FIELD_NAMES.has(name)
             && typeof digest === 'string' && FIELD_DIGEST.test(digest))))) {
@@ -191,7 +191,7 @@ function assertHeldFieldsValid(heldFields: unknown, entityIds: ReadonlySet<strin
     }
 }
 
-function assertChangedFieldsValid(changedFields: unknown, entityIds: ReadonlySet<string>) {
+function assertChangedFieldsValid(changedFields: unknown, entityIds: Pick<ReadonlySet<string>, 'has'>) {
     if (!isRecord(changedFields) || !Object.entries(changedFields).every(([id, names]) => entityIds.has(id)
         && Array.isArray(names) && new Set(names).size === names.length
         && names.every(name => typeof name === 'string' && SEMANTIC_FIELD_NAMES.has(name)))) {
@@ -262,7 +262,7 @@ export function validateCanonicalAnnotationRecovery(value: unknown): ICanonicalA
     }
     const annotationMutationGeneration = candidate.annotationMutationGeneration;
     assertFiniteNonNegativeInteger(annotationMutationGeneration, 'Annotation mutation generation');
-    const entityIds = new Set<string>();
+    const entitiesById = new Map<string, AnnotationEntity>();
     const entities = candidate.entities as readonly unknown[];
     const drafts = candidate.drafts as readonly unknown[];
     const validatedEntities: AnnotationEntity[] = [];
@@ -270,17 +270,17 @@ export function validateCanonicalAnnotationRecovery(value: unknown): ICanonicalA
     const draftErrors: IAnnotationRecoveryDraftError[] = [];
     entities.forEach((entity) => {
         validateEntity(entity);
-        if (entityIds.has(entity.identity.id)) {
+        if (entitiesById.has(entity.identity.id)) {
             throw new AnnotationRecoveryAdmissionError(`Recovery contains duplicate annotation identity ${entity.identity.id}`);
         }
-        entityIds.add(entity.identity.id);
+        entitiesById.set(entity.identity.id, entity);
         validatedEntities.push(entity);
     });
-    if (version !== 1) assertChangedFieldsValid(changedFields, entityIds);
-    if (version === CANONICAL_ANNOTATION_RECOVERY_VERSION) assertHeldFieldsValid(heldFields, entityIds);
+    if (version !== 1) assertChangedFieldsValid(changedFields, entitiesById);
+    if (version === CANONICAL_ANNOTATION_RECOVERY_VERSION) assertHeldFieldsValid(heldFields, entitiesById);
     drafts.forEach((draft) => {
         validateDraft(draft);
-        const entity = validatedEntities.find(candidateEntity => candidateEntity.identity.id === draft.annotationId);
+        const entity = entitiesById.get(draft.annotationId);
         if (!entity || entity.kind !== draft.kind || entity.revision !== draft.canonicalRevision || entity.deleted) {
             draftErrors.push({
                 ...draft,
@@ -320,6 +320,64 @@ function semanticFields(entity: AnnotationEntity) {
  * match, by id as well: it decides between such annotations, binds one without a ref, and keeps an edit off another,
  * including one a renumbered read gave the captured id.
  */
+interface IUnboundRecoveryCandidate {
+    readonly entity: AnnotationEntity;
+    readonly fields: Record<string, unknown>;
+    readonly fieldDigests: Map<string, string>;
+}
+
+interface IRecoveryCandidateBucket {
+    readonly all: IUnboundRecoveryCandidate[];
+    cursor: number;
+    secondCursor: number;
+}
+
+interface IRecoverySignatureBucket {
+    readonly global: IRecoveryCandidateBucket;
+    readonly byPage: Map<unknown, IRecoveryCandidateBucket>;
+}
+
+function createRecoveryCandidateBucket(): IRecoveryCandidateBucket {
+    return {
+        all: [],
+        cursor: 0,
+        secondCursor: 0,
+    };
+}
+
+function probeRecoveryBucket(
+    bucket: IRecoveryCandidateBucket,
+    taken: ReadonlySet<string>,
+): IUnboundRecoveryCandidate | 'none' | 'ambiguous' {
+    const {all} = bucket;
+    while (bucket.cursor < all.length && taken.has(all[bucket.cursor]!.entity.identity.id)) {
+        bucket.cursor += 1;
+    }
+    if (bucket.cursor >= all.length) {
+        return 'none';
+    }
+    if (bucket.secondCursor <= bucket.cursor) {
+        bucket.secondCursor = bucket.cursor + 1;
+    }
+    while (bucket.secondCursor < all.length && taken.has(all[bucket.secondCursor]!.entity.identity.id)) {
+        bucket.secondCursor += 1;
+    }
+    return bucket.secondCursor < all.length ? 'ambiguous' : all[bucket.cursor]!;
+}
+
+function encodeComparedFieldValue(value: unknown) {
+    return value === undefined ? 0 : [1, value];
+}
+
+function candidateFieldDigest(candidate: IUnboundRecoveryCandidate, key: string) {
+    let digest = candidate.fieldDigests.get(key);
+    if (digest === undefined) {
+        digest = fieldDigest(candidate.fields[key]);
+        candidate.fieldDigests.set(key, digest);
+    }
+    return digest;
+}
+
 function idsInStore(
     store: Pick<AnnotationStore, 'snapshotState'>,
     recovery: ICanonicalAnnotationRecovery,
@@ -346,19 +404,30 @@ function idsInStore(
     ]);
     // Own entries only, as for the changed fields.
     const heldFields = new Map(Object.entries(recovery.heldFields ?? {}));
+    const activeHeldEntriesFor = (captured: AnnotationEntity) => {
+        const held = heldFields.get(captured.identity.id);
+        if (!held) {
+            return null;
+        }
+        return Object.entries(held).filter(([key]) => (
+            key !== 'deleted'
+            && key !== 'pageIndex'
+            && !(reread && rotatableGeometryKeys.has(key))
+        ));
+    };
     /** Whether `fields` hold what the bytes held of the captured entity's changed fields, when the plan names that. */
     const holdsHeldFields = (captured: AnnotationEntity, fields: Record<string, unknown>) => {
-        const held = heldFields.get(captured.identity.id);
+        const activeHeld = activeHeldEntriesFor(captured);
         // Another read's geometry may be in another frame; the same bytes hold it exactly.
-        return !held || Object.entries(held).every(([key, digest]) => key === 'deleted' || key === 'pageIndex'
-            || (reread && rotatableGeometryKeys.has(key)) || fieldDigest(fields[key]) === digest);
+        return !activeHeld || activeHeld.every(([key, digest]) => fieldDigest(fields[key]) === digest);
     };
     const sameBytes = recovery.version === CANONICAL_ANNOTATION_RECOVERY_VERSION && !reread;
     const matchesExistingId = (captured: AnnotationEntity) => {
         const existing = current.get(captured.identity.id);
         if (!existing) return false;
+        const existingFields = semanticFields(existing);
         // A read can give another annotation an id a page operation took from this one.
-        if (!holdsHeldFields(captured, semanticFields(existing))) return false;
+        if (!holdsHeldFields(captured, existingFields)) return false;
         if (!reread) {
             const ref = captured.identity.pdfRef?.trim();
             return !sameBytes || !ref || !existing.identity.pdfRef?.trim() || existing.identity.pdfRef === captured.identity.pdfRef;
@@ -367,15 +436,83 @@ function idsInStore(
         const fields = semanticFields(captured);
         const compared = comparedKeysFor(captured, fields).filter(key => !rotatableGeometryKeys.has(key));
         if (!compared.includes('kind')) return false;
-        const candidate = semanticFields(existing);
-        return compared.every(key => sameField(candidate, fields, key));
+        return compared.every(key => sameField(existingFields, fields, key));
     };
     const directIds = new Set<string>(recovery.entities.filter(matchesExistingId).map(entity => entity.identity.id));
     const ids = new Map<string, AnnotationId>();
     const byRef = recovery.version === 1 || sameBytes;
     const taken = new Set<string>(directIds);
-    const unbound = [...current.values()].filter(entity => !entity.deleted && !taken.has(entity.identity.id))
-        .map(entity => ({entity, fields: semanticFields(entity)}));
+    const unboundByPdfRef = new Map<string, IUnboundRecoveryCandidate[]>();
+    const unboundByKind = new Map<unknown, IUnboundRecoveryCandidate[]>();
+    for (const entity of current.values()) {
+        if (entity.deleted || taken.has(entity.identity.id)) {
+            continue;
+        }
+        const fields = semanticFields(entity);
+        const candidate: IUnboundRecoveryCandidate = {
+            entity,
+            fields,
+            fieldDigests: new Map(),
+        };
+        if (entity.identity.pdfRef !== undefined) {
+            const refBucket = unboundByPdfRef.get(entity.identity.pdfRef);
+            if (refBucket) {
+                refBucket.push(candidate);
+            } else {
+                unboundByPdfRef.set(entity.identity.pdfRef, [candidate]);
+            }
+        }
+        const kindBucket = unboundByKind.get(fields.kind);
+        if (kindBucket) {
+            kindBucket.push(candidate);
+        } else {
+            unboundByKind.set(fields.kind, [candidate]);
+        }
+    }
+
+    const schemaBuckets = new Map<string, Map<string, IRecoverySignatureBucket>>();
+    const getSchemaIndex = (
+        kind: unknown,
+        comparedKeys: readonly string[],
+        heldKeys: readonly string[],
+    ) => {
+        const schemaKey = JSON.stringify([
+            kind,
+            comparedKeys,
+            heldKeys,
+        ]);
+        let index = schemaBuckets.get(schemaKey);
+        if (index) {
+            return index;
+        }
+        index = new Map();
+        const kindCandidates = unboundByKind.get(kind) ?? [];
+        for (const candidate of kindCandidates) {
+            const signature = JSON.stringify([
+                comparedKeys.map(key => encodeComparedFieldValue(candidate.fields[key])),
+                heldKeys.map(key => candidateFieldDigest(candidate, key)),
+            ]);
+            let bucket = index.get(signature);
+            if (!bucket) {
+                bucket = {
+                    global: createRecoveryCandidateBucket(),
+                    byPage: new Map(),
+                };
+                index.set(signature, bucket);
+            }
+            bucket.global.all.push(candidate);
+            const pageKey = candidate.fields.pageIndex;
+            let pageBucket = bucket.byPage.get(pageKey);
+            if (!pageBucket) {
+                pageBucket = createRecoveryCandidateBucket();
+                bucket.byPage.set(pageKey, pageBucket);
+            }
+            pageBucket.all.push(candidate);
+        }
+        schemaBuckets.set(schemaKey, index);
+        return index;
+    };
+
     recovery.entities.forEach((captured) => {
         if (directIds.has(captured.identity.id)) return;
         const fields = semanticFields(captured);
@@ -388,15 +525,61 @@ function idsInStore(
         const capturedRef = captured.identity.pdfRef?.trim();
         // Without a ref, an annotation the bytes hold binds by its fields: those it changed, by what the bytes held.
         const boundByFields = changed.length === 0 || heldFields.has(captured.identity.id);
-        const matches = unbound.filter(({entity, fields: candidate}) => !taken.has(entity.identity.id)
-            && (!byRef || (capturedRef ? entity.identity.pdfRef === captured.identity.pdfRef : boundByFields))
-            && compared.every(key => sameField(candidate, fields, key))
-            && holdsHeldFields(captured, candidate));
-        const onPage = matches.length > 1 ? matches.filter(({fields: candidate}) => sameField(candidate, fields, 'pageIndex')) : matches;
-        if (onPage.length !== 1) return;
-        const bound = onPage[0]!.entity;
-        taken.add(bound.identity.id);
-        ids.set(captured.identity.id, bound.identity.id);
+        if (byRef && !capturedRef && !boundByFields) {
+            return;
+        }
+        if (byRef && capturedRef) {
+            const refCandidates = unboundByPdfRef.get(captured.identity.pdfRef!);
+            if (!refCandidates) {
+                return;
+            }
+            const activeHeld = activeHeldEntriesFor(captured);
+            const matches = refCandidates.filter(candidate => !taken.has(candidate.entity.identity.id)
+                && compared.every(key => sameField(candidate.fields, fields, key))
+                && (!activeHeld || activeHeld.every(([key, digest]) => candidateFieldDigest(candidate, key) === digest)));
+            const onPage = matches.length > 1
+                ? matches.filter(({fields: candidate}) => sameField(candidate, fields, 'pageIndex'))
+                : matches;
+            if (onPage.length !== 1) return;
+            const bound = onPage[0]!.entity;
+            taken.add(bound.identity.id);
+            ids.set(captured.identity.id, bound.identity.id);
+            return;
+        }
+
+        const comparedKeys = compared.filter(key => key !== 'kind').sort();
+        const activeHeld = (activeHeldEntriesFor(captured) ?? [])
+            .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey));
+        const heldKeys = activeHeld.map(([key]) => key);
+        const index = getSchemaIndex(fields.kind, comparedKeys, heldKeys);
+        const signature = JSON.stringify([
+            comparedKeys.map(key => encodeComparedFieldValue(fields[key])),
+            activeHeld.map(([, digest]) => digest),
+        ]);
+        const bucket = index.get(signature);
+        if (!bucket) {
+            return;
+        }
+        const globalMatch = probeRecoveryBucket(bucket.global, taken);
+        if (globalMatch === 'none') {
+            return;
+        }
+        let resolved: IUnboundRecoveryCandidate | null = null;
+        if (globalMatch !== 'ambiguous') {
+            resolved = globalMatch;
+        } else {
+            const pageBucket = bucket.byPage.get(fields.pageIndex);
+            if (!pageBucket) {
+                return;
+            }
+            const pageMatch = probeRecoveryBucket(pageBucket, taken);
+            if (pageMatch === 'none' || pageMatch === 'ambiguous') {
+                return;
+            }
+            resolved = pageMatch;
+        }
+        taken.add(resolved.entity.identity.id);
+        ids.set(captured.identity.id, resolved.entity.identity.id);
     });
     return {ids, directIds};
 }

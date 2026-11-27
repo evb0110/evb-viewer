@@ -155,10 +155,27 @@ type IScanCleanupStampBuildIdsV2 = Extract<TScanCleanupStampBuildIds, {coreSchem
 export type IScanCleanupStampEffectiveOptionsRecord = TScanCleanupProvenanceStamp['effectiveOptions']['perSourcePage'][number];
 export type IScanCleanupStampPagePlanDigest = TScanCleanupProvenanceStamp['pagePlanDigests'][number];
 
-export const SCAN_CLEANUP_PROVENANCE_STAMP_SCHEMA = v.pipe(stampShapeSchema, v.check(stamp => stamp.pagePlanDigests.every(digest => {
-    const record = stamp.effectiveOptions.perSourcePage.find(item => item.sourcePage === digest.sourcePage);
-    return record !== undefined && sha256ScanCleanupJson(record.options) === digest.planSha256;
-}), 'pagePlanDigests do not match effective options'), v.check(stamp => sha256ScanCleanupJson({
+export const SCAN_CLEANUP_PROVENANCE_STAMP_SCHEMA = v.pipe(stampShapeSchema, v.check((stamp) => {
+    const optionsBySourcePage = new Map<number, IScanCleanupStampEffectiveOptionsRecord>();
+    for (const item of stamp.effectiveOptions.perSourcePage) {
+        if (!optionsBySourcePage.has(item.sourcePage)) {
+            optionsBySourcePage.set(item.sourcePage, item);
+        }
+    }
+    const planShaBySourcePage = new Map<number, string>();
+    return stamp.pagePlanDigests.every((digest) => {
+        const record = optionsBySourcePage.get(digest.sourcePage);
+        if (record === undefined) {
+            return false;
+        }
+        let planSha256 = planShaBySourcePage.get(digest.sourcePage);
+        if (planSha256 === undefined) {
+            planSha256 = sha256ScanCleanupJson(record.options);
+            planShaBySourcePage.set(digest.sourcePage, planSha256);
+        }
+        return planSha256 === digest.planSha256;
+    });
+}, 'pagePlanDigests do not match effective options'), v.check(stamp => sha256ScanCleanupJson({
     sourceSha256: stamp.sourceSha256,
     effectiveOptions: stamp.effectiveOptions,
     outputMappings: stamp.outputMappings,

@@ -762,4 +762,164 @@ describe('search conformance corpus', () => {
             pageHeight: fixture.pageHeight,
         }, fixture.range.startOffset, fixture.range.endOffset)).toEqual(fixture.expectedWords);
     });
+
+    it('preserves normalized offsets, fallback cursors, and glyph cropping across out-of-order queries', async () => {
+        const {
+            createSearchPageWordIndex,
+            collectSearchMatchWordsFromIndex,
+        } = await import('@pdf-core/collectSearchMatchWords');
+        const words = [
+            {
+                text: 'Alpha',
+                x: 10,
+                y: 10,
+                width: 50,
+                height: 12,
+                chars: [
+                    {
+                        text: 'A',
+                        x: 10,
+                        y: 10,
+                        width: 10,
+                        height: 12,
+                        startOffset: 0,
+                        endOffset: 1,
+                    },
+                    {
+                        text: 'lpha',
+                        x: 20,
+                        y: 10,
+                        width: 40,
+                        height: 12,
+                        startOffset: 1,
+                        endOffset: 5,
+                    },
+                ],
+            },
+            {
+                // Missing from page.text: falls back to fallbackCursor (6) even though logicalTextCursor is past 10.
+                text: 'Ghost',
+                x: 70,
+                y: 10,
+                width: 50,
+                height: 12,
+            },
+            {
+                text: 'Omega',
+                x: 130,
+                y: 10,
+                width: 50,
+                height: 12,
+            },
+        ];
+        const page = {
+            text: 'prefix Alpha   Omega',
+            words,
+            pageWidth: 400,
+            pageHeight: 200,
+        };
+        const index = createSearchPageWordIndex(page);
+        expect(index).not.toBeNull();
+
+        // Query late hit first, then earlier fallback hit, then glyph-cropped hit.
+        const omega = collectSearchMatchWordsFromIndex(index!, 15, 20);
+        expect(omega).toEqual([{
+            text: 'Omega',
+            x: 130,
+            y: 10,
+            width: 50,
+            height: 12,
+        }]);
+        const ghost = collectSearchMatchWordsFromIndex(index!, 6, 11);
+        expect(ghost).toEqual([
+            {
+                text: 'Alph',
+                x: 10,
+                y: 10,
+                width: 50,
+                height: 12,
+            },
+            {
+                text: 'Ghost',
+                x: 70,
+                y: 10,
+                width: 50,
+                height: 12,
+            },
+        ]);
+        const alphaGlyph = collectSearchMatchWordsFromIndex(index!, 7, 8);
+        expect(alphaGlyph).toEqual([
+            {
+                text: 'A',
+                x: 10,
+                y: 10,
+                width: 10,
+                height: 12,
+            },
+            {
+                text: 'h',
+                x: 80,
+                y: 10,
+                width: 10,
+                height: 12,
+            },
+        ]);
+        const alphaTailGlyph = collectSearchMatchWordsFromIndex(index!, 11, 12);
+        expect(alphaTailGlyph).toEqual([{
+            text: 'a',
+            x: 20,
+            y: 10,
+            width: 40,
+            height: 12,
+        }]);
+    });
+
+    it('collects 500 late hits on a 10,000-word dense page without quadratic rescanning', () => {
+        const wordCount = 10_000;
+        const words = Array.from({length: wordCount}, (_, index) => ({
+            text: `w${index}`,
+            x: (index % 100) * 10,
+            y: Math.floor(index / 100) * 12,
+            width: 8,
+            height: 10,
+        }));
+        const page = {
+            words,
+            pageWidth: 1200,
+            pageHeight: 1600,
+        };
+        const lateOffsets: Array<[number, number, string]> = [];
+        let cursor = 0;
+        for (let index = 0; index < wordCount; index += 1) {
+            const word = words[index]!;
+            if (index >= wordCount - 500) {
+                lateOffsets.push([
+                    cursor,
+                    cursor + word.text.length,
+                    word.text,
+                ]);
+            }
+            cursor += word.text.length + 1;
+            if (index === wordCount - 1 || Math.abs(words[index + 1]!.y - word.y) > word.height * 0.5) {
+                cursor += 1;
+            }
+        }
+
+        const matchedResults: Array<ReturnType<typeof collectSearchMatchWords>> = [];
+        const startedAt = performance.now();
+        for (const [
+            startOffset,
+            endOffset,
+        ] of lateOffsets) {
+            matchedResults.push(collectSearchMatchWords(page, startOffset, endOffset));
+        }
+        const elapsedMs = performance.now() - startedAt;
+
+        for (let index = 0; index < lateOffsets.length; index += 1) {
+            const matched = matchedResults[index];
+            expect(matched).toHaveLength(1);
+            expect(matched?.[0]?.text).toBe(lateOffsets[index]![2]);
+        }
+        expect(elapsedMs).toBeLessThan(200);
+    });
 });

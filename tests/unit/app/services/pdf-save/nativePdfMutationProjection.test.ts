@@ -1068,4 +1068,94 @@ describe('additive shape projection and affected-page scope', () => {
             2,
         ]);
     });
+
+    it('matches canonical text-box identity aliases and scales across 1,000 text boxes without quadratic lookups', () => {
+        const count = 1_000;
+        const entities: ITextBoxEntity[] = Array.from({length: count}, (_, index) => ({
+            kind: 'text-box',
+            identity: {
+                id: asAnnotationId(`tb-alias-${index}`),
+                ...(index === 0 ? {pdfRef: '12 0 R'} : {}),
+            },
+            pageIndex: requirePageIndex(0),
+            revision: 1,
+            persistedRevision: 0,
+            deleted: false,
+            createdAt: requireEpochMs(1_781_000_000_000),
+            modifiedAt: requireEpochMs(1_781_000_000_100),
+            author: 'Tester',
+            text: `Box ${index}`,
+            rect: {
+                left: 0.1,
+                top: 0.1,
+                width: 0.2,
+                height: 0.1,
+            },
+            rotation: 0,
+            fontSize: 12,
+            color: '#112233',
+        }));
+        const plan = buildSerializationPlan({
+            documentRevisionToken: null,
+            epoch: 1,
+            entityBaselineHash: 'tb-scale',
+            revisions: new Map(entities.map(entity => [
+                entity.identity.id,
+                entity.revision,
+            ])),
+        }, entities, entities);
+        const nativeTextBoxes = entities.map((entity, index) => ({
+            pageIndex: entity.pageIndex,
+            // Exercise normalized PDF ref alias matching ('12 0 R' vs '12R') on index 0.
+            stableKey: index === 0 ? 'different-stable-key' : entity.identity.id,
+            ...(index === 0 ? {annotationId: '12R'} : {}),
+            text: entity.text,
+            rect: [
+                10,
+                10,
+                100,
+                50,
+            ] as [number, number, number, number],
+            rotation: 0 as const,
+            fontSize: 12,
+            color: [
+                0,
+                0,
+                0,
+            ] as [number, number, number],
+            author: 'Tester',
+            createdAt: entity.createdAt,
+            modifiedAt: entity.modifiedAt,
+        }));
+
+        const startedAt = performance.now();
+        const coveredRoute = buildNativePdfMutationProjection(plan, createNativeRouteCapabilities({
+            dirtyState: {
+                annotationDirty: true,
+                hasAnnotationChanges: true,
+                shapeStateDirty: false,
+            },
+            shapes: [],
+            nativeTextBoxes,
+        }));
+        const elapsedMs = performance.now() - startedAt;
+
+        expect(coveredRoute.route).toBe('native-append');
+        expect(elapsedMs).toBeLessThan(400);
+
+        const uncoveredRoute = buildNativePdfMutationProjection(plan, createNativeRouteCapabilities({
+            dirtyState: {
+                annotationDirty: true,
+                hasAnnotationChanges: true,
+                shapeStateDirty: false,
+            },
+            shapes: [],
+            nativeTextBoxes: nativeTextBoxes.slice(1),
+        }));
+        expect(uncoveredRoute.route).not.toBe('native-append');
+        if (uncoveredRoute.route === 'native-append') {
+            throw new Error('Expected uncovered canonical text box to reject native-append');
+        }
+        expect(uncoveredRoute.nativeRejection).toBe('native-text-box-payload-unavailable');
+    });
 });
