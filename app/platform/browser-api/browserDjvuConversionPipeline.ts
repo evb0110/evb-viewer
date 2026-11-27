@@ -431,39 +431,53 @@ async function mapDjvuContentsToPdfBookmarks(
         return [];
     }
 
-    const bookmarks: IPdfBookmarkEntry[] = [];
-
-    for (const item of items) {
-        throwIfCanceled(signal);
-        const pageNumber = item.url
-            ? await worker.getPageNumberByUrl(item.url)
-            : null;
-        const children = await mapDjvuContentsToPdfBookmarks(
-            worker,
-            item.children,
-            pages,
-            signal,
-        );
-        // A destination is the target page's position in the output; a page
-        // left out of the output leaves its bookmark without a destination.
-        const outputIndex = typeof pageNumber === 'number' && pageNumber > 0
-            ? pages.findIndex(page => page.pageNumber === pageNumber)
-            : -1;
-
-        bookmarks.push({
-            title: item.title,
-            pageIndex: outputIndex >= 0
-                ? pageNumberToPageIndex(requirePageNumber(outputIndex + 1))
-                : null,
-            namedDest: null,
-            bold: false,
-            italic: false,
-            color: null,
-            items: children,
-        });
+    const outputIndexByPageNumber = new Map<number, number>();
+    for (let index = 0; index < pages.length; index += 1) {
+        const pageNumber = pages[index]!.pageNumber;
+        if (!outputIndexByPageNumber.has(pageNumber)) {
+            outputIndexByPageNumber.set(pageNumber, index);
+        }
     }
 
-    return bookmarks;
+    const mapItems = async (
+        entries: IDjvuOutlineRawItem[] | null | undefined,
+    ): Promise<IPdfBookmarkEntry[]> => {
+        throwIfCanceled(signal);
+        if (!entries || entries.length === 0) {
+            return [];
+        }
+
+        const bookmarks: IPdfBookmarkEntry[] = [];
+
+        for (const item of entries) {
+            throwIfCanceled(signal);
+            const pageNumber = item.url
+                ? await worker.getPageNumberByUrl(item.url)
+                : null;
+            const children = await mapItems(item.children);
+            // A destination is the target page's position in the output; a page
+            // left out of the output leaves its bookmark without a destination.
+            const outputIndex = typeof pageNumber === 'number' && pageNumber > 0
+                ? (outputIndexByPageNumber.get(pageNumber) ?? -1)
+                : -1;
+
+            bookmarks.push({
+                title: item.title,
+                pageIndex: outputIndex >= 0
+                    ? pageNumberToPageIndex(requirePageNumber(outputIndex + 1))
+                    : null,
+                namedDest: null,
+                bold: false,
+                italic: false,
+                color: null,
+                items: children,
+            });
+        }
+
+        return bookmarks;
+    };
+
+    return mapItems(items);
 }
 
 /**

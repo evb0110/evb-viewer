@@ -642,18 +642,95 @@ function rectBounds(rect: IAnnotationMarkerRect) {
     };
 }
 
-function rectanglesOverlap(left: IAnnotationMarkerRect, right: IAnnotationMarkerRect) {
-    const leftBounds = rectBounds(left);
-    const rightBounds = rectBounds(right);
-    return Math.min(leftBounds.right, rightBounds.right) > Math.max(leftBounds.left, rightBounds.left)
-        && Math.min(leftBounds.bottom, rightBounds.bottom) > Math.max(leftBounds.top, rightBounds.top);
+function minHeapPush(heap: number[], value: number) {
+    heap.push(value);
+    let index = heap.length - 1;
+    while (index > 0) {
+        const parent = (index - 1) >>> 1;
+        if (heap[parent]! <= value) {
+            break;
+        }
+        heap[index] = heap[parent]!;
+        index = parent;
+    }
+    heap[index] = value;
 }
 
-function geometryOverlaps(
-    left: readonly IAnnotationMarkerRect[],
-    right: readonly IAnnotationMarkerRect[],
-) {
-    return left.some(source => right.some(candidate => rectanglesOverlap(source, candidate)));
+function minHeapPop(heap: number[]) {
+    const min = heap[0]!;
+    const last = heap.pop()!;
+    if (heap.length > 0) {
+        let index = 0;
+        const length = heap.length;
+        while (true) {
+            const left = (index << 1) + 1;
+            const right = left + 1;
+            let smallest = index;
+            if (left < length && heap[left]! < last) {
+                smallest = left;
+            }
+            if (right < length && heap[right]! < (smallest === index ? last : heap[smallest]!)) {
+                smallest = right;
+            }
+            if (smallest === index) {
+                break;
+            }
+            heap[index] = heap[smallest]!;
+            index = smallest;
+        }
+        heap[index] = last;
+    }
+    return min;
+}
+
+function lowerBoundNumber(values: readonly number[], target: number) {
+    let low = 0;
+    let high = values.length;
+    while (low < high) {
+        const mid = low + ((high - low) >>> 1);
+        if (values[mid]! < target) {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    return low;
+}
+
+function upperBoundNumber(values: readonly number[], target: number) {
+    let low = 0;
+    let high = values.length;
+    while (low < high) {
+        const mid = low + ((high - low) >>> 1);
+        if (values[mid]! <= target) {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    return low;
+}
+
+function mergeIndexRanges(ranges: ReadonlyArray<readonly [number, number]>): Array<[number, number]> {
+    if (ranges.length === 0) {
+        return [];
+    }
+    const sorted = ranges
+        .map(([start, end]): [number, number] => [start, end])
+        .sort((left, right) => left[0] - right[0] || left[1] - right[1]);
+    const merged: Array<[number, number]> = [sorted[0]!];
+    for (let index = 1; index < sorted.length; index += 1) {
+        const current = sorted[index]!;
+        const previous = merged[merged.length - 1]!;
+        if (current[0] <= previous[1]) {
+            if (current[1] > previous[1]) {
+                previous[1] = current[1];
+            }
+        } else {
+            merged.push(current);
+        }
+    }
+    return merged;
 }
 
 /**
@@ -666,82 +743,314 @@ function unionTextMarkupGeometry(
     geometries: ReadonlyArray<readonly IAnnotationMarkerRect[]>,
 ) {
     const epsilon = 1e-9;
-    const sources = geometries.flatMap(geometry => geometry.flatMap((rect) => {
-        const rawBounds = rectBounds(rect);
-        // PDF parsing introduces float32 drift. Round shared edges before
-        // partitioning, otherwise tiny slabs can become zero-width save quads.
-        const bounds = {
-            left: roundNumber(rawBounds.left, 6),
-            right: roundNumber(rawBounds.right, 6),
-            top: roundNumber(rawBounds.top, 6),
-            bottom: roundNumber(rawBounds.bottom, 6),
-        };
-        return bounds.right - bounds.left > epsilon && bounds.bottom - bounds.top > epsilon
-            ? [{
-                left: bounds.left,
-                right: bounds.right,
-                top: bounds.top,
-                bottom: bounds.bottom,
-            }]
-            : [];
-    }));
+    const sources: Array<{
+        left: number;
+        right: number;
+        top: number;
+        bottom: number;
+    }> = [];
+    for (const geometry of geometries) {
+        for (const rect of geometry) {
+            const rawBounds = rectBounds(rect);
+            // PDF parsing introduces float32 drift. Round shared edges before
+            // partitioning, otherwise tiny slabs can become zero-width save quads.
+            const left = roundNumber(rawBounds.left, 6);
+            const right = roundNumber(rawBounds.right, 6);
+            const top = roundNumber(rawBounds.top, 6);
+            const bottom = roundNumber(rawBounds.bottom, 6);
+            if (right - left > epsilon && bottom - top > epsilon) {
+                sources.push({
+                    left,
+                    right,
+                    top,
+                    bottom,
+                });
+            }
+        }
+    }
     if (sources.length === 0) {
         return [];
     }
 
-    const xBreaks = [...new Set(sources.flatMap(source => [
-        source.left,
-        source.right,
-    ]))]
-        .sort((left, right) => left - right);
-    const slabs: IAnnotationMarkerRect[] = [];
-    for (let index = 0; index + 1 < xBreaks.length; index += 1) {
-        const left = xBreaks[index]!;
-        const right = xBreaks[index + 1]!;
-        if (right - left <= epsilon) {
-            continue;
+    const rawYs = new Array<number>(sources.length * 2);
+    for (let index = 0; index < sources.length; index += 1) {
+        const source = sources[index]!;
+        rawYs[index * 2] = source.top;
+        rawYs[index * 2 + 1] = source.bottom;
+    }
+    rawYs.sort((left, right) => left - right);
+    const ys: number[] = [];
+    for (const y of rawYs) {
+        if (ys.length === 0 || ys[ys.length - 1] !== y) {
+            ys.push(y);
         }
-        const intervals = sources
-            .filter(source => source.left < right - epsilon && source.right > left + epsilon)
-            .map(source => ({
-                top: source.top,
-                bottom: source.bottom,
-            }))
-            .sort((first, second) => first.top - second.top || first.bottom - second.bottom);
-        const bands: Array<{
-            top: number;
-            bottom: number
-        }> = [];
-        intervals.forEach((interval) => {
-            const previous = bands.at(-1);
-            if (!previous || interval.top > previous.bottom + epsilon) {
-                bands.push({...interval});
-            } else {
-                previous.bottom = Math.max(previous.bottom, interval.bottom);
-            }
-        });
-        bands.forEach((band) => {
-            slabs.push({
-                left: roundNumber(left, 6),
-                top: roundNumber(band.top, 6),
-                width: roundNumber(right - left, 6),
-                height: roundNumber(band.bottom - band.top, 6),
-            });
-        });
+    }
+    const yIntervalCount = ys.length - 1;
+    if (yIntervalCount <= 0) {
+        return [];
+    }
+    const yIndexByValue = new Map<number, number>();
+    for (let index = 0; index < ys.length; index += 1) {
+        yIndexByValue.set(ys[index]!, index);
     }
 
+    const events: Array<{
+        x: number;
+        y0: number;
+        y1: number;
+        delta: 1 | -1;
+    }> = [];
+    for (const source of sources) {
+        const y0 = yIndexByValue.get(source.top)!;
+        const y1 = yIndexByValue.get(source.bottom)!;
+        events.push(
+            {
+                x: source.left,
+                y0,
+                y1,
+                delta: 1,
+            },
+            {
+                x: source.right,
+                y0,
+                y1,
+                delta: -1,
+            },
+        );
+    }
+    events.sort((left, right) => left.x - right.x);
+
+    const treeSize = Math.max(2, yIntervalCount * 4);
+    const coverCount = new Int32Array(treeSize);
+    // 0 = uncovered, 1 = partially covered, 2 = completely covered
+    const coveredState = new Uint8Array(treeSize);
+
+    const refreshCoveredState = (node: number, lo: number, hi: number) => {
+        if (coverCount[node]! > 0) {
+            coveredState[node] = 2;
+            return;
+        }
+        if (lo + 1 === hi) {
+            coveredState[node] = 0;
+            return;
+        }
+        const leftState = coveredState[node << 1]!;
+        const rightState = coveredState[(node << 1) | 1]!;
+        if (leftState === 2 && rightState === 2) {
+            coveredState[node] = 2;
+        } else if (leftState === 0 && rightState === 0) {
+            coveredState[node] = 0;
+        } else {
+            coveredState[node] = 1;
+        }
+    };
+
+    const updateCoverage = (
+        node: number,
+        lo: number,
+        hi: number,
+        qL: number,
+        qR: number,
+        delta: 1 | -1,
+    ) => {
+        if (qL <= lo && hi <= qR) {
+            coverCount[node] = coverCount[node]! + delta;
+            refreshCoveredState(node, lo, hi);
+            return;
+        }
+        const mid = (lo + hi) >>> 1;
+        if (qL < mid) {
+            updateCoverage(node << 1, lo, mid, qL, qR, delta);
+        }
+        if (qR > mid) {
+            updateCoverage((node << 1) | 1, mid, hi, qL, qR, delta);
+        }
+        refreshCoveredState(node, lo, hi);
+    };
+
+    const findFirstCoveredAtOrAfter = (
+        node: number,
+        lo: number,
+        hi: number,
+        qL: number,
+        qR: number,
+    ): number => {
+        const state = coveredState[node]!;
+        if (state === 0 || qR <= lo || hi <= qL) {
+            return -1;
+        }
+        if (state === 2) {
+            return lo > qL ? lo : qL;
+        }
+        const mid = (lo + hi) >>> 1;
+        if (qL < mid) {
+            const leftHit = findFirstCoveredAtOrAfter(node << 1, lo, mid, qL, qR);
+            if (leftHit >= 0) {
+                return leftHit;
+            }
+        }
+        if (qR > mid) {
+            return findFirstCoveredAtOrAfter((node << 1) | 1, mid, hi, qL, qR);
+        }
+        return -1;
+    };
+
+    const findLastUncoveredBefore = (
+        node: number,
+        lo: number,
+        hi: number,
+        limit: number,
+    ): number => {
+        const state = coveredState[node]!;
+        if (state === 2 || limit <= lo) {
+            return -1;
+        }
+        if (state === 0) {
+            return (hi < limit ? hi : limit) - 1;
+        }
+        const mid = (lo + hi) >>> 1;
+        if (limit > mid) {
+            const rightHit = findLastUncoveredBefore((node << 1) | 1, mid, hi, limit);
+            if (rightHit >= 0) {
+                return rightHit;
+            }
+        }
+        return findLastUncoveredBefore(node << 1, lo, mid, limit);
+    };
+
+    const findFirstUncoveredAtOrAfter = (
+        node: number,
+        lo: number,
+        hi: number,
+        start: number,
+    ): number => {
+        const state = coveredState[node]!;
+        if (state === 2 || hi <= start) {
+            return yIntervalCount;
+        }
+        if (state === 0) {
+            return lo > start ? lo : start;
+        }
+        const mid = (lo + hi) >>> 1;
+        if (start < mid) {
+            const leftHit = findFirstUncoveredAtOrAfter(node << 1, lo, mid, start);
+            if (leftHit < yIntervalCount) {
+                return leftHit;
+            }
+        }
+        return findFirstUncoveredAtOrAfter((node << 1) | 1, mid, hi, start);
+    };
+
+    const collectCoveredRuns = (ranges: ReadonlyArray<readonly [number, number]>) => {
+        const runs: Array<[number, number]> = [];
+        let lastRunEnd = -1;
+        for (const [
+            qL,
+            qR,
+        ] of ranges) {
+            let cursor = qL > lastRunEnd ? qL : lastRunEnd;
+            while (cursor < qR) {
+                const coveredIndex = findFirstCoveredAtOrAfter(1, 0, yIntervalCount, cursor, qR);
+                if (coveredIndex < 0) {
+                    break;
+                }
+                const runStart = findLastUncoveredBefore(1, 0, yIntervalCount, coveredIndex) + 1;
+                const runEnd = findFirstUncoveredAtOrAfter(1, 0, yIntervalCount, coveredIndex);
+                runs.push([
+                    runStart,
+                    runEnd,
+                ]);
+                lastRunEnd = runEnd;
+                cursor = runEnd;
+            }
+        }
+        return runs;
+    };
+
+    // Track only open Y-bands whose coverage actually starts, stops, or merges
+    // at an X event so unrelated bands on other lines are never revisited.
+    const openBandStart = new Map<string, number>();
+    const rawRects: IAnnotationMarkerRect[] = [];
+
+    let eventIndex = 0;
+    while (eventIndex < events.length) {
+        const x = events[eventIndex]!.x;
+        const batchStart = eventIndex;
+        const touchedRanges: Array<[number, number]> = [];
+        while (eventIndex < events.length && events[eventIndex]!.x === x) {
+            const event = events[eventIndex]!;
+            touchedRanges.push([
+                event.y0 > 0 ? event.y0 - 1 : 0,
+                event.y1 < yIntervalCount ? event.y1 + 1 : yIntervalCount,
+            ]);
+            eventIndex += 1;
+        }
+        const mergedTouched = mergeIndexRanges(touchedRanges);
+        const beforeRuns = collectCoveredRuns(mergedTouched);
+
+        for (let index = batchStart; index < eventIndex; index += 1) {
+            const event = events[index]!;
+            updateCoverage(1, 0, yIntervalCount, event.y0, event.y1, event.delta);
+        }
+
+        const afterQueryRanges: Array<[number, number]> = [
+            ...mergedTouched,
+            ...beforeRuns,
+        ];
+        const afterRuns = collectCoveredRuns(mergeIndexRanges(afterQueryRanges));
+        const afterKeys = new Set<string>();
+        for (const [
+            runStart,
+            runEnd,
+        ] of afterRuns) {
+            afterKeys.add(`${runStart}:${runEnd}`);
+        }
+        const beforeKeys = new Set<string>();
+        for (const [
+            runStart,
+            runEnd,
+        ] of beforeRuns) {
+            const key = `${runStart}:${runEnd}`;
+            beforeKeys.add(key);
+            if (!afterKeys.has(key)) {
+                const startX = openBandStart.get(key);
+                openBandStart.delete(key);
+                if (startX !== undefined && x - startX > epsilon) {
+                    const top = ys[runStart]!;
+                    const bottom = ys[runEnd]!;
+                    rawRects.push({
+                        left: roundNumber(startX, 6),
+                        top: roundNumber(top, 6),
+                        width: roundNumber(x - startX, 6),
+                        height: roundNumber(bottom - top, 6),
+                    });
+                }
+            }
+        }
+        for (const [
+            runStart,
+            runEnd,
+        ] of afterRuns) {
+            const key = `${runStart}:${runEnd}`;
+            if (!beforeKeys.has(key)) {
+                openBandStart.set(key, x);
+            }
+        }
+    }
+
+    rawRects.sort((left, right) => left.left - right.left || left.top - right.top);
     const result: IAnnotationMarkerRect[] = [];
     const lastRectByBand = new Map<string, IAnnotationMarkerRect>();
-    slabs.forEach((slab) => {
+    for (const slab of rawRects) {
         const band = `${slab.top}:${slab.height}`;
         const previous = lastRectByBand.get(band);
         if (previous && Math.abs(previous.left + previous.width - slab.left) <= epsilon) {
             previous.width = roundNumber(slab.left + slab.width - previous.left, 6);
-            return;
+            continue;
         }
         result.push(slab);
         lastRectByBand.set(band, slab);
-    });
+    }
     return result;
 }
 
@@ -796,24 +1105,311 @@ function connectedHighlightEntities(
     created: ITextMarkupEntity,
     candidates: readonly ITextMarkupEntity[],
 ) {
-    const connected: ITextMarkupEntity[] = [];
-    let frontier = [...created.quadPoints];
-    let changed = true;
-    while (changed) {
-        changed = false;
-        candidates.forEach((candidate) => {
-            if (connected.some(entity => entity.identity.id === candidate.identity.id)
-                || !geometryOverlaps(frontier, candidate.quadPoints)) {
+    if (candidates.length === 0 || created.quadPoints.length === 0) {
+        return [];
+    }
+
+    interface IIndexedCandidateRect {
+        readonly left: number;
+        readonly right: number;
+        readonly top: number;
+        readonly bottom: number;
+        readonly candidateIndex: number;
+    }
+
+    const createdRects: Array<{
+        left: number;
+        right: number;
+        top: number;
+        bottom: number;
+    }> = [];
+    for (const quad of created.quadPoints) {
+        const bounds = rectBounds(quad);
+        if (bounds.left < bounds.right && bounds.top < bounds.bottom) {
+            createdRects.push(bounds);
+        }
+    }
+    if (createdRects.length === 0) {
+        return [];
+    }
+
+    const candidateRects: IIndexedCandidateRect[] = [];
+    for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
+        const candidate = candidates[candidateIndex]!;
+        for (const quad of candidate.quadPoints) {
+            const bounds = rectBounds(quad);
+            if (bounds.left < bounds.right && bounds.top < bounds.bottom) {
+                candidateRects.push({
+                    left: bounds.left,
+                    right: bounds.right,
+                    top: bounds.top,
+                    bottom: bounds.bottom,
+                    candidateIndex,
+                });
+            }
+        }
+    }
+    if (candidateRects.length === 0) {
+        return [];
+    }
+
+    // Sort candidate rects once by top ascending so every X-node's Y-list is
+    // already ordered for max-bottom segment trees without per-node sorting.
+    candidateRects.sort((left, right) => left.top - right.top || left.bottom - right.bottom);
+
+    const rawXs = new Array<number>(candidateRects.length * 2);
+    for (let index = 0; index < candidateRects.length; index += 1) {
+        const rect = candidateRects[index]!;
+        rawXs[index * 2] = rect.left;
+        rawXs[index * 2 + 1] = rect.right;
+    }
+    rawXs.sort((left, right) => left - right);
+    const xs: number[] = [];
+    for (const x of rawXs) {
+        if (xs.length === 0 || xs[xs.length - 1] !== x) {
+            xs.push(x);
+        }
+    }
+    const xIntervalCount = xs.length - 1;
+    if (xIntervalCount <= 0) {
+        return [];
+    }
+    const xIndexByValue = new Map<number, number>();
+    for (let index = 0; index < xs.length; index += 1) {
+        xIndexByValue.set(xs[index]!, index);
+    }
+
+    const xTreeSize = Math.max(2, xIntervalCount * 4);
+    const coverLists: Array<number[] | undefined> = new Array(xTreeSize);
+    const descLists: Array<number[] | undefined> = new Array(xTreeSize);
+
+    const addRectToXTree = (
+        node: number,
+        lo: number,
+        hi: number,
+        x0: number,
+        x1: number,
+        rectIndex: number,
+    ) => {
+        if (x0 <= lo && hi <= x1) {
+            let bucket = coverLists[node];
+            if (!bucket) {
+                bucket = [];
+                coverLists[node] = bucket;
+            }
+            bucket.push(rectIndex);
+            return;
+        }
+        let desc = descLists[node];
+        if (!desc) {
+            desc = [];
+            descLists[node] = desc;
+        }
+        desc.push(rectIndex);
+        const mid = (lo + hi) >>> 1;
+        if (x0 < mid) {
+            addRectToXTree(node << 1, lo, mid, x0, x1, rectIndex);
+        }
+        if (x1 > mid) {
+            addRectToXTree((node << 1) | 1, mid, hi, x0, x1, rectIndex);
+        }
+    };
+
+    for (let rectIndex = 0; rectIndex < candidateRects.length; rectIndex += 1) {
+        const rect = candidateRects[rectIndex]!;
+        addRectToXTree(
+            1,
+            0,
+            xIntervalCount,
+            xIndexByValue.get(rect.left)!,
+            xIndexByValue.get(rect.right)!,
+            rectIndex,
+        );
+    }
+
+    interface IYMaxBottomTree {
+        readonly rectIndices: readonly number[];
+        readonly maxBottom: Float64Array;
+    }
+
+    const coverTrees: Array<IYMaxBottomTree | undefined> = new Array(xTreeSize);
+    const descTrees: Array<IYMaxBottomTree | undefined> = new Array(xTreeSize);
+
+    const buildYTree = (rectIndices: readonly number[]): IYMaxBottomTree => {
+        const count = rectIndices.length;
+        const maxBottom = new Float64Array(Math.max(2, count * 4));
+        const init = (node: number, lo: number, hi: number): number => {
+            if (lo + 1 === hi) {
+                const value = candidateRects[rectIndices[lo]!]!.bottom;
+                maxBottom[node] = value;
+                return value;
+            }
+            const mid = (lo + hi) >>> 1;
+            const leftMax = init(node << 1, lo, mid);
+            const rightMax = init((node << 1) | 1, mid, hi);
+            const value = leftMax > rightMax ? leftMax : rightMax;
+            maxBottom[node] = value;
+            return value;
+        };
+        if (count > 0) {
+            init(1, 0, count);
+        }
+        return {
+            rectIndices,
+            maxBottom,
+        };
+    };
+
+    const queryAndDeleteYTree = (
+        tree: IYMaxBottomTree,
+        qTop: number,
+        qBottom: number,
+        onHit: (candidateIndex: number) => void,
+    ) => {
+        const {
+            rectIndices,
+            maxBottom,
+        } = tree;
+        const count = rectIndices.length;
+        if (count === 0 || maxBottom[1]! <= qTop) {
+            return;
+        }
+        // Only rects with top < qBottom can overlap [qTop, qBottom).
+        let low = 0;
+        let high = count;
+        while (low < high) {
+            const mid = low + ((high - low) >>> 1);
+            if (candidateRects[rectIndices[mid]!]!.top < qBottom) {
+                low = mid + 1;
+            } else {
+                high = mid;
+            }
+        }
+        const limit = low;
+        if (limit === 0) {
+            return;
+        }
+
+        const visit = (node: number, lo: number, hi: number) => {
+            if (lo >= limit || maxBottom[node]! <= qTop) {
                 return;
             }
-            connected.push(candidate);
-            frontier = [
-                ...frontier,
-                ...candidate.quadPoints,
-            ];
-            changed = true;
+            if (lo + 1 === hi) {
+                const rect = candidateRects[rectIndices[lo]!]!;
+                maxBottom[node] = Number.NEGATIVE_INFINITY;
+                onHit(rect.candidateIndex);
+                return;
+            }
+            const mid = (lo + hi) >>> 1;
+            visit(node << 1, lo, mid);
+            if (mid < limit) {
+                visit((node << 1) | 1, mid, hi);
+            }
+            const leftMax = maxBottom[node << 1]!;
+            const rightMax = maxBottom[(node << 1) | 1]!;
+            maxBottom[node] = leftMax > rightMax ? leftMax : rightMax;
+        };
+        visit(1, 0, count);
+    };
+
+    const queryAndDeleteOverlapping = (
+        qLeft: number,
+        qRight: number,
+        qTop: number,
+        qBottom: number,
+        onHit: (candidateIndex: number) => void,
+    ) => {
+        const qX1 = Math.min(xIntervalCount, lowerBoundNumber(xs, qRight));
+        const qX0 = Math.max(0, upperBoundNumber(xs, qLeft) - 1);
+        if (qX0 >= qX1) {
+            return;
+        }
+
+        const visitX = (node: number, lo: number, hi: number) => {
+            const coverList = coverLists[node];
+            if (coverList) {
+                let tree = coverTrees[node];
+                if (!tree) {
+                    tree = buildYTree(coverList);
+                    coverTrees[node] = tree;
+                }
+                queryAndDeleteYTree(tree, qTop, qBottom, onHit);
+            }
+            if (qX0 <= lo && hi <= qX1) {
+                const descList = descLists[node];
+                if (descList) {
+                    let tree = descTrees[node];
+                    if (!tree) {
+                        tree = buildYTree(descList);
+                        descTrees[node] = tree;
+                    }
+                    queryAndDeleteYTree(tree, qTop, qBottom, onHit);
+                }
+                return;
+            }
+            const mid = (lo + hi) >>> 1;
+            if (qX0 < mid) {
+                visitX(node << 1, lo, mid);
+            }
+            if (qX1 > mid) {
+                visitX((node << 1) | 1, mid, hi);
+            }
+        };
+        visitX(1, 0, xIntervalCount);
+    };
+
+    // Two-pass min-heap traversal reproduces the exact discovery order of the
+    // fixed-point candidate scan (same-pass forward edges before next-pass
+    // backward edges). Because each node is popped in ascending index order
+    // within a pass, the first time a candidate is reached determines its exact
+    // final (pass, index), so discovered leaves are deleted immediately and
+    // disconnected clusters are never traversed.
+    const connected: ITextMarkupEntity[] = [];
+    const queued = new Uint8Array(candidates.length);
+    const visitedIds = new Set<AnnotationId>();
+    let currentPass: number[] = [];
+    let nextPass: number[] = [];
+
+    for (const quad of createdRects) {
+        queryAndDeleteOverlapping(quad.left, quad.right, quad.top, quad.bottom, (candidateIndex) => {
+            if (!queued[candidateIndex]) {
+                queued[candidateIndex] = 1;
+                minHeapPush(currentPass, candidateIndex);
+            }
         });
     }
+
+    while (currentPass.length > 0) {
+        while (currentPass.length > 0) {
+            const candidateIndex = minHeapPop(currentPass);
+            const candidate = candidates[candidateIndex]!;
+            if (visitedIds.has(candidate.identity.id)) {
+                continue;
+            }
+            visitedIds.add(candidate.identity.id);
+            connected.push(candidate);
+            for (const quad of candidate.quadPoints) {
+                const bounds = rectBounds(quad);
+                if (!(bounds.left < bounds.right && bounds.top < bounds.bottom)) {
+                    continue;
+                }
+                queryAndDeleteOverlapping(bounds.left, bounds.right, bounds.top, bounds.bottom, (nextIndex) => {
+                    if (queued[nextIndex] || visitedIds.has(candidates[nextIndex]!.identity.id)) {
+                        return;
+                    }
+                    queued[nextIndex] = 1;
+                    if (nextIndex > candidateIndex) {
+                        minHeapPush(currentPass, nextIndex);
+                    } else {
+                        minHeapPush(nextPass, nextIndex);
+                    }
+                });
+            }
+        }
+        currentPass = nextPass;
+        nextPass = [];
+    }
+
     return connected;
 }
 

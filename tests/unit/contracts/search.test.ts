@@ -762,4 +762,288 @@ describe('search conformance corpus', () => {
             pageHeight: fixture.pageHeight,
         }, fixture.range.startOffset, fixture.range.endOffset)).toEqual(fixture.expectedWords);
     });
+
+    it('preserves normalized offsets, fallback cursors, and glyph cropping across out-of-order queries', async () => {
+        const {
+            createSearchPageWordIndex,
+            collectSearchMatchWordsFromIndex,
+        } = await import('@pdf-core/collectSearchMatchWords');
+        const words = [
+            {
+                text: 'Alpha',
+                x: 10,
+                y: 10,
+                width: 50,
+                height: 12,
+                chars: [
+                    {
+                        text: 'A',
+                        x: 10,
+                        y: 10,
+                        width: 10,
+                        height: 12,
+                        startOffset: 0,
+                        endOffset: 1,
+                    },
+                    {
+                        text: 'lpha',
+                        x: 20,
+                        y: 10,
+                        width: 40,
+                        height: 12,
+                        startOffset: 1,
+                        endOffset: 5,
+                    },
+                ],
+            },
+            {
+                // Missing from page.text: falls back to fallbackCursor (6) even though logicalTextCursor is past 10.
+                text: 'Ghost',
+                x: 70,
+                y: 10,
+                width: 50,
+                height: 12,
+            },
+            {
+                text: 'Omega',
+                x: 130,
+                y: 10,
+                width: 50,
+                height: 12,
+            },
+        ];
+        const page = {
+            text: 'prefix Alpha   Omega',
+            words,
+            pageWidth: 400,
+            pageHeight: 200,
+        };
+        const index = createSearchPageWordIndex(page);
+        expect(index).not.toBeNull();
+
+        // Query late hit first, then earlier fallback hit, then glyph-cropped hit.
+        const omega = collectSearchMatchWordsFromIndex(index!, 15, 20);
+        expect(omega).toEqual([{
+            text: 'Omega',
+            x: 130,
+            y: 10,
+            width: 50,
+            height: 12,
+        }]);
+        const ghost = collectSearchMatchWordsFromIndex(index!, 6, 11);
+        expect(ghost).toEqual([
+            {
+                text: 'Alph',
+                x: 10,
+                y: 10,
+                width: 50,
+                height: 12,
+            },
+            {
+                text: 'Ghost',
+                x: 70,
+                y: 10,
+                width: 50,
+                height: 12,
+            },
+        ]);
+        const alphaGlyph = collectSearchMatchWordsFromIndex(index!, 7, 8);
+        expect(alphaGlyph).toEqual([
+            {
+                text: 'A',
+                x: 10,
+                y: 10,
+                width: 10,
+                height: 12,
+            },
+            {
+                text: 'h',
+                x: 80,
+                y: 10,
+                width: 10,
+                height: 12,
+            },
+        ]);
+        const alphaTailGlyph = collectSearchMatchWordsFromIndex(index!, 11, 12);
+        expect(alphaTailGlyph).toEqual([{
+            text: 'a',
+            x: 20,
+            y: 10,
+            width: 40,
+            height: 12,
+        }]);
+    });
+
+    it('collects 500 late hits on a 10,000-word dense page without quadratic rescanning', () => {
+        const wordCount = 10_000;
+        const words = Array.from({length: wordCount}, (_, index) => ({
+            text: `w${index}`,
+            x: (index % 100) * 10,
+            y: Math.floor(index / 100) * 12,
+            width: 8,
+            height: 10,
+        }));
+        const page = {
+            words,
+            pageWidth: 1200,
+            pageHeight: 1600,
+        };
+        const lateOffsets: Array<[number, number, string]> = [];
+        let cursor = 0;
+        for (let index = 0; index < wordCount; index += 1) {
+            const word = words[index]!;
+            if (index >= wordCount - 500) {
+                lateOffsets.push([
+                    cursor,
+                    cursor + word.text.length,
+                    word.text,
+                ]);
+            }
+            cursor += word.text.length + 1;
+            if (index === wordCount - 1 || Math.abs(words[index + 1]!.y - word.y) > word.height * 0.5) {
+                cursor += 1;
+            }
+        }
+
+        const matchedResults: Array<ReturnType<typeof collectSearchMatchWords>> = [];
+        const startedAt = performance.now();
+        for (const [
+            startOffset,
+            endOffset,
+        ] of lateOffsets) {
+            matchedResults.push(collectSearchMatchWords(page, startOffset, endOffset));
+        }
+        const elapsedMs = performance.now() - startedAt;
+
+        for (let index = 0; index < lateOffsets.length; index += 1) {
+            const matched = matchedResults[index];
+            expect(matched).toHaveLength(1);
+            expect(matched?.[0]?.text).toBe(lateOffsets[index]![2]);
+        }
+        expect(elapsedMs).toBeLessThan(200);
+    });
+
+    it('does not rescan normalized page text quadratically when soft hyphens strip every leading word', async () => {
+        const {buildOcrTextLayerIndexText} = await import('@pdf-core');
+        const count = 4_000;
+        const words = [
+            ...Array.from({length: count}, (_, index) => ({
+                text: 'a\u00AD',
+                x: index * 2,
+                y: 10,
+                width: 2,
+                height: 10,
+            })),
+            {
+                text: `${'z'.repeat(count * 2)}hit`,
+                x: count * 2,
+                y: 10,
+                width: 200,
+                height: 10,
+            },
+        ];
+        const text = buildOcrTextLayerIndexText(words);
+        const hitStart = text.indexOf('hit');
+        expect(hitStart).toBeGreaterThan(0);
+
+        const startedAt = performance.now();
+        const matched = collectSearchMatchWords({
+            text,
+            words,
+            pageWidth: 10_000,
+            pageHeight: 100,
+        }, hitStart, hitStart + 3);
+        const elapsedMs = performance.now() - startedAt;
+
+        expect(matched).toHaveLength(1);
+        expect(matched?.[0]?.text).toBe('hit');
+        expect(elapsedMs).toBeLessThan(150);
+    });
+
+    it('avoids quadratic scans on distinct line-ending hyphens even when every char and bigram exists later on the page', async () => {
+        const {buildOcrTextLayerIndexText} = await import('@pdf-core');
+        const count = 16_000;
+        const words = [
+            ...Array.from({length: count}, (_, index) => ({
+                text: `w${String(index).padStart(5, '0')}-`,
+                x: 10,
+                y: index * 12,
+                width: 40,
+                height: 10,
+            })),
+            {
+                text: `0-x1-x2-x3-x4-x5-x6-x7-x8-x9-x${'w'.repeat(count * 4)}hit`,
+                x: 10,
+                y: count * 12,
+                width: 500,
+                height: 10,
+            },
+        ];
+        const text = buildOcrTextLayerIndexText(words);
+        const hitStart = text.indexOf('hit');
+        expect(hitStart).toBeGreaterThan(0);
+
+        const startedAt = performance.now();
+        const matched = collectSearchMatchWords({
+            text,
+            words,
+            pageWidth: 1_000,
+            pageHeight: count * 12 + 20,
+        }, hitStart, hitStart + 3);
+        const elapsedMs = performance.now() - startedAt;
+
+        expect(matched).toHaveLength(1);
+        expect(matched?.[0]?.text).toBe('hit');
+        expect(elapsedMs).toBeLessThan(500);
+    });
+
+    it('does not stall on a large page with only a handful of failed line-ending hyphen lookups before an early hit', async () => {
+        const {buildOcrTextLayerIndexText} = await import('@pdf-core');
+        const words = [
+            ...Array.from({length: 16}, (_, index) => ({
+                text: `h${index}-`,
+                x: 10,
+                y: index * 12,
+                width: 30,
+                height: 10,
+            })),
+            {
+                text: 'p'.repeat(120),
+                x: 10,
+                y: 192,
+                width: 200,
+                height: 10,
+            },
+            {
+                text: 'target',
+                x: 10,
+                y: 204,
+                width: 50,
+                height: 10,
+            },
+            ...Array.from({length: 50_000}, (_, index) => ({
+                text: `word${index % 997}`,
+                x: (index % 50) * 15,
+                y: 220 + Math.floor(index / 50) * 12,
+                width: 12,
+                height: 10,
+            })),
+        ];
+        const text = buildOcrTextLayerIndexText(words);
+        const targetStart = text.indexOf('target');
+        expect(targetStart).toBeGreaterThan(0);
+
+        const startedAt = performance.now();
+        const matched = collectSearchMatchWords({
+            text,
+            words,
+            pageWidth: 1_000,
+            pageHeight: 15_000,
+        }, targetStart, targetStart + 6);
+        const elapsedMs = performance.now() - startedAt;
+
+        expect(matched).toHaveLength(1);
+        expect(matched?.[0]?.text).toBe('target');
+        expect(elapsedMs).toBeLessThan(80);
+    });
 });

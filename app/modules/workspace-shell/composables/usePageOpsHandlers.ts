@@ -464,13 +464,27 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
                 return didDelete;
             }
             const deleted = new Set(pages);
+            const sortedDeleted = [...pages].sort((left, right) => left - right);
+            const countDeletedBefore = (page: number) => {
+                let low = 0;
+                let high = sortedDeleted.length;
+                while (low < high) {
+                    const middle = low + ((high - low) >>> 1);
+                    if (sortedDeleted[middle]! < page) {
+                        low = middle + 1;
+                    } else {
+                        high = middle;
+                    }
+                }
+                return low;
+            };
             return runStructuralPageMutation(
                 () => pageOpsDelete(pages, expectedTotalPages, onCommitted),
                 selection => selection.flatMap((page) => {
                     if (deleted.has(page)) {
                         return [];
                     }
-                    return [page - pages.filter(deletedPage => deletedPage < page).length];
+                    return [page - countDeletedBefore(page)];
                 }),
                 {
                     kind: 'delete',

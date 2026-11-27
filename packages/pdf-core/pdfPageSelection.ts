@@ -167,6 +167,90 @@ export {
     requirePageNumber,
 } from '@contracts/pageNumbers';
 
+type TSortedPagesCache = Map<readonly number[], readonly number[]>;
+
+function getSortedUniquePages(
+    pages: readonly number[],
+    cache?: TSortedPagesCache,
+): readonly number[] {
+    const cached = cache?.get(pages);
+    if (cached !== undefined) {
+        return cached;
+    }
+    let strictlyIncreasing = true;
+    for (let index = 1; index < pages.length; index += 1) {
+        if (pages[index - 1]! >= pages[index]!) {
+            strictlyIncreasing = false;
+            break;
+        }
+    }
+    const sorted = strictlyIncreasing
+        ? pages
+        : [...new Set(pages)].sort((left, right) => left - right);
+    cache?.set(pages, sorted);
+    return sorted;
+}
+
+function containsPage(
+    pages: readonly number[],
+    page: number,
+    cache?: TSortedPagesCache,
+) {
+    if (!cache) {
+        return pages.includes(page);
+    }
+    const sorted = getSortedUniquePages(pages, cache);
+    const index = lowerBoundPage(sorted, page);
+    return sorted[index] === page;
+}
+
+function isPageSelectedWithCache(
+    selection: TPageSelection,
+    page: number,
+    cache?: TSortedPagesCache,
+): boolean {
+    if (!Number.isSafeInteger(page) || page < 1 || page > selection.pageCount) {
+        return false;
+    }
+    switch (selection.kind) {
+        case 'none':
+            return false;
+        case 'all':
+            return true;
+        case 'explicit':
+            return containsPage(selection.pages, page, cache);
+        case 'range':
+            return page >= selection.startPage && page <= selection.endPage;
+        case 'predicate':
+            return selection.predicate === 'even' ? page % 2 === 0 : page % 2 !== 0;
+        case 'exceptions':
+            if (containsPage(selection.excludedPages, page, cache)) {
+                return false;
+            }
+            if (containsPage(selection.includedPages, page, cache)) {
+                return true;
+            }
+            return isPageSelectedWithCache(selection.base, page, cache);
+        case 'mapped': {
+            let sourcePage: number | null = page;
+            for (const move of selection.moves.toReversed()) {
+                if (sourcePage === null) {
+                    break;
+                }
+                sourcePage = mapPageNumberBeforePageMove(sourcePage, move);
+            }
+            return sourcePage !== null && isPageSelectedWithCache(selection.source, sourcePage, cache);
+        }
+        case 'complement':
+            if (selection.excludedPages !== undefined) {
+                return !containsPage(selection.excludedPages, page, cache);
+            }
+            return selection.excludedSelection === undefined
+                ? true
+                : !isPageSelectedWithCache(selection.excludedSelection, page, cache);
+    }
+}
+
 export function pageSelectionCount(selection: TPageSelection): number {
     switch (selection.kind) {
         case 'none':
@@ -185,8 +269,9 @@ export function pageSelectionCount(selection: TPageSelection): number {
             return Math.floor((selection.pageCount - first) / 2) + 1;
         }
         case 'exceptions': {
-            const included = selection.includedPages.filter(page => !isPageSelected(selection.base, page)).length;
-            const excluded = selection.excludedPages.filter(page => isPageSelected(selection.base, page)).length;
+            const cache: TSortedPagesCache = new Map();
+            const included = selection.includedPages.filter(page => !isPageSelectedWithCache(selection.base, page, cache)).length;
+            const excluded = selection.excludedPages.filter(page => isPageSelectedWithCache(selection.base, page, cache)).length;
             return pageSelectionCount(selection.base) + included - excluded;
         }
         case 'mapped':
@@ -203,46 +288,7 @@ export function pageSelectionCount(selection: TPageSelection): number {
 }
 
 export function isPageSelected(selection: TPageSelection, page: number): boolean {
-    if (!Number.isSafeInteger(page) || page < 1 || page > selection.pageCount) {
-        return false;
-    }
-    switch (selection.kind) {
-        case 'none':
-            return false;
-        case 'all':
-            return true;
-        case 'explicit':
-            return selection.pages.includes(page);
-        case 'range':
-            return page >= selection.startPage && page <= selection.endPage;
-        case 'predicate':
-            return selection.predicate === 'even' ? page % 2 === 0 : page % 2 !== 0;
-        case 'exceptions':
-            if (selection.excludedPages.includes(page)) {
-                return false;
-            }
-            if (selection.includedPages.includes(page)) {
-                return true;
-            }
-            return isPageSelected(selection.base, page);
-        case 'mapped': {
-            let sourcePage: number | null = page;
-            for (const move of selection.moves.toReversed()) {
-                if (sourcePage === null) {
-                    break;
-                }
-                sourcePage = mapPageNumberBeforePageMove(sourcePage, move);
-            }
-            return sourcePage !== null && isPageSelected(selection.source, sourcePage);
-        }
-        case 'complement':
-            if (selection.excludedPages !== undefined) {
-                return !selection.excludedPages.includes(page);
-            }
-            return selection.excludedSelection === undefined
-                ? true
-                : !isPageSelected(selection.excludedSelection, page);
-    }
+    return isPageSelectedWithCache(selection, page);
 }
 
 interface IPageMappingSegment {
@@ -349,6 +395,24 @@ function createPageMoveMappings(move: TPageMoveOperation): IPageMappingSegment[]
     return mappings;
 }
 
+function findFirstMappingEndingAtOrAfter(
+    mappings: readonly IPageMappingSegment[],
+    pageNumber: number,
+) {
+    let low = 0;
+    let high = mappings.length;
+    while (low < high) {
+        const middle = low + Math.floor((high - low) / 2);
+        const segment = mappings[middle]!;
+        if (segment.toPageNumber + segment.count - 1 < pageNumber) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    return low;
+}
+
 function composePageMoveMappings(
     currentMappings: readonly IPageMappingSegment[],
     nextMappings: readonly IPageMappingSegment[],
@@ -356,7 +420,9 @@ function composePageMoveMappings(
     const composed: IPageMappingSegment[] = [];
     for (const next of nextMappings) {
         const nextEnd = next.fromPageNumber + next.count - 1;
-        for (const current of currentMappings) {
+        const firstIndex = findFirstMappingEndingAtOrAfter(currentMappings, next.fromPageNumber);
+        for (let index = firstIndex; index < currentMappings.length; index += 1) {
+            const current = currentMappings[index]!;
             const currentEnd = current.toPageNumber + current.count - 1;
             if (current.toPageNumber > nextEnd) {
                 break;
@@ -395,6 +461,7 @@ function* iteratePageSelectionRange(
     selection: TPageSelection,
     startPage: number,
     endPage: number,
+    sortedCache: TSortedPagesCache = new Map(),
 ): Generator<number> {
     const start = Math.max(1, startPage);
     const end = Math.min(selection.pageCount, endPage);
@@ -408,8 +475,9 @@ function* iteratePageSelectionRange(
             for (let page = start; page <= end; page += 1) yield page;
             return;
         case 'explicit': {
-            const first = lowerBoundPage(selection.pages, start);
-            for (const page of selection.pages.slice(first)) {
+            const pages = getSortedUniquePages(selection.pages, sortedCache);
+            for (let index = lowerBoundPage(pages, start); index < pages.length; index += 1) {
+                const page = pages[index]!;
                 if (page > end) {
                     break;
                 }
@@ -431,15 +499,30 @@ function* iteratePageSelectionRange(
             return;
         }
         case 'complement': {
-            const excluded = selection.excludedPages !== undefined
-                ? createExplicitPageSelection(selection.pageCount, selection.excludedPages)
-                : selection.excludedSelection;
-            if (excluded === undefined) {
+            if (selection.excludedPages !== undefined) {
+                const excludedPages = getSortedUniquePages(selection.excludedPages, sortedCache);
+                let nextPage = start;
+                for (
+                    let index = lowerBoundPage(excludedPages, start);
+                    index < excludedPages.length;
+                    index += 1
+                ) {
+                    const excludedPage = excludedPages[index]!;
+                    if (excludedPage > end) {
+                        break;
+                    }
+                    for (let page = nextPage; page < excludedPage; page += 1) yield page;
+                    nextPage = excludedPage + 1;
+                }
+                for (let page = nextPage; page <= end; page += 1) yield page;
+                return;
+            }
+            if (selection.excludedSelection === undefined) {
                 for (let page = start; page <= end; page += 1) yield page;
                 return;
             }
             let nextPage = start;
-            for (const excludedPage of iteratePageSelectionRange(excluded, start, end)) {
+            for (const excludedPage of iteratePageSelectionRange(selection.excludedSelection, start, end, sortedCache)) {
                 for (let page = nextPage; page < excludedPage; page += 1) yield page;
                 nextPage = excludedPage + 1;
             }
@@ -447,34 +530,42 @@ function* iteratePageSelectionRange(
             return;
         }
         case 'exceptions': {
-            const includedPages = selection.includedPages.filter(page => (
-                page >= start
-                && page <= end
-                && !isPageSelected(selection.base, page)
-                && !selection.excludedPages.includes(page)
-            ));
-            let includedIndex = 0;
-            for (const page of iteratePageSelectionRange(selection.base, start, end)) {
-                for (
-                    let included = includedPages[includedIndex];
-                    included !== undefined && included < page;
-                    included = includedPages[includedIndex]
-                ) {
-                    yield included;
-                    includedIndex += 1;
+            const included = getSortedUniquePages(selection.includedPages, sortedCache);
+            const excluded = getSortedUniquePages(selection.excludedPages, sortedCache);
+            let includedIndex = lowerBoundPage(included, start);
+            let excludedIndex = lowerBoundPage(excluded, start);
+            const isExcluded = (page: number) => {
+                while (excludedIndex < excluded.length && excluded[excludedIndex]! < page) {
+                    excludedIndex += 1;
                 }
-                if (!selection.excludedPages.includes(page)) {
+                return excluded[excludedIndex] === page;
+            };
+            for (const page of iteratePageSelectionRange(selection.base, start, end, sortedCache)) {
+                while (includedIndex < included.length && included[includedIndex]! < page) {
+                    const includedPage = included[includedIndex]!;
+                    includedIndex += 1;
+                    if (!isExcluded(includedPage)) {
+                        yield includedPage;
+                    }
+                }
+                if (!isExcluded(page)) {
                     yield page;
                 }
-                if (includedPages[includedIndex] === page) {
+                if (includedIndex < included.length && included[includedIndex] === page) {
                     includedIndex += 1;
                 }
             }
-            yield* includedPages.slice(includedIndex);
+            while (includedIndex < included.length && included[includedIndex]! <= end) {
+                const includedPage = included[includedIndex]!;
+                includedIndex += 1;
+                if (!isExcluded(includedPage)) {
+                    yield includedPage;
+                }
+            }
             return;
         }
         case 'mapped':
-            for (const page of iterateMappedPageSelection(selection)) {
+            for (const page of iterateMappedPageSelection(selection, sortedCache)) {
                 if (page >= start && page <= end) {
                     yield page;
                 }
@@ -483,7 +574,10 @@ function* iteratePageSelectionRange(
     }
 }
 
-function* iterateMappedPageSelection(selection: IMappedPageSelection): Generator<number> {
+function* iterateMappedPageSelection(
+    selection: IMappedPageSelection,
+    sortedCache: TSortedPagesCache = new Map(),
+): Generator<number> {
     let mappings: IPageMappingSegment[] = [{
         fromPageNumber: 1,
         toPageNumber: 1,
@@ -497,6 +591,7 @@ function* iterateMappedPageSelection(selection: IMappedPageSelection): Generator
             selection.source,
             mapping.fromPageNumber,
             mapping.fromPageNumber + mapping.count - 1,
+            sortedCache,
         )) {
             yield mapping.toPageNumber + sourcePage - mapping.fromPageNumber;
         }
@@ -584,8 +679,9 @@ function* mergePageRangeSources(
 function* subtractPageRangePages(
     ranges: Iterable<IPageMoveRangeSegment>,
     excludedPages: readonly number[],
+    initialExcludedIndex = 0,
 ): Generator<IPageMoveRangeSegment> {
-    let excludedIndex = 0;
+    let excludedIndex = initialExcludedIndex;
     for (const range of ranges) {
         let nextPage = range.startPage;
         for (
@@ -618,38 +714,50 @@ function* subtractPageRangePages(
     }
 }
 
-function* iterateExplicitPageSelectionRanges(
+function* iterateExplicitPageSelectionRangesWithin(
     pages: readonly number[],
+    start: number,
+    end: number,
+    excludedPages?: readonly number[],
 ): Generator<IPageMoveRangeSegment> {
-    const [
-        firstPage,
-        ...restPages
-    ] = pages;
-    if (firstPage === undefined) {
-        return;
-    }
-    let startPage = firstPage;
-    let endPage = startPage;
-    for (const page of restPages) {
-        if (page === endPage + 1) {
-            endPage = page;
-            continue;
+    let excludedIndex = excludedPages ? lowerBoundPage(excludedPages, start) : 0;
+    let rangeStart: number | null = null;
+    let rangeEnd = start;
+    for (let index = lowerBoundPage(pages, start); index < pages.length; index += 1) {
+        const page = pages[index]!;
+        if (page > end) {
+            break;
         }
-        yield {
-            startPage,
-            endPage,
-        };
-        startPage = page;
-        endPage = page;
+        if (excludedPages) {
+            while (excludedIndex < excludedPages.length && excludedPages[excludedIndex]! < page) {
+                excludedIndex += 1;
+            }
+            if (excludedPages[excludedIndex] === page) {
+                continue;
+            }
+        }
+        if (rangeStart === null) {
+            rangeStart = page;
+        } else if (page !== rangeEnd + 1) {
+            yield {
+                startPage: rangeStart,
+                endPage: rangeEnd,
+            };
+            rangeStart = page;
+        }
+        rangeEnd = page;
     }
-    yield {
-        startPage,
-        endPage,
-    };
+    if (rangeStart !== null) {
+        yield {
+            startPage: rangeStart,
+            endPage: rangeEnd,
+        };
+    }
 }
 
 function* iterateMappedPageSelectionRanges(
     selection: IMappedPageSelection,
+    sortedCache: TSortedPagesCache = new Map(),
 ): Generator<IPageMoveRangeSegment> {
     let mappings: IPageMappingSegment[] = [{
         fromPageNumber: 1,
@@ -665,6 +773,7 @@ function* iterateMappedPageSelectionRanges(
             selection.source,
             mapping.fromPageNumber,
             mappingEnd,
+            sortedCache,
         )) {
             yield {
                 startPage: mapping.toPageNumber + sourceRange.startPage - mapping.fromPageNumber,
@@ -678,6 +787,7 @@ function* iteratePageSelectionRangesWithin(
     selection: TPageSelection,
     startPage: number,
     endPage: number,
+    sortedCache: TSortedPagesCache = new Map(),
 ): Generator<IPageMoveRangeSegment> {
     const start = Math.max(1, startPage);
     const end = Math.min(selection.pageCount, endPage);
@@ -694,30 +804,7 @@ function* iteratePageSelectionRangesWithin(
             };
             return;
         case 'explicit': {
-            const first = lowerBoundPage(selection.pages, start);
-            let rangeStart: number | null = null;
-            let rangeEnd = start;
-            for (const page of selection.pages.slice(first)) {
-                if (page > end) {
-                    break;
-                }
-                if (rangeStart === null) {
-                    rangeStart = page;
-                } else if (page !== rangeEnd + 1) {
-                    yield {
-                        startPage: rangeStart,
-                        endPage: rangeEnd,
-                    };
-                    rangeStart = page;
-                }
-                rangeEnd = page;
-            }
-            if (rangeStart !== null) {
-                yield {
-                    startPage: rangeStart,
-                    endPage: rangeEnd,
-                };
-            }
+            yield* iterateExplicitPageSelectionRangesWithin(getSortedUniquePages(selection.pages, sortedCache), start, end);
             return;
         }
         case 'range':
@@ -748,8 +835,8 @@ function* iteratePageSelectionRangesWithin(
             const excludedRanges = selection.excludedPages === undefined
                 ? selection.excludedSelection === undefined
                     ? []
-                    : iteratePageSelectionRangesWithin(selection.excludedSelection, start, end)
-                : iterateExplicitPageSelectionRanges(selection.excludedPages);
+                    : iteratePageSelectionRangesWithin(selection.excludedSelection, start, end, sortedCache)
+                : iterateExplicitPageSelectionRangesWithin(getSortedUniquePages(selection.excludedPages, sortedCache), start, end);
             let nextPage = start;
             for (const excludedRange of excludedRanges) {
                 if (excludedRange.endPage < start) {
@@ -777,26 +864,26 @@ function* iteratePageSelectionRangesWithin(
             return;
         }
         case 'exceptions': {
-            const excludedPages = selection.excludedPages.filter(page => (
-                isPageSelected(selection.base, page)
-            ));
-            const includedPages = selection.includedPages.filter(page => (
-                !isPageSelected(selection.base, page)
-                && !selection.excludedPages.includes(page)
-                && page >= start
-                && page <= end
-            ));
+            const excludedPages = getSortedUniquePages(selection.excludedPages, sortedCache);
+            const includedPages = getSortedUniquePages(selection.includedPages, sortedCache);
+            const excludedStartIndex = lowerBoundPage(excludedPages, start);
             yield* mergePageRangeSources(
                 subtractPageRangePages(
-                    iteratePageSelectionRangesWithin(selection.base, start, end),
+                    iteratePageSelectionRangesWithin(selection.base, start, end, sortedCache),
+                    excludedPages,
+                    excludedStartIndex,
+                ),
+                iterateExplicitPageSelectionRangesWithin(
+                    includedPages,
+                    start,
+                    end,
                     excludedPages,
                 ),
-                iterateExplicitPageSelectionRanges(includedPages),
             );
             return;
         }
         case 'mapped':
-            for (const mappedRange of iterateMappedPageSelectionRanges(selection)) {
+            for (const mappedRange of iterateMappedPageSelectionRanges(selection, sortedCache)) {
                 if (mappedRange.endPage < start) {
                     continue;
                 }

@@ -997,4 +997,137 @@ describe('browserDjvuConversionPipeline', () => {
             unload.mockRestore();
         }
     });
+
+    it('maps nested DjVu bookmarks to output indices, preserves null destinations for omitted pages, and scales to 2,000 bookmarks x 5,000 pages', async () => {
+        const stat = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
+            size: 1,
+            modifiedAt: 1,
+        });
+        const getSaveTarget = vi.spyOn(browserDocumentStore, 'getSaveTarget').mockResolvedValue({
+            saveName: 'output.pdf',
+            saveKind: 'pdf',
+            saveHandle: {createWritable: async () => ({
+                write: async () => {},
+                close: async () => {},
+                abort: async () => {},
+            })} as unknown as FileSystemFileHandle,
+        });
+        const replace = vi.spyOn(browserDocumentStore, 'replaceWithHandleBackedDocument').mockResolvedValue(undefined as never);
+        const setRetention = vi.spyOn(browserDocumentStore, 'setRetention').mockResolvedValue(undefined as never);
+        const unload = vi.spyOn(browserDocumentStore, 'unload').mockReturnValue(undefined as never);
+
+        const totalPages = 5_000;
+        const bookmarkCount = 2_000;
+        const outline = [
+            {
+                title: 'Omitted Front Matter',
+                url: '#1',
+                children: [
+                    {
+                        title: 'First Included',
+                        url: '#10',
+                        children: [],
+                    },
+                ],
+            },
+            ...Array.from({length: bookmarkCount - 1}, (_, index) => ({
+                title: `Chapter ${index + 1}`,
+                url: `#${10 + ((index * 2) % 4_990)}`,
+                children: [],
+            })),
+        ];
+
+        mocks.createWorker.mockResolvedValue({
+            getOutline: async () => outline,
+            getPageNumberByUrl: async (url: string) => Number(url.slice(1)),
+            terminate: vi.fn(),
+        });
+        mocks.getPageSizes.mockResolvedValueOnce(Array.from({length: totalPages}, () => ({
+            width: 100,
+            height: 100,
+            dpi: 300,
+        })));
+        mocks.buildCompactPage.mockImplementation(async (_worker: unknown, pageNumber: number) => ({
+            route: 'photo',
+            spec: {
+                kind: 'image',
+                pageSize: {
+                    widthPoints: 72,
+                    heightPoints: 72,
+                },
+                image: {
+                    fileName: `page-${pageNumber}.ppm`,
+                    data: new Uint8Array([1]),
+                },
+            },
+        }));
+        mocks.combineWorker.mockResolvedValue({data: new Uint8Array([1])});
+        mocks.pageOps.mockResolvedValue({
+            status: 'written',
+            data: new Uint8Array([
+                0x25,
+                0x50,
+                0x44,
+                0x46,
+            ]),
+        });
+        let capturedBookmarks: ReadonlyArray<{
+            readonly title: string;
+            readonly pageIndex: number | null;
+            readonly items: ReadonlyArray<{
+                readonly title: string;
+                readonly pageIndex: number | null;
+            }>;
+        }> = [];
+        const pdfPageEngine = await import('@app/platform/browser/pdfPageEngine');
+        const appendMutations = vi.spyOn(pdfPageEngine, 'appendPdfMutationsToBytes').mockImplementation(async (data, request) => {
+            if (request.mutations.bookmarks?.items) {
+                capturedBookmarks = request.mutations.bookmarks.items;
+            }
+            return {
+                pageCount: totalPages - 9,
+                length: data.byteLength,
+                identityBindings: [],
+                sha256: '0'.repeat(64),
+                data: new Uint8Array(data),
+            };
+        });
+
+        try {
+            const includedPages = Array.from({length: totalPages - 9}, (_, index) => index + 10);
+            const startedAt = performance.now();
+            const result = await runBrowserDjvuConversion(
+                requireDocumentRef('browser://documents/book.djvu'),
+                requireDocumentRef('browser://documents/output.pdf'),
+                {
+                    jobId: requireJobId('djvu-bookmarks-scale'),
+                    pdfStrategy: 'compact-djvu-aware',
+                    preserveBookmarks: true,
+                },
+                includedPages,
+            );
+            const elapsedMs = performance.now() - startedAt;
+
+            expect(result).toMatchObject({success: true});
+            expect(capturedBookmarks).toHaveLength(bookmarkCount);
+            expect(capturedBookmarks[0]?.title).toBe('Omitted Front Matter');
+            expect(capturedBookmarks[0]?.pageIndex).toBeNull();
+            expect(capturedBookmarks[0]?.items[0]?.title).toBe('First Included');
+            expect(capturedBookmarks[0]?.items[0]?.pageIndex).toBe(0);
+            expect(capturedBookmarks[1]?.pageIndex).toBe(0);
+            expect(capturedBookmarks[2]?.pageIndex).toBe(2);
+            expect(elapsedMs).toBeLessThan(5_000);
+        } finally {
+            appendMutations.mockRestore();
+            mocks.buildCompactPage.mockReset();
+            mocks.combineWorker.mockReset();
+            mocks.createWorker.mockReset();
+            mocks.pageOps.mockReset();
+            stat.mockRestore();
+            getSaveTarget.mockRestore();
+            replace.mockRestore();
+            setRetention.mockRestore();
+            unload.mockRestore();
+        }
+    });
 });
