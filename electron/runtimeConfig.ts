@@ -25,7 +25,7 @@ function boolean(raw: string | undefined, fallback = false) {
 }
 
 export const runtimeConfig = {
-    get allowMultipleAutomationSessions() { // false; permit isolated automation profile concurrency
+    get allowMultipleAutomationSessions() {
         return boolean(process.env.EVB_ALLOW_MULTI_AUTOMATION_SESSIONS);
     },
     get appTempNamespace() { // unset; per-process namespace shared with workers and child tools
@@ -43,16 +43,16 @@ export const runtimeConfig = {
     get automationHideWindow() { // follows no-focus when unset; keep hidden automation renderers active
         return boolean(process.env.EVB_AUTOMATION_HIDE_WINDOW, this.automationNoFocus);
     },
-    get automationNoFocus() { // false; disable focus stealing for automation sessions
+    get automationNoFocus() {
         return boolean(process.env.EVB_AUTOMATION_NO_FOCUS);
     },
-    get automationSessionName() { // unset; name isolated automation sessions
+    get automationSessionName() {
         return process.env.EVB_AUTOMATION_SESSION_NAME?.trim();
     },
-    get automationUserDataDir() { // unset; select an isolated automation profile
+    get automationUserDataDir() {
         return process.env.EVB_AUTOMATION_USER_DATA_DIR?.trim();
     },
-    get automationWaitRendererReady() { // false; wait for the initial renderer-ready signal
+    get automationWaitRendererReady() {
         return boolean(process.env.EVB_WAIT_RENDERER_READY);
     },
     get buildGitSha() { // empty; embed the source revision in diagnostics when the build supplies it
@@ -70,7 +70,7 @@ export const runtimeConfig = {
     get logStdoutLevel() { // info; set the minimum level for launcher NDJSON output
         return process.env.EVB_LOG_STDOUT_LEVEL;
     },
-    mcpPort(isPackaged: boolean) { // 38671 packaged, 38672 unpackaged; bind the local MCP server
+    mcpPort(isPackaged: boolean) {
         return integer(process.env.EVB_MCP_PORT, isPackaged ? 38671 : 38672, 1, 65535, false);
     },
     get mcpToken() { // unset; use the configured token before generating a profile token
@@ -92,10 +92,10 @@ export const runtimeConfig = {
     get serverPath() { // /electron; route the development renderer request
         return process.env.EVB_SERVER_PATH;
     },
-    get serverPort() { // 3235; connect to the development renderer server
+    get serverPort() {
         return integer(process.env.EVB_SERVER_PORT, 3235, 1);
     },
-    get startupTrace() { // false; enable startup diagnostics
+    get startupTrace() {
         return boolean(process.env.EVB_STARTUP_TRACE);
     },
     get test() {
@@ -124,25 +124,25 @@ export const runtimeConfig = {
                     false,
                 );
             },
-            get nativePdfImageCombineEnabled() { // false; enable the native image-combiner test path
+            get nativePdfImageCombineEnabled() {
                 return boolean(process.env.EVB_PDF_IMAGE_COMBINE_ENABLE);
             },
-            get nativePdfAssemblerEnabled() { // false; enable the native PDF assembler test path
+            get nativePdfAssemblerEnabled() {
                 return boolean(process.env.EVB_PDF_NATIVE_ASSEMBLER_ENABLE);
             },
-            get nativeTiffCombineEnabled() { // false; enable the native TIFF combiner test path
+            get nativeTiffCombineEnabled() {
                 return boolean(process.env.EVB_TIFF_COMBINE_NATIVE_ENABLE);
             },
             get nativeToolAllowPackagedDiagnosticPaths() { // false; allow release verification to use a diagnostic native tool
                 return boolean(process.env.EVB_NATIVE_TOOL_ALLOW_PACKAGED_DIAGNOSTIC_PATHS);
             },
-            get performanceMode() { // unset; override the performance mode in isolated E2E sessions
+            get performanceMode() {
                 return process.env.EVB_TEST_PERFORMANCE_MODE;
             },
             get printDialogMode() { // unset; replace the native print dialog in E2E
                 return process.env.EVB_PRINT_DIALOG_TEST_MODE;
             },
-            get printDialogOutputPath() { // unset; write the E2E print result to a known path
+            get printDialogOutputPath() {
                 return process.env.EVB_PRINT_DIALOG_TEST_OUTPUT_PATH;
             },
             get scanCleanupEvidenceDirectory() { // unset; preserve scan cleanup evidence for release diagnostics

@@ -3,8 +3,8 @@
 //! Every object the trailer reaches is parsed at its offset into a skeleton
 //! `Document` whose streams keep their dictionaries only: stream data is
 //! located, never read, and a writer copies it by byte range. Memory follows
-//! the object structure, not the file size. Desktop reads a file and the
-//! browser its request buffer, through the same code.
+//! the object structure, not the file size. Desktop files, range-backed WASM
+//! host files (`HostSource`), and byte-buffer requests all use the same code.
 use super::*;
 use lopdf::xref::{Xref, XrefType};
 use std::{io, rc::Rc};
@@ -25,7 +25,8 @@ const MAX_XREF_SECTIONS: usize = 4_096;
 /// Where the terminal `startxref` is looked for, past any trailing padding.
 const TAIL_BYTES: usize = 64 * 1024;
 
-/// Bytes read at an offset: a file on desktop, a request buffer in the browser.
+/// Bytes read at an offset: a desktop file, a range-backed WASM `HostSource`,
+/// or an in-memory request buffer.
 pub(crate) trait ByteSource {
     fn read_at(&self, offset: u64, buffer: &mut [u8]) -> io::Result<()>;
     fn copy_range(&self, offset: u64, len: u64, output: &mut impl Write) -> io::Result<()>;
@@ -2175,13 +2176,11 @@ pub(crate) fn path_key(path: &mut Vec<u8>, key: &[u8]) {
     path.extend(key);
 }
 
-/// Extends `path` by an array index.
 pub(crate) fn path_index(path: &mut Vec<u8>, index: usize) {
     path.push(b'[');
     path.extend((index as u32).to_le_bytes());
 }
 
-/// The dictionary key a path starts with.
 pub(crate) fn path_first_key(path: &[u8]) -> Option<&[u8]> {
     let len = u32::from_le_bytes(path.get(1..5)?.try_into().ok()?) as usize;
     (path[0] == b'/').then(|| path.get(5..5 + len)).flatten()

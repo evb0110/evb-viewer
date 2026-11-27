@@ -1077,10 +1077,6 @@ function claudeCallbacks(session: IChatSession) {
     };
 }
 
-// ---------------------------------------------------------------------------
-// Selection
-// ---------------------------------------------------------------------------
-
 function resolveSelection(requested: IAssistantSelection | undefined): IAssistantSelection | null {
     const enabled = [...instances.values()].filter(entry => entry.config.enabled);
     const entry = (requested && enabled.find(candidate => candidate.config.id === requested.instanceId)) ?? enabled[0];

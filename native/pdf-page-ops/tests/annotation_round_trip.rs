@@ -2050,8 +2050,8 @@ fn print_freetext_keeps_supported_runs_and_replaces_unknown_glyphs() {
         row.2 == 0 && row.3 == row.4 && row.5 && !row.6
     };
     assert!(rows.iter().all(|row| whole(&row)), "{rows:#?}");
-    // review-b7s: a compact label in the document's Helvetica, too narrow for
-    // its W at the DA size, prints whole: its measured advance fits the box.
+    // A compact label in the document's Helvetica, too narrow for its W at
+    // the DA size, prints whole: its measured advance fits the box.
     write_print_text_pdf(
         &temp.pdf,
         "W",
@@ -2393,8 +2393,8 @@ fn authored_semitic_text_boxes_save_harfbuzz_appearances() {
             "printing keeps the authored {script} appearance"
         );
     }
-    // review-b7f: a 150 x 20 pt box at 13.33 pt hid two kasra strokes below
-    // its nominal line. Vowel points below and above the line stay in the box.
+    // A 150 x 20 pt box at 13.33 pt hid two kasra strokes below its nominal
+    // line. Vowel points below and above the line stay in the box.
     for text in ["بَسْمِ لَا بــِسْمِ", "ܡܲܠܟܹ̈ܐ ܛܵܒܹ̈ܐ", "הַקְּדֻשָּׁה וְהַטָּהֳרָה"]
     {
         let temp = TempPaths::new("short-semitic-marks");

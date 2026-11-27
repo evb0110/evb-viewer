@@ -2205,7 +2205,7 @@ fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
         "CreationDate" => Object::string_literal("D:20260101000000Z"),
         "M" => Object::string_literal("D:20260102000000Z"),
         "DA" => Object::string_literal("/Courier 12 Tf 0.2 0.3 0.4 rg 2 Tc 3 Tr"),
-        // A producer's fill in the text colour: unusual, but its own (review-b7s).
+        // A producer's fill in the text colour: unusual, but its own.
         "C" => vec![0.2.into(), 0.3.into(), 0.4.into()],
         "AP" => dictionary! {
             "N" => old_appearance,
@@ -2327,14 +2327,14 @@ fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
     let mut dashed = loaded.clone();
     dashed.get_dictionary_mut(foreign_id).unwrap().set("BS", dictionary! {"W" => 7, "S" => "D"});
     // A dashed label keeps its producer's appearance: the reader gives it as a
-    // read-only text box, and the writer refuses to edit it (review-b7s).
+    // read-only text box, and the writer refuses to edit it.
     let entries = collect_parsed_annotations(&dashed, "D:20260831130000Z").unwrap();
     assert!(matches!(&entries[0], PdfAnnotationParseEntry::TextBox(label) if label.read_only), "{:?}", entries[0]);
     let refused = apply_native_mutations(&mut dashed, &edit, "D:20260831140000Z").unwrap_err().to_string();
     assert!(refused.contains("is read-only: its border style is not editable"), "{refused}");
-    // verify13w: a producer's black /C whose own appearance strokes a black
-    // border and paints no fill is no background. The editor shows a white
-    // label, and edits, reopened and edited again, never add a fill (review-b8f).
+    // A producer's black /C whose own appearance strokes a black border and
+    // paints no fill is no background. The editor shows a white label, and
+    // edits, reopened and edited again, never add a fill.
     let mut unfilled = loaded.clone();
     let stroked = unfilled.add_object(Stream::new(
         dictionary! {"Type" => "XObject", "Subtype" => "Form", "BBox" => vec![0.into(), 0.into(), 140.into(), 55.into()]},
@@ -2372,8 +2372,8 @@ fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
         assert!(!content.contains(" re f") && content.contains("0 G 2 w 1 J 0 j"), "{content}");
         assert_eq!(frame_of(&unfilled), (2.0, Some("#000000".to_string()), None), "it reopens unfilled");
     }
-    // An inline image paints a real background (review-b8f, r12-make-variants
-    // inline-image): /C stays the label's fill, on screen and through Save.
+    // An inline image paints a real background: /C stays the label's fill, on
+    // screen and through Save.
     let mut inline = loaded.clone();
     let painted = inline.add_object(Stream::new(
         dictionary! {"Type" => "XObject", "Subtype" => "Form", "BBox" => vec![0.into(), 0.into(), 140.into(), 55.into()]},
@@ -3167,8 +3167,8 @@ fn text_box_appearance_shrinks_text_that_needs_more_lines_than_its_box() {
 
 #[test]
 fn narrow_text_box_keeps_its_size_when_lines_end_in_spaces() {
-    // review-b6ys: the editor sized this margin box for 15 lines at 22 pt. The
-    // spaces that hang at line ends must not make the saved text shrink.
+    // The editor sized this margin box for 15 lines at 22 pt. The spaces that
+    // hang at line ends must not make the saved text shrink.
     let editor = TextBoxMutation {
                     source: None,
                     original_appearance: None,
@@ -3187,10 +3187,10 @@ fn narrow_text_box_keeps_its_size_when_lines_end_in_spaces() {
 
 #[test]
 fn edited_foreign_text_boxes_reopen_at_the_size_they_draw_whole() {
-    // review-b6yw: a 25 x 45 pt foreign "W" at 22 pt, edited for color only,
-    // and a foreign DA whose trailing Tf size is malformed. A tool that strips
-    // EVB's private keys, as PyMuPDF does, leaves their values null. A DA whose
-    // last fill operator is CMYK after an RGB one takes the new colour too.
+    // A 25 x 45 pt foreign "W" at 22 pt, edited for color only, and a foreign
+    // DA whose trailing Tf size is malformed. A tool that strips EVB's private
+    // keys, as PyMuPDF does, leaves their values null. A DA whose last fill
+    // operator is CMYK after an RGB one takes the new colour too.
     for (da, rect, text, fits_at_22, stripped) in [
         ("/Helv 22 Tf 0 0 0 rg", [20.0, 20.0, 45.0, 65.0], "W", false, false),
         ("/Helv 22 Tf 0.2 0.4 0.6 rg /Helv invalid Tf", [20.0, 15.0, 180.0, 90.0], "Edited foreign text", true, false),
@@ -3231,7 +3231,7 @@ fn edited_foreign_text_boxes_reopen_at_the_size_they_draw_whole() {
         let PdfAnnotationParseEntry::TextBox(reopened) = &entries[0] else { panic!("{:?}", entries[0]) };
         let annotation = saved.get_dictionary(foreign_id).unwrap();
         // The editor resent it a hundred-thousandth of a point off; /Rect and
-        // EVB's first layout rectangle keep the producer's numbers (review-b7s).
+        // EVB's first layout rectangle keep the producer's numbers.
         let stored = annotation.get(b"EVBTextGeometry").unwrap().as_dict().unwrap().get(b"Rect").unwrap();
         for written in [annotation.get(b"Rect").unwrap(), stored] {
             let PdfRect { x1, y1, x2, y2 } = parse_rect(written).unwrap();
@@ -3316,8 +3316,8 @@ fn text_box_rotation_preserves_canonical_rect_for_every_page_rotation() {
             dict.set("C", vec![1.into(), 1.into(), 0.85.into()]);
             dict.set("RD", vec![1.into(), 2.into(), 3.into(), 4.into()]);
             // The editor resends the unmoved box, and its marker as a note's
-            // geometry, a hundred-thousandth of a point off (review-b7s); its
-            // written geometry stays exactly as it was.
+            // geometry, a hundred-thousandth of a point off; its written
+            // geometry stays exactly as it was.
             let geometry = |dict: &Dictionary| (dict.get(b"Rect").unwrap().clone(), dict.get(b"EVBTextGeometry").unwrap().clone());
             let written = geometry(dict);
             let recolour = TextBoxMutation {

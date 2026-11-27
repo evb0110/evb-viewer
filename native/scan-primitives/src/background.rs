@@ -508,8 +508,9 @@ fn reusable_background_at(model: &BackgroundModel, u: f64, v: f64) -> f64 {
     .clamp(32.0, 255.0)
 }
 
-/// Stage-B split calibration is intentionally held against the pre-Stage-F
-/// surface solve. Final rendering uses the validated Cholesky model above.
+/// Split calibration intentionally uses the frozen legacy surface solver so
+/// layout decisions stay stable; final rendering uses the validated Cholesky
+/// model above.
 pub fn normalize_illumination_for_layout(source: &GrayImage) -> GrayImage {
     let preparation = prepare_illumination(source);
     normalize_illumination_for_layout_prepared(source, &preparation)
@@ -1215,15 +1216,15 @@ fn select_background_model(
     }
 }
 
-/// Removal condition: this frozen pre-Stage-F solve exists only for
+/// Removal condition: this frozen legacy solve exists only for
 /// `normalize_illumination_for_layout`, whose output feeds split calibration
-/// (`PageCalibration::estimate`, `detect_content_and_margins_calibrated`,
-/// `otsu_threshold`, `detect_text_axis` in `engine/render.rs`). Delete it, and fold the
-/// layout normalization onto `fit_masked_surface`, once split calibration is re-derived
-/// against the Cholesky/IRLS model — the two differ in mask refinement, in robust
-/// re-weighting and in solver, so merging them silently would move every calibrated
-/// split. It shares only the deterministic symmetric accumulator; the legacy
-/// mask and Gaussian solver remain frozen.
+/// (`PageCalibration::estimate`, `detect_content_and_margins_calibrated_with_crop_authority`,
+/// `otsu_threshold`, and `detect_text_axis` in `engine/render/document_analysis.rs`).
+/// Delete it, and fold layout normalization onto `fit_masked_surface`, once split
+/// calibration is re-derived against the Cholesky/IRLS model — the two differ in
+/// mask refinement, in robust re-weighting and in solver, so merging them silently
+/// would move every calibrated split. It shares only the deterministic symmetric
+/// accumulator; the legacy mask and Gaussian solver remain frozen.
 #[doc(hidden)]
 pub fn fit_masked_surface_legacy_for_test(
     source: &GrayImage,

@@ -366,21 +366,17 @@ export function createScanCleanupDetectionRecorder({
                         rasterizedPages += 1;
                     }
                 },
-                /** No page of this run has a verdict yet. */
                 get awaitingFirstVerdict() {
                     return (compatibilityResults?.size ?? batchResults.size) === 0;
                 },
-                /** Marks one page as actively executing in a worker. */
                 markPageStarted(pageNumber: number) {
                     activePageTracker.start(pageNumber);
                     markProgress();
                 },
-                /** Updates the active sub-page processing stage for an in-flight page. */
                 markPageStage(pageNumber: number, stage: TScanCleanupSubPageStage) {
                     activePageTracker.setStage(pageNumber, stage);
                     markProgress();
                 },
-                /** Marks one page as no longer actively executing in a worker. */
                 markPageFinished(pageNumber: number) {
                     if (activePageTracker.finish(pageNumber)) {
                         markProgress();

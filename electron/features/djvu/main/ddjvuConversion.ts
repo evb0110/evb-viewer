@@ -273,8 +273,8 @@ export async function renderDjvuPageToImage(
 export const convertDjvuPageToImage = renderDjvuPageToImage;
 
 /**
- * Direct DjVu-to-PDF conversion powered by DjVuLibre WASM + native Rust
- * `evb-pdf-image-combine` (replacing legacy `ddjvu -format=pdf` / libtiff).
+ * Converts a DjVu file to PDF using the DjVu engine and the native
+ * `evb-pdf-image-combine` tool.
  */
 export async function convertDjvuToPdfFile(
     inputPath: string,

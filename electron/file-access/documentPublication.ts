@@ -233,14 +233,15 @@ async function copyRevision(source: IPublishSource, absolutePath: string, target
 }
 
 /**
- * Publication to files on this computer. A destination's witness is its metadata, so opening, checking or saving
- * a file never reads it. The bytes are copied beside the destination, and that copy's metadata is the witness staged
- * before the replace: a rename keeps it. Where a rename renumbers files, a fact that differs only in its id is settled
- * by reading the bytes, and the PDF's own metadata after the replace becomes the witness. A Save checks the
- * destination against the baseline inside `atomicReplace`, after which the replaced PDF is moved aside rather than
- * deleted; bytes another program wrote between that check and the move stay beside the PDF as "(original)". Save As
- * replaces without a check. A PDF that no longer has the staged witness after the replace was changed by another
- * program: the save is refused with the displaced original kept.
+ * Publication to files on this computer. A destination's witness is ordinarily its metadata, so opening, checking, or
+ * saving avoids reading the file on the common path. The bytes are copied beside the destination, and that copy's
+ * metadata is the witness staged before the replace: a rename keeps it. Where a rename renumbers files (such as FAT32
+ * under Windows), a fact that differs only in its file id falls back to reading the bytes for a content witness, and
+ * the PDF's own metadata after the replace becomes the witness. A Save checks the destination against the baseline
+ * inside `atomicReplace`, after which the replaced PDF is moved aside rather than deleted; bytes another program wrote
+ * between that check and the move stay beside the PDF as "(original)". Save As replaces without a check. A PDF that no
+ * longer has the staged witness after the replace was changed by another program: the save is refused with the
+ * displaced original kept.
  */
 export function createDesktopPublication(absolute: (storePath: string) => string): IPublicationPort {
     return {

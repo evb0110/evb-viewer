@@ -314,7 +314,7 @@ const summaryCount = v.message(v.pipe(
     v.check((value: number) => Number.isSafeInteger(value)),
 ), 'invalid scan-cleanup summary');
 /**
- * One SC-IMP-003 condition a run reported, with the output it belongs to.
+ * One structured warning condition a run reported, with the output it belongs to.
  *
  * `warnings` carries the same conditions as the sentences the user reads, and a
  * consumer that has to know *which* condition a run raised would otherwise have

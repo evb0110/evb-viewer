@@ -367,8 +367,6 @@ export async function reopenStoredDocument(id: string, options: {ownerWebContent
     });
 }
 
-// Revisions
-
 export function documentRevisionToken(entry: IOpenDocument): TDocumentRevisionToken {
     // A document without bytes of its own and its first copy of the destination hold the same bytes: revision 1.
     return requireDocumentRevisionToken(entry.session.token());
@@ -447,8 +445,6 @@ export function assertQueuedWorkingCopyMutationPreconditions(path: string, token
 export function getWorkingCopyRevision(path: string, senderId?: number) {
     return Promise.resolve(getDocumentRevisionInfo(requireOpenDocument(path, senderId)));
 }
-
-// Reads
 
 async function assertAdmission(entry: IOpenDocument, destination: string) {
     const now = await stat(destination, {bigint: true}).catch((error: unknown) => {
@@ -541,8 +537,6 @@ export async function runWithWorkingCopyReadBacking<TResult>(
     await assertUnchanged();
     return result;
 }
-
-// Mutations
 
 /** Removes what an interrupted native tool left at the next revision's path, in the directory's call order. */
 function clearNextRevision(entry: IOpenDocument) {
@@ -738,8 +732,6 @@ export async function saveOpenDocument(entry: IOpenDocument, token: TDocumentRev
         notifyRevisionChanged(entry, previous, 'save-sync');
     }
 }
-
-// Pinned revisions
 
 /** The bytes a pin names until it is copied: the destination as admitted, or the first `length` bytes of a revision file. */
 type TPinBacking =
@@ -981,8 +973,6 @@ export function getPinnedRevisionStateForTests(ref: string) {
     return pinnedRevisions.get(pinKey(ref))?.state ?? null;
 }
 
-// Ownership and lifetime
-
 async function removeDirectory(doc: DocumentDirectory) {
     await doc.close().catch(() => undefined);
     await getDocumentStore().port.remove(`${DOCUMENTS_DIR}/${doc.id}`);
@@ -1117,8 +1107,6 @@ export async function unheldUnsavedDocuments() {
     const {unsaved, unreadable} = await collected();
     return [...unsaved, ...unreadable.flatMap(entry => entry.directory ?? [])].filter(id => findByDirectory(id) === null);
 }
-
-// Lookups by the file a document was opened from
 
 /** The document `ref` names, with the file it was opened from or saved to. */
 export function getWorkingCopyOriginalPath(ref: string, senderId?: number) {

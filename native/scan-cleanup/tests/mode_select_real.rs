@@ -343,8 +343,8 @@ fn auto_keeps_faint_connected_pencil_beside_dark_print_but_removes_verso_text() 
             "verso value {value} expanded the print crop: {content:?}"
         );
     }
-    // review6b: sparse rectilinear glyphs cannot borrow bounding-box extent;
-    // a genuine note cannot republish unrelated verso ink or the physical rail.
+    // Sparse rectilinear glyphs cannot borrow bounding-box extent; a genuine
+    // note cannot republish unrelated verso ink or the physical rail.
     for (case, note, rail, large) in [
         ("large-verso", false, false, true),
         ("note-plus-rail", true, true, false),

@@ -18,17 +18,13 @@ use std::fmt;
 const FIXED_POINT_ONE: u64 = 1 << 23;
 /// The largest averaging group whose byte sum fits an unsigned 32-bit sum.
 const MAX_GROUP_PIXELS: u64 = 16_843_009;
-/// The smallest admitted placement determinant magnitude.
 const MIN_DETERMINANT: f64 = 0.000_001;
 
-/// Why a page has no source raster here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourceRasterError {
     /// A valid program this module does not reproduce; use the general renderer.
     Unsupported(&'static str),
-    /// The request itself is malformed.
     Invalid(String),
-    /// The raster or one of its planes exceeds the admitted budget.
     TooLarge(String),
 }
 
@@ -66,7 +62,6 @@ pub struct Slice {
     pub height: u32,
 }
 
-/// The page box the raster covers and its rotation.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PageBox {
     /// `[left, bottom, right, top]` of the selected (crop or media) box.
@@ -83,7 +78,6 @@ pub struct PageGrid {
     pub device: Affine,
 }
 
-/// The output bitmap and device transform for a page box, resolution and slice.
 pub fn page_grid(page: PageBox, resolution: Resolution, slice: Option<Slice>) -> Result<PageGrid> {
     let [left, bottom, right, top] = page.rect;
     if !page.rect.iter().all(|value| value.is_finite()) || right <= left || top <= bottom {

@@ -141,10 +141,11 @@ export const OCR_SEARCHABLE_PDF_PAGE_RANGE_SCHEMA = v.pipe(
 export type IOcrSearchablePdfPageRange = v.InferOutput<typeof OCR_SEARCHABLE_PDF_PAGE_RANGE_SCHEMA>;
 
 /**
- * Page selections are deliberately serializable. Do not replace these with a
- * JavaScript iterator in the IPC contract. An iterator would be eagerly
- * cloned by Electron and would put the old whole-document allocation back in
- * the renderer/main-process boundary.
+ * Page selections are deliberately serializable ranges rather than expanded
+ * page lists or JavaScript iterators. Iterators are not structured-cloneable
+ * across Electron IPC (structured clone throws `DataCloneError`), and eager
+ * whole-document arrays would reintroduce large renderer/main allocations;
+ * ranges cross IPC compactly and expand only in bounded worker batches.
  */
 const ocrSearchablePdfPageRangesSchema = v.pipe(
     v.array(OCR_SEARCHABLE_PDF_PAGE_RANGE_SCHEMA),
