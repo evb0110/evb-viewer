@@ -178,11 +178,12 @@ async function startBrowserIntegrationHarness({
                 stopDevServer(),
             ]);
             const rejected = results.find(result => result.status === 'rejected');
-            if (!rejected) {
+            if (rejected) {
+                forceKillOnExit();
                 process.off('exit', forceKillOnExit);
-            } else {
                 throw rejected.reason;
             }
+            process.off('exit', forceKillOnExit);
         })();
         return stopPromise;
     };
@@ -254,6 +255,7 @@ async function startBrowserIntegrationHarness({
             outputPath,
             wsEndpoint,
             stop,
+            forceStop: forceKillOnExit,
         };
     } catch (error) {
         await stop();
@@ -268,7 +270,8 @@ async function runSupervisedCli() {
     if (args[0] === '--') args.shift();
 
     const { tsImport } = await import('tsx/esm/api');
-    const { killSpawnedProcessTree } = await tsImport('./electron-run/electronRunProcessTree.ts', import.meta.url);
+    const processTree = await tsImport('./electron-run/electronRunProcessTree.ts', import.meta.url);
+    const { killSpawnedProcessTree } = processTree;
 
     const abortController = new AbortController();
     /** @type {Promise<Awaited<ReturnType<typeof startBrowserIntegrationHarness>>> | null} */
@@ -314,8 +317,12 @@ async function runSupervisedCli() {
                 resolvedHarness ? resolvedHarness.stop() : Promise.resolve(),
             ]);
             const rejected = results.find(result => result.status === 'rejected');
-            if (rejected && !receivedSignal) {
-                throw rejected.reason;
+            if (rejected) {
+                if (vitestChild?.pid) forceKillProcessTreeSync(vitestChild.pid, processTree);
+                resolvedHarness?.forceStop();
+                if (!receivedSignal) {
+                    throw rejected.reason;
+                }
             }
         })();
         return teardownPromise;
@@ -412,7 +419,12 @@ export async function setup(project) {
         stopDirectPromise = (async () => {
             const resolvedHarness = harness ?? (harnessPromise ? await harnessPromise.catch(() => null) : null);
             if (resolvedHarness) {
-                await resolvedHarness.stop();
+                try {
+                    await resolvedHarness.stop();
+                } catch (error) {
+                    resolvedHarness.forceStop();
+                    throw error;
+                }
             }
         })();
         return stopDirectPromise;
