@@ -1357,4 +1357,234 @@ describe('browser recovery diagnostics', () => {
         expect(new TextDecoder().decode(await second.repo.read(refA))).toBe('%PDF-1.7 A');
         expect(new TextDecoder().decode(await second.repo.read(refB))).toBe('%PDF-1.7 B');
     });
+
+    it('restores a two-tab browser checkpoint when one tab has malformed drafts, keeping the sibling tab, reopened document, and draft file intact', async () => {
+        const {store, repo, api, diagnostics} = await recovery();
+        const windowId = 'two-tab-malformed-draft';
+        const healthyRef = createBrowserDocumentRef('healthy.pdf', 'dir-healthy');
+        const malformedRef = createBrowserDocumentRef('malformed.pdf', 'dir-malformed');
+        const healthyDoc = await createDocument(store, {id: 'dir-healthy', name: 'healthy.pdf', source: new Blob(['%PDF-1.7 HEALTHY'])});
+        const malformedDoc = await createDocument(store, {id: 'dir-malformed', name: 'malformed.pdf', source: new Blob(['%PDF-1.7 MALFORMED'])});
+
+        const healthyDrafts: IWorkspaceCheckpointAnnotationRecovery = {
+            artifactId: 'healthy-draft',
+            documentInstanceId: 'instance-healthy',
+            workingCopyRef: healthyRef,
+            workingByteRevision: 'drt1:browser:dir-healthy:1',
+            annotationMutationGeneration: 3,
+            payload: {entities: [{contents: 'Healthy sibling note'}]},
+        };
+        await healthyDoc.setDrafts(1, healthyDrafts);
+        await malformedDoc.setDrafts(1, {
+            artifactId: 'invalid id with spaces',
+            documentInstanceId: '',
+            workingCopyRef: 42,
+            workingByteRevision: '',
+            annotationMutationGeneration: -5,
+            payload: {entities: [{contents: 'Kept raw draft on disk'}]},
+        });
+
+        const malformedManifest = JSON.parse(new TextDecoder().decode(await store.port.read('documents/dir-malformed/manifest.json'))) as {drafts?: string};
+        expect(malformedManifest.drafts).toBeDefined();
+        const malformedDraftPath = `documents/dir-malformed/${malformedManifest.drafts!}`;
+        const draftBytesBefore = await store.port.read(malformedDraftPath);
+
+        await healthyDoc.close();
+        await malformedDoc.close();
+
+        await writeWorkspaceCheckpoint(store.port, windowId, {
+            tabs: {
+                'dir-healthy': {directory: 'dir-healthy', view: null},
+                'dir-malformed': {directory: 'dir-malformed', view: null},
+            },
+            layout: {
+                version: 1,
+                capturedAt: 2_000,
+                activePaneId: 'pane-1',
+                activeTabId: 'tab-healthy',
+                layout: {type: 'leaf', paneId: 'pane-1'},
+                panes: [{paneId: 'pane-1', tabIds: ['tab-healthy', 'tab-malformed'], activeTabId: 'tab-healthy'}],
+                tabs: [
+                    {tabId: 'tab-healthy', paneId: 'pane-1', fileName: 'healthy.pdf', sourceRef: healthyRef, workingCopyRef: healthyRef, isDirty: true, isDjvu: false, currentPage: 1, zoom: 1, zoomMode: null},
+                    {tabId: 'tab-malformed', paneId: 'pane-1', fileName: 'malformed.pdf', sourceRef: malformedRef, workingCopyRef: malformedRef, isDirty: true, isDjvu: false, currentPage: 2, zoom: 1, zoomMode: null},
+                ],
+            },
+        });
+
+        const claimed = await api.claimBrowserWorkspaceCheckpoint(windowId);
+
+        expect(claimed).not.toBeNull();
+        expect(claimed?.tabs).toHaveLength(2);
+
+        const claimedHealthy = claimed?.tabs.find(tab => tab.workingCopyRef === healthyRef);
+        expect(claimedHealthy).toMatchObject({
+            tabId: 'tab-healthy',
+            workingCopyRef: healthyRef,
+            isDirty: true,
+            annotationRecovery: healthyDrafts,
+        });
+        expect(claimedHealthy?.workingCopyLost).toBeUndefined();
+        expect(claimedHealthy?.annotationRecoveryInvalid).toBeUndefined();
+
+        const claimedMalformed = claimed?.tabs.find(tab => tab.workingCopyRef === malformedRef);
+        expect(claimedMalformed).toMatchObject({
+            tabId: 'tab-malformed',
+            workingCopyRef: malformedRef,
+            isDirty: true,
+            annotationRecoveryInvalid: true,
+        });
+        expect(claimedMalformed?.annotationRecovery).toBeUndefined();
+        expect(claimedMalformed?.workingCopyLost).toBeUndefined();
+
+        expect(new TextDecoder().decode(await repo.read(healthyRef))).toBe('%PDF-1.7 HEALTHY');
+        expect(new TextDecoder().decode(await repo.read(malformedRef))).toBe('%PDF-1.7 MALFORMED');
+        expect(await store.port.read(malformedDraftPath)).toEqual(draftBytesBefore);
+        expect(diagnostics()).toContain('dir-malformed');
+
+        // Renderer startup finishes opening the malformed tab and sends a payload-free clear;
+        // both clears and overwrites must be refused (false) so commitDrafts blocks
+        // subsequent page mutations (like rotate) from deleting the original draft file.
+        const reopenedMalformedEntry = await repo.requireEntry(malformedRef);
+        const reopenedRevision = repo.tokenOf(reopenedMalformedEntry);
+        expect(await api.setBrowserDocumentDrafts({
+            artifactId: 'document-drafts',
+            documentInstanceId: 'instance-reopened',
+            workingCopyRef: malformedRef,
+            workingByteRevision: reopenedRevision,
+            annotationMutationGeneration: 0,
+        })).toBe(false);
+        expect(await store.port.read(malformedDraftPath)).toEqual(draftBytesBefore);
+
+        expect(await api.setBrowserDocumentDrafts({
+            artifactId: 'document-drafts',
+            documentInstanceId: 'instance-reopened',
+            workingCopyRef: malformedRef,
+            workingByteRevision: reopenedRevision,
+            annotationMutationGeneration: 1,
+            payload: {entities: [{contents: 'must not overwrite'}]},
+        })).toBe(false);
+        expect(await store.port.read(malformedDraftPath)).toEqual(draftBytesBefore);
+
+        // Verify the real restoreWorkspaceCheckpoint + createWorkspaceDocumentRecovery flow installs
+        // a failed draft hold for annotationRecoveryInvalid tabs, blocking BOTH page mutations
+        // (commitDrafts()) and Save (commitDrafts('reported')) while keeping the draft file intact.
+        const {nextTick, ref} = await import('vue');
+        const {createWorkspaceDocumentRecovery} = await import('@app/modules/workspace-shell/checkpoint/createWorkspaceDocumentRecovery');
+        const {restoreWorkspaceCheckpoint} = await import('@app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint');
+        const {useWorkspaceDocumentSessions} = await import('@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions');
+        const {createWorkspaceExposeFixture} = await import('@tests/unit/app/modules/workspace-shell/workspaceTestFixtures');
+        vi.stubGlobal('useToast', () => ({add: vi.fn()}));
+        const platformWindowTabs = await import('@app/utils/platformWindowTabs');
+        const setDraftsSpy = vi.fn(api.setBrowserDocumentDrafts);
+        vi.spyOn(platformWindowTabs, 'getWindowTabsCapability').mockReturnValue({
+            setDocumentDrafts: setDraftsSpy,
+        } as never);
+        const reportFailure = vi.fn();
+        const tabs = ref<Array<{id: string}>>([]);
+        const documentSessions = useWorkspaceDocumentSessions({activeTabId: ref(null), tabs});
+        const reopenedHealthyRevision = await repo.getDocumentRevision(healthyRef);
+        const reopenedMalformedRevision = await repo.getDocumentRevision(malformedRef);
+        const restoreCanonicalHealthy = vi.fn();
+        const restoreCanonicalMalformed = vi.fn();
+        let malformedDocRecovery: ReturnType<typeof createWorkspaceDocumentRecovery> | undefined;
+
+        const restoring = restoreWorkspaceCheckpoint(claimed!, {
+            activeTabId: ref(null),
+            documentSessions,
+            restoreGraph: checkpoint => {
+                tabs.value = checkpoint.tabs.map(tab => ({id: tab.tabId}));
+            },
+            activateTab: () => {},
+        });
+        await nextTick();
+
+        const healthySession = documentSessions.getSession(claimedHealthy!.tabId)!;
+        healthySession.attachWorkspace(claimedHealthy!.tabId, createWorkspaceExposeFixture({
+            holdDocumentDrafts: () => () => {},
+            restoreCanonicalAnnotationRecovery: restoreCanonicalHealthy,
+            handleOpenFileWithResult: async () => {
+                await healthySession.runOpen({
+                    kind: 'restore',
+                    target: {fileName: 'healthy.pdf', originalPath: healthyRef},
+                }, async () => {
+                    healthySession.commitFile({
+                        originalPath: healthyRef,
+                        workingCopyPath: healthyRef,
+                        isDjvu: false,
+                        revisionInfo: reopenedHealthyRevision,
+                    });
+                    return {presentation: Promise.resolve({status: 'presented' as const})};
+                }).finished;
+                return true;
+            },
+            getAutomationStateSnapshot: () => ({
+                ...createWorkspaceExposeFixture().getAutomationStateSnapshot(),
+                workingCopyPath: healthyRef,
+                documentIdentity: reopenedHealthyRevision,
+            }),
+        }));
+
+        const malformedSession = documentSessions.getSession(claimedMalformed!.tabId)!;
+        malformedDocRecovery = createWorkspaceDocumentRecovery({
+            controller: malformedSession,
+            pdfViewer: () => ({
+                captureCanonicalAnnotationRecovery: () => ({
+                    version: 1,
+                    annotationMutationGeneration: 0,
+                    entities: [],
+                    drafts: [],
+                }),
+            } as never),
+            pdfDocumentAnnotations: {
+                application: ref({store: {subscribe: () => () => undefined}}),
+                textBoxDrafts: new Map(),
+                joinRead: () => null,
+                commentsStatus: ref('ready'),
+            } as never,
+            annotations: {
+                captureAnnotationNoteDrafts: () => [],
+                getAnnotationNoteDraftsChangeSignature: () => [],
+                restoreAnnotationNoteDraft: () => undefined,
+            },
+            metadata: {
+                bookmarkState: {bookmarkItems: ref([])},
+                pageLabelState: {pageLabelRanges: ref([])},
+                captureRecovery: () => ({}),
+                restoreRecovery: () => undefined,
+            } as never,
+            reportFailure,
+        });
+        malformedSession.attachWorkspace(claimedMalformed!.tabId, createWorkspaceExposeFixture({
+            holdDocumentDrafts: malformedDocRecovery.holdDrafts,
+            restoreCanonicalAnnotationRecovery: restoreCanonicalMalformed,
+            handleOpenFileWithResult: async () => {
+                await malformedSession.runOpen({
+                    kind: 'restore',
+                    target: {fileName: 'malformed.pdf', originalPath: malformedRef},
+                }, async () => {
+                    malformedSession.commitFile({
+                        originalPath: malformedRef,
+                        workingCopyPath: malformedRef,
+                        isDjvu: false,
+                        revisionInfo: reopenedMalformedRevision,
+                    });
+                    return {presentation: Promise.resolve({status: 'presented' as const})};
+                }).finished;
+                return true;
+            },
+            getAutomationStateSnapshot: () => ({
+                ...createWorkspaceExposeFixture().getAutomationStateSnapshot(),
+                workingCopyPath: malformedRef,
+                documentIdentity: reopenedMalformedRevision,
+            }),
+        }));
+
+        const failedPaths = await restoring;
+        expect(failedPaths).toEqual([malformedRef]);
+        expect(restoreCanonicalMalformed).not.toHaveBeenCalled();
+        expect(setDraftsSpy).not.toHaveBeenCalled();
+        await expect(malformedDocRecovery.commitDrafts()).rejects.toThrow('Recovered annotation drafts that were not applied stay stored');
+        await expect(malformedDocRecovery.commitDrafts('reported')).rejects.toThrow('Recovered annotation drafts that were not applied stay stored');
+        expect(await store.port.read(malformedDraftPath)).toEqual(draftBytesBefore);
+    });
 });

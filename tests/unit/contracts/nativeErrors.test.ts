@@ -1,17 +1,25 @@
 import {
     NATIVE_ERROR_CODES,
+    type TNativeErrorCode,
+    type TNativeErrorCodeBidirectionalParity,
     getUnprovenNativeTerminationDetail,
     hasNativeErrorCode,
     isNativeErrorEnvelope,
     markUnprovenNativeTermination,
 } from '@contracts/nativeErrors';
+import type {NativeErrorCode} from '@contracts/scan-cleanup/nativeWire.generated';
 import {
     describe,
     expect,
+    expectTypeOf,
     it,
 } from 'vitest';
 
 describe('native error envelopes', () => {
+    it('maintains bidirectional compile-time parity with generated NativeErrorCode', () => {
+        expectTypeOf<TNativeErrorCode>().toEqualTypeOf<NativeErrorCode>();
+        expectTypeOf<TNativeErrorCodeBidirectionalParity>().toEqualTypeOf<true>();
+    });
     it.each(NATIVE_ERROR_CODES)('accepts the stable %s code', (code) => {
         const envelope = {
             code,

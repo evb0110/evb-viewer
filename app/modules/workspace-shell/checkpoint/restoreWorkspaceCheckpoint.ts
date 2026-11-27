@@ -62,6 +62,9 @@ async function applyAnnotationRecovery(
     workspace: IWorkspaceExpose,
     session: IWorkspaceDocumentController,
 ) {
+    if (checkpointTab.annotationRecoveryInvalid) {
+        return false;
+    }
     const recovery = checkpointTab.annotationRecovery;
     if (!recovery) {
         return true;
@@ -99,7 +102,9 @@ async function restoreTab(
         return false;
     }
     // Nothing replaces the stored drafts before they are applied; drafts that are not applied stay as stored.
-    const settleDrafts = checkpointTab.annotationRecovery?.payload === undefined ? undefined : workspace.holdDocumentDrafts?.();
+    const settleDrafts = (checkpointTab.annotationRecovery?.payload === undefined && !checkpointTab.annotationRecoveryInvalid)
+        ? undefined
+        : workspace.holdDocumentDrafts?.();
     let recoveryApplied = false;
     try {
         if (recoveryTarget && !await workspace.handleOpenFileWithResult(recoveryTarget)) {

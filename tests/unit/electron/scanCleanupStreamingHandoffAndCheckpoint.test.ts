@@ -123,13 +123,18 @@ function pageGeometry(pageNumber: number): IPdfPageSize {
 
 function outputMetadata(half: 'full' | 'left' | 'right' = 'full') {
     return {
+        inputWidthPx: 1,
+        inputHeightPx: 1,
         outputWidthPx: 1,
         outputHeightPx: 1,
         canvasWidthPx: 1,
         canvasHeightPx: 1,
+        matchedCanvasContentWidthPx: null,
+        matchedCanvasContentHeightPx: null,
         placementOffsetXPx: 0,
         placementOffsetYPx: 0,
         forwardTransform: null,
+        dewarpMapping: null,
         rotationDegrees: 0,
         renderDpi: 300,
         layoutClassification: half === 'full' ? 'single-uncut-page' : 'two-page-spread',
@@ -138,6 +143,18 @@ function outputMetadata(half: 'full' | 'left' | 'right' = 'full') {
         layeredWritten: false,
         half,
         outputMode: 'color',
+        sourceRegion: {
+            xPx: 0,
+            yPx: 0,
+            widthPx: 1,
+            heightPx: 1,
+        },
+        cropRect: {
+            xPx: 0,
+            yPx: 0,
+            widthPx: 1,
+            heightPx: 1,
+        },
         contentBox: {
             xPx: 0,
             yPx: 0,
@@ -2810,6 +2827,94 @@ describe('scan-cleanup bounded streaming handoff and witness-bound checkpoints',
         });
         expect(contradictoryPdfZeroPagesResult.summary.outputPages).toBe(3);
         expect(contradictoryPdfZeroPagesResult.run2Pages).toEqual([1, 2, 3]);
+
+        // 4. Malformed nested renderGeometry inside representationReport.pages
+        // must be rejected by full schema validation and recomputed.
+        const malformedRenderGeometryResult = await runAndTamperBatch0(state => {
+            const report = state.representationReport as {pages: Array<Record<string, unknown>>};
+            report.pages[0]!.renderGeometry = {
+                ...report.pages[0]!.renderGeometry as Record<string, unknown>,
+                canvasWidthPx: -1,
+            };
+        });
+        expect(malformedRenderGeometryResult.summary.outputPages).toBe(3);
+        expect(malformedRenderGeometryResult.run2Pages).toEqual([1, 2, 3]);
+
+        // 5. Malformed streamBytes inside representationReport.pages must be rejected.
+        const malformedStreamBytesResult = await runAndTamperBatch0(state => {
+            const report = state.representationReport as {pages: Array<Record<string, unknown>>};
+            report.pages[0]!.streamBytes = {composite: 'not-a-number'};
+        });
+        expect(malformedStreamBytesResult.summary.outputPages).toBe(3);
+        expect(malformedStreamBytesResult.run2Pages).toEqual([1, 2, 3]);
+    });
+
+    it('resumes a valid zero-output batch checkpoint without recomputing excluded pages', async () => {
+        const pipeline = await loadScanCleanupPipelineWithBatchPages(2);
+        const fixture = await createStreamingFixture({
+            pageCount: 3,
+            useScratchDir: false,
+            useCheckpointDir: true,
+        });
+        const excludedBatch0Options: IScanCleanupOptions = {
+            ...baseOptions,
+            pageOverrides: {
+                '1': {rotationDegrees: 0, layoutOverride: 'auto', excluded: true, manualSplit: null},
+                '2': {rotationDegrees: 0, layoutOverride: 'auto', excluded: true, manualSplit: null},
+            },
+        };
+
+        // Run 1: batch 0 (pages 1..2, all excluded -> outputPages: 0, empty representation report)
+        // checkpoints cleanly; abort when batch 1 (page 3) begins.
+        const abortRun1 = new AbortController();
+        fixture.dependencies.runSidecar = vi.fn(async (_binary, mPath, sig, _log, onProgress) => {
+            const manifest = JSON.parse(await readFile(mPath, 'utf8')) as {pages: ITestManifestPage[]};
+            const pages = manifest.pages.map(page => page.sourcePageIndex + 1);
+            if (pages.includes(3)) {
+                abortRun1.abort(new DOMException('Interrupt after zero-output batch 0', 'AbortError'));
+                sig.throwIfAborted();
+            }
+            await fixture.writeDefaultSidecarOutputs(manifest, onProgress);
+        });
+        await expect(pipeline.runScanCleanupConversion(
+            {
+                sourcePdfPath: fixture.sourcePdfPath,
+                outputPdfPath: fixture.outputPdfPath,
+                options: excludedBatch0Options,
+            },
+            fixture.workerPaths,
+            abortRun1.signal,
+            () => undefined,
+            basePolicy,
+            () => undefined,
+            fixture.dependencies,
+        )).rejects.toThrow('Interrupt after zero-output batch 0');
+
+        // Run 2: resume must reuse zero-output batch 0 from checkpoint and only run page 3.
+        const run2Pages: number[] = [];
+        fixture.dependencies.runSidecar = vi.fn(async (_binary, mPath, _sig, _log, onProgress) => {
+            const manifest = JSON.parse(await readFile(mPath, 'utf8')) as {pages: ITestManifestPage[]};
+            run2Pages.push(...manifest.pages.map(page => page.sourcePageIndex + 1));
+            await fixture.writeDefaultSidecarOutputs(manifest, onProgress);
+        });
+        const summary = await pipeline.runScanCleanupConversion(
+            {
+                sourcePdfPath: fixture.sourcePdfPath,
+                outputPdfPath: fixture.outputPdfPath,
+                options: excludedBatch0Options,
+            },
+            fixture.workerPaths,
+            new AbortController().signal,
+            () => undefined,
+            basePolicy,
+            () => undefined,
+            fixture.dependencies,
+        );
+
+        expect(summary.inputPages).toBe(3);
+        expect(summary.excludedPages).toBe(2);
+        expect(summary.outputPages).toBe(1);
+        expect(run2Pages).toEqual([3]);
     });
 
     it('preserves full-document Auto compact-source budget completeness when resuming an xlarge run with locked color recommendations', async () => {

@@ -648,11 +648,11 @@ async function runImageCombineFallback(
             }
             pagePdfPaths.push(pagePdfPath);
             options.onStdout?.(JSON.stringify({
+                type: 'progress',
                 processed: index + 1,
                 total: lines.length,
                 percent: (index + 1) / Math.max(1, lines.length) * 100,
                 elapsedMs: 0,
-                estimatedRemainingMs: null,
             }) + '\n');
         }
         await combineCliPagePdfs(pagePdfPaths, outputPath, qpdfBinary, options);

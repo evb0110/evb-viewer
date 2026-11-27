@@ -1,7 +1,7 @@
 import * as v from 'valibot';
 import {parsePaneId} from '@contracts/editorPanes';
 import type {TEditorLayoutNode} from '@contracts/editorPanes';
-import {parseDocumentRef} from '@contracts/documentRef';
+import {parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
 import {parseTabId} from '@contracts/windowTabs';
 import {
     VIEW_MODE_SCHEMA as viewModeSchema,
@@ -123,6 +123,8 @@ const checkpointTabSchema = v.object({
     viewMode: v.optional(v.nullable(viewModeSchema)),
     viewRotation: v.optional(v.nullable(viewRotationSchema)),
     annotationRecovery: v.optional(workspaceAnnotationRecoverySchema),
+    // Set by a claim when persisted drafts exist on disk but fail schema validation, so restore holds them untouched.
+    annotationRecoveryInvalid: v.optional(v.literal(true)),
     workingCopyLost: v.optional(v.literal(true)),
     surfaceMode: v.optional(v.picklist([
         'reader',
@@ -153,6 +155,39 @@ export function decodeWorkspaceCheckpoint(value: unknown): IWorkspaceCheckpoint 
     return result.success ? result.output : null;
 }
 
+export function decodeWorkspaceAnnotationRecovery(value: unknown):
+    | {success: true; output: IWorkspaceCheckpointAnnotationRecovery}
+    | {success: false; issue: string} {
+    const result = v.safeParse(workspaceAnnotationRecoverySchema, value, {abortEarly: true});
+    return result.success
+        ? {success: true, output: result.output}
+        : {success: false, issue: result.issues[0]?.message ?? 'invalid draft shape'};
+}
+
+export function decodeWorkspaceTabDrafts(
+    raw: unknown,
+    onInvalid: (issue: string) => void,
+    workingCopyRef?: TDocumentRef,
+): Pick<IWorkspaceCheckpointTab, 'annotationRecovery' | 'annotationRecoveryInvalid'> {
+    if (raw === undefined) return {};
+    const parsed = decodeWorkspaceAnnotationRecovery(raw);
+    if (!parsed.success) {
+        onInvalid(parsed.issue);
+        return {annotationRecoveryInvalid: true};
+    }
+    return {annotationRecovery: workingCopyRef ? {...parsed.output, workingCopyRef} : parsed.output};
+}
+
+export function createBlankWorkspaceCheckpointTab(
+    tabId: IWorkspaceCheckpointTab['tabId'],
+    paneId: IWorkspaceCheckpointTab['paneId'],
+): IWorkspaceCheckpointTab {
+    return {
+        tabId, paneId, fileName: null, sourceRef: null, workingCopyRef: null,
+        isDirty: false, isDjvu: false, currentPage: null, zoom: null, zoomMode: null,
+    };
+}
+
 /**
  * The checkpoint as the document store keeps it: tabs, panes, views and document references. Whether a tab holds
  * unsaved work and its drafts are its document's manifest's.
@@ -164,6 +199,7 @@ export function toStoredWorkspaceCheckpoint(checkpoint: IWorkspaceCheckpoint) {
             isDirty: _dirty,
             keptOriginalPath: _kept,
             annotationRecovery: _drafts,
+            annotationRecoveryInvalid: _invalidDrafts,
             workingCopyLost: _lost,
             ...tab
         }) => tab),
