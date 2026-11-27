@@ -12,14 +12,14 @@ export type TForeignRevisionState = 'staged' | 'committed';
 
 /** The bytes `[0, length)` of `file`. `witness` names them once something established it: a content witness, or the witness of the destination they were copied from. */
 export interface IRevision {
-    id: number;
-    file: string;
-    length: number;
-    witness?: string | undefined;
+    readonly id: number;
+    readonly file: string;
+    readonly length: number;
+    readonly witness?: string | undefined;
     /** Revision 1 copied from an externally modified destination: `'staged'` until published or archived for undo, then `'committed'`. */
-    foreign?: TForeignRevisionState | undefined;
+    readonly foreign?: TForeignRevisionState | undefined;
     /** Affirmative evidence that this revision holds only bytes created during document open (decrypt/normalize/repair), never a user edit. */
-    openOnly?: true | undefined;
+    readonly openOnly?: true | undefined;
 }
 
 /**
@@ -27,8 +27,8 @@ export interface IRevision {
  * destination's bytes, as long as the destination still has `witness`.
  */
 export interface IDestinationRevision {
-    id: 1;
-    witness: string;
+    readonly id: 1;
+    readonly witness: string;
 }
 
 export type THistoryRevision = IRevision | IDestinationRevision;
@@ -40,32 +40,32 @@ export const hasFile = (revision: THistoryRevision): revision is IRevision => 'f
  * staged), and `temp` the file it stages beside the destination, named before that file exists.
  */
 export interface IPendingPublish {
-    destination: string;
-    witness?: string | undefined;
-    temp?: string | undefined;
+    readonly destination: string;
+    readonly witness?: string | undefined;
+    readonly temp?: string | undefined;
     /** What the destination held before, for an `unsettled` record; the latest publish's is the manifest's `baseline`. */
-    baseline?: string | undefined;
+    readonly baseline?: string | undefined;
 }
 
 export interface IManifest {
-    version: 1;
-    ext: string;
+    readonly version: 1;
+    readonly ext: string;
     /** The file name the document was created under, for a view with no other name for it; absent in older stores. */
-    name?: string | undefined;
+    readonly name?: string | undefined;
     /** The id of the next revision, which also names its file. Revision 1 is the destination's bytes as opened. */
-    next: number;
-    current?: IRevision | undefined;
+    readonly next: number;
+    readonly current?: IRevision | undefined;
     /** Revisions kept for undo and redo; never contains `current`. */
-    history: THistoryRevision[];
-    destination?: string | undefined;
+    readonly history: readonly THistoryRevision[];
+    readonly destination?: string | undefined;
     /** The witness of the bytes last read from or published to `destination`. */
-    baseline?: string | undefined;
+    readonly baseline?: string | undefined;
     /** The latest publish while its outcome is unknown; recovery adopts it when the destination holds what it published. */
-    pendingPublish?: IPendingPublish | undefined;
+    readonly pendingPublish?: IPendingPublish | undefined;
     /** Earlier publishes a later one followed before they could be settled, for example while their destination could not be read. */
-    unsettled?: IPendingPublish[] | undefined;
+    readonly unsettled?: readonly IPendingPublish[] | undefined;
     /** The immutable file holding the drafts that apply to `current`; absent when there are none. */
-    drafts?: string | undefined;
+    readonly drafts?: string | undefined;
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

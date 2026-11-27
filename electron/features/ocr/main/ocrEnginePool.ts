@@ -353,7 +353,8 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
                 const onMessage = (message: IOcrEngineLaneReply) => {
                     if (message.id !== id) return;
                     keepWorker();
-                    settle(message.ok ? null : new Error(message.error), message.result);
+                    if (message.ok) settle(null, message.result);
+                    else settle(new Error(message.error));
                 };
                 const onError = (error: Error) => {
                     discardWorker();

@@ -5,17 +5,26 @@
 // appends a revision runs here too, on the handle the document already holds, and so does content hashing:
 // a witness reads its bytes here, so the window neither receives nor hashes them.
 import { contentWitness } from '@document-store/contentWitness';
+import type {
+    IStoreFile,
+    IStorePort,
+} from '@document-store/storePort';
 import { handlePrecompiledWasmModuleMessage } from '@app/platform/browser/loadWasmWithDeadline';
 import type {
     IOcrTextLayerAppendRequest,
     IPdfAppendRequest,
 } from '@app/platform/browser/pdfPageEngine';
 
-interface IRequest {
-    id: number;
-    op: string;
-    args: unknown[];
-}
+type TSyncOrAsync<T> = T | Promise<T>;
+type TOpfsFileOperations = {
+    [K in keyof IStoreFile]: (id: number, ...args: Parameters<IStoreFile[K]>) => TSyncOrAsync<Awaited<ReturnType<IStoreFile[K]>>>;
+};
+type TOpfsOperationsContract = Omit<IStorePort, 'open' | 'move'> & TOpfsFileOperations & {
+    probe(): Promise<boolean>;
+    open(path: string): Promise<number>;
+    witnessBlob(blob: Blob): Promise<string>;
+    appendPdfMutations(id: number, base: number, request: IPdfAppendRequest | IOcrTextLayerAppendRequest): Promise<unknown>;
+};
 
 const COPY_BYTES = 4 * 1024 * 1024;
 const root = navigator.storage.getDirectory();
@@ -103,10 +112,41 @@ async function* blobChunks(blob: Blob) {
     }
 }
 
-const operations: Record<string, (...args: never[]) => unknown> = {
-    async probe() {
-        await operations.writeAtomic!('probe/probe.bin' as never, new Uint8Array([1]) as never);
-        await operations.remove!('probe' as never);
+// Temporary file, flush, close, then the two-argument move, the one form that is atomic in every engine.
+async function writeAtomic(path: string, bytes: Uint8Array) {
+    const {dirs, name} = split(path);
+    const dir = await directory(dirs, true);
+    const tempName = `${name}.${crypto.randomUUID()}.tmp`;
+    const temp = await dir.getFileHandle(tempName, {create: true});
+    try {
+        const handle = await temp.createSyncAccessHandle();
+        try {
+            handle.truncate(0);
+            writeAll(handle, bytes, 0);
+            handle.flush();
+        } finally {
+            handle.close();
+        }
+        await (temp as FileSystemFileHandle & {move(dir: FileSystemDirectoryHandle, name: string): Promise<void>}).move(dir, name);
+    } catch (error) {
+        await dir.removeEntry(tempName).catch(() => undefined);
+        throw error;
+    }
+}
+
+async function remove(path: string) {
+    const {dirs, name} = split(path);
+    try {
+        await (await directory(dirs, false)).removeEntry(name, {recursive: true});
+    } catch (error) {
+        if (!isMissing(error)) throw error;
+    }
+}
+
+const operations = {
+    async probe(): Promise<boolean> {
+        await writeAtomic('probe/probe.bin', new Uint8Array([1]));
+        await remove('probe');
         return true;
     },
     async list(dir: string) {
@@ -124,27 +164,7 @@ const operations: Record<string, (...args: never[]) => unknown> = {
         const blob = await (await (await directory(dirs, false)).getFileHandle(name)).getFile();
         return new Uint8Array(await blob.arrayBuffer());
     },
-    // Temporary file, flush, close, then the two-argument move, the one form that is atomic in every engine.
-    async writeAtomic(path: string, bytes: Uint8Array) {
-        const {dirs, name} = split(path);
-        const dir = await directory(dirs, true);
-        const tempName = `${name}.${crypto.randomUUID()}.tmp`;
-        const temp = await dir.getFileHandle(tempName, {create: true});
-        try {
-            const handle = await temp.createSyncAccessHandle();
-            try {
-                handle.truncate(0);
-                writeAll(handle, bytes, 0);
-                handle.flush();
-            } finally {
-                handle.close();
-            }
-            await (temp as FileSystemFileHandle & {move(dir: FileSystemDirectoryHandle, name: string): Promise<void>}).move(dir, name);
-        } catch (error) {
-            await dir.removeEntry(tempName).catch(() => undefined);
-            throw error;
-        }
-    },
+    writeAtomic,
     async open(path: string) {
         if (openPaths.has(path)) throw new Error(`Store file is already open: ${path}`);
         const handle = await openHandle(path);
@@ -198,24 +218,54 @@ const operations: Record<string, (...args: never[]) => unknown> = {
     },
     copyIn: (source: Blob | string, path: string) => writeNew(path, typeof source === 'string' ? storeChunks(source) : blobChunks(source)),
     copy: (from: string, to: string) => writeNew(to, storeChunks(from)),
-    async remove(path: string) {
-        const {dirs, name} = split(path);
-        try {
-            await (await directory(dirs, false)).removeEntry(name, {recursive: true});
-        } catch (error) {
-            if (!isMissing(error)) throw error;
-        }
-    },
-};
+    remove,
+} satisfies TOpfsOperationsContract;
 
-self.addEventListener('message', (event: MessageEvent<IRequest>) => {
+export type TOpfsOperations = typeof operations;
+
+export type TOpfsRequest<K extends keyof TOpfsOperations = keyof TOpfsOperations> = {
+    [P in K]: {
+        id: number;
+        op: P;
+        args: Parameters<TOpfsOperations[P]>;
+    };
+}[K];
+
+function unknownOperation(request: never): never {
+    const op = typeof request === 'object' && request !== null ? Reflect.get(request, 'op') : undefined;
+    throw new Error(`Unknown store operation: ${String(op)}`);
+}
+
+function invokeOperation(request: TOpfsRequest): unknown {
+    switch (request.op) {
+        case 'probe': return operations.probe(...request.args);
+        case 'list': return operations.list(...request.args);
+        case 'read': return operations.read(...request.args);
+        case 'writeAtomic': return operations.writeAtomic(...request.args);
+        case 'open': return operations.open(...request.args);
+        case 'size': return operations.size(...request.args);
+        case 'readAt': return operations.readAt(...request.args);
+        case 'witness': return operations.witness(...request.args);
+        case 'witnessBlob': return operations.witnessBlob(...request.args);
+        case 'writeAt': return operations.writeAt(...request.args);
+        case 'truncate': return operations.truncate(...request.args);
+        case 'appendPdfMutations': return operations.appendPdfMutations(...request.args);
+        case 'flush': return operations.flush(...request.args);
+        case 'close': return operations.close(...request.args);
+        case 'copyIn': return operations.copyIn(...request.args);
+        case 'copy': return operations.copy(...request.args);
+        case 'remove': return operations.remove(...request.args);
+        default: return unknownOperation(request);
+    }
+}
+
+self.addEventListener('message', (event: MessageEvent<TOpfsRequest>) => {
     if (handlePrecompiledWasmModuleMessage(event.data)) return;
-    const {id, op, args} = event.data;
+    const request = event.data;
+    const {id} = request;
     void (async () => {
         try {
-            const operation = operations[op];
-            if (!operation) throw new Error(`Unknown store operation: ${op}`);
-            const result = await operation(...(args as never[]));
+            const result = await invokeOperation(request);
             const transfer = result instanceof Uint8Array ? [result.buffer] : [];
             self.postMessage({id, result}, {transfer});
         } catch (error) {
