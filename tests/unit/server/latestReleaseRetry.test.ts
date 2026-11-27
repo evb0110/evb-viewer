@@ -102,6 +102,20 @@ describe('latest landing release retry', () => {
         await fetchReleaseDataWithRetry(options);
 
         expect(options.sleep).toHaveBeenCalledWith(338);
+
+        const upperFetch = vi.fn()
+            .mockRejectedValueOnce(createResponseError(503))
+            .mockResolvedValue({
+                tag: 'v2',
+                assets: ['installer'],
+            });
+        const upperOptions = {
+            ...createOptions(upperFetch),
+            random: () => 1,
+        };
+        await fetchReleaseDataWithRetry(upperOptions);
+
+        expect(upperOptions.sleep).toHaveBeenCalledWith(563);
     });
 
     it('aborts a hung upstream attempt at the total deadline', async () => {

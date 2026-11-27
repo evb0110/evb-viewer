@@ -20,6 +20,8 @@ import type {
 import { textNotePosition } from '@app/modules/pdf-viewer/engine/annotation-geometry/textNoteIconRect';
 import { hasPointerMovedPastThreshold } from '@app/modules/pdf-viewer/engine/pdf-shape-overlay-interactions/hasPointerMovedPastThreshold';
 
+const ANNOTATION_POINTER_DRAG_THRESHOLD_PX = 6;
+
 interface IAnnotationPointerEvent {
     clientX: number;
     clientY: number;
@@ -257,7 +259,7 @@ export const useAnnotationPointerGesture = (
         active.value = {
             ...active.value!,
             current: point,
-            hasMoved: active.value!.hasMoved || hasPointerMovedPastThreshold(active.value!.startClient, event, 6),
+            hasMoved: active.value!.hasMoved || hasPointerMovedPastThreshold(active.value!.startClient, event, ANNOTATION_POINTER_DRAG_THRESHOLD_PX),
         };
         return true;
     }
@@ -280,7 +282,7 @@ export const useAnnotationPointerGesture = (
         const start = textSelection.value.start;
         const dx = Math.abs(event.clientX - start.clientX);
         const dy = Math.abs(event.clientY - start.clientY);
-        textSelection.value.hasMoved ||= hasPointerMovedPastThreshold(start, event, 6)
+        textSelection.value.hasMoved ||= hasPointerMovedPastThreshold(start, event, ANNOTATION_POINTER_DRAG_THRESHOLD_PX)
             && (start.pointerType !== 'touch' || (isVerticalText.value ? dy > dx : dx > dy));
         return {
             start: textSelection.value.start,

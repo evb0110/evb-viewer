@@ -15,6 +15,7 @@ import {
     defineComponent,
     h,
 } from 'vue';
+import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
 import PdfInitialSurfacePlaceholder from '@app/modules/pdf-viewer/components/PdfInitialSurfacePlaceholder.vue';
 import { WORKSPACE_VIEWER_ADAPTERS } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 
@@ -81,10 +82,40 @@ describe('viewer initial-surface behavior', () => {
         expect(shell?.classList.contains('pdf-initial-surface-placeholder__page-shell--measured')).toBe(true);
         expect(shell?.style.width).toBe('612px');
         expect(shell?.style.height).toBe('792px');
-        expect(shell?.querySelector('.document-page-skeleton')).not.toBeNull();
-        expect(shell?.querySelector<HTMLElement>('.document-page-skeleton')?.style.padding).toBe('56px');
+        const skeleton = shell?.querySelector<HTMLElement>('.document-page-skeleton');
+        expect(skeleton).not.toBeNull();
+        expect(skeleton?.style.padding).toBe('');
         expect(shell?.querySelectorAll('.document-page-skeleton .line').length).toBeGreaterThan(0);
 
         harness.unmount();
+    });
+
+    it('omits inline padding by default and applies explicit padding and paragraph budgets', () => {
+        const defaultHarness = mount(defineComponent({
+            setup: () => () => h(DocumentPageSkeleton, {contentHeight: 760}),
+        }));
+        const defaultSkeleton = defaultHarness.host.querySelector<HTMLElement>('.document-page-skeleton');
+        expect(defaultSkeleton?.getAttribute('style')).toBeNull();
+        // Fixed 2 paragraphs + repeatParagraphs for 760px with 0 explicit paddingY:
+        // floor((760 - 17.4 * 16) / (5.05 * 16)) = floor(481.6 / 80.8) = 5 -> 7 total paragraphs.
+        expect(defaultHarness.host.querySelectorAll('.document-page-skeleton .paragraph')).toHaveLength(7);
+        defaultHarness.unmount();
+
+        const paddedHarness = mount(defineComponent({
+            setup: () => () => h(DocumentPageSkeleton, {
+                contentHeight: 760,
+                padding: {
+                    top: 56,
+                    right: 40,
+                    bottom: 56,
+                    left: 40,
+                },
+            }),
+        }));
+        const paddedSkeleton = paddedHarness.host.querySelector<HTMLElement>('.document-page-skeleton');
+        expect(paddedSkeleton?.style.padding).toBe('56px 40px');
+        // floor((760 - 112 - 278.4) / 80.8) = floor(369.6 / 80.8) = 4 -> 6 total paragraphs.
+        expect(paddedHarness.host.querySelectorAll('.document-page-skeleton .paragraph')).toHaveLength(6);
+        paddedHarness.unmount();
     });
 });

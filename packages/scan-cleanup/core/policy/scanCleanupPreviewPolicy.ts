@@ -103,6 +103,8 @@ export function resolveScanCleanupPreviewPageFacts(
 
 /** A detail tile's pixel budget, apron included. */
 export const DETAIL_TILE_MAX_PIXELS = 4_000_000;
+const DETAIL_TILE_PIXEL_BUDGET_UTILIZATION = 0.98;
+const DETAIL_TILE_TARGET_PIXELS = DETAIL_TILE_MAX_PIXELS * DETAIL_TILE_PIXEL_BUDGET_UTILIZATION;
 /** The source resolution assumed for a page whose scan resolution is unknown. */
 export const DEFAULT_SOURCE_DPI = 300;
 
@@ -141,7 +143,7 @@ export function resolveFallbackDetailDpi(
     const canvasWidth = request.options.matchPageSize && documentCanvas ? documentCanvas.widthPx : 0;
     const canvasHeight = request.options.matchPageSize && documentCanvas ? documentCanvas.heightPx : 0;
     const budgetDpi = raw.dpi * Math.sqrt(
-        DETAIL_TILE_MAX_PIXELS * 0.98
+        DETAIL_TILE_TARGET_PIXELS
         / (Math.max(1, widthAtPreviewDpi, canvasWidth)
             * Math.max(1, heightAtPreviewDpi, canvasHeight)),
     );
@@ -272,7 +274,7 @@ function resolveDetailRenderDpi(
                 * viewport.heightNormalized,
         );
         const budgetDpi = baseDpi * Math.sqrt(
-            DETAIL_TILE_MAX_PIXELS * 0.98 / visiblePixelsAtPreviewDpi,
+            DETAIL_TILE_TARGET_PIXELS / visiblePixelsAtPreviewDpi,
         );
         renderDpi = Math.min(renderDpi, budgetDpi);
     }

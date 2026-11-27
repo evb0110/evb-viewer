@@ -57,7 +57,7 @@ interface IPadding {
 }
 
 interface IProps {
-    padding?: IPadding | null;
+    padding?: IPadding;
     contentHeight: number | null;
     /**
      * Stay transparent for a moment after mounting, so a page that paints
@@ -69,25 +69,49 @@ interface IProps {
     deferred?: boolean;
 }
 
-const defaultPadding: IPadding = {
-    top: 56,
-    right: 56,
-    bottom: 56,
-    left: 56,
-};
-const emptyPadding: IPadding = {
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-};
+// Mirrors `--app-document-page-skeleton-*` in `app/assets/css/main.css` (and `.header` `gap-2`).
+const ROOT_FONT_SIZE_PX = 16;
+const SKELETON_LAYOUT_REM = {
+    innerGap: 0.9,
+    headerGap: 0.5,
+    headerMarginBottom: 0.5,
+    titleHeight: 1.2,
+    subtitleHeight: 0.95,
+    paragraphGap: 0.65,
+    lineTallHeight: 1.05,
+    lineHeight: 0.95,
+    lineShortHeight: 0.85,
+    formulaMarginTop: 0.55,
+    formulaHeight: 1.3,
+    formulaInlineMarginTop: 0.45,
+} as const;
 
-function resolvePadding(padding: IPadding | null | undefined) {
-    return padding === undefined ? defaultPadding : padding ?? emptyPadding;
-}
+const HEADER_HEIGHT_REM = SKELETON_LAYOUT_REM.titleHeight
+    + SKELETON_LAYOUT_REM.headerGap
+    + SKELETON_LAYOUT_REM.subtitleHeight;
+const PARAGRAPH_HEIGHT_REM = SKELETON_LAYOUT_REM.lineTallHeight
+    + SKELETON_LAYOUT_REM.paragraphGap
+    + SKELETON_LAYOUT_REM.lineHeight
+    + SKELETON_LAYOUT_REM.paragraphGap
+    + SKELETON_LAYOUT_REM.lineShortHeight;
+const FORMULA_BLOCK_HEIGHT_REM = SKELETON_LAYOUT_REM.formulaHeight
+    + SKELETON_LAYOUT_REM.formulaInlineMarginTop
+    + SKELETON_LAYOUT_REM.lineHeight;
+const FIXED_RESERVED_HEIGHT_PX = (
+    HEADER_HEIGHT_REM
+    + SKELETON_LAYOUT_REM.headerMarginBottom
+    + SKELETON_LAYOUT_REM.innerGap
+    + PARAGRAPH_HEIGHT_REM
+    + SKELETON_LAYOUT_REM.innerGap
+    + PARAGRAPH_HEIGHT_REM
+    + SKELETON_LAYOUT_REM.innerGap
+    + SKELETON_LAYOUT_REM.formulaMarginTop
+    + FORMULA_BLOCK_HEIGHT_REM
+) * ROOT_FONT_SIZE_PX;
+const PARAGRAPH_STRIDE_PX = (SKELETON_LAYOUT_REM.innerGap + PARAGRAPH_HEIGHT_REM) * ROOT_FONT_SIZE_PX;
 
 const {
-    padding = undefined,
+    padding,
     contentHeight,
     deferred = false,
 } = defineProps<IProps>();
@@ -99,42 +123,27 @@ watch(() => deferred, (value) => {
     }
 });
 
-const resolvedPadding = computed<IPadding>(() => resolvePadding(padding));
-
-const paddingStyle = computed(() => ({padding: `${resolvedPadding.value.top}px ${resolvedPadding.value.right}px ${resolvedPadding.value.bottom}px ${resolvedPadding.value.left}px`}));
+const paddingStyle = computed(() => (
+    padding
+        ? {padding: `${padding.top}px ${padding.right}px ${padding.bottom}px ${padding.left}px`}
+        : undefined
+));
 
 const repeatParagraphs = computed(() => {
     const height = contentHeight ?? 0;
-    const REM = 16;
-    const gapInner = 0.9;
-    const headerHeight = 1.2 + 0.5 + 0.95;
-    const headerMarginBottom = 0.5;
-    const paragraphHeight = 1.05 + 0.65 + 0.95 + 0.65 + 0.85;
-    const formulaBlockMarginTop = 0.55;
-    const formulaBlockHeight = 1.3 + 0.45 + 0.95;
-    const fixedReservedRem = headerHeight
-        + headerMarginBottom
-        + gapInner
-        + paragraphHeight
-        + gapInner
-        + paragraphHeight
-        + gapInner
-        + formulaBlockMarginTop
-        + formulaBlockHeight;
-    const strideRem = gapInner + paragraphHeight;
     const paddingY = (padding?.top ?? 0) + (padding?.bottom ?? 0);
     const availableHeight = Math.max(
-        height - paddingY - fixedReservedRem * REM,
+        height - paddingY - FIXED_RESERVED_HEIGHT_PX,
         0,
     );
-    const count = Math.floor(availableHeight / (strideRem * REM));
-
-    return Math.max(0, count);
+    return Math.max(0, Math.floor(availableHeight / PARAGRAPH_STRIDE_PX));
 });
 </script>
 
 <style scoped>
 .document-page-skeleton {
+    --document-page-skeleton-default-padding: 56px;
+
     position: absolute;
     inset: 0;
     z-index: var(--app-z-document-page-skeleton);
@@ -142,6 +151,7 @@ const repeatParagraphs = computed(() => {
     box-sizing: border-box;
     align-items: flex-start;
     justify-content: center;
+    padding: var(--document-page-skeleton-default-padding);
     overflow: hidden;
     pointer-events: none;
     background: inherit;

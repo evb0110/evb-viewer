@@ -472,13 +472,14 @@ function preserveCriticalWriteWorkingCopies(
         }
     }
 }
+const SHUTDOWN_STEP_WATCHDOG_SLACK_MS = 500;
 const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
     createPreservationSteps: context => {
         workingCopyCleanupSkipPaths.clear();
         return [
             {
                 label: 'renderer-save-flush',
-                timeoutMs: RENDERER_SAVE_FLUSH_TIMEOUT_MS + 500,
+                timeoutMs: RENDERER_SAVE_FLUSH_TIMEOUT_MS + SHUTDOWN_STEP_WATCHDOG_SLACK_MS,
                 run: async () => {
                     const result = await requestShutdownSaveFlush({
                         getWindows: getAllRegisteredAppWindows,
@@ -557,7 +558,7 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
                 label: 'main-critical-writes',
                 // The drain owns a 30s deadline; this guard covers only a bug in
                 // the drain itself while leaving time for its pending-path result.
-                timeoutMs: MAIN_OPERATION_CRITICAL_DRAIN_TIMEOUT_MS + 500,
+                timeoutMs: MAIN_OPERATION_CRITICAL_DRAIN_TIMEOUT_MS + SHUTDOWN_STEP_WATCHDOG_SLACK_MS,
                 run: async () => {
                     const result = await drainCriticalMainOperations({timeoutMs: MAIN_OPERATION_CRITICAL_DRAIN_TIMEOUT_MS});
                     if (!result.completed) {

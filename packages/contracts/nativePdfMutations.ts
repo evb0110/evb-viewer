@@ -49,6 +49,7 @@ import {
     isPdfNativeNormalizedRectInsidePageBounds,
 } from '@contracts/nativePdfPageBounds';
 import { requirePageIndex } from '@contracts/pageNumbers';
+import { MAX_PDF_OBJECT_GENERATION } from '@contracts/pdfAnnotationRefs';
 import {
     PAGE_LABEL_MAX_NATIVE_START_NUMBER,
     PDF_PAGE_LABEL_STYLE_VALUES,
@@ -244,9 +245,9 @@ function normalizePdfObjectGeneration(value: unknown, label: string, options: IP
         typeof value !== 'number'
         || !Number.isSafeInteger(value)
         || value < 0
-        || value > 65_535
+        || value > MAX_PDF_OBJECT_GENERATION
     ) {
-        fail(`${label} must be an integer from 0 to 65535`, options);
+        fail(`${label} must be an integer from 0 to ${MAX_PDF_OBJECT_GENERATION}`, options);
     }
     return value;
 }
@@ -421,7 +422,7 @@ function normalizeAnnotationDeletes(
             && typeof item.generationNumber === 'number'
             && Number.isSafeInteger(item.generationNumber)
             && item.generationNumber >= 0
-            && item.generationNumber <= 65_535;
+            && item.generationNumber <= MAX_PDF_OBJECT_GENERATION;
         const createdAt = item.createdAt ?? null;
         if (
             typeof item.pageIndex !== 'number'
@@ -484,19 +485,15 @@ function normalizePdfNativeNoteGeometryUpdates(
             fail(`${label}[${index}] must be an object`, options);
         }
         const objectNumber = update.objectNumber;
-        const generationNumber = update.generationNumber;
         const pageIndex = update.pageIndex;
         if (typeof objectNumber !== 'number' || !Number.isSafeInteger(objectNumber) || objectNumber < 1) {
             fail(`${label}[${index}].objectNumber must be a positive safe integer`, options);
         }
-        if (
-            typeof generationNumber !== 'number'
-            || !Number.isSafeInteger(generationNumber)
-            || generationNumber < 0
-            || generationNumber > 65_535
-        ) {
-            fail(`${label}[${index}].generationNumber must be an integer from 0 to 65535`, options);
-        }
+        const generationNumber = normalizePdfObjectGeneration(
+            update.generationNumber,
+            `${label}[${index}].generationNumber`,
+            options,
+        );
         if (typeof pageIndex !== 'number' || !Number.isSafeInteger(pageIndex) || pageIndex < 0) {
             fail(`${label}[${index}].pageIndex must be a non-negative safe integer`, options);
         }
@@ -1176,19 +1173,15 @@ export function normalizePdfNativeNoteTextUpdates(
             fail(`${label}[${index}] must be an object`, options);
         }
         const objectNumber = update.objectNumber;
-        const generationNumber = update.generationNumber;
         const text = update.text;
         if (typeof objectNumber !== 'number' || !Number.isSafeInteger(objectNumber) || objectNumber < 1) {
             fail(`${label}[${index}].objectNumber must be a positive safe integer`, options);
         }
-        if (
-            typeof generationNumber !== 'number'
-            || !Number.isSafeInteger(generationNumber)
-            || generationNumber < 0
-            || generationNumber > 65_535
-        ) {
-            fail(`${label}[${index}].generationNumber must be an integer from 0 to 65535`, options);
-        }
+        const generationNumber = normalizePdfObjectGeneration(
+            update.generationNumber,
+            `${label}[${index}].generationNumber`,
+            options,
+        );
         if (typeof text !== 'string') {
             fail(`${label}[${index}].text must be a string`, options);
         }

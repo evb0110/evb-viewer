@@ -26,6 +26,7 @@ interface IReleaseCatalogLoadOptions<TCatalog> {
 
 const DEFAULT_RETRIES = 2;
 const DEFAULT_RETRY_DELAY_MS = 450;
+const RELEASE_RETRY_JITTER_FRACTION = 0.25;
 const DEFAULT_TOTAL_TIMEOUT_MS = 9_000;
 const MAX_RETRY_AFTER_MS = 8_000;
 const DEFAULT_CATALOG_FRESH_MS = 5 * 60_000;
@@ -108,7 +109,9 @@ function createDeadlineError() {
 
 function jitterDelay(delayMs: number, random: () => number) {
     const normalizedRandom = Math.min(1, Math.max(0, random()));
-    return Math.round(delayMs * (0.75 + normalizedRandom * 0.5));
+    const lowerBound = 1 - RELEASE_RETRY_JITTER_FRACTION;
+    const span = 2 * RELEASE_RETRY_JITTER_FRACTION;
+    return Math.round(delayMs * (lowerBound + normalizedRandom * span));
 }
 
 export async function fetchReleaseDataWithRetry<TResult>(

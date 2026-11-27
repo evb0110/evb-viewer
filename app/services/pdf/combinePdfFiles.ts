@@ -11,7 +11,7 @@ import {
 import { getErrorMessage } from '@app/utils/error';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
-    decodeFailureReceipt,
+    getFailureReceipt,
     type FailureReceipt,
 } from '@contracts/diagnostics/failureReceipt';
 import {
@@ -41,13 +41,6 @@ export class CombinePdfError extends Error {
         this.name = 'CombinePdfError';
         this.failure = options?.failure;
     }
-}
-
-function getOwnedFailure(error: unknown) {
-    if (typeof error !== 'object' || error === null || !('failure' in error)) {
-        return undefined;
-    }
-    return decodeFailureReceipt(error.failure) ?? undefined;
 }
 
 function getCombineAbortReason(signal: AbortSignal): Error {
@@ -272,7 +265,7 @@ export async function combinePdfFiles(options: ICombinePdfFilesOptions): Promise
         if (code === 'canceled' || code === 'invalid-input' || code === 'limit' || code === 'unsupported') {
             throw new CombinePdfError(code, {cause: error});
         }
-        const failure = getOwnedFailure(error) ?? BrowserLogger.error(
+        const failure = getFailureReceipt(error) ?? BrowserLogger.error(
             'pdf-combine',
             'PDF combine operation failed',
             {

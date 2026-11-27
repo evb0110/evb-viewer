@@ -3,6 +3,7 @@ import {parsePdfAnnotationRef} from '@app/utils/pdfAnnotationRefs';
 import { parsePdfAnnotationStableKeyRef } from '@app/modules/pdf-viewer/annotations/pdf-refs/parsePdfAnnotationStableKey';
 import type { IPdfNoteGeometryUpdate } from '@contracts/electronApiDocuments';
 import {requirePageIndex} from '@contracts/pageNumbers';
+import {MAX_PDF_OBJECT_GENERATION} from '@contracts/pdfAnnotationRefs';
 import type { INativePdfMutationBuildResult } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
 
 function resolveNativeNoteGeometryUpdateRef(
@@ -42,7 +43,7 @@ export function nativeNoteGeometryProjection(
         const markerRect = comment.markerRect;
         if (
             !targetRef
-            || targetRef.generationNumber > 65_535
+            || targetRef.generationNumber > MAX_PDF_OBJECT_GENERATION
             || !markerRect
             || !Number.isFinite(markerRect.left)
             || !Number.isFinite(markerRect.top)

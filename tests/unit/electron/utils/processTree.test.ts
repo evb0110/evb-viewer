@@ -232,6 +232,53 @@ describePosix('terminateProcessTree (posix)', () => {
 
         expect(isProcessTreeAlive(makeTestPid(4344), 'linux')).toBe(true);
     });
+
+    it('clamps forced-kill wait observation between 250ms and 2000ms', async () => {
+        const pid = makeTestPid(4345);
+        for (const [
+            graceMs,
+            expectedMinForceWaitMs,
+            expectedMaxForceWaitMs,
+        ] of [
+            [
+                0,
+                250,
+                350,
+            ],
+            [
+                10_000,
+                2_000,
+                2_100,
+            ],
+        ] as const) {
+            let now = 0;
+            let forceKillSentAt = -1;
+            vi.spyOn(processTreeRuntime, 'now').mockImplementation(() => now);
+            vi.spyOn(processTreeRuntime, 'delay').mockImplementation(async (ms: number) => {
+                now += ms;
+            });
+            vi.spyOn(processTreeRuntime, 'kill').mockImplementation(((targetPid, signal?: NodeJS.Signals | 0) => {
+                if (signal === 'SIGKILL') {
+                    forceKillSentAt = now;
+                }
+                if (signal === 0) {
+                    return targetPid === pid;
+                }
+                return true;
+            }) as typeof processTreeRuntime.kill);
+
+            await expect(terminateProcessTree(pid, {
+                graceMs,
+                platform: 'linux',
+                preferProcessGroup: false,
+            })).resolves.toBe(false);
+
+            const waitedAfterForceKill = now - forceKillSentAt;
+            expect(waitedAfterForceKill).toBeGreaterThanOrEqual(expectedMinForceWaitMs);
+            expect(waitedAfterForceKill).toBeLessThanOrEqual(expectedMaxForceWaitMs);
+            vi.restoreAllMocks();
+        }
+    });
 });
 
 describe('terminateProcessTree (win32 taskkill)', () => {

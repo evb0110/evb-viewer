@@ -34,7 +34,7 @@ import {
     type TDocumentRef,
 } from '@contracts/documentRef';
 import {
-    decodeFailureReceipt,
+    getFailureReceipt,
     isExpectedOutcome,
     type ExpectedOutcome,
     type ExpectedOutcomeCode,
@@ -473,10 +473,7 @@ function getDjvuFailureReceipt(value: unknown) {
             return workerFailure;
         }
     }
-    if (typeof value !== 'object' || value === null || !('failure' in value)) {
-        return undefined;
-    }
-    return decodeFailureReceipt(value.failure) ?? undefined;
+    return getFailureReceipt(value);
 }
 
 function getDjvuExpectedOutcome(value: unknown) {

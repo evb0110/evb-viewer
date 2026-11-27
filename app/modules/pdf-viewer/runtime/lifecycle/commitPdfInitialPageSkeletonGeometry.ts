@@ -3,18 +3,20 @@ import type { TPageNumber } from '@contracts/pageNumbers';
 import type { Ref } from 'vue';
 import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/public';
 
+interface IPdfPageSkeletonGeometryOptions {
+    authoritativePageNumber?: number;
+    expectedGeneration?: number;
+    minimumScrollHeight: number | null;
+    requireVisibleSkeleton?: boolean;
+}
+
 export function diagnosePdfPageSkeletonGeometry(
     chassisAuthority: IDocumentViewerRuntime,
     viewerContainer: Readonly<Ref<HTMLElement | null>>,
     currentPage: Readonly<Ref<number>>,
     scaledMargin: Readonly<Ref<number>>,
     pageNumber: TPageNumber,
-    options: {
-        authoritativePageNumber?: number;
-        expectedGeneration?: number;
-        minimumScrollHeight?: number | null;
-        requireVisibleSkeleton?: boolean;
-    } = {},
+    options: IPdfPageSkeletonGeometryOptions,
 ) {
     const authoritativePageNumber = options.authoritativePageNumber ?? currentPage.value;
     if (pageNumber !== authoritativePageNumber) {
@@ -29,7 +31,6 @@ export function diagnosePdfPageSkeletonGeometry(
     if (
         snapshot.geometry !== null
         || options.expectedGeneration !== undefined && snapshot.generation !== options.expectedGeneration
-        || pageNumber !== authoritativePageNumber
     ) {
         return {
             canCommit: false,
@@ -115,12 +116,7 @@ export function commitPdfPageSkeletonGeometry(
     currentPage: Readonly<Ref<number>>,
     scaledMargin: Readonly<Ref<number>>,
     pageNumber: TPageNumber,
-    options: {
-        authoritativePageNumber?: number;
-        expectedGeneration?: number;
-        minimumScrollHeight?: number | null;
-        requireVisibleSkeleton?: boolean;
-    } = {},
+    options: IPdfPageSkeletonGeometryOptions,
 ) {
     const diagnostic = diagnosePdfPageSkeletonGeometry(
         chassisAuthority,

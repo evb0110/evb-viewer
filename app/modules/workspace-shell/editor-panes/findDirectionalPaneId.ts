@@ -6,6 +6,8 @@ import type {
 import { orderBy } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 
+const DIRECTIONAL_PANE_MIN_SPLIT_RATIO = 0.1;
+
 interface IFindDirectionalPaneIdParams {
     layout: TEditorLayoutNode | null;
     sourcePaneId: string;
@@ -33,7 +35,11 @@ function collectPaneRects(
         return;
     }
 
-    const ratio = clamp(node.ratio, 0.1, 0.9);
+    const ratio = clamp(
+        node.ratio,
+        DIRECTIONAL_PANE_MIN_SPLIT_RATIO,
+        1 - DIRECTIONAL_PANE_MIN_SPLIT_RATIO,
+    );
     if (node.orientation === 'horizontal') {
         const firstWidth = width * ratio;
         const secondWidth = width - firstWidth;

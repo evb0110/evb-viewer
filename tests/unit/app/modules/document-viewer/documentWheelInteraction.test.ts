@@ -701,4 +701,58 @@ describe('document wheel interaction policy', () => {
         expect(beforeZoom).not.toHaveBeenCalled();
         expect(emitZoom).not.toHaveBeenCalled();
     });
+
+    it('preserves the clamp rebase epsilon and commit deadzone boundaries', () => {
+        // Below 0.001 overshoot does not rebase cumulativeDelta; >= 0.001 rebases it.
+        const maxZoom = 2;
+        const smallOvershootDelta = -Math.log((maxZoom + 0.0005) / maxZoom) / 0.0016;
+        const smallTarget = resolveDocumentWheelZoomTarget(maxZoom, 0, smallOvershootDelta, {
+            minimumZoom: 0.5,
+            maximumZoom: maxZoom,
+        });
+        expect(smallTarget.valid).toBe(true);
+        if (smallTarget.valid) {
+            expect(smallTarget.clamped).toBe(true);
+            expect(smallTarget.cumulativeDelta).toBeCloseTo(smallOvershootDelta, 8);
+        }
+
+        const largeOvershootDelta = -Math.log((maxZoom + 0.002) / maxZoom) / 0.0016;
+        const largeTarget = resolveDocumentWheelZoomTarget(maxZoom, 0, largeOvershootDelta, {
+            minimumZoom: 0.5,
+            maximumZoom: maxZoom,
+        });
+        expect(largeTarget.valid).toBe(true);
+        if (largeTarget.valid) {
+            expect(largeTarget.clamped).toBe(true);
+            expect(largeTarget.cumulativeDelta).toBeCloseTo(0, 8);
+        }
+
+        // Below 0.001 effective zoom delta does not emit; >= 0.001 emits.
+        const emitZoom = vi.fn();
+        const belowDeadzoneDelta = -Math.log(1.0005) / 0.0016;
+        consumeDocumentWheelZoomInteraction(
+            resolveDocumentWheelInteraction(createWheelEvent({
+                metaKey: true,
+                deltaY: belowDeadzoneDelta,
+            }), viewport, true),
+            {
+                effectiveZoom: 1,
+                emitZoom,
+            },
+        );
+        expect(emitZoom).not.toHaveBeenCalled();
+
+        const atDeadzoneDelta = -Math.log(1.0011) / 0.0016;
+        consumeDocumentWheelZoomInteraction(
+            resolveDocumentWheelInteraction(createWheelEvent({
+                metaKey: true,
+                deltaY: atDeadzoneDelta,
+            }), viewport, true),
+            {
+                effectiveZoom: 1,
+                emitZoom,
+            },
+        );
+        expect(emitZoom).toHaveBeenCalledOnce();
+    });
 });
