@@ -540,7 +540,7 @@ export function scanCleanupRasterRetention(
                                 document.sourcePdfPath,
                                 batchLifecycle.probeSignal,
                                 pageNumbers,
-                                batchLifecycle.probeBrokerRun,
+                                ...(batchLifecycle.probeBrokerRun === undefined ? [] : [batchLifecycle.probeBrokerRun]),
                             ).catch((error: unknown) => {
                                 if (batchLifecycle.abandonedByOwner()) {
                                     throw wrapOwnerAbandonedError(error);
@@ -737,7 +737,7 @@ export function scanCleanupRasterRetention(
                                     document.sourcePdfPath,
                                     pageNumber,
                                     probeLifecycle.probeSignal,
-                                    probeLifecycle.probeBrokerRun,
+                                    ...(probeLifecycle.probeBrokerRun === undefined ? [] : [probeLifecycle.probeBrokerRun]),
                                 );
                             } catch (error) {
                                 if (probeLifecycle.abandonedByOwner()) {
