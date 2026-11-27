@@ -278,7 +278,9 @@ impl<S: ByteSource> SourcePdf<S> {
                                 if len_usize <= MAX_ENCODED_PDF_BYTES {
                                     let mut data = vec![0; len_usize];
                                     bytes.read_at(0, &mut data).map_err(io_domain_error)?;
-                                    if let Ok(mut document) = load_pdf_bytes_bounded(&data, Some("")) {
+                                    if let Ok(mut document) =
+                                        load_pdf_bytes_bounded(&data, Some(""))
+                                    {
                                         if !document.is_encrypted() {
                                             document.trailer.set(b"Encrypt", encrypt_entry);
                                             return Ok(Self {
@@ -1348,7 +1350,12 @@ impl<'a, S: ByteSource + ?Sized> Reader<'a, S> {
         let Some(end) = start.checked_add(len).filter(|end| *end <= self.len) else {
             return Ok(false);
         };
-        let after = Self::read(self.bytes, self.len, end, if self.strict { 256 } else { 64 })?;
+        let after = Self::read(
+            self.bytes,
+            self.len,
+            end,
+            if self.strict { 256 } else { 64 },
+        )?;
         let skipped = after
             .iter()
             .take_while(|byte| is_pdf_whitespace(**byte))
@@ -2909,13 +2916,15 @@ mod tests {
         let o1 = bad_stream.len();
         bad_stream.extend_from_slice(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
         let o2 = bad_stream.len();
-        bad_stream.extend_from_slice(b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
+        bad_stream
+            .extend_from_slice(b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
         let o3 = bad_stream.len();
         bad_stream.extend_from_slice(
             b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R >>\nendobj\n",
         );
         let o4 = bad_stream.len();
-        bad_stream.extend_from_slice(b"4 0 obj\n<< /Length 50 >>\nstream\ntest\nendstream\nendobj\n");
+        bad_stream
+            .extend_from_slice(b"4 0 obj\n<< /Length 50 >>\nstream\ntest\nendstream\nendobj\n");
         let xref = bad_stream.len();
         bad_stream.extend_from_slice(
             format!(
@@ -2963,7 +2972,8 @@ mod tests {
         );
         let missing_endobj = make_stream_ending_pdf(b"endstream\n");
         assert!(
-            SourcePdf::open_strict_verify(&missing_endobj[..], missing_endobj.len() as u64).is_err(),
+            SourcePdf::open_strict_verify(&missing_endobj[..], missing_endobj.len() as u64)
+                .is_err(),
             "strict verify must reject stream missing endobj"
         );
     }

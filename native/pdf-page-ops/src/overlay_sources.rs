@@ -900,12 +900,8 @@ pub(crate) fn write_overlay_text_layers_path(
     instructions: &TextLayerFile,
 ) -> Result<()> {
     with_staged_incremental_output(input_path, output_path, |staged| {
-        let omitted = write_overlay_text_layer_copies(
-            input_path,
-            source_path,
-            staged,
-            instructions,
-        )?;
+        let omitted =
+            write_overlay_text_layer_copies(input_path, source_path, staged, instructions)?;
         let tags_removed = rebind_retained_destinations(staged, source_path, instructions)?;
         let omitted = omitted_source_pages(instructions, &omitted);
         if tags_removed || !omitted.is_empty() {
