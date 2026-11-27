@@ -43,6 +43,22 @@ const requiredInBrowser = {
 
 const legacyMethodPaths = [
     [
+        'documentFiles',
+        'beginDocxFileStream',
+    ],
+    [
+        'documentFiles',
+        'writeDocxFileStreamChunk',
+    ],
+    [
+        'documentFiles',
+        'commitDocxFileStream',
+    ],
+    [
+        'documentFiles',
+        'cancelDocxFileStream',
+    ],
+    [
         'settings',
         'getDebugLogs',
     ],

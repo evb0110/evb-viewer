@@ -148,10 +148,14 @@ export function defineForwardedPlatformEvent<
     } as const;
 }
 
+type TReadonlyArrayInput<TInput> = TInput extends readonly unknown[]
+    ? Readonly<TInput>
+    : never;
+
 type TPlatformIpcClientArgs<TArgs extends TPlatformFeatureSchema<unknown[]>> =
-    v.InferInput<TArgs> extends readonly unknown[]
-        ? Readonly<v.InferInput<TArgs>>
-        : unknown[];
+    unknown extends v.InferInput<TArgs>
+        ? readonly unknown[]
+        : TReadonlyArrayInput<v.InferInput<TArgs>>;
 
 export interface IPlatformIpcMethodSpec<
     TArgs extends TPlatformFeatureSchema<unknown[]> = TPlatformFeatureSchema<unknown[]>,
@@ -318,7 +322,7 @@ type TFeatureCodecMap<M extends TMethods, E extends TEvents> = {
         args: infer TArgs extends unknown[];
         result: infer TResult;
     } ? {
-            encodeArgs: (value: unknown[]) => TArgs;
+            encodeArgs: (value: readonly unknown[]) => TArgs;
             decodeArgs: (value: readonly unknown[]) => TArgs;
             decodeResult: (value: unknown) => TResult;
         }
@@ -386,7 +390,7 @@ type TFeatureInvokeChannels<M extends TMethods, E extends TEvents> =
 type TFeatureEventChannels<E extends TEvents> = {readonly [K in keyof E]: E[K]['channel']};
 
 interface IPlatformFeatureCodec {
-    encodeArgs: (value: unknown[]) => unknown[];
+    encodeArgs: (value: readonly unknown[]) => unknown[];
     decodeArgs: (value: readonly unknown[]) => unknown[];
     decodeResult: (value: unknown) => unknown;
 }
@@ -403,12 +407,27 @@ export interface IDefinedPlatformFeature<M extends TMethods, E extends TEvents>
 
 export type TAnyDefinedPlatformFeature = IDefinedPlatformFeature<TMethods, TEvents>;
 
-type TCheckedPlatformMethodSpec<TSpec> = TSpec extends {
+type TIsUnion<T, TCopy = T> = T extends unknown
+    ? [TCopy] extends [T]
+        ? false
+        : true
+    : never;
+
+type TInvalidPlatformMethodClient<TSpec> = TSpec extends {
     ipc: {args: infer TArgs extends TPlatformFeatureSchema<unknown[]>};
-    client: {mapArgs: (...args: never[]) => unknown};
 }
-    ? {client: {mapArgs: (...args: never[]) => TPlatformIpcClientArgs<TArgs>}}
-    : unknown;
+    ? 'client' extends keyof TSpec
+        ? NonNullable<TSpec['client']> extends {mapArgs: (...args: never[]) => TPlatformIpcClientArgs<TArgs>}
+            ? never
+            : {client?: {mapArgs: (...args: never[]) => TPlatformIpcClientArgs<TArgs>} | undefined}
+        : never
+    : never;
+
+type TCheckedPlatformMethodSpec<TSpec> = [TInvalidPlatformMethodClient<TSpec>] extends [never]
+    ? TSpec
+    : [TIsUnion<TSpec>] extends [false]
+        ? TInvalidPlatformMethodClient<TSpec>
+        : never;
 
 type TCheckedPlatformMethodMap<M extends TMethods> = {
     [K in keyof M]: TCheckedPlatformMethodSpec<M[K]>;

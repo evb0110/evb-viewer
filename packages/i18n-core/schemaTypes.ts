@@ -76,9 +76,11 @@ type TMessageParamNames<TLeaf> = TLeaf extends IPluralMessage<infer TText>
             : TPlaceholderNames<TLeaf>
         : never;
 
-type TParamsFromMessage<TLeaf> = [TMessageParamNames<TLeaf>] extends [never]
-    ? undefined
-    : Simplify<{ [TKey in TMessageParamNames<TLeaf>]: TPlaceholderValue<TKey> }>;
+type TParamsFromMessage<TLeaf> = TLeaf extends unknown
+    ? [TMessageParamNames<TLeaf>] extends [never]
+        ? undefined
+        : Simplify<{ [TKey in TMessageParamNames<TLeaf>]: TPlaceholderValue<TKey> }>
+    : never;
 
 export type TTranslationLeafFromSchema<
     TSchema extends object,

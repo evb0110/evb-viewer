@@ -33,3 +33,10 @@ t('toolbar.openPdf', { count: 1 });
 
 // @ts-expect-error count shorthand is only valid for messages that accept count
 t('toolbar.openPdf', 1);
+
+const mixedKey: 'toolbar.openPdf' | 'searchResults.resultCount' = Math.random() > 0.5
+    ? 'toolbar.openPdf'
+    : 'searchResults.resultCount';
+
+// @ts-expect-error count shorthand must be rejected when a union key includes a plain message
+t(mixedKey, 2);
