@@ -8,26 +8,30 @@ use crate::{flate::deflate_up_filtered_slices, netpbm::PbmP4Image, PdfBilevelDec
 
 /// The largest byte offset representable in a classic 10-digit PDF
 /// cross-reference table entry (`0000000000`..=`9999999999`, ~9.31 GiB).
-/// Automatic PDF 1.5+ cross-reference streams past this offset remain deferred
-/// until vendored `pdfjs-dist` fixes 32-bit shift truncation on >4 GiB xref
-/// stream offsets (GitHub issue #1734).
+/// Outputs past this offset automatically switch to a PDF 1.5+ `/Type /XRef`
+/// stream with 8-byte offsets (`/W [1 8 2]`).
 const MAX_CLASSIC_XREF_OFFSET: u64 = 9_999_999_999;
 
-fn classic_xref_limit_error(offset: Option<u64>) -> Box<dyn std::error::Error> {
+/// The largest byte offset representable losslessly in JavaScript numbers
+/// (`Number.MAX_SAFE_INTEGER`, `2^53 - 1`), matching the safe-offset bound
+/// enforced by vendored `pdfjs-dist` (`XRef.readXRefStream`).
+const MAX_SAFE_PDF_OFFSET: u64 = (1u64 << 53) - 1;
+
+fn pdf_offset_limit_error(offset: Option<u64>) -> Box<dyn std::error::Error> {
     let message = match offset {
         Some(offset) => format!(
-            "PDF output offset {offset} exceeds the classic PDF 10-digit xref limit ({MAX_CLASSIC_XREF_OFFSET} bytes)"
+            "PDF output offset {offset} exceeds the maximum safe PDF offset ({MAX_SAFE_PDF_OFFSET} bytes)"
         ),
         None => format!(
-            "PDF output offset exceeds the classic PDF 10-digit xref limit ({MAX_CLASSIC_XREF_OFFSET} bytes)"
+            "PDF output offset exceeds the maximum safe PDF offset ({MAX_SAFE_PDF_OFFSET} bytes)"
         ),
     };
     Box::new(NativeError::new(NativeErrorCode::TooLarge, message))
 }
 
-fn ensure_classic_xref_offset(offset: u64) -> Result<()> {
-    if offset > MAX_CLASSIC_XREF_OFFSET {
-        return Err(classic_xref_limit_error(Some(offset)));
+fn ensure_safe_pdf_offset(offset: u64) -> Result<()> {
+    if offset > MAX_SAFE_PDF_OFFSET {
+        return Err(pdf_offset_limit_error(Some(offset)));
     }
     Ok(())
 }
@@ -683,35 +687,101 @@ impl<W: IoWrite> PdfWriter<W> {
 
         let object_count = self.next_object - 1;
         let xref_offset = self.bytes_written;
-        ensure_classic_xref_offset(xref_offset)?;
-        let offsets = std::mem::take(&mut self.offsets);
-        for object_number in 1..=object_count {
-            let offset = offsets
-                .get(object_number)
-                .and_then(|offset| *offset)
-                .ok_or_else(|| format!("Missing PDF object offset: {object_number}"))?;
-            ensure_classic_xref_offset(offset)?;
-        }
-        writeln!(&mut self, "xref")?;
-        writeln!(&mut self, "0 {}", object_count + 1)?;
-        writeln!(&mut self, "0000000000 65535 f ")?;
-        for offset in offsets[1..=object_count].iter().flatten() {
-            writeln!(&mut self, "{offset:010} 00000 n ")?;
-        }
-        match info_object {
-            Some(info_object) => write!(
-                &mut self,
+        let classic_trailer = match info_object {
+            Some(info_object) => format!(
                 "trailer\n<< /Size {} /Root 1 0 R /Info {} 0 R >>\nstartxref\n{}\n%%EOF\n",
                 object_count + 1,
                 info_object,
                 xref_offset
-            )?,
-            None => write!(
-                &mut self,
+            ),
+            None => format!(
                 "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n",
                 object_count + 1,
                 xref_offset
-            )?,
+            ),
+        };
+        let classic_xref_header = format!("xref\n0 {}\n", object_count + 1);
+        let classic_entries_len = (object_count as u64 + 1).checked_mul(20);
+        let classic_end_offset = classic_entries_len
+            .and_then(|entries_len| entries_len.checked_add(classic_xref_header.len() as u64))
+            .and_then(|table_len| table_len.checked_add(classic_trailer.len() as u64))
+            .and_then(|tail_len| xref_offset.checked_add(tail_len));
+        let mut needs_xref_stream =
+            classic_end_offset.is_none_or(|end_offset| end_offset > MAX_CLASSIC_XREF_OFFSET);
+        for object_number in 1..=object_count {
+            let offset = self
+                .offsets
+                .get(object_number)
+                .and_then(|offset| *offset)
+                .ok_or_else(|| format!("Missing PDF object offset: {object_number}"))?;
+            ensure_safe_pdf_offset(offset)?;
+            if offset > MAX_CLASSIC_XREF_OFFSET {
+                needs_xref_stream = true;
+            }
+        }
+
+        if needs_xref_stream {
+            let root_object = self.next_object;
+            self.next_object += 1;
+            self.push_object(
+                root_object,
+                b"<< /Type /Catalog /Version /1.5 /Pages 2 0 R >>",
+            )?;
+
+            let xref_object = self.next_object;
+            let xref_offset = self.bytes_written;
+            ensure_safe_pdf_offset(xref_offset)?;
+            let offsets = std::mem::take(&mut self.offsets);
+            let total_entries = xref_object + 1;
+            let mut xref_stream = Vec::with_capacity(total_entries * 11);
+            // Object 0: free head entry (type 0, next free 0, gen 65535).
+            xref_stream.extend_from_slice(&[0; 9]);
+            xref_stream.extend_from_slice(&u16::MAX.to_be_bytes());
+            for object_number in 1..xref_object {
+                let offset = offsets
+                    .get(object_number)
+                    .and_then(|offset| *offset)
+                    .ok_or_else(|| format!("Missing PDF object offset: {object_number}"))?;
+                ensure_safe_pdf_offset(offset)?;
+                xref_stream.push(1);
+                xref_stream.extend_from_slice(&offset.to_be_bytes());
+                xref_stream.extend_from_slice(&0u16.to_be_bytes());
+            }
+            // Self-entry for the cross-reference stream object itself.
+            xref_stream.push(1);
+            xref_stream.extend_from_slice(&xref_offset.to_be_bytes());
+            xref_stream.extend_from_slice(&0u16.to_be_bytes());
+
+            let info_entry = info_object
+                .map(|object_number| format!(" /Info {object_number} 0 R"))
+                .unwrap_or_default();
+            let header = format!("{xref_object} 0 obj\n");
+            let dict = format!(
+                "<< /Type /XRef /Size {total_entries} /W [1 8 2] /Root {root_object} 0 R{info_entry} /Length {} >>",
+                xref_stream.len()
+            );
+            let stream_start = b"\nstream\n";
+            let stream_end = format!("\nendstream\nendobj\nstartxref\n{xref_offset}\n%%EOF\n");
+            self.ensure_body_write_fits(&[
+                header.len(),
+                dict.len(),
+                stream_start.len(),
+                xref_stream.len(),
+                stream_end.len(),
+            ])?;
+            self.write_all(header.as_bytes())?;
+            self.write_all(dict.as_bytes())?;
+            self.write_all(stream_start)?;
+            self.write_all(&xref_stream)?;
+            self.write_all(stream_end.as_bytes())?;
+        } else {
+            let offsets = std::mem::take(&mut self.offsets);
+            self.write_all(classic_xref_header.as_bytes())?;
+            writeln!(&mut self, "0000000000 65535 f ")?;
+            for offset in offsets[1..=object_count].iter().flatten() {
+                writeln!(&mut self, "{offset:010} 00000 n ")?;
+            }
+            self.write_all(classic_trailer.as_bytes())?;
         }
         self.flush()?;
 
@@ -956,13 +1026,13 @@ impl<W: IoWrite> PdfWriter<W> {
     }
 
     fn ensure_body_write_fits(&self, part_lengths: &[usize]) -> Result<()> {
-        ensure_classic_xref_offset(self.bytes_written)?;
+        ensure_safe_pdf_offset(self.bytes_written)?;
         let mut end_offset = self.bytes_written;
         for &len in part_lengths {
             end_offset = end_offset
                 .checked_add(len as u64)
-                .ok_or_else(|| classic_xref_limit_error(None))?;
-            ensure_classic_xref_offset(end_offset)?;
+                .ok_or_else(|| pdf_offset_limit_error(None))?;
+            ensure_safe_pdf_offset(end_offset)?;
         }
         Ok(())
     }
@@ -2435,26 +2505,39 @@ mod tests {
 
     #[test]
     fn classic_xref_offset_allows_exact_ten_digit_boundary() {
-        ensure_classic_xref_offset(0).unwrap();
-        ensure_classic_xref_offset(MAX_CLASSIC_XREF_OFFSET).unwrap();
+        ensure_safe_pdf_offset(0).unwrap();
+        ensure_safe_pdf_offset(MAX_CLASSIC_XREF_OFFSET).unwrap();
+        ensure_safe_pdf_offset(MAX_CLASSIC_XREF_OFFSET + 1).unwrap();
+        ensure_safe_pdf_offset(MAX_SAFE_PDF_OFFSET).unwrap();
 
-        let error = ensure_classic_xref_offset(MAX_CLASSIC_XREF_OFFSET + 1).unwrap_err();
+        let error = ensure_safe_pdf_offset(MAX_SAFE_PDF_OFFSET + 1).unwrap_err();
         let native = error.downcast_ref::<NativeError>().unwrap();
         assert_eq!(native.code, NativeErrorCode::TooLarge);
-        assert!(native.message.contains("10-digit xref"));
-        assert!(native.message.contains("9999999999"));
+        assert!(native.message.contains("maximum safe PDF offset"));
 
-        // Exact boundary: object 2 ("2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n")
-        // is 52 bytes, placing xref_offset at exactly MAX_CLASSIC_XREF_OFFSET (9_999_999_999).
+        // Exact ISO 32000-1 Annex C.2 boundary: object 2 is 52 bytes and the
+        // 3-entry classic xref table + trailer is 130 bytes (total 182 bytes),
+        // placing the finished PDF length at exactly MAX_CLASSIC_XREF_OFFSET
+        // (9_999_999_999 bytes).
         let mut writer = PdfWriter::new(Vec::new(), None).unwrap();
         let pages_object_len =
             "2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n".len() as u64;
-        writer.bytes_written = MAX_CLASSIC_XREF_OFFSET - pages_object_len;
+        let classic_tail_len = "xref\n0 3\n".len() as u64
+            + 3 * 20
+            + "trailer\n<< /Size 3 /Root 1 0 R >>\nstartxref\n9999999869\n%%EOF\n".len() as u64;
+        let start_bytes = MAX_CLASSIC_XREF_OFFSET - pages_object_len - classic_tail_len;
+        let expected_xref_offset = start_bytes + pages_object_len;
+        writer.bytes_written = start_bytes;
         let pdf = writer.finish().unwrap();
         let xref_start = find_bytes(&pdf, b"xref\n").unwrap();
         let xref_section = std::str::from_utf8(&pdf[xref_start..]).unwrap();
-        assert!(xref_section.contains("9999999947 00000 n \n"));
-        assert!(xref_section.contains("startxref\n9999999999\n%%EOF\n"));
+        assert_eq!(xref_section.len() as u64, classic_tail_len);
+        assert_eq!(
+            expected_xref_offset + xref_section.len() as u64,
+            MAX_CLASSIC_XREF_OFFSET
+        );
+        assert!(xref_section.contains(&format!("{start_bytes:010} 00000 n \n")));
+        assert!(xref_section.contains(&format!("startxref\n{expected_xref_offset}\n%%EOF\n")));
         for line in xref_section.lines().skip(2).take(3) {
             assert_eq!(
                 line.len(),
@@ -2465,66 +2548,367 @@ mod tests {
     }
 
     #[test]
-    fn push_object_and_stream_object_fail_fast_past_classic_xref_limit() {
+    fn push_object_and_stream_object_allow_past_classic_xref_and_guard_safe_offset_limit() {
         let mut writer = PdfWriter::new(Vec::new(), None).unwrap();
-        let bytes_before = writer.inner.len();
-        writer.bytes_written = MAX_CLASSIC_XREF_OFFSET - 10;
+        writer.bytes_written = MAX_CLASSIC_XREF_OFFSET + 123;
+        writer.push_object(3, b"<< /Type /Page >>").unwrap();
+        assert_eq!(writer.offsets[3], Some(MAX_CLASSIC_XREF_OFFSET + 123));
 
-        let error = writer.push_object(3, b"<< /Type /Page >>").unwrap_err();
+        let bytes_before = writer.inner.len();
+        writer.bytes_written = MAX_SAFE_PDF_OFFSET - 10;
+
+        let error = writer.push_object(4, b"<< /Type /Page >>").unwrap_err();
         let native = error.downcast_ref::<NativeError>().unwrap();
         assert_eq!(native.code, NativeErrorCode::TooLarge);
-        assert!(native.message.contains("10-digit xref"));
+        assert!(native.message.contains("maximum safe PDF offset"));
         assert_eq!(writer.inner.len(), bytes_before);
-        assert!(writer.offsets.get(3).and_then(|offset| *offset).is_none());
+        assert!(writer.offsets.get(4).and_then(|offset| *offset).is_none());
 
-        writer.bytes_written = MAX_CLASSIC_XREF_OFFSET + 1;
-        let error = writer.push_object(3, b"<< >>").unwrap_err();
+        writer.bytes_written = MAX_SAFE_PDF_OFFSET + 1;
+        let error = writer.push_object(4, b"<< >>").unwrap_err();
         assert_eq!(
             error.downcast_ref::<NativeError>().unwrap().code,
             NativeErrorCode::TooLarge
         );
         assert_eq!(writer.inner.len(), bytes_before);
 
-        writer.bytes_written = MAX_CLASSIC_XREF_OFFSET - 20;
+        writer.bytes_written = MAX_SAFE_PDF_OFFSET - 20;
         let error = writer
-            .push_stream_object(4, b"<< /Length 16 >>", &[0u8; 16])
+            .push_stream_object(5, b"<< /Length 16 >>", &[0u8; 16])
             .unwrap_err();
         let native = error.downcast_ref::<NativeError>().unwrap();
         assert_eq!(native.code, NativeErrorCode::TooLarge);
-        assert!(native.message.contains("10-digit xref"));
+        assert!(native.message.contains("maximum safe PDF offset"));
         assert_eq!(writer.inner.len(), bytes_before);
-        assert!(writer.offsets.get(4).and_then(|offset| *offset).is_none());
+        assert!(writer.offsets.get(5).and_then(|offset| *offset).is_none());
     }
 
     #[test]
-    fn finish_refuses_xref_and_object_offsets_past_classic_xref_limit() {
-        // 1 byte past the exact boundary so xref_offset would become 10_000_000_000.
+    fn finish_emits_pdf_15_xref_stream_past_classic_xref_limit() {
+        fn parse_xref_stream_entries(pdf: &[u8]) -> (String, Vec<(u8, u64, u16)>, u64) {
+            let xref_marker = find_bytes(pdf, b"/Type /XRef").unwrap();
+            let obj_start = pdf[..xref_marker]
+                .windows(2)
+                .rposition(|window| window == b"<<")
+                .unwrap();
+            let stream_marker = find_bytes(&pdf[obj_start..], b"\nstream\n").unwrap();
+            let dict = std::str::from_utf8(&pdf[obj_start..obj_start + stream_marker])
+                .unwrap()
+                .to_string();
+            let data_start = obj_start + stream_marker + b"\nstream\n".len();
+            let endstream_rel = find_bytes(&pdf[data_start..], b"\nendstream\n").unwrap();
+            let data = &pdf[data_start..data_start + endstream_rel];
+            assert_eq!(data.len() % 11, 0);
+            let entries = data
+                .chunks_exact(11)
+                .map(|row| {
+                    let entry_type = row[0];
+                    let offset = u64::from_be_bytes(row[1..9].try_into().unwrap());
+                    let gen = u16::from_be_bytes(row[9..11].try_into().unwrap());
+                    (entry_type, offset, gen)
+                })
+                .collect();
+            let startxref_pos = find_bytes(&pdf[data_start..], b"startxref\n").unwrap();
+            let tail = std::str::from_utf8(&pdf[data_start + startxref_pos..]).unwrap();
+            let startxref = tail.lines().nth(1).unwrap().parse::<u64>().unwrap();
+            (dict, entries, startxref)
+        }
+
+        // 1 byte past the exact classic-file boundary: classic output would be
+        // 10_000_000_000 bytes (> MAX_CLASSIC_XREF_OFFSET), so finish() switches
+        // automatically to a PDF 1.5+ /Type /XRef stream.
         let pages_object_len =
             "2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n".len() as u64;
-        let mut buffer = Vec::new();
-        {
-            let mut writer = PdfWriter::new(&mut buffer, None).unwrap();
-            writer.bytes_written = MAX_CLASSIC_XREF_OFFSET - pages_object_len + 1;
-            let error = writer.finish().unwrap_err();
-            let native = error.downcast_ref::<NativeError>().unwrap();
-            assert_eq!(native.code, NativeErrorCode::TooLarge);
-            assert!(native.message.contains("10-digit xref"));
-        }
-        assert!(find_bytes(&buffer, b"xref\n").is_none());
-        assert!(find_bytes(&buffer, b"10000000000").is_none());
+        let classic_tail_len = "xref\n0 3\n".len() as u64
+            + 3 * 20
+            + "trailer\n<< /Size 3 /Root 1 0 R >>\nstartxref\n9999999870\n%%EOF\n".len() as u64;
+        let catalog_15_len =
+            "3 0 obj\n<< /Type /Catalog /Version /1.5 /Pages 2 0 R >>\nendobj\n".len() as u64;
+        let start_bytes = MAX_CLASSIC_XREF_OFFSET - pages_object_len - classic_tail_len + 1;
+        let mut writer = PdfWriter::new(Vec::new(), None).unwrap();
+        writer.bytes_written = start_bytes;
+        let pdf = writer.finish().unwrap();
 
-        // Recorded object offset past the 10-digit limit must also be refused before writing xref.
+        assert!(find_bytes(&pdf, b"\nxref\n").is_none());
+        assert!(find_bytes(&pdf, b"/Version /1.5").is_some());
+        let (dict, entries, startxref) = parse_xref_stream_entries(&pdf);
+        let expected_pages_offset = start_bytes;
+        let expected_catalog_offset = start_bytes + pages_object_len;
+        let expected_xref_offset = expected_catalog_offset + catalog_15_len;
+        assert_eq!(
+            dict,
+            "<< /Type /XRef /Size 5 /W [1 8 2] /Root 3 0 R /Length 55 >>"
+        );
+        assert_eq!(startxref, expected_xref_offset);
+        assert_eq!(
+            entries,
+            vec![
+                (0, 0, 65535),
+                (1, 15, 0),
+                (1, expected_pages_offset, 0),
+                (1, expected_catalog_offset, 0),
+                (1, expected_xref_offset, 0),
+            ]
+        );
+
+        // Provenance Info object is preserved in the XRef stream dictionary.
+        let mut writer_with_info = PdfWriter::new(Vec::new(), Some("deadbeef")).unwrap();
+        writer_with_info.bytes_written = MAX_CLASSIC_XREF_OFFSET + 100;
+        let pdf_with_info = writer_with_info.finish().unwrap();
+        let (info_dict, info_entries, _) = parse_xref_stream_entries(&pdf_with_info);
+        assert!(info_dict.contains("/Type /XRef /Size 6 /W [1 8 2] /Root 4 0 R /Info 3 0 R"));
+        assert_eq!(info_entries.len(), 6);
+
+        // Recorded object offset past the safe-offset limit is refused before writing xref.
         let mut buffer = Vec::new();
         {
             let mut writer = PdfWriter::new(&mut buffer, None).unwrap();
-            writer.offsets[1] = Some(MAX_CLASSIC_XREF_OFFSET + 1);
+            writer.offsets[1] = Some(MAX_SAFE_PDF_OFFSET + 1);
             let error = writer.finish().unwrap_err();
             let native = error.downcast_ref::<NativeError>().unwrap();
             assert_eq!(native.code, NativeErrorCode::TooLarge);
-            assert!(native.message.contains("10-digit xref"));
+            assert!(native.message.contains("maximum safe PDF offset"));
         }
-        assert!(find_bytes(&buffer, b"xref\n").is_none());
-        assert!(find_bytes(&buffer, b"10000000000").is_none());
+        assert!(find_bytes(&buffer, b"/Type /XRef").is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sparse_over_10_gib_xref_stream_pdf_opens_in_qpdf_and_pdfjs() {
+        use std::{
+            fs::{self, OpenOptions},
+            io::{Seek, SeekFrom, Write},
+            path::PathBuf,
+            process::Command,
+            time::{SystemTime, UNIX_EPOCH},
+        };
+
+        struct SparseGapWriter {
+            file: fs::File,
+        }
+
+        impl Write for SparseGapWriter {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.file.write(buf)
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                self.file.flush()
+            }
+        }
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let pdf_path = std::env::temp_dir().join(format!(
+            "evb-wide-xref-10gib-{}-{nonce}.pdf",
+            std::process::id()
+        ));
+        let file = OpenOptions::new()
+            .create_new(true)
+            .read(true)
+            .write(true)
+            .open(&pdf_path)
+            .unwrap();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = fs::remove_file(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(pdf_path.clone());
+        let mut writer =
+            PdfWriter::new(SparseGapWriter { file }, Some("0123456789abcdef")).unwrap();
+
+        // Emit a valid zero-filled sparse stream object (obj 3) spanning >10 GiB
+        // (10 * 2^30 = 10_737_418_240 bytes) using SeekFrom::Current so physical
+        // disk usage stays tiny (~16 KiB).
+        let filler_len: u64 = 10 * 1024 * 1024 * 1024 + 4096;
+        let filler_object = writer.next_object;
+        writer.next_object += 1;
+        writer.record_object_offset(filler_object);
+        let header = format!("{filler_object} 0 obj\n<< /Length {filler_len} >>\nstream\n");
+        writer.write_all(header.as_bytes()).unwrap();
+        writer
+            .inner
+            .file
+            .seek(SeekFrom::Current(i64::try_from(filler_len).unwrap()))
+            .unwrap();
+        writer.bytes_written += filler_len;
+        writer.write_all(b"\nendstream\nendobj\n").unwrap();
+
+        // Add a real image page AFTER the 10 GiB offset.
+        let page = ImagePage {
+            width: 2,
+            height: 2,
+            dpi_x: 72,
+            dpi_y: 72,
+            color_space: "DeviceGray",
+            icc_profile: None,
+            payload: ImagePayload::RawFlate {
+                data: deflate_bytes(&[0, 10, 20, 0, 30, 40]).unwrap(),
+                decode_params: "<< /Predictor 12 /Colors 1 /BitsPerComponent 8 /Columns 2 >>"
+                    .to_string(),
+            },
+        };
+        writer.add_page(&page).unwrap();
+        let finished = writer.finish().unwrap();
+        drop(finished);
+
+        let metadata = fs::metadata(&pdf_path).unwrap();
+        assert!(metadata.len() > 10 * 1024 * 1024 * 1024);
+
+        let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let qpdf = [
+            repo_root.join("resources/qpdf/darwin-arm64/bin/qpdf"),
+            repo_root.join("resources/qpdf/linux-x64/bin/qpdf"),
+            PathBuf::from("qpdf"),
+        ]
+        .into_iter()
+        .find(|candidate| {
+            Command::new(candidate)
+                .arg("--version")
+                .output()
+                .is_ok_and(|out| out.status.success())
+        });
+
+        if let Some(qpdf_bin) = qpdf {
+            let output = Command::new(&qpdf_bin)
+                .args(["--check"])
+                .arg(&pdf_path)
+                .output()
+                .unwrap();
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                output.status.success(),
+                "qpdf --check failed on >10 GiB XRef stream PDF:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+            );
+            assert!(
+                !stderr.contains("WARNING"),
+                "qpdf --check emitted warnings:\n{stderr}"
+            );
+        }
+
+        let pdfjs_entry = repo_root.join("node_modules/pdfjs-dist/legacy/build/pdf.mjs");
+        if pdfjs_entry.is_file()
+            && Command::new("node")
+                .arg("--version")
+                .output()
+                .is_ok_and(|out| out.status.success())
+        {
+            let script = r#"
+import { open, stat } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
+const [pdfjsPath, pdfPath] = process.argv.slice(1);
+const { getDocument, PDFDataRangeTransport } = await import(pathToFileURL(pdfjsPath).href);
+const MAX_REQUESTS = 32;
+const MAX_REQUESTED_BYTES = 2 * 1024 * 1024;
+const { size } = await stat(pdfPath);
+const handle = await open(pdfPath, 'r');
+let requestCount = 0;
+let requestedBytes = 0;
+let budgetExceededError = null;
+let rejectBudget;
+const budgetFailure = new Promise((_, reject) => { rejectBudget = reject; });
+class FileRangeTransport extends PDFDataRangeTransport {
+    constructor(length) { super(length, null); }
+    requestDataRange(begin, end) {
+        const clampedBegin = Math.max(0, begin);
+        const clampedEnd = Math.min(this.length, end);
+        const len = Math.max(0, clampedEnd - clampedBegin);
+        requestCount += 1;
+        requestedBytes += len;
+        if (requestCount > MAX_REQUESTS || requestedBytes > MAX_REQUESTED_BYTES) {
+            if (!budgetExceededError) {
+                budgetExceededError = new Error(
+                    `Range read budget exceeded (${requestCount} requests, ${requestedBytes} bytes; last range [${clampedBegin}, ${clampedEnd}))`,
+                );
+                rejectBudget(budgetExceededError);
+            }
+            return;
+        }
+        const buf = new Uint8Array(len);
+        handle.read(buf, 0, len, clampedBegin).then(({ bytesRead }) => {
+            this.onDataRange(clampedBegin, buf.subarray(0, bytesRead));
+        }, (err) => {
+            if (!budgetExceededError) {
+                budgetExceededError = err;
+                rejectBudget(err);
+            }
+        });
+    }
+}
+const task = getDocument({
+    range: new FileRangeTransport(size),
+    rangeChunkSize: 65536,
+    disableAutoFetch: true,
+    disableStream: true,
+    useWorkerFetch: false,
+});
+task.promise.catch(() => undefined);
+try {
+    const doc = await Promise.race([task.promise, budgetFailure]);
+    const page = await doc.getPage(1);
+    const viewport = page.getViewport({ scale: 1 });
+    const meta = await doc.getMetadata();
+    const stamp = meta.info?.Custom instanceof Map
+        ? meta.info.Custom.get('EVBScanCleanup')
+        : meta.info?.Custom?.EVBScanCleanup ?? null;
+    console.log(JSON.stringify({
+        size,
+        numPages: doc.numPages,
+        width: viewport.width,
+        height: viewport.height,
+        pdfVersion: meta.info?.PDFFormatVersion ?? null,
+        stamp,
+        requestCount,
+        requestedBytes,
+    }));
+    if (
+        doc.numPages !== 1
+        || viewport.width !== 2
+        || viewport.height !== 2
+        || meta.info?.PDFFormatVersion !== '1.5'
+        || stamp !== '0123456789abcdef'
+        || requestCount > MAX_REQUESTS
+        || requestedBytes > MAX_REQUESTED_BYTES
+    ) {
+        process.exitCode = 1;
+    }
+} catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exitCode = 1;
+} finally {
+    if (!budgetExceededError) {
+        await task.destroy();
+    }
+    await handle.close();
+}
+if (budgetExceededError) {
+    process.exit(1);
+}
+"#;
+            let output = Command::new("node")
+                .args(["--input-type=module", "-e", script])
+                .arg(&pdfjs_entry)
+                .arg(&pdf_path)
+                .output()
+                .unwrap();
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                output.status.success(),
+                "bundled pdfjs-dist failed on >10 GiB XRef stream PDF:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+            );
+            assert!(
+                stdout.contains(
+                    r#""numPages":1,"width":2,"height":2,"pdfVersion":"1.5","stamp":"0123456789abcdef""#
+                ),
+                "unexpected pdfjs-dist verification output: {stdout}"
+            );
+        }
     }
 
     fn build_test_mask_pdf(mask: &PbmP4Image, payload: &BilevelPayload) -> Vec<u8> {
