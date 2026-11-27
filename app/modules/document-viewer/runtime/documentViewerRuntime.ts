@@ -52,11 +52,6 @@ export interface IDocumentViewerRuntime {
     readonly viewportFlingBackdrop: Readonly<Ref<IDocumentViewportFlingBackdrop | null>>;
     bindSource(source: IDocumentPageSource | null): void;
     bindOpeningPageElement(element: HTMLElement | null): void;
-    commitOpeningPageVisual(
-        generation: number,
-        pageNumber: number,
-        visual: TDocumentOpeningPageVisual,
-    ): boolean;
     bindViewportElement(element: HTMLElement | null): void;
     bindViewportFeature(binding: IDocumentViewportFeatureBinding): () => void;
     dispatchViewportWheel(interaction: IDocumentWheelInteraction): void;
@@ -98,7 +93,14 @@ export function createDocumentViewerRuntime(
         ? openSurface.viewportSession.value.viewportIntent?.pageNumber ?? currentPage.value
         : currentPage.value);
     const openingPageElement = shallowRef<HTMLElement | null>(null);
-    const openingPageVisual = ref<TDocumentOpeningPageVisual>('none');
+    const openingPageVisual = computed<TDocumentOpeningPageVisual>(() => {
+        const visual = openSurface.viewportSession.value.visual;
+        return visual.kind === 'page' && visual.presentation === 'canvas'
+            ? 'fresh'
+            : visual.kind === 'page' && visual.presentation === 'skeleton'
+                ? 'skeleton'
+                : 'none';
+    });
     const source = shallowRef<IDocumentPageSource | null>(null);
     const viewportElement = shallowRef<HTMLElement | null>(null);
     // An intent begun for one source must not land on its successor.
@@ -130,20 +132,6 @@ export function createDocumentViewerRuntime(
                 return;
             }
             viewportWritePort.fenceCommandAgainstLiveGesture();
-        },
-        {
-            flush: 'sync',
-            immediate: true,
-        },
-    );
-    watch(
-        () => openSurface.viewportSession.value.visual,
-        (visual) => {
-            openingPageVisual.value = visual.kind === 'page' && visual.presentation === 'canvas'
-                ? 'fresh'
-                : visual.kind === 'page' && visual.presentation === 'skeleton'
-                    ? 'skeleton'
-                    : 'none';
         },
         {
             flush: 'sync',
@@ -232,27 +220,6 @@ export function createDocumentViewerRuntime(
         },
         bindOpeningPageElement(element) {
             openingPageElement.value = element;
-            if (element === null) {
-                openingPageVisual.value = 'none';
-            }
-        },
-        commitOpeningPageVisual(generation, pageNumber, visual) {
-            const snapshot = openSurface.snapshot.value;
-            const frame = snapshot.openingPageFrame;
-            const element = openingPageElement.value;
-            if (
-                snapshot.generation !== generation
-                || frame?.generation !== generation
-                || frame.pageNumber !== pageNumber
-                || !element?.isConnected
-                || element.dataset.pageNumber !== String(pageNumber)
-                || element.dataset.openSurfaceGeneration !== String(generation)
-                || element.dataset.openSurfaceFrameOwner !== frame.ownerId
-            ) {
-                return false;
-            }
-            openingPageVisual.value = visual;
-            return true;
         },
         bindViewportElement(element) {
             viewportElement.value = element;

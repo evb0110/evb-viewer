@@ -122,14 +122,15 @@ export const useWorkspaceCrop = (options: IUseWorkspaceCropOptions) => {
         cropDialogLoading.value = false;
     }
 
-    watch(cropDialogOpen, (isOpen) => {
+    function handleCropDialogOpenChange(isOpen: boolean) {
         if (isOpen) {
+            cropDialogOpen.value = true;
             return;
         }
-
+        cropDialogOpen.value = false;
         cropRequestToken += 1;
         cropDialogLoading.value = false;
-    });
+    }
 
     return {
         cropDialogOpen,
@@ -139,5 +140,6 @@ export const useWorkspaceCrop = (options: IUseWorkspaceCropOptions) => {
         cropDialogPageNumber,
         isCropSelecting,
         handleCrop,
+        handleCropDialogOpenChange,
     };
 };

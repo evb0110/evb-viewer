@@ -76,19 +76,29 @@ const {
 const password = ref('');
 const passwordInput = useTemplateRef<{inputRef: HTMLInputElement | null}>('passwordInput');
 
-watch(open, () => {
-    password.value = '';
-});
-
-// A wrong password keeps the dialog open; clear the field and hand focus back
-// once the check finishes.
-watch(checking, async (isChecking) => {
-    if (isChecking || !open.value) {
+// Clear the field on visibility changes and after a failed password check
+// finishes while the dialog stays open (also returning focus).
+watch([
+    open,
+    checking,
+], async ([
+    isOpen,
+    isChecking,
+], [
+    wasOpen,
+    wasChecking,
+]) => {
+    const checkEndedWhileOpen = wasChecking && !isChecking && isOpen;
+    if (isOpen !== wasOpen || checkEndedWhileOpen) {
+        password.value = '';
+    }
+    if (!checkEndedWhileOpen) {
         return;
     }
-    password.value = '';
     await nextTick();
-    passwordInput.value?.inputRef?.focus();
+    if (open.value && !checking.value) {
+        passwordInput.value?.inputRef?.focus();
+    }
 });
 
 function handleOpenUpdate(open: boolean) {

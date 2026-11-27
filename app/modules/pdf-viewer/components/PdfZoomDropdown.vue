@@ -210,20 +210,26 @@ function close() {
     isOpen.value = false;
 }
 
-watch(isOpen, (open) => {
-    if (open) {
-        customZoomValue.value = formatZoomValue(normalizedEffectiveZoom.value);
-        void nextTick(() => {
-            customInputRef.value?.focus();
-            customInputRef.value?.select();
-        });
-    }
-});
-
 watch(
-    () => normalizedEffectiveZoom.value,
-    (value) => {
-        customZoomValue.value = formatZoomValue(value);
+    [
+        isOpen,
+        normalizedEffectiveZoom,
+    ],
+    ([
+        openNow,
+        effectiveZoomValue,
+    ], previous) => {
+        const opened = openNow && previous?.[0] === false;
+        const zoomChanged = !previous || effectiveZoomValue !== previous[1];
+        if (opened || zoomChanged) {
+            customZoomValue.value = formatZoomValue(effectiveZoomValue);
+        }
+        if (opened) {
+            void nextTick(() => {
+                customInputRef.value?.focus();
+                customInputRef.value?.select();
+            });
+        }
     },
     { immediate: true },
 );

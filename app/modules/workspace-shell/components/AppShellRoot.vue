@@ -207,7 +207,7 @@
             :open="dirtyTabCloseDialogOpen"
             :mode="dirtyTabCloseDialogMode"
             :target-name="dirtyTabCloseTargetName"
-            @update:open="dirtyTabCloseDialogOpen = $event"
+            @update:open="handleDirtyTabCloseDialogOpenUpdate"
             @discard="resolveDirtyTabCloseDialog('discard')"
             @save="resolveDirtyTabCloseDialog('save')"
         />
@@ -228,7 +228,7 @@
             :progress-percent="updatesDialog.phase === 'downloading' ? updatesDialog.percent : null"
             :available="updatesDialog.kind === 'available'"
             :ready="updatesDialog.kind === 'ready'"
-            @update:open="updatesDialog.open = $event"
+            @update:open="handleUpdatesDialogOpenUpdate"
             @defer="updatesDialogBindings.handleDeferUpdate"
             @download="updatesDialogBindings.handleDownloadUpdate"
             @skip="updatesDialogBindings.handleSkipUpdate"
@@ -403,23 +403,34 @@ const fullscreenSupported = ref(true);
 let zenModeRequestInFlight = false;
 const workspaceMemoryBudget = useWorkspaceMemoryPressureMonitor();
 const tabActivationOrder = ref<string[]>([]);
-watch(activeTabId, (tabId) => {
-    if (!tabId) {
-        return;
+watch([
+    activeTabId,
+    tabs,
+], ([
+    tabId,
+    nextTabs,
+], previous) => {
+    const prevTabId = previous?.[0];
+    const prevTabs = previous?.[1];
+    let nextOrder = tabActivationOrder.value;
+    if (tabId && tabId !== prevTabId) {
+        nextOrder = [
+            tabId,
+            ...nextOrder.filter(candidate => candidate !== tabId),
+        ];
     }
-    tabActivationOrder.value = [
-        tabId,
-        ...tabActivationOrder.value.filter(candidate => candidate !== tabId),
-    ];
+    if (prevTabs !== undefined && nextTabs !== prevTabs) {
+        const tabIds = new Set(nextTabs.map(tab => tab.id));
+        nextOrder = nextOrder.filter(candidate => tabIds.has(candidate));
+        const nextStartSectionByTabId = pruneStartSectionByTabId(startSectionByTabId.value, nextTabs);
+        if (nextStartSectionByTabId !== startSectionByTabId.value) {
+            startSectionByTabId.value = nextStartSectionByTabId;
+        }
+    }
+    if (nextOrder !== tabActivationOrder.value) {
+        tabActivationOrder.value = nextOrder;
+    }
 }, { immediate: true });
-watch(tabs, (nextTabs) => {
-    const tabIds = new Set(nextTabs.map(tab => tab.id));
-    tabActivationOrder.value = tabActivationOrder.value.filter(tabId => tabIds.has(tabId));
-    const nextStartSectionByTabId = pruneStartSectionByTabId(startSectionByTabId.value, nextTabs);
-    if (nextStartSectionByTabId !== startSectionByTabId.value) {
-        startSectionByTabId.value = nextStartSectionByTabId;
-    }
-});
 const tabLifecycleById = computed(() => Object.fromEntries(
     resolveTabLifecycleStates({
         activationOrder: tabActivationOrder.value,
@@ -954,10 +965,20 @@ useTabsShellBindings({
     handleWindowTabsAction,
     toggleAssistant: () => assistantPanel.toggle(),
 });
+function handleDirtyTabCloseDialogOpenUpdate(open: boolean) {
+    if (!open) {
+        resolveDirtyTabCloseDialog('cancel');
+    }
+}
+
+function handleUpdatesDialogOpenUpdate(open: boolean) {
+    if (!open) {
+        closeUpdatesDialog();
+    }
+}
+
 traceRendererStartup('index.vue setup wiring complete');
 useAppShellLifecycle({
-    dirtyTabCloseDialogOpen,
-    updatesDialogOpen: computed(() => updatesDialog.value.open),
     cleanupEmptyPanes,
     ensureUpdatesInitialized: async () => {
         await ensureUpdatesInitialized();
@@ -965,8 +986,6 @@ useAppShellLifecycle({
     handleIncomingTabTransfer,
     cleanupDirectionalTabs,
     cleanupExternalFileDrop,
-    resolveDirtyTabCloseDialog,
-    closeUpdatesDialog,
 });
 </script>
 <style scoped src="./AppShellRoot.css"></style>

@@ -1221,7 +1221,6 @@ describe('scan cleanup run coordinator', () => {
                     detectionStatus: computed(() => 'completed'),
                     documentRevision: computed(() => ownerContext.documentRevision),
                     documentSettingsReady: computed(() => true),
-                    onCompleted: () => undefined,
                     ownerId: ownerContext.ownerId,
                     placementAnchorsByPage: computed(() => new Map()),
                     previewTotalPages: () => 1,

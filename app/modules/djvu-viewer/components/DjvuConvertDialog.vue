@@ -61,9 +61,10 @@
                     </URadioGroup>
 
                     <UCollapsible
-                        v-model:open="advancedRasterOpen"
+                        :open="advancedRasterOpen"
                         :unmount-on-hide="false"
                         class="convert-advanced flex flex-col"
+                        @update:open="setAdvancedRasterOpen"
                     >
                         <template #default="{ open: isAdvancedOpen }">
                             <button
@@ -262,8 +263,10 @@ const selectedConversion = computed(() => resolveDjvuConvertDialogSelection(sele
 const presetSelection = computed({
     get: () => selectedPresetValue.value,
     set: (value: TDjvuConvertDialogPresetValue) => {
-        advancedRasterOpen.value ||= selectedConversion.value.pdfStrategy !== 'direct'
-            && resolveDjvuConvertDialogSelection(value).pdfStrategy === 'direct';
+        if (selectedConversion.value.pdfStrategy !== 'direct'
+            && resolveDjvuConvertDialogSelection(value).pdfStrategy === 'direct') {
+            setAdvancedRasterOpen(true);
+        }
         selectedPresetValue.value = value;
     },
 });
@@ -443,8 +446,16 @@ watch([
     }
 });
 
-watch(advancedRasterOpen, async (isAdvancedOpen) => {
-    if (!isAdvancedOpen || !open.value || !djvuPath) {
+function setAdvancedRasterOpen(nextOpen: boolean) {
+    const wasOpen = advancedRasterOpen.value;
+    advancedRasterOpen.value = nextOpen;
+    if (nextOpen && !wasOpen) {
+        void loadEstimates();
+    }
+}
+
+async function loadEstimates() {
+    if (!open.value || !djvuPath) {
         return;
     }
     if (estimatesLoading.value || estimates.value.length > 0) {
@@ -474,7 +485,7 @@ watch(advancedRasterOpen, async (isAdvancedOpen) => {
             estimatesLoading.value = false;
         }
     }
-});
+}
 
 function handleConvert() {
     if (infoLoading.value) {

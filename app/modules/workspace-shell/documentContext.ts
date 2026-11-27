@@ -119,7 +119,10 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         save: saveSettings,
         updateSetting,
     } = useSettings();
-    const sourceCapabilities = ref<IDocumentSourceCapabilities>(EMPTY_SOURCE_CAPABILITIES);
+    const sourceCapabilitiesReceipt = shallowRef<{
+        sourceKey: string;
+        capabilities: IDocumentSourceCapabilities;
+    } | null>(null);
     const isSaving = ref(false);
     const isSavingAs = ref(false);
     const runExclusive = controller.operationLease.runExclusive;
@@ -235,6 +238,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         // Scan Cleanup's settings for the source it leaves, keyed as they are
         // now; hiding or evicting a view does not.
         retire: () => {
+            sourceCapabilitiesReceipt.value = null;
             views.forEachView((port) => {
                 if (port.openSurface.snapshot.value.phase !== 'idle') port.openSurface.reset();
             });
@@ -358,13 +362,40 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         },
         pendingDocumentPath: pendingDocumentPath,
     });
-    watch(driver.activeDocumentDriver, (active) => {
-        if (active?.view.defaultSourceCapabilities) {
-            sourceCapabilities.value = active.view.defaultSourceCapabilities;
-        } else if (!active) {
-            sourceCapabilities.value = EMPTY_SOURCE_CAPABILITIES;
+    const sourceCapabilitiesKey = computed<string | null>(() => {
+        const active = driver.activeDocumentDriver.value;
+        if (!active) {
+            return null;
         }
-    }, {immediate: true});
+        const path = active.source.path;
+        if (active.source.kind === 'djvu' && !path) {
+            return null;
+        }
+        return `${active.id}:${path ?? ''}`;
+    });
+    function reportSourceCapabilities(
+        sourceKey: string | null,
+        capabilities: IDocumentSourceCapabilities,
+    ) {
+        if (sourceKey === null || sourceKey !== sourceCapabilitiesKey.value) {
+            return;
+        }
+        sourceCapabilitiesReceipt.value = {
+            sourceKey,
+            capabilities,
+        };
+    }
+    const sourceCapabilities = computed<IDocumentSourceCapabilities>(() => {
+        const active = driver.activeDocumentDriver.value;
+        if (!active) {
+            return EMPTY_SOURCE_CAPABILITIES;
+        }
+        const receipt = sourceCapabilitiesReceipt.value;
+        if (receipt && receipt.sourceKey === sourceCapabilitiesKey.value) {
+            return receipt.capabilities;
+        }
+        return active.view.defaultSourceCapabilities ?? EMPTY_SOURCE_CAPABILITIES;
+    });
     useShutdownSaveFlushReporting({
         workingCopyPath: file.workingCopyPath,
         hasPendingUnsavedChanges,
@@ -603,6 +634,8 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         pendingDocumentPath,
         pendingDjvuDocumentOpen,
         sourceCapabilities,
+        sourceCapabilitiesKey,
+        reportSourceCapabilities,
         failure,
         file,
         driver,

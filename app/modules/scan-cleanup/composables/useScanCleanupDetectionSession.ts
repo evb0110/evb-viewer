@@ -1354,22 +1354,31 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         observedPageOverrideSignatures = readPageOverrideSignatures();
         observedTotalPages = options.totalPages.value;
     }, {immediate: true});
-    watch(options.active, active => {
-        if (active) scheduleAutoDetect();
-    });
     // Recommendations are page diagnostics and survive output-mode changes.
     // Switching back to automatic mode must have usable recommendations, so a
     // previously canceled or stranded detection is rescheduled here.
     watch(
-        () => options.settings.outputMode === 'auto'
-            && options.settings.preserveOriginalQuality !== true,
-        automaticMode => {
-            if (!automaticMode) {
-                return;
+        [
+            options.active,
+            () => options.settings.outputMode === 'auto'
+                && options.settings.preserveOriginalQuality !== true,
+        ],
+        ([
+            active,
+            automaticMode,
+        ], [
+            wasActive,
+            wasAutomaticMode,
+        ]) => {
+            const becameActive = active && !wasActive;
+            const enteredAutomaticMode = automaticMode && !wasAutomaticMode;
+            if (enteredAutomaticMode) {
+                const key = options.lifecycleDocumentKey.value;
+                if (key !== null) autoDetectionCanceledDocuments.delete(key);
             }
-            const key = options.lifecycleDocumentKey.value;
-            if (key !== null) autoDetectionCanceledDocuments.delete(key);
-            scheduleAutoDetect();
+            if (becameActive || enteredAutomaticMode) {
+                scheduleAutoDetect();
+            }
         },
     );
     // Settings, page edits and page count invalidate evidence. The watcher

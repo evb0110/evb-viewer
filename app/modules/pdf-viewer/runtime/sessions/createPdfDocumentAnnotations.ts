@@ -179,7 +179,6 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         writerParseTask = null;
     }
     onScopeDispose(cancelWriterParse, true);
-    watch(options.documentRevisionToken, cancelWriterParse, {flush: 'sync'});
     // A save before the store read the whole document leaves it partial;
     // `afterSave` reads the revision it wrote, which the PDF.js document predates.
     function feedStoreFromWriterParse(documentSession: TPdfDocumentView, originalPath: Readonly<Ref<string | null>>, afterSave = false) {
@@ -347,7 +346,8 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
     if (options.documentSession) {
         watch(options.documentSession, () => { history.clear(); reset(documentIdentity.value); }, {flush: 'sync'});
     }
-    watch(options.documentRevisionToken, revision => {
+    watch(options.documentRevisionToken, (revision) => {
+        cancelWriterParse();
         if (options.documentSession || options.isSaving?.value) storeRevision = revision;
     }, {flush: 'sync'});
     function replaceLoadedDocument(loadedRevision: string | null, duringSave: boolean) {

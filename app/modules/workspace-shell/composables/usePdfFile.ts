@@ -68,6 +68,7 @@ export const usePdfFile = (options: IPdfFileOptions) => {
         readOpenTransactionId,
         resetDocumentPresentation: options.resetDocumentPresentation,
         resetHistory: history.resetHistory,
+        setOpeningLabel: options.document.setOpeningLabel,
         syncDirtyFromHistory: history.syncDirtyFromHistory,
         t,
     });

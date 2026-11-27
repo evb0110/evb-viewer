@@ -20,7 +20,6 @@ export const usePdfOutlineEditing = (
     activeItemId: Ref<string | null>,
     expandedBookmarkIds: Ref<Set<string>>,
     displayMode: Ref<TBookmarkDisplayMode>,
-    isEditMode: ComputedRef<boolean>,
     parentBookmarkIdMap: ComputedRef<Map<string, string | null>>,
     bookmarkOrderIndexMap: ComputedRef<Map<string, number>>,
     selectedBookmarkIds: Ref<Set<string>>,
@@ -487,15 +486,6 @@ export const usePdfOutlineEditing = (
             };
         });
     }
-
-    watch(isEditMode, (enabled) => {
-        if (enabled) {
-            return;
-        }
-        editingItemId.value = null;
-        closeBookmarkContextMenu();
-        resetDragState();
-    });
 
     return {
         editingItemId,

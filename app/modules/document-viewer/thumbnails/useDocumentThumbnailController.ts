@@ -754,7 +754,10 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     });
 
     watch(
-        () => virtualItems.value.map(item => item.pageNumber).join(','),
+        [
+            () => virtualItems.value.map(item => item.pageNumber).join(','),
+            options.itemMetricsKey,
+        ],
         async () => {
             await nextTick();
             measureViewport();
@@ -820,11 +823,6 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         viewportRevision.value += 1;
         scheduleRefresh();
     });
-    watch(options.itemMetricsKey, async () => {
-        await nextTick();
-        measureViewport();
-        scheduleRefresh();
-    }, {flush: 'post'});
     watch(options.isActive, async active => {
         if (!active) {
             scheduler.reset();

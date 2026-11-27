@@ -420,28 +420,46 @@ function handleRemoveCrop() {
     open.value = false;
 }
 
-watch(open, (isOpen) => {
-    if (!isOpen) {
-        marginsDirty.value = false;
-        return;
-    }
-    syncMarginsFromProps();
-    resetScopeForOpen('current');
-}, { immediate: true });
-
-watch(() => loading, (loading, previousLoading) => {
-    if (!open.value || loading || !previousLoading) {
-        return;
-    }
-    syncMarginsFromProps();
-});
-
-watch(() => initialMargins, () => {
-    if (!open.value || loading || marginsDirty.value) {
-        return;
-    }
-    syncMarginsFromProps();
-}, { deep: true });
+watch(
+    () => [
+        open.value,
+        loading,
+        initialMargins.top,
+        initialMargins.bottom,
+        initialMargins.left,
+        initialMargins.right,
+    ] as const,
+    ([
+        isOpen,
+        isLoading,
+        top,
+        bottom,
+        left,
+        right,
+    ], previous) => {
+        if (!previous || isOpen !== previous[0]) {
+            if (!isOpen) {
+                marginsDirty.value = false;
+                return;
+            }
+            syncMarginsFromProps();
+            resetScopeForOpen('current');
+            return;
+        }
+        if (!isOpen || isLoading) {
+            return;
+        }
+        const loadingCompleted = previous[1];
+        const marginsChanged = top !== previous[2]
+            || bottom !== previous[3]
+            || left !== previous[4]
+            || right !== previous[5];
+        if (loadingCompleted || (marginsChanged && !marginsDirty.value)) {
+            syncMarginsFromProps();
+        }
+    },
+    { immediate: true },
+);
 
 </script>
 

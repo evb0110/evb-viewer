@@ -79,10 +79,22 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         };
     }
 
-    // What read the previous bytes resets with each published source; a close
-    // or a replacement has already emptied the views.
-    watch(pdfSrc, (newSrc, oldSrc) => {
-        if (newSrc && newSrc !== oldSrc) {
+    // What read the previous bytes resets with each published source; a same-
+    // document working-copy switch (a browser Save As, Optimize as a copy) has
+    // no open or close to reset in, so its note windows close unsaved.
+    watch([
+        pdfSrc,
+        workingCopyPath,
+    ], ([
+        newSrc,
+        nextPath,
+    ], [
+        oldSrc,
+        previousPath,
+    ]) => {
+        const sourceChanged = Boolean(newSrc && newSrc !== oldSrc);
+        const workingCopyChanged = nextPath !== previousPath;
+        if (sourceChanged) {
             const isReload = Boolean(oldSrc);
             logPdfRenderTrace('workspace-document-transition-source-changed', {isReload});
             resetAnnotationTracking();
@@ -92,19 +104,14 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
                 bookmarksDirty.value = false;
             }
             bookmarkEditMode.value = false;
+        }
+        if (workingCopyChanged) {
+            annotationActiveCommentStableKey.value = null;
+            void closeAllAnnotationNotes({ saveIfDirty: false });
+        }
+        if (sourceChanged || workingCopyChanged) {
             closeContextMenus();
         }
-    });
-
-    // A same-document working-copy switch (a browser Save As, Optimize as a
-    // copy) has no open or close to reset in; its note windows close unsaved.
-    watch(workingCopyPath, (nextPath, previousPath) => {
-        if (nextPath === previousPath) {
-            return;
-        }
-        annotationActiveCommentStableKey.value = null;
-        closeContextMenus();
-        void closeAllAnnotationNotes({ saveIfDirty: false });
     });
 
     watch(annotationComments, comments => {

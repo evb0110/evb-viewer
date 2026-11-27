@@ -275,8 +275,8 @@ const agentMcpStatus = computed(() => agentMcpRuntime.value && ({
     enabled: settings.value.agentMcpEnabled,
 }));
 const isAgentMcpBusy = ref(false);
-const settingsLoadFailed = ref(false);
 const settingsLoadPending = ref(false);
+const settingsLoadFailed = computed(() => !isLoaded.value && !settingsLoadPending.value && settingsLoadFailure.value !== null);
 let assistantPanelPreferenceSave: Promise<boolean> | null = null;
 let diagnosticsPreferenceSave: Promise<boolean> | null = null;
 
@@ -292,11 +292,6 @@ const settingsLoadFailurePresentation = computed<FailurePresentation | null>(() 
     };
 });
 
-watch(isLoaded, (loaded) => {
-    if (loaded) {
-        settingsLoadFailed.value = false;
-    }
-});
 // Each failure is told once, with Retry for a save; a page that could not
 // load also says so in place of its content.
 watch(settingsLoadFailurePresentation, (presentation) => {
@@ -352,12 +347,10 @@ async function retrySettingsLoad() {
         return;
     }
     settingsLoadPending.value = true;
-    settingsLoadFailed.value = false;
     try {
         await loadOrThrow();
-        settingsLoadFailed.value = !isLoaded.value;
     } catch {
-        settingsLoadFailed.value = true;
+        // Load failure state is derived from settingsLoadFailure once the attempt finishes.
     } finally {
         settingsLoadPending.value = false;
     }

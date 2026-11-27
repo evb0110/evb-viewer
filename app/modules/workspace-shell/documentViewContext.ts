@@ -35,6 +35,7 @@ import {
     createDocumentPageSourceSearchBackend,
     useDocumentSidebarCapabilitySession,
     type IDocumentOpenSurfaceSession,
+    type IDocumentSourceCapabilities,
 } from '@app/modules/document-viewer/public';
 import { useDocumentSearchSession } from '@app/modules/workspace-shell/composables/useDocumentSearchSession';
 import { usePageFileOperations } from '@app/modules/workspace-shell/composables/usePageFileOperations';
@@ -456,7 +457,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
             file.pdfFailurePresentation.value = presentation;
             file.pdfError.value = presentation.description;
         }
-        return useWorkspaceDocumentDriverBinding({
+        const binding = useWorkspaceDocumentDriverBinding({
             activeDocumentDriver: driver.mountedDocumentDriver,
             annotationCursorMode: navigation.annotationCursorMode,
             annotationKeepActive: annotations.annotationKeepActive,
@@ -503,11 +504,22 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
             onLoadError: handleLoadError,
             onShapeContextMenu: annotationActions.handleShapeContextMenu,
             onSourceCapabilitiesUpdate: (capabilities) => {
-                if (driver.activeDocumentDriver.value) {
-                    document.sourceCapabilities.value = capabilities;
-                }
+                document.reportSourceCapabilities(document.sourceCapabilitiesKey.value, capabilities);
             },
         });
+        const activeViewerListeners = computed<Record<string, unknown>>(() => {
+            const boundSourceKey = document.sourceCapabilitiesKey.value;
+            return {
+                ...binding.activeViewerListeners.value,
+                'update:sourceCapabilities': (capabilities: IDocumentSourceCapabilities) => {
+                    document.reportSourceCapabilities(boundSourceKey, capabilities);
+                },
+            };
+        });
+        return {
+            ...binding,
+            activeViewerListeners,
+        };
     }
 
     const detachDocumentView = inject(documentViewDetachKey, null);

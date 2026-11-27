@@ -426,7 +426,6 @@ const editing = usePdfOutlineEditing(
     activeItemId,
     expandedBookmarkIds,
     displayMode,
-    isEditMode,
     parentBookmarkIdMap,
     bookmarkOrderIndexMap,
     selection.selectedBookmarkIds,
