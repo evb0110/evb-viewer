@@ -119,9 +119,10 @@ export function openPdfPageTextVisibilitySession(input: {
             });
             if (activeSessionId !== undefined) {
                 inFlightSessionInspections.add(request);
-                void request.finally(() => {
+                const removeRequest = () => {
                     inFlightSessionInspections.delete(request);
-                });
+                };
+                void request.then(removeRequest, removeRequest);
             }
             return request;
         },
