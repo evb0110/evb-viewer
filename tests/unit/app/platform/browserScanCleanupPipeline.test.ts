@@ -36,6 +36,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@app/platform/browser-api/browserScanCleanupWorkerClient', () => ({
     estimateBrowserScanCleanupEngineBytes: () => 1024,
+    resetDrainingBrowserScanCleanupWorkers: vi.fn(),
     runBrowserScanCleanupWorkerRequest: mocks.runBrowserScanCleanupWorkerRequest,
 }));
 
@@ -49,6 +50,7 @@ vi.mock('@app/platform/browser-api/browserPdfCombineWorkerClient', () => ({
 
 vi.mock('@app/platform/browser-api/browserPageOpsWorkerClient', () => ({
     BrowserPageOpsWorkerUnavailableError: class BrowserPageOpsWorkerUnavailableError extends Error {},
+    evictBrowserPageOpsDocumentCache: vi.fn(),
     runBrowserPageOpsWorkerRequest: mocks.runBrowserPageOpsWorkerRequest,
 }));
 
@@ -431,5 +433,112 @@ describe('browserScanCleanupRasterCache', () => {
         cache.invalidateByRef('browser://doc/1');
         expect(cache.get(rev2Key)).toBeNull();
         expect(cache.get(otherDocKey)?.raster.ppm[0]).toBe(4);
+    });
+});
+
+describe('stale OPFS Blob refresh on NotReadableError', () => {
+    it('retries renderPageRaster once using refreshSource when worker returns NotReadableError without name in message', async () => {
+        const {renderPageRaster} = await import('@app/platform/browser-api/browserScanCleanupJob');
+        const staleBlob = new Blob([Uint8Array.of(1, 2, 3)]);
+        const freshBlob = new Blob([Uint8Array.of(4, 5, 6)]);
+        const refreshSource = vi.fn(async () => freshBlob);
+        const notReadable = new Error('The requested file could not be read.');
+        notReadable.name = 'NotReadableError';
+
+        mocks.runBrowserPageOpsWorkerRequest
+            .mockRejectedValueOnce(notReadable)
+            .mockResolvedValueOnce({
+                data: new Uint8Array(4 * 4 * 3).fill(128),
+                report: {width: 4, height: 4, compatibility: 'exact'},
+            });
+
+        const raster = await renderPageRaster(
+            cast({
+                ref: 'browser://documents/stale-refresh.pdf',
+                revision: 'drt1:browser:stale-refresh:1',
+                source: staleBlob,
+                refreshSource,
+                pageSizes: [],
+                rasterRows: [],
+                incompleteRasterPages: new Set(),
+                pageOpsEngineSha256: null,
+                rasterFacts: reduceScanCleanupRasterRows([]),
+                annotatedPages: new Set(),
+                pdf: {},
+            }),
+            makeRasterCachePageSize({pageNumber: 1}),
+            300,
+            4_000_000,
+            new AbortController().signal,
+        );
+
+        expect(refreshSource).toHaveBeenCalledOnce();
+        expect(mocks.runBrowserPageOpsWorkerRequest).toHaveBeenCalledTimes(2);
+        expect(mocks.runBrowserPageOpsWorkerRequest.mock.calls[1]?.[1]).toMatchObject({source: freshBlob});
+        expect(raster.width).toBe(4);
+        expect(raster.height).toBe(4);
+    });
+
+    it('binds openSource inspection and refreshSource strictly to the revision-pinned Blob through readableRevision(ref, {token})', async () => {
+        const {browserDocumentStore} = await import('@app/platform/browserDocumentStore');
+        const {requireDocumentRevisionToken} = await import('@contracts/documentRevision');
+        const {borrowBrowserScanCleanupSource} = await import('@app/platform/browser-api/browserScanCleanupSources');
+        const ref = 'browser://documents/refresh-bound.pdf';
+        const token = requireDocumentRevisionToken('drt1:browser:refresh-bound:1');
+        const instance = Symbol('entry');
+        const pinnedBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+        const initialBlob = new Blob([pinnedBytes]);
+        const refreshedBlob = new Blob([pinnedBytes]);
+
+        const readableRevisionSpy = vi.spyOn(browserDocumentStore, 'readableRevision')
+            .mockResolvedValueOnce({
+                blob: initialBlob,
+                token,
+                byteRevision: 1,
+                instance,
+            })
+            .mockResolvedValueOnce({
+                blob: refreshedBlob,
+                token,
+                byteRevision: 1,
+                instance,
+            });
+        vi.spyOn(browserDocumentStore, 'assertDocumentRevisionCurrent').mockResolvedValue(undefined);
+        const readSpy = vi.spyOn(browserDocumentStore, 'read');
+        mocks.runBrowserPageOpsWorkerRequest.mockResolvedValueOnce({
+            pageCount: 1,
+            pages: [{
+                pageNumber: 1,
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 612,
+                heightPoints: 792,
+                rotation: 0,
+                userUnit: 1,
+                rasterUses: [],
+                rasterInventoryComplete: true,
+                hasAnnotations: false,
+            }],
+        });
+        const pdfMod = await import('@app/platform/browser-api/loadBrowserPdfjsDocument');
+        vi.spyOn(pdfMod, 'loadBrowserPdfjsDocument').mockResolvedValue(cast({
+            loadingTask: {destroy: vi.fn(async () => undefined)},
+        }));
+
+        const borrow = borrowBrowserScanCleanupSource(ref, token);
+        try {
+            const source = await borrow.opened;
+            // Inspection reads directly from the revision-pinned Blob instead of a separate store.read(ref).
+            expect(readSpy).not.toHaveBeenCalled();
+            expect(mocks.runBrowserPageOpsWorkerRequest.mock.calls[0]?.[1]).toMatchObject({data: pinnedBytes});
+            readableRevisionSpy.mockClear();
+            const refreshed = await source.refreshSource!();
+            expect(readableRevisionSpy).toHaveBeenCalledWith(ref, {token});
+            expect(refreshed).toBe(refreshedBlob);
+            expect(source.source).toBe(refreshedBlob);
+        } finally {
+            borrow.release();
+            vi.restoreAllMocks();
+        }
     });
 });

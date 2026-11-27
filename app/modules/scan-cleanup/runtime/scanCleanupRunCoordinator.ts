@@ -408,17 +408,38 @@ async function openGeneratedPdfWithHandoff(
         // the completed journal's replay.
         const open = openGeneratedPdf(outputPdfPath, signal, jobId !== null);
         opened = await new Promise<boolean>((resolve) => {
-            const abandon = () => resolve(false);
+            let settled = false;
+            const settle = (value: boolean) => {
+                if (settled) return;
+                settled = true;
+                signal.removeEventListener('abort', abandon);
+                resolve(value);
+            };
+            const abandon = () => {
+                // Disposal ends immediately; on timeout, let a presentation
+                // that already committed unwind its microtasks and settle as
+                // opened before declaring the handoff timed out.
+                if (signal.reason === 'disposed') {
+                    settle(false);
+                    return;
+                }
+                let remaining = 12;
+                const flush = () => {
+                    if (settled) return;
+                    remaining -= 1;
+                    if (remaining <= 0) settle(false);
+                    else queueMicrotask(flush);
+                };
+                queueMicrotask(flush);
+            };
             signal.addEventListener('abort', abandon, {once: true});
             open.then(
                 (answer) => {
-                    signal.removeEventListener('abort', abandon);
-                    resolve(answer === true);
+                    settle(answer === true);
                 },
                 (caught: unknown) => {
                     error = caught;
-                    signal.removeEventListener('abort', abandon);
-                    resolve(false);
+                    settle(false);
                 },
             );
             if (signal.aborted) {

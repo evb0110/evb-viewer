@@ -530,7 +530,7 @@ export function createBrowserPageOpsCapability(
                 }
                 appended = result;
                 return result.length;
-            });
+            }, {allowForeignBase: false});
             if (lease === null || !appended) {
                 if (failure) {
                     throw new SerializableError(failure.error);
@@ -538,8 +538,6 @@ export function createBrowserPageOpsCapability(
                 throw new PdfPageOpsCapabilityError('native-failure', `${operationName} was not applied`, {operation: operationName});
             }
             try {
-                // Reject if `stageAppend` had to materialize an externally replaced picked file (`:s` foreign base):
-                // page geometry edits chosen for PDF A must never commit against replacement PDF B.
                 if (expectedToken) {
                     const stagedRevision = await browserDocumentStore.getDocumentRevision(operation.workingCopyPath);
                     if (stagedRevision.token !== expectedToken) {

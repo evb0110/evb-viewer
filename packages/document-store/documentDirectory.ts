@@ -694,6 +694,7 @@ export class DocumentDirectory {
         const { publication } = this.store;
         const { destination, baseline } = this.manifest;
         const before = await publication.witness(destination!);
+        if (!asItIs && !sameWitness(before, baseline)) return null;
         const created = await this.createRevisionFile(name, await publication.source(destination!));
         const discard = async () => {
             await created.file.close().catch(() => undefined);

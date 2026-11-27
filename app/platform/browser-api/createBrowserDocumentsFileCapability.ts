@@ -347,7 +347,7 @@ export function createBrowserDocumentsFileCapability(
                 }
                 appended = result;
                 return result.length;
-            });
+            }, {allowForeignBase: true});
             if (lease === null || !appended) {
                 return {
                     applied: false,
@@ -406,6 +406,14 @@ export function createBrowserDocumentsFileCapability(
         },
         async replaceWorkingCopyFromStagedPdfNativeMutation(path, stagedOutput, options) {
             try {
+                // Only Save As rescue may build on a foreign-staged (:1:s) base;
+                // working-copy replacement (e.g. annotation flush before Rotate/Crop)
+                // must refuse committing edits onto an externally replaced file.
+                await browserDocumentStore.assertDocumentRevisionCurrent(
+                    path,
+                    options.expectedDocumentRevisionToken,
+                    {allowStagedBase: false},
+                );
                 await browserDocumentStore.commitAppend(path, options.expectedDocumentRevisionToken, requireNativeMutationLease(path, stagedOutput));
             } finally {
                 await releaseNativeMutationLease(stagedOutput.leaseId);

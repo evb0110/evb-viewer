@@ -28,6 +28,7 @@ import {
     isBrowserPageOpsWasmFailure,
 } from '@contracts/browserPageOpsWorker';
 import {decodeBrowserPdfCatalog} from '@contracts/browserPdfCatalog';
+import {exceedsWasmMemoryHighWater} from '@app/platform/browser/loadWasmWithDeadline';
 import { toTransferableUint8Array } from '@app/platform/browser/toTransferableUint8Array';
 import {
     blobSource,
@@ -168,6 +169,10 @@ export function evictCachedBrowserPageOpsDocument(keyPrefix?: string) {
     if (!slot) return;
     if (keyPrefix !== undefined && !slot.key.startsWith(keyPrefix)) return;
     cachedDocument = null;
+    if (exceedsWasmMemoryHighWater(slot.tool.memory)) {
+        releasePdfPageOpsWasmAboveHighWater(slot.tool);
+        return;
+    }
     try {
         const frame = buildStandardFrame({
             operation: OPERATION_CODES.closeDocument,
@@ -179,6 +184,19 @@ export function evictCachedBrowserPageOpsDocument(keyPrefix?: string) {
     } finally {
         releasePdfPageOpsWasmAboveHighWater(slot.tool);
     }
+}
+
+/**
+ * Evicts any cached parsed document held by `tool` and discards the WASM
+ * instance once its linear memory crossed the high-water threshold, after
+ * the caller has copied its output out of WASM memory.
+ */
+function evictIfAboveHighWater(tool: IPdfPageOpsWasmExports) {
+    if (!exceedsWasmMemoryHighWater(tool.memory)) return;
+    if (cachedDocument?.tool === tool) {
+        cachedDocument = null;
+    }
+    releasePdfPageOpsWasmAboveHighWater(tool);
 }
 
 function getRequestPages(request: TBrowserPageOpsWasmRequest): number[] {
@@ -512,12 +530,16 @@ function runWasmRequest<K extends TByteRequestType>(
     if (called.status === 'failed') {
         if (cachedDocument?.tool === tool && called.error.code === 'too-large') {
             evictCachedBrowserPageOpsDocument();
+        } else {
+            evictIfAboveHighWater(tool);
         }
         return called;
     }
 
-    return parseWasmOutput(type, called.output)
+    const parsed = parseWasmOutput(type, called.output)
         ?? createWasmFailure('invalid-request', 'Page operation WASM returned malformed output');
+    evictIfAboveHighWater(tool);
+    return parsed;
 }
 
 async function runCachedScanCleanupRaster(
@@ -547,12 +569,16 @@ async function runCachedScanCleanupRaster(
     if (cachedDocument !== null && cachedDocument.key === cacheKey && cachedDocument.tool === tool) {
         const hit = renderWithHandle(tool, cachedDocument.handle);
         if (hit.status === 'succeeded') {
-            return parseWasmOutput('renderScanCleanupRaster', hit.output)
+            const parsed = parseWasmOutput('renderScanCleanupRaster', hit.output)
                 ?? createWasmFailure('invalid-request', 'Page operation WASM returned malformed output');
+            evictIfAboveHighWater(tool);
+            return parsed;
         }
         if (hit.error.code !== 'invalid-request' || !hit.error.message.includes('Cached PDF document handle is not open')) {
             if (hit.error.code === 'too-large') {
                 evictCachedBrowserPageOpsDocument();
+            } else {
+                evictIfAboveHighWater(tool);
             }
             return hit;
         }
@@ -593,11 +619,15 @@ async function runCachedScanCleanupRaster(
     if (rendered.status === 'failed') {
         if (rendered.error.code === 'too-large') {
             evictCachedBrowserPageOpsDocument();
+        } else {
+            evictIfAboveHighWater(tool);
         }
         return rendered;
     }
-    return parseWasmOutput('renderScanCleanupRaster', rendered.output)
+    const parsed = parseWasmOutput('renderScanCleanupRaster', rendered.output)
         ?? createWasmFailure('invalid-request', 'Page operation WASM returned malformed output');
+    evictIfAboveHighWater(tool);
+    return parsed;
 }
 
 const NO_SINK = {
@@ -620,15 +650,21 @@ async function runFileRead<K extends TFileReadType>(
         sink: NO_SINK,
         copy: () => Promise.reject(new Error('A read copies nothing')),
     };
-    const output = await withOpenFiles(files, async () => runFileRequest(tool, {
-        operation: OPERATION_CODES[type],
-        sourceCount: 1,
-        ...('pages' in payload ? {pages: payload.pages} : {}),
-        ...('pageNumber' in payload ? {pages: [payload.pageNumber]} : {}),
-        ...('withEvbOcrText' in payload && payload.withEvbOcrText ? {payload: new TextEncoder().encode('with-evb-ocr-text')} : {}),
-    }, cachedDocument?.tool === tool ? {skipHighWaterRelease: true} : undefined));
-    if (isBrowserPageOpsWasmFailure(output)) return output;
-    return parseWasmOutput(type, output) ?? createWasmFailure('invalid-request', 'Page operation WASM returned malformed output');
+    try {
+        const output = await withOpenFiles(files, async () => runFileRequest(tool, {
+            operation: OPERATION_CODES[type],
+            sourceCount: 1,
+            ...('pages' in payload ? {pages: payload.pages} : {}),
+            ...('pageNumber' in payload ? {pages: [payload.pageNumber]} : {}),
+            ...('withEvbOcrText' in payload && payload.withEvbOcrText ? {payload: new TextEncoder().encode('with-evb-ocr-text')} : {}),
+        }, cachedDocument?.tool === tool ? {skipHighWaterRelease: true} : undefined));
+        if (isBrowserPageOpsWasmFailure(output)) {
+            return output;
+        }
+        return parseWasmOutput(type, output) ?? createWasmFailure('invalid-request', 'Page operation WASM returned malformed output');
+    } finally {
+        evictIfAboveHighWater(tool);
+    }
 }
 
 /**

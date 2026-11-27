@@ -2736,4 +2736,94 @@ describe('browser page-ops WASM fast path', () => {
         await evictCachedBrowserPageOpsDocument('doc-1:rev-1');
     });
 
+    it('evicts the cached parsed PDF and discards the WASM instance when a cached raster crosses the high-water memory threshold', async () => {
+        const scanPdf = new Uint8Array(await readFile(join(process.cwd(), 'native/scan-cleanup/tests/fixtures/source-raster/jpeg-rgb/input.pdf')));
+        const wasm = await loadWasmRunner();
+        const {loadPdfPageOpsWasm} = await import('@app/platform/browser/pdfPageEngine');
+        const {wasmMemoryHighWaterBytes} = await import('@app/platform/browser/loadWasmWithDeadline');
+        const {evictCachedBrowserPageOpsDocument} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
+
+        const first = await wasm.run('renderScanCleanupRaster', {
+            data: scanPdf.slice(),
+            cacheKey: 'doc-high-water:rev-1',
+            request: {
+                pageNumber: 1,
+                dpi: 72,
+                renderBox: 'cropBox',
+                maxPixels: 4_000_000,
+            },
+        });
+        expect(isBrowserPageOpsWasmFailure(first)).toBe(false);
+        const toolBefore = await loadPdfPageOpsWasm();
+        const highWater = wasmMemoryHighWaterBytes();
+        const currentBytes = toolBefore.memory.buffer.byteLength;
+        expect(currentBytes).toBeLessThanOrEqual(highWater);
+
+        // Simulate a large page growing the cached WASM heap past the high-water limit.
+        const pagesNeeded = Math.ceil((highWater - currentBytes) / 65_536) + 1;
+        toolBefore.memory.grow(pagesNeeded);
+        expect(toolBefore.memory.buffer.byteLength).toBeGreaterThan(highWater);
+
+        const second = await wasm.run('renderScanCleanupRaster', {
+            data: scanPdf.slice(),
+            cacheKey: 'doc-high-water:rev-1',
+            request: {
+                pageNumber: 1,
+                dpi: 72,
+                renderBox: 'cropBox',
+                maxPixels: 4_000_000,
+            },
+        });
+        expect(isBrowserPageOpsWasmFailure(second)).toBe(false);
+        expect(second).toEqual(first);
+
+        // The oversized WASM instance must be discarded immediately after copying out the raster.
+        const toolAfter = await loadPdfPageOpsWasm();
+        expect(toolAfter).not.toBe(toolBefore);
+        expect(toolAfter.memory.buffer.byteLength).toBeLessThanOrEqual(highWater);
+        evictCachedBrowserPageOpsDocument('doc-high-water:rev-1');
+    });
+
+    it('evicts the cached parsed PDF and discards the oversized WASM instance when a shared-worker range read throws', async () => {
+        const scanPdf = new Uint8Array(await readFile(join(process.cwd(), 'native/scan-cleanup/tests/fixtures/source-raster/jpeg-rgb/input.pdf')));
+        const wasm = await loadWasmRunner();
+        const {loadPdfPageOpsWasm} = await import('@app/platform/browser/pdfPageEngine');
+        const {wasmMemoryHighWaterBytes} = await import('@app/platform/browser/loadWasmWithDeadline');
+        const {evictCachedBrowserPageOpsDocument} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
+
+        const first = await wasm.run('renderScanCleanupRaster', {
+            data: scanPdf.slice(),
+            cacheKey: 'doc-high-water-throw:rev-1',
+            request: {
+                pageNumber: 1,
+                dpi: 72,
+                renderBox: 'cropBox',
+                maxPixels: 4_000_000,
+            },
+        });
+        expect(isBrowserPageOpsWasmFailure(first)).toBe(false);
+        const toolBefore = await loadPdfPageOpsWasm();
+        const highWater = wasmMemoryHighWaterBytes();
+
+        class ThrowingFileReaderSync {
+            public readAsArrayBuffer() {
+                const currentBytes = toolBefore.memory.buffer.byteLength;
+                if (currentBytes <= highWater) {
+                    toolBefore.memory.grow(Math.ceil((highWater - currentBytes) / 65_536) + 1);
+                }
+                throw new DOMException('The requested file could not be read.', 'NotReadableError');
+            }
+        }
+        vi.stubGlobal('FileReaderSync', ThrowingFileReaderSync);
+        try {
+            await expect(wasm.run('appendAdmission', {source: new Blob([scanPdf])})).rejects.toMatchObject({name: 'NotReadableError'});
+            const toolAfter = await loadPdfPageOpsWasm();
+            expect(toolAfter).not.toBe(toolBefore);
+            expect(toolAfter.memory.buffer.byteLength).toBeLessThanOrEqual(highWater);
+        } finally {
+            vi.unstubAllGlobals();
+            evictCachedBrowserPageOpsDocument('doc-high-water-throw:rev-1');
+        }
+    });
+
 });

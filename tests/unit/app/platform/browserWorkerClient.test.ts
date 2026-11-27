@@ -902,4 +902,164 @@ describe('scan cleanup engine threads', () => {
         expect(readScanCleanupEngineWorkerThreads(undefined)).toBeNull();
         expect(readScanCleanupEngineWorkerThreads('')).toBeNull();
     });
+
+    it('immediately terminates a draining preview worker for a 1-page conversion while keeping warm draining for preview supersession', async () => {
+        vi.useFakeTimers();
+        vi.stubGlobal('crossOriginIsolated', true);
+        vi.stubGlobal('navigator', {
+            hardwareConcurrency: 11,
+            userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15',
+        });
+        vi.resetModules();
+
+        interface IControlledWorker {
+            name: string;
+            terminated: boolean;
+            posted: Array<{id: number; type: string}>;
+            reply: (id: number, type: string) => void;
+        }
+        const workers: IControlledWorker[] = [];
+        class ControlledScanCleanupWorker extends EventTarget {
+            public readonly record: IControlledWorker;
+            public constructor(_url: URL, options: {name: string}) {
+                super();
+                this.record = {
+                    name: options.name,
+                    terminated: false,
+                    posted: [],
+                    reply: (id, type) => {
+                        this.dispatchEvent(new MessageEvent('message', {data: {
+                            id,
+                            ok: true,
+                            type,
+                            data: {status: 'succeeded', result: {}},
+                        }}));
+                    },
+                };
+                workers.push(this.record);
+            }
+
+            public postMessage(message: {id: number; type: string}) {
+                this.record.posted.push({id: message.id, type: message.type});
+            }
+
+            public terminate() {
+                this.record.terminated = true;
+            }
+        }
+        vi.stubGlobal('Worker', ControlledScanCleanupWorker);
+        const {runBrowserScanCleanupWorkerRequest} = await import('@app/platform/browser-api/browserScanCleanupWorkerClient');
+
+        // 1. Preview 1 starts on a threaded worker and is canceled -> enters warm draining (not terminated).
+        const preview1Controller = new AbortController();
+        const preview1 = runBrowserScanCleanupWorkerRequest('render-preview', {} as never, preview1Controller.signal, undefined, 1);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(workers).toHaveLength(1);
+        const previewWorker = workers[0]!;
+        expect(previewWorker.posted).toHaveLength(1);
+        const preview1Req = previewWorker.posted[0]!;
+
+        preview1Controller.abort(new DOMException('superseded', 'AbortError'));
+        await expect(preview1).rejects.toMatchObject({name: 'AbortError'});
+        expect(previewWorker.terminated).toBe(false);
+
+        // 2. Preview-vs-preview supersession keeps warm draining and reuses the same worker once drained.
+        const preview2Controller = new AbortController();
+        const preview2 = runBrowserScanCleanupWorkerRequest('render-preview', {} as never, preview2Controller.signal, undefined, 1);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(workers).toHaveLength(1);
+        expect(previewWorker.terminated).toBe(false);
+        expect(previewWorker.posted).toHaveLength(1);
+
+        previewWorker.reply(preview1Req.id, preview1Req.type);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(workers).toHaveLength(1);
+        expect(previewWorker.posted).toHaveLength(2);
+
+        // 3. Cancel preview 2 (draining again), then start a 1-page conversion render-page (same threaded key).
+        preview2Controller.abort(new DOMException('conversion started', 'AbortError'));
+        await expect(preview2).rejects.toMatchObject({name: 'AbortError'});
+        expect(previewWorker.terminated).toBe(false);
+
+        const renderPage = runBrowserScanCleanupWorkerRequest('render-page', {} as never, new AbortController().signal, undefined, 1);
+        await vi.advanceTimersByTimeAsync(0);
+
+        // Must NOT wait 5 seconds for preview 2 to drain: retiring preview worker is terminated immediately.
+        expect(previewWorker.terminated).toBe(true);
+        expect(workers).toHaveLength(2);
+        const conversionWorker = workers[1]!;
+        expect(conversionWorker.posted).toHaveLength(1);
+        conversionWorker.reply(conversionWorker.posted[0]!.id, conversionWorker.posted[0]!.type);
+        await expect(renderPage).resolves.toEqual({status: 'succeeded', result: {}});
+    });
+
+    it('reclaims a draining preview worker immediately for keyless assemble-raster on a 1-slot pool', async () => {
+        vi.useFakeTimers();
+        vi.stubGlobal('crossOriginIsolated', false);
+        vi.stubGlobal('navigator', {
+            hardwareConcurrency: 2,
+            deviceMemory: 2,
+            userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15',
+        });
+        vi.resetModules();
+
+        interface IControlledWorker {
+            terminated: boolean;
+            posted: Array<{id: number; type: string}>;
+            replyAssemble: (id: number) => void;
+        }
+        const workers: IControlledWorker[] = [];
+        class SingleSlotWorker extends EventTarget {
+            public readonly record: IControlledWorker;
+            public constructor() {
+                super();
+                this.record = {
+                    terminated: false,
+                    posted: [],
+                    replyAssemble: (id) => {
+                        this.dispatchEvent(new MessageEvent('message', {data: {
+                            id,
+                            ok: true,
+                            type: 'assemble-raster',
+                            data: {
+                                width: 1,
+                                height: 1,
+                                ppm: new Uint8Array([0]),
+                            },
+                        }}));
+                    },
+                };
+                workers.push(this.record);
+            }
+
+            public postMessage(message: {id: number; type: string}) {
+                this.record.posted.push({id: message.id, type: message.type});
+            }
+
+            public terminate() {
+                this.record.terminated = true;
+            }
+        }
+        vi.stubGlobal('Worker', SingleSlotWorker);
+        const {runBrowserScanCleanupWorkerRequest} = await import('@app/platform/browser-api/browserScanCleanupWorkerClient');
+
+        const previewController = new AbortController();
+        const preview = runBrowserScanCleanupWorkerRequest('render-preview', {} as never, previewController.signal, undefined, 1);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(workers).toHaveLength(1);
+        const drainingWorker = workers[0]!;
+        previewController.abort(new DOMException('late preview cancel', 'AbortError'));
+        await expect(preview).rejects.toMatchObject({name: 'AbortError'});
+        expect(drainingWorker.terminated).toBe(false);
+
+        // Keyless assemble-raster (PDF.js fallback) must immediately reclaim the single draining slot.
+        const assembled = runBrowserScanCleanupWorkerRequest('assemble-raster', {} as never, new AbortController().signal);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(drainingWorker.terminated).toBe(true);
+        expect(workers).toHaveLength(2);
+        const assemblyWorker = workers[1]!;
+        expect(assemblyWorker.posted).toHaveLength(1);
+        assemblyWorker.replyAssemble(assemblyWorker.posted[0]!.id);
+        await expect(assembled).resolves.toMatchObject({width: 1, height: 1});
+    });
 });

@@ -494,6 +494,18 @@ export interface IBrowserWorkerAdmission {
      * never stall unrelated work behind a draining cancel.
      */
     waitForDrainingSameKey?: boolean;
+    /**
+     * When true, immediately terminates any draining worker of the same key
+     * instead of waiting for its warm-cancel drain timeout (used when a
+     * conversion starts while a canceled preview worker is still draining).
+     */
+    terminateDrainingSameKey?: boolean;
+    /**
+     * When true and every slot is occupied or draining, immediately terminates
+     * a draining worker so conversion work (including keyless raster assembly)
+     * never waits out a 5-second preview drain on a 1-slot pool.
+     */
+    terminateDrainingWhenFull?: boolean;
 }
 
 interface IOwnedRequest<TPendingRequest extends {
@@ -517,6 +529,8 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
     private readonly clients: Array<BrowserWorkerClient<TPendingRequest>>;
     private readonly lifecycle = new BrowserWorkerClientLifecycle();
     private readonly requests = new Map<number, IOwnedRequest<TPendingRequest>>();
+    private admitting = false;
+    private readmit = false;
 
     public constructor(
         createClient: () => BrowserWorkerClient<TPendingRequest>,
@@ -604,20 +618,19 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
         if (!request) return;
         if (request.client) {
             if (request.admission.keepWarmOnCancel) {
-                const canceledPending = request.client.cancelPendingRequest(requestId, error, {
+                const client = request.client;
+                const canceledPending = client.cancelPendingRequest(requestId, error, {
                     keepWarm: true,
                     ...(request.admission.drainTimeoutMs === undefined
                         ? {}
                         : {drainTimeoutMs: request.admission.drainTimeoutMs}),
                 });
+                if (client.leasedBy === requestId) {
+                    client.leasedBy = null;
+                }
+                request.client = null;
+                this.requests.delete(requestId);
                 if (!canceledPending) {
-                    // Canceled before registering a pending request: stop admission
-                    // immediately and release only our own lease so a successor's
-                    // lease can never be clobbered by our deferred finalizer.
-                    if (request.client.leasedBy === requestId) {
-                        request.client.leasedBy = null;
-                    }
-                    this.requests.delete(requestId);
                     request.reject(error);
                 }
                 return;
@@ -648,6 +661,13 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
         }
     }
 
+    /** Immediately terminates any warm-canceled workers that are still draining. */
+    public resetDrainingWorkers() {
+        for (const client of this.clients) {
+            if (client.draining) client.resetWorker();
+        }
+    }
+
     private reset() {
         const requests = [...this.requests.values()];
         for (const request of requests) {
@@ -663,12 +683,42 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
     }
 
     private admitWaitingRequests() {
+        if (this.admitting) {
+            this.readmit = true;
+            return;
+        }
+        this.admitting = true;
+        try {
+            do {
+                this.readmit = false;
+                this.admitWaitingRequestsPass();
+            } while (this.readmit);
+        } finally {
+            this.admitting = false;
+        }
+    }
+
+    private admitWaitingRequestsPass() {
         const admitted = [...this.requests.values()].flatMap(entry => entry.client ? [entry.client] : []);
         for (const request of this.requests.values()) {
             if (request.client) continue;
-            const free = this.clients.filter(candidate => !admitted.includes(candidate) && !candidate.draining);
-            if (free.length === 0) return;
             const workerKey = request.admission.workerKey?.();
+            if (request.admission.terminateDrainingSameKey && workerKey !== undefined) {
+                for (const candidate of this.clients) {
+                    if (!admitted.includes(candidate) && candidate.draining && candidate.workerKey === workerKey) {
+                        candidate.resetWorker();
+                    }
+                }
+            }
+            let free = this.clients.filter(candidate => !admitted.includes(candidate) && !candidate.draining);
+            if (free.length === 0 && request.admission.terminateDrainingWhenFull) {
+                const draining = this.clients.find(candidate => !admitted.includes(candidate) && candidate.draining);
+                if (draining) {
+                    draining.resetWorker();
+                    free = this.clients.filter(candidate => !admitted.includes(candidate) && !candidate.draining);
+                }
+            }
+            if (free.length === 0) continue;
             const client = this.chooseClient(
                 free,
                 workerKey,

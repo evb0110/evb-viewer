@@ -113,6 +113,8 @@ export interface IBrowserScanCleanupSource {
     pageOpsEngineSha256: string | null;
     /** Pages whose images the inventory could not all measure. */
     incompleteRasterPages: ReadonlySet<number>;
+    /** Verifies this source's pinned revision instance and byte epoch are still current. */
+    assertCurrent?: () => Promise<void>;
     /** The whole document's raster facts, as desktop reduces its pdfimages listing. */
     rasterFacts: IPageRasterDetectionResult;
     /** Pages carrying any annotation, links and widgets included. */
@@ -251,7 +253,9 @@ export async function renderPageRaster(
         // An in-place OPFS append (or discarded append) invalidates previously
         // opened File handles; re-check the revision and refresh once if still current.
         const isStaleFileHandle = error instanceof Error
-            && (error.name === 'NotReadableError' || error.message.includes('NotReadableError'));
+            && (error.name === 'NotReadableError'
+                || Reflect.get(error, 'code') === 'NotReadableError'
+                || error.message.includes('NotReadableError'));
         if (isStaleFileHandle && source.refreshSource && !signal.aborted) {
             const refreshed = await source.refreshSource();
             return runRasterRequest(refreshed).catch((retryError: unknown) => {

@@ -26,6 +26,7 @@ import {classifyBrowserScanCleanupError} from '@app/platform/browser-api/classif
 import {
     awaitScanCleanupSource,
     borrowBrowserScanCleanupSource,
+    readBoundedRevisionBlobBytes,
 } from '@app/platform/browser-api/browserScanCleanupSources';
 
 type TJobListener = Parameters<IScanCleanupCapability['onJobState']>[0];
@@ -157,8 +158,24 @@ export function createBrowserScanCleanupConversionOwner(
                 },
                 source,
                 readSource: async () => {
-                    await browserDocumentStore.assertDocumentRevisionCurrent(request.sourcePdfPath, token);
-                    return browserDocumentStore.read(request.sourcePdfPath, {maxBytes: BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - REQUEST_HEADER.bytes});
+                    await source.assertCurrent?.();
+                    const {
+                        blob,
+                        instance,
+                        byteRevision,
+                    } = await browserDocumentStore.readableRevision(request.sourcePdfPath, {token});
+                    const bytes = await readBoundedRevisionBlobBytes(
+                        blob,
+                        BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - REQUEST_HEADER.bytes,
+                        request.sourcePdfPath,
+                    );
+                    await browserDocumentStore.assertDocumentRevisionCurrent(request.sourcePdfPath, token, {
+                        strict: true,
+                        expectedInstance: instance,
+                        ...(byteRevision === undefined ? {} : {expectedByteRevision: byteRevision}),
+                    });
+                    await source.assertCurrent?.();
+                    return bytes;
                 },
                 signal,
                 onProgress: progress => publish('running', progress),

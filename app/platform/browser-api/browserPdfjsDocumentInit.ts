@@ -37,6 +37,13 @@ interface IBrowserPdfjsRangeSource {
     read(begin: number, end: number): Promise<Uint8Array>;
 }
 
+function isStaleFileBlobError(error: unknown) {
+    if (!(error instanceof Error)) return false;
+    return error.name === 'NotReadableError'
+        || Reflect.get(error, 'code') === 'NotReadableError'
+        || error.message.includes('NotReadableError');
+}
+
 /**
  * A stored document read by path through its revision-pinned Blob when
  * available, refused once the revision changes, rolls back, or closes.
@@ -52,6 +59,7 @@ async function storedDocumentRanges(path: string): Promise<IBrowserPdfjsRangeSou
             byteRevision,
             instance,
         } = await browserDocumentStore.readableRevision(path);
+        let currentBlob = blob;
         const assertCurrent = () => browserDocumentStore.assertDocumentRevisionCurrent(path, token, {
             strict: true,
             expectedInstance: instance,
@@ -62,7 +70,24 @@ async function storedDocumentRanges(path: string): Promise<IBrowserPdfjsRangeSou
             assertCurrent,
             read: async (begin, end) => {
                 await assertCurrent();
-                const bytes = new Uint8Array(await blob.slice(begin, end).arrayBuffer());
+                let bytes: Uint8Array;
+                try {
+                    bytes = new Uint8Array(await currentBlob.slice(begin, end).arrayBuffer());
+                } catch (error) {
+                    if (!isStaleFileBlobError(error)) throw error;
+                    await assertCurrent();
+                    const refreshed = await browserDocumentStore.readableRevision(path, {token});
+                    if (
+                        refreshed.instance !== instance
+                        || (byteRevision !== undefined && refreshed.byteRevision !== byteRevision)
+                        || refreshed.blob.size !== blob.size
+                    ) {
+                        await assertCurrent();
+                        throw error;
+                    }
+                    currentBlob = refreshed.blob;
+                    bytes = new Uint8Array(await currentBlob.slice(begin, end).arrayBuffer());
+                }
                 await assertCurrent();
                 return bytes;
             },

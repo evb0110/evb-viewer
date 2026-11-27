@@ -674,7 +674,7 @@ describe('browser working-copy decryption', () => {
         const lease = await browserDocumentStore.stageAppend(working, tokenA, async (file, base) => {
             await file.writeAt(base, appendedTail);
             return base + appendedTail.byteLength;
-        });
+        }, {allowForeignBase: true});
         expect(lease).toEqual(expect.any(String));
         const stagedToken = (await browserDocumentStore.getDocumentRevision(working)).token;
         expect(stagedToken).toMatch(/:1:s$/u);
@@ -795,7 +795,7 @@ describe('browser working-copy decryption', () => {
             lease = await browserDocumentStore.stageAppend(working, tokenA, async (file, base) => {
                 await file.writeAt(base, appendedTail);
                 return base + appendedTail.byteLength;
-            });
+            }, {allowForeignBase: true});
             expect(lease).toEqual(expect.any(String));
 
             editedRelease.resolve(undefined);
@@ -903,7 +903,7 @@ describe('browser working-copy decryption', () => {
         const lease1 = await browserDocumentStore.stageAppend(working1, token1, async (file, base) => {
             await file.writeAt(base, appendedTail);
             return base + appendedTail.byteLength;
-        });
+        }, {allowForeignBase: true});
         expect(lease1).toEqual(expect.any(String));
         qpdfResult.resolve({
             exitCode: 0,
@@ -951,7 +951,7 @@ describe('browser working-copy decryption', () => {
             const lease2 = await browserDocumentStore.stageAppend(working2, token2, async (file, base) => {
                 await file.writeAt(base, appendedTail);
                 return base + appendedTail.byteLength;
-            });
+            }, {allowForeignBase: true});
             expect(lease2).toEqual(expect.any(String));
             confFacts.resolve({
                 isSigned: false,
@@ -993,7 +993,7 @@ describe('browser working-copy decryption', () => {
         const lease = await browserDocumentStore.stageAppend(working, tokenA, async (file, base) => {
             await file.writeAt(base, appendedTail);
             return base + appendedTail.byteLength;
-        });
+        }, {allowForeignBase: true});
         expect(lease).toEqual(expect.any(String));
 
         await expect(browserDocumentStore.write(

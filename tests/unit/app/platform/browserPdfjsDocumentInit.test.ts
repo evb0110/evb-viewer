@@ -391,4 +391,58 @@ describe('browserPdfjsDocumentInit', () => {
         expect('data' in init && init.data).toEqual(new Uint8Array(0));
         expect(browserDocumentStoreMock.readRange).not.toHaveBeenCalled();
     });
+
+    it('refreshes a stale revision-pinned Blob once on NotReadableError while keeping strict revision checks', async () => {
+        const size = 3 * 1024 * 1024;
+        const freshBytes = new Uint8Array(size).fill(42);
+        const instance = Symbol('rev-instance');
+        const token = 'drt1:browser:refresh-range:1';
+        let expireMiddleRange = false;
+        const staleBlob = {
+            size,
+            slice: (begin?: number, end?: number) => ({
+                arrayBuffer: async () => {
+                    if (expireMiddleRange && begin === 1024 * 1024) {
+                        throw new DOMException('The requested file could not be read.', 'NotReadableError');
+                    }
+                    return freshBytes.slice(begin ?? 0, end ?? size).buffer;
+                },
+            }),
+        } as unknown as Blob;
+        const freshBlob = new Blob([freshBytes]);
+
+        const readableRevision = vi.fn()
+            .mockResolvedValueOnce({blob: staleBlob, token, byteRevision: 1, instance})
+            .mockResolvedValueOnce({blob: freshBlob, token, byteRevision: 1, instance});
+        const assertDocumentRevisionCurrent = vi.fn(async () => undefined);
+        Object.assign(browserDocumentStoreMock, {
+            readableRevision,
+            assertDocumentRevisionCurrent,
+        });
+        try {
+            const {
+                createPdfjsDocumentInitFromBrowserDocument,
+                getPdfjsLib,
+            } = await import('@app/platform/browser-api/browserPdfjsDocumentInit');
+            const init = await createPdfjsDocumentInitFromBrowserDocument(
+                await getPdfjsLib(),
+                'browser://documents/refresh-range.pdf',
+            );
+            const range = 'range' in init ? init.range : undefined;
+            if (!range) throw new Error('Expected a PDF.js range transport');
+
+            expireMiddleRange = true;
+            range.requestDataRange?.(1024 * 1024, 1024 * 1024 + 32);
+            await vi.waitFor(() => expect(range.onDataRange).toHaveBeenCalledTimes(1));
+
+            expect(readableRevision).toHaveBeenCalledTimes(2);
+            expect(readableRevision).toHaveBeenLastCalledWith('browser://documents/refresh-range.pdf', {token});
+            const [, delivered] = vi.mocked(range.onDataRange).mock.calls[0] as [number, Uint8Array, boolean];
+            expect(delivered.byteLength).toBe(32);
+            expect(delivered[0]).toBe(42);
+        } finally {
+            delete (browserDocumentStoreMock as Record<string, unknown>).readableRevision;
+            delete (browserDocumentStoreMock as Record<string, unknown>).assertDocumentRevisionCurrent;
+        }
+    });
 });

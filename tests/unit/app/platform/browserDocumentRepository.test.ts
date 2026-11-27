@@ -466,3 +466,33 @@ it('lends the readers of a file in memory one Blob of its current bytes until th
     await port.remove('documents/a');
     await expect(storeFileBlob(port, path)).rejects.toMatchObject({name: 'NotFoundError'});
 });
+
+it('rejects default baseline-checked stageAppend on externally replaced picked files without committing foreign revision 1:s', async () => {
+    const {repo, store} = await repository();
+    const picked = pickedFile('external-change.pdf', '%PDF-1.7 original');
+    const sourceRef = await repo.registerFile(picked.file(), {saveHandle: picked.handle});
+    const workingRef = await repo.cloneAsWorkingCopy(sourceRef);
+    const entry = await repo.requireEntry(workingRef);
+    const docId = entry.doc!.id;
+    const tokenA = repo.tokenOf(entry);
+
+    // Replace the picked file externally before the working copy has private bytes.
+    picked.disk.bytes = encode('%PDF-1.7 replacement');
+    picked.disk.lastModified = 200;
+
+    // Default (baseline-checked) stageAppend must reject without materializing `:1:s`.
+    await expect(repo.stageAppend(workingRef, tokenA, async (file, base) => {
+        await file.writeAt(base, encode(' +rotate'));
+        return base + 8;
+    })).rejects.toMatchObject({name: 'BrowserDocumentSourceChangedError'});
+
+    expect(entry.doc!.state().current).toBeNull();
+    expect(repo.tokenOf(entry)).toBe(tokenA);
+
+    // Reloading from disk must still see no materialized foreign revision.
+    await entry.doc!.close();
+    const reopened = await openDocument(store, docId);
+    expect(reopened.state().current).toBeNull();
+    expect(reopened.state().dirty).toBe(false);
+    await reopened.close();
+});
