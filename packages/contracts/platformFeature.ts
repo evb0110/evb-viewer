@@ -258,7 +258,7 @@ type TPublicIpcMethodArgs<TSpec extends IPlatformIpcMethodSpec> =
             ? [NonNullable<TSpec['client']>] extends [never]
                 ? Extract<v.InferOutput<TSpec['ipc']['args']>, unknown[]>
                 : NonNullable<TSpec['client']> extends {mapArgs: (...args: infer TArgs) => unknown}
-                    ? TArgs & Extract<v.InferOutput<TSpec['ipc']['args']>, unknown[]>
+                    ? TArgs & TPlatformIpcClientArgs<TSpec['ipc']['args']>
                     : Extract<v.InferOutput<TSpec['ipc']['args']>, unknown[]>
             : TSpec['client'] extends {mapArgs: (...args: infer TArgs) => unknown}
                 ? TArgs

@@ -321,3 +321,60 @@ export function verifyOptionalReadonlyMapperCapability(
     // @ts-expect-error omitted client branch requires string wire args, so number is also unsafe
     void capability.run(1);
 }
+
+const numberToStringWireArgs = v.pipe(
+    v.strictTuple([v.number()]),
+    v.transform(([value]): [string] => [String(value)]),
+);
+
+const optionalTransformMapperSpec: {
+    readonly kind: 'async';
+    readonly channel: 'test:optional-transform-mapper';
+    readonly ipc: {
+        readonly args: typeof numberToStringWireArgs;
+        readonly result: v.BooleanSchema<undefined>;
+    };
+    readonly client?: { readonly mapArgs: (value: string) => readonly [number] };
+    readonly main: {
+        readonly method: 'run';
+        readonly context: 'none';
+    };
+    readonly browser: { readonly method: 'run' };
+    readonly lazy: 'forwarded';
+} = {
+    kind: 'async',
+    channel: 'test:optional-transform-mapper',
+    ipc: {
+        args: numberToStringWireArgs,
+        result: v.boolean(),
+    },
+    client: {
+        mapArgs: (value: string): readonly [number] => [Number(value)],
+    },
+    main: {
+        method: 'run',
+        context: 'none',
+    },
+    browser: { method: 'run' },
+    lazy: 'forwarded',
+};
+
+const optionalTransformMapperFeature = definePlatformFeature({
+    path: ['testOptionalTransformMapper'],
+    required: {
+        browser: true,
+        electron: true,
+    },
+    methods: {
+        run: optionalTransformMapperSpec,
+    },
+});
+
+export function verifyOptionalTransformMapperCapability(
+    capability: TFeatureCapability<typeof optionalTransformMapperFeature>,
+) {
+    // @ts-expect-error omitted mapper sends args raw to wire input ([number]), so string must be rejected
+    void capability.run('abc');
+    // @ts-expect-error present mapper expects string, so number must also be rejected
+    void capability.run(123);
+}
