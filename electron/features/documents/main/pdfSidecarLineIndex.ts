@@ -8,7 +8,11 @@ import {
     stat,
 } from 'node:fs/promises';
 import {join} from 'node:path';
-import {registerMainOperation} from '@electron/operation-lifecycle/mainOperationLifecycle';
+import {createAbortError} from '@contracts/isAbortError';
+import {
+    getCurrentMainOperationCancellationSignal,
+    registerMainOperation,
+} from '@electron/operation-lifecycle/mainOperationLifecycle';
 import {cancelNativeCommandGroup} from '@electron/native-tools/runNativeCommand';
 
 export interface IPdfSidecarLine {
@@ -136,10 +140,11 @@ async function registerPdfSidecarMainOperation(
 export function cancelPdfSidecarSession(
     session: IPdfSidecarSessionStateBase,
     reason: string,
+    abortReason: Error = createAbortError(reason),
 ) {
     session.canceled = true;
     if (!session.abortController.signal.aborted) {
-        session.abortController.abort(new Error(reason));
+        session.abortController.abort(abortReason);
     }
     cancelNativeCommandGroup(session.cancelGroup);
 }
@@ -162,7 +167,14 @@ async function beginPdfSidecarMainOperation<TSession extends IPdfSidecarSessionS
     registerSenderCleanup?: ((cancel: (reason: string) => void) => () => void) | undefined;
 }) {
     sessions.set(session.sessionId, session);
-    const cancel = (reason: string) => cancelPdfSidecarSession(session, reason);
+    const invokeCancellationSignal = getCurrentMainOperationCancellationSignal();
+    const cancel = (reason: string) => cancelPdfSidecarSession(
+        session,
+        reason,
+        invokeCancellationSignal?.aborted && invokeCancellationSignal.reason instanceof Error
+            ? invokeCancellationSignal.reason
+            : createAbortError(reason),
+    );
     const mainOperation = await registerPdfSidecarMainOperation({
         kind: 'abortable-work',
         ownerWebContentsId,
@@ -432,11 +444,11 @@ export function scanPdfSidecarLines<TData>(
         };
 
         if (options.signal?.aborted) {
-            rejectOnce(options.signal.reason ?? new Error(`${options.label} sidecar scan was aborted`));
+            rejectOnce(options.signal.reason ?? createAbortError(`${options.label} sidecar scan was aborted`));
             return;
         }
         const handleAbort = () => rejectOnce(
-            options.signal?.reason ?? new Error(`${options.label} sidecar scan was aborted`),
+            options.signal?.reason ?? createAbortError(`${options.label} sidecar scan was aborted`),
         );
         options.signal?.addEventListener('abort', handleAbort, {once: true});
         removeAbortListener = () => options.signal?.removeEventListener('abort', handleAbort);

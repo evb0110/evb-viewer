@@ -14,6 +14,7 @@ import {
     type TAgentCommand,
     type TAgentRendererAckReason,
 } from '@contracts/agent';
+import { createAbortError } from '@contracts/isAbortError';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
     createRequestId,
@@ -120,7 +121,7 @@ function createTargetWindowLifecycleCleanup<TResponse>(
         rejectPendingRequest(
             pendingMap,
             requestId,
-            new Error(`Agent renderer request was canceled because the target window ${reason}.`),
+            createAbortError(`Agent renderer request was canceled because the target window ${reason}.`),
         );
     };
     const handleClosed = () => rejectForLifecycle('closed');
@@ -156,7 +157,7 @@ function invalidateWorkspaceSnapshotLifecycle(
             rejectPendingRequest(
                 pendingSnapshotRequests,
                 requestId,
-                new Error(`Agent renderer request was canceled because the target window ${reason}.`),
+                createAbortError(`Agent renderer request was canceled because the target window ${reason}.`),
             );
         }
     }
@@ -236,7 +237,7 @@ function createPendingRequest<TResponse>(
             rejectPendingRequest(
                 pendingMap,
                 requestId,
-                new Error('Agent renderer request was aborted by the caller.'),
+                createAbortError('Agent renderer request was aborted by the caller.'),
             );
         };
         pendingMap.set(requestId, {
@@ -363,7 +364,7 @@ export function requestAgentWorkspaceSnapshot(
 ) {
     const window = assertUsableTargetWindow(targetWindow);
     if (signal?.aborted) {
-        return Promise.reject(new Error('Agent renderer request was aborted by the caller.'));
+        return Promise.reject(createAbortError('Agent renderer request was aborted by the caller.'));
     }
     const requestId = createRequestId('agent-snapshot');
     const cachedSnapshot = snapshotCacheByWindowId.get(window.id);
@@ -414,7 +415,7 @@ export function requestAgentCommand(
 ) {
     const window = assertUsableTargetWindow(targetWindow);
     if (signal?.aborted) {
-        return Promise.reject(new Error('Agent renderer request was aborted by the caller.'));
+        return Promise.reject(createAbortError('Agent renderer request was aborted by the caller.'));
     }
     const requestId = createRequestId('agent-command');
     if (onSuccessor) commandSuccessorHandlers.set(requestId, onSuccessor);

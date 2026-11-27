@@ -254,4 +254,19 @@ describe('direct batch open cancellation', () => {
         });
         expect(error instanceof Error ? error.message : String(error)).not.toMatch(/qpdf|pdf-work|document\.pdf/u);
     });
+
+    it('preserves canonical AbortError identity when a batch open or combine is canceled', async () => {
+        const {isAbortError} = await import('@contracts/isAbortError');
+        const handlers = await import('@electron/features/documents/main/documentOpenHandlers');
+        mocks.openInputPaths.mockRejectedValueOnce(new DOMException('The resource request was aborted.', 'AbortError'));
+
+        const error = await handlers.handleOpenPdfDirectBatch(
+            handlerContext(senderContext(7)),
+            ['/tmp/canceled.pdf'],
+            'combine-cancel-1',
+            {forceCombine: true},
+        ).then(() => null, (caught: unknown) => caught);
+
+        expect(isAbortError(error)).toBe(true);
+    });
 });

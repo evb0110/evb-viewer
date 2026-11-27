@@ -21,6 +21,10 @@ import type {
     TOpenDocumentDirectBatchProgress, TOpenFileResult, 
 } from '@contracts/electronApiDocuments';
 import type { TRequestId } from '@contracts/shared';
+import {
+    createAbortError,
+    isAbortError,
+} from '@contracts/isAbortError';
 import { parseRequestId } from '@contracts/shared';
 import { DOCUMENT_OPEN_PLATFORM_FEATURE } from '@contracts/documentsPlatformFeature';
 import { DOCUMENT_DIRECT_OPEN_REQUEST_SCHEMA } from '@contracts/documentsPlatformFeatureSchemas';
@@ -61,6 +65,10 @@ const activeDirectBatchRequests = new Map<string, AbortController>();
 // An expected refusal (a file that changed, is damaged, is gone or is too
 // large) is told by the renderer, so it is a warning here, not an error report.
 function createDocumentOpenError(error: unknown, failureMessage: string) {
+    if (isAbortError(error)) {
+        logger.debug(`${failureMessage}: ${getErrorMessage(error)}`);
+        return error instanceof Error ? error : createAbortError(getErrorMessage(error));
+    }
     const refused = error instanceof DocumentOpenRefusalError || error instanceof PdfDecryptTooLargeError;
     if (refused) {
         logger.warn(`${failureMessage}: ${getErrorMessage(error)}`);
@@ -239,7 +247,7 @@ export async function handleOpenPdfDirectBatch(
             ? null
             : getDirectBatchRequestKey(context.sender.id, normalizedRequestId);
         if (requestKey && abortController) {
-            activeDirectBatchRequests.get(requestKey)?.abort(new Error('Superseded document open request'));
+            activeDirectBatchRequests.get(requestKey)?.abort(createAbortError('Superseded document open request'));
             activeDirectBatchRequests.set(requestKey, abortController);
         }
         const options = normalizedRequestId

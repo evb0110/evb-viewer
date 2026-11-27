@@ -50,10 +50,8 @@ export function errorWithDetails(fallbackMessage: string, details: unknown): Err
             detailText = '<unserializable details>';
         }
     }
-    if (!detailText) {
-        return new Error(fallbackMessage);
-    }
-    return new Error(`${fallbackMessage}: ${detailText}`);
+    const message = detailText ? `${fallbackMessage}: ${detailText}` : fallbackMessage;
+    return details instanceof Error ? new Error(message, {cause: details}) : new Error(message);
 }
 
 async function withSingleActiveDialogForSender<T>(senderId: number, callback: () => Promise<T>) {

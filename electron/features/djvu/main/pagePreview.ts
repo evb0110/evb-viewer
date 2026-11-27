@@ -10,6 +10,7 @@ import type {
     IDjvuPageSize,
     IDjvuPageSourceInfo,
 } from '@contracts/electronApiDjvu';
+import { createAbortError } from '@contracts/isAbortError';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { runDjvuEngine } from '@electron/features/djvu/main/djvuEnginePool';
 import { getDjvuPageCount } from '@electron/features/djvu/main/metadata';
@@ -134,7 +135,7 @@ interface IDjvuPageSizeWindow {
 
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
-        throw signal.reason instanceof Error ? signal.reason : new Error('The operation was aborted');
+        throw signal.reason instanceof Error ? signal.reason : createAbortError();
     }
 }
 

@@ -1,3 +1,4 @@
+import {isAbortError} from '@contracts/isAbortError';
 import type {TDocumentRef} from '@contracts/documentRef';
 import {isRecord} from '@contracts/runtimeGuards';
 import {readBrowserStoreStagedArtifact} from '@app/platform/browser/browserStagedArtifact';
@@ -122,10 +123,6 @@ export async function saveWorkingBytesToSourceStructured(
             externalWriteCommitted: false,
         };
     }
-}
-
-function isAbortError(error: unknown) {
-    return error instanceof Error && error.name === 'AbortError';
 }
 
 /**

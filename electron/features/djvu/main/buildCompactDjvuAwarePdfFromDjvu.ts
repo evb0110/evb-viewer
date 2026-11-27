@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { createAbortError } from '@contracts/isAbortError';
 import {
     closeSync,
     createReadStream,
@@ -1325,7 +1326,7 @@ function isWhitespaceByte(byte: number) {
 
 function throwIfAborted(signal: AbortSignal | undefined) {
     if (signal?.aborted) {
-        throw new Error('DjVu conversion canceled');
+        throw createAbortError('DjVu conversion canceled');
     }
 }
 
@@ -1340,6 +1341,6 @@ function throwIfCanceledRenderResult(
     if (getUnprovenNativeTerminationDetail(result.cause) !== undefined) throw result.cause;
     throwIfAborted(signal);
     if (!result.success && result.error?.includes('DjVu conversion canceled')) {
-        throw new Error('DjVu conversion canceled');
+        throw createAbortError('DjVu conversion canceled');
     }
 }

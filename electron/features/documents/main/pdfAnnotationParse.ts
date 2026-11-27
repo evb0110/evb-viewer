@@ -9,6 +9,7 @@ import {
     parseDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
+import {createAbortError} from '@contracts/isAbortError';
 import {createSessionId} from '@contracts/shared';
 import {
     PDF_ANNOTATION_PARSE_MAX_ENTRIES,
@@ -242,7 +243,6 @@ export async function beginPdfAnnotationParse(
     const {
         session,
         mainOperation,
-        cancel,
     } = await createPdfSidecarMainOperation({
         sessionId,
         ownerId: getOwnerId(context),
@@ -270,8 +270,18 @@ export async function beginPdfAnnotationParse(
     // The page tool reads one-based page numbers.
     const {pageIndices} = options;
     const pagesPath = pageIndices === undefined ? undefined : join(session.sidecarDirectory, PARSE_PAGES_FILE_NAME);
-    const handleMainAbort = () => cancel('PDF annotation parsing canceled');
-    mainOperation.signal.addEventListener('abort', handleMainAbort, {once: true});
+    const handleMainAbort = () => cancelPdfSidecarSession(
+        session,
+        'PDF annotation parsing canceled',
+        mainOperation.signal.reason instanceof Error
+            ? mainOperation.signal.reason
+            : createAbortError('PDF annotation parsing canceled'),
+    );
+    if (mainOperation.signal.aborted) {
+        handleMainAbort();
+    } else {
+        mainOperation.signal.addEventListener('abort', handleMainAbort, {once: true});
+    }
 
     await runPdfSidecarOperation(
         session,
@@ -346,7 +356,10 @@ export async function readPdfAnnotationParseChunk(
     }
     assertSessionOwner(session, context);
     if (session.canceled || session.released) {
-        throw new Error('PDF annotation parse session is canceled');
+        if (session.abortController.signal.aborted && session.abortController.signal.reason instanceof Error) {
+            throw session.abortController.signal.reason;
+        }
+        throw createAbortError('PDF annotation parse session is canceled');
     }
     const requestedOffset = assertSafePdfSidecarOffset(offset, 'offset');
     const chunkBytes = parseChunkOptions(options);
@@ -465,7 +478,11 @@ function ensureParseTtlTimer() {
         const cutoff = Date.now() - PARSE_DEFAULT_TTL_MS;
         expireStalePdfSidecarSessions(sessions.values(), cutoff, session => {
             session.released = true;
-            cancelPdfSidecarSession(session, 'PDF annotation parse session expired');
+            cancelPdfSidecarSession(
+                session,
+                'PDF annotation parse session expired',
+                new Error('PDF annotation parse session expired'),
+            );
             cleanupWhenOperationSettles(session);
         });
         void sweepStalePdfAnnotationParseArtifacts().catch((error: unknown) => {

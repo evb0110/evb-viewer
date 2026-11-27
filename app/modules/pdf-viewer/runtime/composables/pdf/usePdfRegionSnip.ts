@@ -1,3 +1,4 @@
+import { isAbortError } from '@contracts/isAbortError';
 import type {
     ComputedRef, InjectionKey, Ref,
 } from 'vue';
@@ -120,7 +121,7 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
     }
     function fail(value: ISnipSession, error: unknown) {
         if (!current(value)) return;
-        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        if (!isAbortError(error)) {
             if (isFailurePresentation(error)) presentFailureToast(error);
             else if (error instanceof DOMException && (error.name === 'NotSupportedError' || error.name === 'SecurityError')) {
                 presentNoticeToast({

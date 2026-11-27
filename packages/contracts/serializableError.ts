@@ -1,4 +1,7 @@
-import {isRecord} from '@contracts/runtimeGuards';
+import {
+    isRecord,
+    isSuppressedErrorLike,
+} from '@contracts/runtimeGuards';
 import * as v from 'valibot';
 
 export const SERIALIZABLE_ERROR_PREFIX = 'EVB_SERIALIZABLE_ERROR:';
@@ -70,8 +73,13 @@ export function findSerializableErrorEnvelope<TEnvelope extends ISerializableErr
     schema: TSerializableErrorEnvelopeSchema<TEnvelope>,
 ): TEnvelope | null {
     const seen = new Set<object>();
-    let candidate: unknown = value;
-    while (candidate !== null && candidate !== undefined) {
+    const stack: unknown[] = [value];
+
+    while (stack.length > 0) {
+        const candidate = stack.pop();
+        if (candidate === null || candidate === undefined) {
+            continue;
+        }
         // An error's own envelope carries every field, such as a byte limit's
         // maxBytes; its direct code and message are only a summary of it.
         const ownEnvelope = isRecord(candidate) ? decodeSerializableErrorEnvelope(candidate.errorEnvelope, schema) : null;
@@ -83,15 +91,23 @@ export function findSerializableErrorEnvelope<TEnvelope extends ISerializableErr
             return decoded;
         }
         if (!isRecord(candidate) || seen.has(candidate)) {
-            return null;
+            continue;
         }
         seen.add(candidate);
         const messageEnvelope = decodeSerializableErrorEnvelope(candidate.message, schema);
         if (messageEnvelope) {
             return messageEnvelope;
         }
-        candidate = candidate.cause;
+        if (isSuppressedErrorLike(candidate)) {
+            // Check `.suppressed` (primary error) before `.error` (disposer error).
+            stack.push(candidate.error);
+            stack.push(candidate.suppressed);
+        }
+        if (candidate.cause !== undefined && candidate.cause !== null) {
+            stack.push(candidate.cause);
+        }
     }
+
     return null;
 }
 

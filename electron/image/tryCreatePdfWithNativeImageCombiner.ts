@@ -22,7 +22,10 @@ import { PDF_IMAGE_COMBINE_THREADS_ENV } from '@electron/native-tools/pdfImageCo
 import { createNativeFallbackTestError } from '@electron/native-tools/createNativeFallbackTestError';
 import { getErrorMessage } from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
-import { abortErrorFromSignal } from '@electron/utils/abort';
+import {
+    abortErrorFromSignal,
+    isAbortError,
+} from '@electron/utils/abort';
 import {
     getUnprovenNativeTerminationDetail,
     markUnprovenNativeTermination,
@@ -720,12 +723,12 @@ async function runNativePdfImageCombine(
                 'Native image PDF combine termination was not proven: ' + unprovenDetail,
                 {cause: error},
             );
-            if (error.name === 'AbortError') {
+            if (isAbortError(error)) {
                 failure.name = 'AbortError';
             }
             throw markUnprovenNativeTermination(failure, unprovenDetail);
         }
-        if (error.name === 'AbortError') {
+        if (isAbortError(error)) {
             throw error;
         }
 

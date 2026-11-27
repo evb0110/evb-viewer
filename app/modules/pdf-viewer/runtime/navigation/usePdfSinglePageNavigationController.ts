@@ -1,3 +1,4 @@
+import { isAbortError } from '@contracts/isAbortError';
 import {
     parsePageNumber, requirePageNumber,
 } from '@contracts/pageNumbers';
@@ -781,7 +782,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             try {
                 place();
             } catch (error) {
-                if (!(error instanceof DOMException && error.name === 'AbortError')) {
+                if (!isAbortError(error)) {
                     BrowserLogger.error('pdf-viewer', 'Failed to place the PDF viewport after a layout change', error, {code: 'RENDERER_PDF_VIEWPORT_PLACEMENT_FAILED'});
                 }
             }

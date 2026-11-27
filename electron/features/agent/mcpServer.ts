@@ -9,6 +9,7 @@ import {
 import type { AddressInfo } from 'net';
 import { randomBytes } from 'node:crypto';
 import {join} from 'node:path';
+import { createAbortError } from '@contracts/isAbortError';
 import type { IAgentTabSnapshot } from '@contracts/agent';
 import type { IAssistantSessionScopeBinding } from '@electron/features/agent/assistantMcpSessionScope';
 import type {
@@ -293,7 +294,7 @@ export function isLocalMcpServerRunning() {
 }
 
 function createStartupCanceledError(serverKind: string) {
-    return new Error(`${serverKind} MCP server startup was canceled by shutdown.`);
+    return createAbortError(`${serverKind} MCP server startup was canceled by shutdown.`);
 }
 
 function createTrackedHttpServer(
@@ -322,7 +323,7 @@ function closeHttpServer(server: Server | null) {
     }
 
     for (const controller of activeMcpRequestsByServer.get(server)?.keys() ?? []) {
-        controller.abort(new Error('MCP server is shutting down.'));
+        controller.abort(createAbortError('MCP server is shutting down.'));
     }
 
     return new Promise<void>((resolve) => {
@@ -636,7 +637,7 @@ export function abortAssistantToolRequestsForBinding(
             && requestBinding.windowId === binding.windowId
             && !controller.signal.aborted
         ) {
-            controller.abort(new Error(reason));
+            controller.abort(createAbortError(reason));
             aborted += 1;
         }
     }

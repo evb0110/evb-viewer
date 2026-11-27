@@ -1,3 +1,4 @@
+import {isAbortError} from '@contracts/isAbortError';
 import {narrowScanCleanupPreviewRequestToPage} from '@contracts/scan-cleanup/narrowScanCleanupPreviewRequestToPage';
 import { getErrorMessage } from '@app/utils/error';
 import { stripIpcInvocationPrefix } from '@app/utils/stripIpcInvocationPrefix';
@@ -950,7 +951,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 showFrame(resolvedKey, previewResult);
                 void scheduleAdjacentPrefetch(previewResult, requestOptions, requestSourcePath, requestSequence);
             } catch (caught) {
-                if (requestSequence !== sequence || (caught instanceof Error && caught.name === 'AbortError')) {
+                if (requestSequence !== sequence || isAbortError(caught)) {
                     return;
                 }
                 const failure = describePreviewFailure(caught);
@@ -1109,7 +1110,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             if (
                 requestSequence === detailSequence
                 && baseKey === cacheKey()
-                && !(caught instanceof Error && caught.name === 'AbortError')
+                && !isAbortError(caught)
             ) {
                 const failure = describePreviewFailure(caught);
                 if (failure.code !== 'canceled') detailError.value = failure;

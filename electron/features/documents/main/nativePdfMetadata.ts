@@ -30,10 +30,7 @@ import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeCommand';
 import { NativeProcessError } from '@electron/native-tools/processResult';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
-import {
-    abortErrorFromSignal,
-    createAbortError,
-} from '@electron/utils/abort';
+import { abortErrorFromSignal } from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
@@ -146,9 +143,7 @@ async function runNativePdfRead<T>(
     try {
         return await read(mainOperation.signal, cancelGroup);
     } catch (error) {
-        // The lifecycle aborts with its plain reason; an abort error keeps the
-        // rejection a cancellation for the IPC layer.
-        throw mainOperation.signal.aborted ? createAbortError(getErrorMessage(mainOperation.signal.reason)) : error;
+        throw mainOperation.signal.aborted ? abortErrorFromSignal(mainOperation.signal) : error;
     } finally {
         unregisterSenderCleanup();
         mainOperation.complete();

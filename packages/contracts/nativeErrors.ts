@@ -1,6 +1,7 @@
 import {
     isOneOf,
     isRecord,
+    isSuppressedErrorLike,
 } from '@contracts/runtimeGuards';
 import {SERIALIZABLE_ERROR_ENVELOPE_SCHEMA} from '@contracts/serializableError';
 import * as v from 'valibot';
@@ -61,17 +62,36 @@ export function markUnprovenNativeTermination<T>(error: T, detail: string): T {
     return error;
 }
 
-// An AggregateError answers with the first mark among its members, so code that
-// cannot import this module, such as the scan-cleanup package, can join failures in one.
+// An AggregateError or SuppressedError answers with the first mark among its
+// members, so code that cannot import this module, or resource disposal that
+// wraps an unproven-termination failure in a SuppressedError, cannot hide it.
 export function getUnprovenNativeTerminationDetail(error: unknown): string | undefined {
-    if (typeof error !== 'object' || error === null) {
-        return undefined;
+    const seen = new Set<object>();
+    const stack: unknown[] = [error];
+
+    while (stack.length > 0) {
+        const candidate = stack.pop();
+        if (typeof candidate !== 'object' || candidate === null || seen.has(candidate)) {
+            continue;
+        }
+        seen.add(candidate);
+
+        const detail = (candidate as IUnprovenNativeTerminationCarrier)[UNPROVEN_NATIVE_TERMINATION];
+        if (typeof detail === 'string') {
+            return detail;
+        }
+
+        if (candidate instanceof AggregateError) {
+            for (let index = candidate.errors.length - 1; index >= 0; index -= 1) {
+                stack.push(candidate.errors[index]);
+            }
+        }
+        if (isSuppressedErrorLike(candidate)) {
+            // Check `.suppressed` (primary error) before `.error` (disposer error).
+            stack.push(candidate.error);
+            stack.push(candidate.suppressed);
+        }
     }
-    const detail = (error as IUnprovenNativeTerminationCarrier)[UNPROVEN_NATIVE_TERMINATION];
-    if (typeof detail === 'string') {
-        return detail;
-    }
-    return error instanceof AggregateError
-        ? error.errors.map(getUnprovenNativeTerminationDetail).find(memberDetail => memberDetail !== undefined)
-        : undefined;
+
+    return undefined;
 }

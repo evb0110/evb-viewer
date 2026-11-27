@@ -1,4 +1,8 @@
 import { getErrorMessage } from '@app/utils/error';
+import {
+    createAbortError,
+    isAbortError,
+} from '@contracts/isAbortError';
 import {isBrowserLegacyDocumentRef} from '@contracts/documentRef';
 import type { Ref } from 'vue';
 import {
@@ -83,13 +87,7 @@ function isCrossOriginFrameAccessError(error: unknown) {
 }
 
 function createPrintAbortError() {
-    const error = new Error('Print preparation was canceled');
-    error.name = 'AbortError';
-    return error;
-}
-
-function isPrintAbortError(error: unknown) {
-    return error instanceof Error && error.name === 'AbortError';
+    return createAbortError('Print preparation was canceled');
 }
 
 function isNativePrintRequiredError(error: unknown): error is NativePrintRequiredError {
@@ -364,7 +362,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     }
 
     function reportPrintError(error: unknown, reopenDialogOnError: boolean | undefined, owner: IPrintRunOwner) {
-        if (!isPrintRunCurrent(owner) || isPrintAbortError(error)) {
+        if (!isPrintRunCurrent(owner) || isAbortError(error)) {
             return;
         }
         const localizedError = error instanceof Error && getErrorMessage(error)
@@ -1092,7 +1090,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                 printOwner,
             );
         } catch (error) {
-            if (isPrintAbortError(error)) {
+            if (isAbortError(error)) {
                 return;
             }
             reportPrintError(error, options.reopenDialogOnError, printOwner);

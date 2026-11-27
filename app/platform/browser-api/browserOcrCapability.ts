@@ -9,6 +9,7 @@ import type {
     TOcrErrorCode,
     TOcrSearchablePdfPages,
 } from '@contracts/electronApiOcr';
+import {isAbortError} from '@contracts/isAbortError';
 import type {IOcrCapability} from '@contracts/ocrPlatformFeature';
 import {
     AVAILABLE_OCR_LANGUAGES,
@@ -230,7 +231,7 @@ async function runJob(
             };
         }
     } catch (error) {
-        const canceled = controller.signal.aborted || (error instanceof DOMException && error.name === 'AbortError');
+        const canceled = controller.signal.aborted || isAbortError(error);
         const message = canceled ? 'OCR was canceled' : getErrorMessage(error);
         const code: TOcrErrorCode = error instanceof Error && error.name === 'BrowserOcrJobError' && 'code' in error
             && LOCALIZED_BROWSER_ERROR_CODES.has(error.code as TOcrErrorCode)

@@ -1,3 +1,4 @@
+import {isAbortError} from '@contracts/isAbortError';
 import {narrowScanCleanupPreviewRequestToPage} from '@contracts/scan-cleanup/narrowScanCleanupPreviewRequestToPage';
 import type {
     copyFile,
@@ -618,9 +619,8 @@ export function bindScanCleanupTerminationProof<
 // rejecting it: a rejected invoke is logged by Electron as a handler error and
 // would bury the failures worth reading.
 export function isPreviewCancellation(error: unknown) {
-    return error instanceof Error
-        && (error.name === 'AbortError'
-            || (error as {code?: unknown}).code === 'WORKING_COPY_MATERIALIZATION_CANCELLED');
+    return isAbortError(error)
+        || (error instanceof Error && (error as {code?: unknown}).code === 'WORKING_COPY_MATERIALIZATION_CANCELLED');
 }
 
 // Detection and preview render the same page at the same DPI with the same

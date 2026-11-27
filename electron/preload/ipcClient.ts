@@ -12,9 +12,11 @@ import type {
     TPlatformIpcAbortSubscription,
 } from '@contracts/platformFeature';
 import {createRequestId} from '@contracts/shared';
+import {isAbortError} from '@contracts/isAbortError';
 import {isRecord} from '@contracts/runtimeGuards';
 import {
     CORE_IPC_SEND_CHANNELS,
+    IPC_INVOKE_CANCEL_REASON_FIELD,
     IPC_INVOKE_REQUEST_ID_FIELD,
 } from '@electron/platform-ipc/coreContract';
 
@@ -138,23 +140,31 @@ export async function invokeWithChannelContext<TResult>(
         return await Promise.race([
             invokePromise,
             new Promise<never>((_resolve, reject) => {
-                const cancel = (error: Error) => {
+                const cancel = (error: Error, timedOut = false) => {
                     try {
-                        ipcRenderer.send(CORE_IPC_SEND_CHANNELS.ipcInvokeCanceled, {[IPC_INVOKE_REQUEST_ID_FIELD]: requestId});
+                        ipcRenderer.send(
+                            CORE_IPC_SEND_CHANNELS.ipcInvokeCanceled,
+                            timedOut
+                                ? {
+                                    [IPC_INVOKE_REQUEST_ID_FIELD]: requestId,
+                                    [IPC_INVOKE_CANCEL_REASON_FIELD]: 'timeout',
+                                }
+                                : {[IPC_INVOKE_REQUEST_ID_FIELD]: requestId},
+                        );
                     } catch {
                         // Preserve cancellation identity while the transport is closing.
                     }
                     reject(error);
                 };
                 if (timed) {
-                    timeoutHandle = setTimeout(() => cancel(new IpcInvokeTimeoutError(channel, timeoutMs)), timeoutMs);
+                    timeoutHandle = setTimeout(() => cancel(new IpcInvokeTimeoutError(channel, timeoutMs), true), timeoutMs);
                     timeoutHandle.unref?.();
                 }
                 unsubscribe = options?.subscribeToAbort?.(() => cancel(new DOMException('IPC invoke aborted', 'AbortError')));
             }),
         ]);
     } catch (error) {
-        if (error instanceof IpcInvokeTimeoutError || error instanceof DOMException && error.name === 'AbortError') {
+        if (error instanceof IpcInvokeTimeoutError || isAbortError(error)) {
             throw error;
         }
         throw new PlatformIpcInvokeError(channel, error);

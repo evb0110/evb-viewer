@@ -6,6 +6,7 @@ import {
     sumBy,
     clamp,
 } from 'es-toolkit/math';
+import {isAbortError} from '@contracts/isAbortError';
 import {
     assertCaptureImageBudget,
     CAPTURE_MAX_BYTES,
@@ -538,7 +539,7 @@ async function pickImageExportDirectory() {
             id: 'evb-image-export',
         });
     } catch (error) {
-        if (error instanceof DOMException && error.name === 'AbortError') return null;
+        if (isAbortError(error)) return null;
         throw error;
     }
 }
@@ -1031,7 +1032,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                 };
                 stream = await devices.getDisplayMedia(options);
             } catch (error) {
-                if (error instanceof DOMException && (error.name === 'NotAllowedError' || error.name === 'AbortError')) return null;
+                if (isAbortError(error) || (error instanceof DOMException && error.name === 'NotAllowedError')) return null;
                 throw error;
             }
             const stop = () => stream.getTracks().forEach(track => track.stop());

@@ -1,3 +1,4 @@
+import {isAbortError} from '@contracts/isAbortError';
 import type {
     IScanCleanupCapability,
     IScanCleanupPreviewRequest,
@@ -135,11 +136,6 @@ function baseIdentity(request: IScanCleanupPreviewRequest) {
     return JSON.stringify(identity);
 }
 
-function isAbort(error: unknown) {
-    return error instanceof DOMException && error.name === 'AbortError'
-        || (error instanceof Error && error.name === 'AbortError');
-}
-
 async function retire(work: IPreviewWork | null) {
     if (work === null) return;
     work.controller.abort(new DOMException('Scan cleanup preview was superseded.', 'AbortError'));
@@ -197,7 +193,7 @@ function settled(work: IPreviewWork, requestId: TRequestId): Promise<TScanCleanu
             requestId,
         }),
         (error: unknown) => {
-            if (work.controller.signal.aborted || isAbort(error)) return {canceled: true as const};
+            if (work.controller.signal.aborted || isAbortError(error)) return {canceled: true as const};
             throw error;
         },
     );

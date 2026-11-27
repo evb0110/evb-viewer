@@ -5,6 +5,7 @@ import {
     type IPdfTextContent,
     type IPdfViewport,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import { isAbortError } from '@contracts/isAbortError';
 import {
     pageNumberToPageIndex,
     requirePageNumber,
@@ -830,7 +831,7 @@ export const usePdfTextLayerRenderer = (deps: {
 
     function isCancellationError(error: unknown) {
         const name = error && typeof error === 'object' ? (error as { name?: unknown }).name : undefined;
-        return name === 'AbortError' || name === 'RenderingCancelledException';
+        return isAbortError(error) || name === 'RenderingCancelledException';
     }
 
     function scheduleDeferredStructTreeHydration(

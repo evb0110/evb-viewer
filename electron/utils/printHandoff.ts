@@ -1,3 +1,7 @@
+import {
+    createAbortError,
+    isAbortError,
+} from '@contracts/isAbortError';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import {
     createManagedScratchTempDir,
@@ -572,14 +576,8 @@ async function createRasterPrintHtmlPath(path: string, documentTitle: string, si
 
 function throwIfPrintHandoffAborted(signal: AbortSignal | undefined) {
     if (signal?.aborted) {
-        const error = new Error('Print handoff canceled');
-        error.name = 'AbortError';
-        throw error;
+        throw createAbortError('Print handoff canceled');
     }
-}
-
-function isPrintHandoffAbort(error: unknown) {
-    return error instanceof Error && error.name === 'AbortError';
 }
 
 function lockPrintWindowTitle(printWindow: BrowserWindow, documentTitle: string) {
@@ -608,9 +606,7 @@ function waitForPrintHandoffDelay(delayMs: number, signal?: AbortSignal) {
             clearTimeout(timer);
             signal?.removeEventListener('abort', handleAbort);
             if (aborted) {
-                const error = new Error('Print handoff canceled');
-                error.name = 'AbortError';
-                reject(error);
+                reject(createAbortError('Print handoff canceled'));
                 return;
             }
             resolve();
@@ -710,9 +706,7 @@ function waitForPdfPluginReadyToPrint(printWindow: BrowserWindow, signal?: Abort
             finish(new Error('Print window closed before the PDF viewer became ready'));
         };
         const handleAbort = () => {
-            const error = new Error('Print handoff canceled');
-            error.name = 'AbortError';
-            finish(error);
+            finish(createAbortError('Print handoff canceled'));
         };
 
         armTimeout = () => {
@@ -925,7 +919,7 @@ export async function openNativePrintDialogForPath(
         try {
             return await openMacOsPdfPrintDialog(path, handoffOptions);
         } catch (error) {
-            if (isPrintHandoffAbort(error) || handoffOptions.signal?.aborted) {
+            if (isAbortError(error) || handoffOptions.signal?.aborted) {
                 return {
                     success: false,
                     canceled: true,
@@ -1015,7 +1009,7 @@ export async function openNativePrintDialogForPath(
         }
         return result;
     } catch (error) {
-        if (isPrintHandoffAbort(error) || handoffOptions.signal?.aborted) {
+        if (isAbortError(error) || handoffOptions.signal?.aborted) {
             return {
                 success: false,
                 canceled: true,

@@ -1,3 +1,4 @@
+import { isAbortError } from '@contracts/isAbortError';
 import type { TPageNumber } from '@contracts/pageNumbers';
 
 import type {
@@ -553,7 +554,7 @@ export function createPdfPageRasterScheduler(
         } catch (error) {
             discardPrepared(work);
             releaseReservation(work);
-            const cancelled = error instanceof Error && (error.name === 'AbortError' || error.name === 'RenderingCancelledException');
+            const cancelled = isAbortError(error) || (error instanceof Error && error.name === 'RenderingCancelledException');
             if (!isDemandCurrent(work)) {
                 settleWork(work, 'cancelled');
             } else if (cancelled) {

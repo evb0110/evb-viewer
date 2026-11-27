@@ -1300,6 +1300,94 @@ describe('registerDjvuIpcAdapter', () => {
         }
     });
 
+    it('preserves TimeoutError identity when a DjVu preview or estimate IPC deadline expires', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-timeout-identity-test-'));
+        try {
+            const realPath = join(tempRoot, 'real.djvu');
+            writeFileSync(realPath, new Uint8Array([1]));
+            mocks.estimateSizes.mockImplementation((
+                _djvuPath: string,
+                _pageCount: number,
+                options?: {signal?: AbortSignal},
+            ) => new Promise((_resolve, reject) => {
+                options?.signal?.addEventListener('abort', () => {
+                    reject(options.signal?.reason);
+                }, {once: true});
+            }));
+            mocks.renderDjvuPagePreview.mockImplementation((
+                _djvuPath: string,
+                _pageNumber: number,
+                _options: unknown,
+                lifecycle?: {signal?: AbortSignal},
+            ) => new Promise((_resolve, reject) => {
+                lifecycle?.signal?.addEventListener('abort', () => {
+                    reject(lifecycle.signal?.reason);
+                }, {once: true});
+            }));
+
+            const {isAbortError} = await import('@contracts/isAbortError');
+            const {isTimeoutError} = await import('@contracts/isTimeoutError');
+            const {requireRequestId} = await import('@contracts/shared');
+            const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+            const {
+                beginIpcInvokeCancellation,
+                cancelIpcInvoke,
+            } = await import('@electron/platform-ipc/ipcInvokeCancellation');
+            const {runWithMainOperationCancellationSignal} = await import('@electron/operation-lifecycle/mainOperationLifecycle');
+            const event = createIpcEvent(15);
+            allowOpenPath(realPath, event.sender as never);
+            registerDjvuIpcAdapter();
+
+            const estimateCancel = beginIpcInvokeCancellation(event.sender as never, requireRequestId('djvu-est-timeout'));
+            const estimateRun = runWithMainOperationCancellationSignal(
+                estimateCancel.signal,
+                () => getHandler('djvu:estimateSizes')(event, realPath),
+            );
+            await vi.waitFor(() => expect(mocks.estimateSizes).toHaveBeenCalledTimes(1));
+            cancelIpcInvoke(event.sender as never, requireRequestId('djvu-est-timeout'), undefined, {timedOut: true});
+            const estimateError = await Promise.resolve(estimateRun).then(() => null, (caught: unknown) => caught);
+            estimateCancel.complete();
+            expect(isTimeoutError(estimateError)).toBe(true);
+            expect(isAbortError(estimateError)).toBe(false);
+
+            const previewCancel = beginIpcInvokeCancellation(event.sender as never, requireRequestId('djvu-prev-timeout'));
+            const previewRun = runWithMainOperationCancellationSignal(
+                previewCancel.signal,
+                () => getHandler('djvu:renderPagePreview')(event, realPath, 1, {
+                    previewPriority: 10,
+                    previewRequestId: '1:1:1',
+                    subsample: 3,
+                }),
+            );
+            await vi.waitFor(() => expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(1));
+            cancelIpcInvoke(event.sender as never, requireRequestId('djvu-prev-timeout'), undefined, {timedOut: true});
+            const previewError = await Promise.resolve(previewRun).then(() => null, (caught: unknown) => caught);
+            previewCancel.complete();
+            expect(isTimeoutError(previewError)).toBe(true);
+            expect(isAbortError(previewError)).toBe(false);
+
+            const preTimedCancel = beginIpcInvokeCancellation(event.sender as never, requireRequestId('djvu-prev-queued-timeout'));
+            cancelIpcInvoke(event.sender as never, requireRequestId('djvu-prev-queued-timeout'), undefined, {timedOut: true});
+            const preTimedError = await Promise.resolve(runWithMainOperationCancellationSignal(
+                preTimedCancel.signal,
+                () => getHandler('djvu:renderPagePreview')(event, realPath, 2, {
+                    previewPriority: 10,
+                    previewRequestId: '2:1:1',
+                    subsample: 3,
+                }),
+            )).then(() => null, (caught: unknown) => caught);
+            preTimedCancel.complete();
+            expect(isTimeoutError(preTimedError)).toBe(true);
+            expect(isAbortError(preTimedError)).toBe(false);
+            expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(1);
+        } finally {
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
     it('prioritizes visible native preview waiters over retained queued pages', async () => {
         const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-preview-priority-test-'));
         try {

@@ -91,6 +91,7 @@
 
 <script setup lang="ts">
 import { until } from '@vueuse/core';
+import { isAbortError } from '@contracts/isAbortError';
 import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import { isFailurePresentation } from '@app/composables/useFailureToast';
 import type {IAnnotationCommentSummary} from '@app/types/annotations';
@@ -153,7 +154,7 @@ async function editTextBox(comment: IAnnotationCommentSummary) {
     try {
         await pdfViewer.value?.editAnnotationTextBox?.(comment);
     } catch (error) {
-        if ((error instanceof DOMException && error.name === 'AbortError')
+        if (isAbortError(error)
             || (isFailurePresentation(error) && getFailureReceipt(error))) return;
         throw error;
     }

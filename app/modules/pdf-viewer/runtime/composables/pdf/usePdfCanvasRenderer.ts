@@ -14,6 +14,7 @@ import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-re
 import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
 import { PDF_PAGE_SCALE_CSS_VARS } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
 import type { TPdfPageOperationSettlementCapture } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
+import { isAbortError } from '@contracts/isAbortError';
 import type { TPdfViewRotation } from '@contracts/shared';
 import { resolvePdfPageViewportRotation } from '@app/utils/pdfViewRotation';
 
@@ -318,7 +319,7 @@ export const usePdfCanvasRenderer = (deps: {
             undefined,
             options?.pageRenderCoordination?.signal,
         ).catch((error: unknown) => {
-            if (error instanceof Error && error.name === 'AbortError') {
+            if (isAbortError(error)) {
                 return null;
             }
             throw error;

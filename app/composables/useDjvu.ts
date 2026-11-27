@@ -1,3 +1,4 @@
+import { isAbortError } from '@contracts/isAbortError';
 import { getErrorMessage } from '@app/utils/error';
 import type { TDocumentRef } from '@contracts/documentRef';
 import { parseDocumentRef } from '@contracts/documentRef';
@@ -136,11 +137,8 @@ function createDjvuOpenFailure(result: IDjvuOpenResult, fallbackMessage: string)
 
 function classifyDjvuConversionExpectedOutcome(error: unknown): ExpectedOutcome | undefined {
     if (
-        error instanceof DOMException && error.name === 'AbortError'
-        || error instanceof Error && (
-            error.name === 'AbortError'
-            || error.name === 'DjvuCanceledError'
-        )
+        isAbortError(error)
+        || (error instanceof Error && error.name === 'DjvuCanceledError')
     ) {
         return {
             kind: 'expected',
@@ -812,7 +810,7 @@ export const useDjvu = (config: {
             }}, reason, signal);
             return true;
         } catch (error) {
-            if (error instanceof DOMException && error.name === 'AbortError') {
+            if (isAbortError(error)) {
                 return false;
             }
             throw error;

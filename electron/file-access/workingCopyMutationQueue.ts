@@ -1,3 +1,4 @@
+import { createAbortError } from '@contracts/isAbortError';
 import { createLogger } from '@electron/utils/createLogger';
 import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
 import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeCommand';
@@ -152,7 +153,7 @@ export function enqueueWorkingCopyMutation<T>(
             if (isMutationAborted()) {
                 throw mutationOperation.signal.reason instanceof Error
                     ? mutationOperation.signal.reason
-                    : new Error('Working-copy mutation canceled');
+                    : createAbortError('Working-copy mutation canceled');
             }
             const grantedAt = performance.now();
             const waitedMs = Math.round((grantedAt - enqueuedAt) * 10) / 10;

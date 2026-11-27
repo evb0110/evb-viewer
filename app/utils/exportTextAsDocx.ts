@@ -1,4 +1,5 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import { isAbortError } from '@contracts/isAbortError';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TTranslateFn } from '@i18n-app';
@@ -35,10 +36,6 @@ type TDocxChunkBuilder = (
 
 function throwIfAborted(signal?: AbortSignal) {
     signal?.throwIfAborted();
-}
-
-function isAbortError(error: unknown) {
-    return error instanceof Error && error.name === 'AbortError';
 }
 
 function* getNonEmptyPages(

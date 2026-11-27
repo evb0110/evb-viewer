@@ -1,3 +1,4 @@
+import {isAbortError} from '@contracts/isAbortError';
 import type {
     IScanCleanupPreviewPageMetadata,
     IScanCleanupPreviewResult,
@@ -82,7 +83,7 @@ export const useScanCleanupViewportFrame = (options: IUseScanCleanupViewportFram
             sourceMetrics.value = metrics;
             sourceMetricsReady.value = true;
         } catch (error) {
-            if (!(error instanceof DOMException && error.name === 'AbortError')) {
+            if (!isAbortError(error)) {
                 sourceMetrics.value = DEFAULT_PAGE_METRICS;
                 // A failed measurement still has a safe fallback frame. Mark
                 // it ready so the viewport does not remain hidden forever.

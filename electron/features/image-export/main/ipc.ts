@@ -1,3 +1,4 @@
+import { createAbortError } from '@contracts/isAbortError';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     normalizeImageExportFileName, resolveImageExportFormat,
@@ -403,7 +404,7 @@ export async function handlePdfExportImages(
             'images',
         );
         if (result.canceled || !result.filePath || job.signal.aborted) {
-            job.terminal.cancel(new Error('Image export canceled'));
+            job.terminal.cancel(createAbortError('Image export canceled'));
             return {
                 success: false,
                 canceled: true,
@@ -475,7 +476,7 @@ export async function handlePdfExportMultiPageTiff(
             'multipage-tiff',
         );
         if (result.canceled || !result.filePath || job.signal.aborted) {
-            job.terminal.cancel(new Error('Image export canceled'));
+            job.terminal.cancel(createAbortError('Image export canceled'));
             return {
                 success: false,
                 canceled: true,

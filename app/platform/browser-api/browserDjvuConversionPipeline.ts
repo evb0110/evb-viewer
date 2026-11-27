@@ -1,3 +1,4 @@
+import { isAbortError } from '@contracts/isAbortError';
 import { getErrorMessage } from '@app/utils/error';
 import { uniq } from 'es-toolkit/array';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
@@ -128,8 +129,7 @@ function classifyBrowserDjvuExpectedOutcome(error: unknown): ExpectedOutcome | u
 
     if (
         error instanceof DjvuCanceledError
-        || error instanceof DOMException && error.name === 'AbortError'
-        || error instanceof Error && error.name === 'AbortError'
+        || isAbortError(error)
     ) {
         return createBrowserDjvuExpectedOutcome('canceled');
     }

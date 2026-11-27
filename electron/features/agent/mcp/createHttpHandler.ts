@@ -3,6 +3,7 @@ import type {
     ServerResponse,
 } from 'http';
 import {timingSafeEqual} from 'node:crypto';
+import {createAbortError} from '@contracts/isAbortError';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     createHealthResponse,
@@ -28,24 +29,35 @@ interface IHttpHandlerOptions {
 
 function createRequestAbortController(request: IncomingMessage, response: ServerResponse) {
     const controller = new AbortController();
-    const abort = (reason: string) => {
+    const abort = (reason: Error) => {
         if (!controller.signal.aborted) {
-            controller.abort(new Error(reason));
+            controller.abort(reason);
         }
     };
-    request.once('aborted', () => abort('MCP HTTP request aborted'));
+    const abortFromTransportOrCancel = (fallbackMessage: string) => {
+        const transportError = request.errored
+            ?? response.errored
+            ?? request.socket?.errored
+            ?? response.socket?.errored;
+        if (transportError !== null && transportError !== undefined) {
+            abort(transportError instanceof Error ? transportError : new Error(getErrorMessage(transportError)));
+            return;
+        }
+        abort(createAbortError(fallbackMessage));
+    };
+    request.once('aborted', () => abortFromTransportOrCancel('MCP HTTP request aborted'));
     request.once('close', () => {
         if (!request.complete) {
-            abort('MCP HTTP request closed before its body completed');
+            abortFromTransportOrCancel('MCP HTTP request closed before its body completed');
         }
     });
-    request.once('error', (error) => abort(getErrorMessage(error)));
+    request.once('error', (error) => abort(error instanceof Error ? error : new Error(getErrorMessage(error))));
     response.once('close', () => {
         if (!response.writableFinished) {
-            abort('MCP HTTP response closed before it completed');
+            abortFromTransportOrCancel('MCP HTTP response closed before it completed');
         }
     });
-    response.once('error', (error) => abort(getErrorMessage(error)));
+    response.once('error', (error) => abort(error instanceof Error ? error : new Error(getErrorMessage(error))));
     return controller;
 }
 
@@ -55,7 +67,7 @@ function throwIfRequestAborted(signal: AbortSignal) {
     }
     throw signal.reason instanceof Error
         ? signal.reason
-        : new Error('MCP HTTP request was aborted.');
+        : createAbortError('MCP HTTP request was aborted.');
 }
 
 function withRequestAbortSignal(
@@ -113,7 +125,7 @@ function readRequestBody(request: IncomingMessage, signal: AbortSignal) {
         let bodyBytes = 0;
         const handleAbort = () => reject(signal.reason instanceof Error
             ? signal.reason
-            : new Error('MCP HTTP request was aborted.'));
+            : createAbortError('MCP HTTP request was aborted.'));
 
         request.on('data', (chunk: Buffer) => {
             if (bodyBytes + chunk.length > MAX_JSON_RPC_BODY_BYTES) {

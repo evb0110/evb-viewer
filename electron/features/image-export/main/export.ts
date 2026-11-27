@@ -26,6 +26,7 @@ import {
 } from 'es-toolkit/array';
 import {clamp} from 'es-toolkit/math';
 import { encode as encodePng } from 'fast-png';
+import {createAbortError} from '@contracts/isAbortError';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import type { TImageExportProgressPhase } from '@contracts/imageExportPlatformFeature';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
@@ -548,7 +549,7 @@ export async function promoteStagedFiles(
 
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
-        throw new Error('The operation was aborted');
+        throw createAbortError();
     }
 }
 

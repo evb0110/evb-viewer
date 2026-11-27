@@ -386,4 +386,71 @@ describe('PDF annotation parse main session', () => {
         )).rejects.toThrow('STALE_REVISION');
         expect(existsSync(sidecarPath)).toBe(false);
     });
+
+    it('preserves non-abort error identity when a sidecar session expires by TTL', async () => {
+        const {isAbortError} = await import('@contracts/isAbortError');
+        const {cancelPdfSidecarSession} = await import('@electron/features/documents/main/pdfSidecarLineIndex');
+        const session = {
+            sessionId: 'ttl-expired-session',
+            ownerId: context.senderId,
+            sidecarDirectory: '/tmp/unused',
+            operationPromise: Promise.resolve(),
+            abortController: new AbortController(),
+            cancelGroup: 'ttl-expired-group',
+            index: {
+                dataStartOffset: 0,
+                dataBytes: 0,
+                pageCount: 0,
+                entryCount: 0,
+                lines: [],
+            },
+            canceled: false,
+            released: false,
+            lastTouchedAt: 0,
+        };
+
+        cancelPdfSidecarSession(
+            session,
+            'PDF annotation parse session expired',
+            new Error('PDF annotation parse session expired'),
+        );
+
+        expect(session.abortController.signal.aborted).toBe(true);
+        expect(session.abortController.signal.reason).toBeInstanceOf(Error);
+        expect((session.abortController.signal.reason as Error).message).toBe('PDF annotation parse session expired');
+        expect(isAbortError(session.abortController.signal.reason)).toBe(false);
+    });
+
+    it('preserves TimeoutError when the IPC deadline expires before sidecar operation registration', async () => {
+        const {isAbortError} = await import('@contracts/isAbortError');
+        const {isTimeoutError} = await import('@contracts/isTimeoutError');
+        const lifecycle = await vi.importActual<typeof TMainOperationLifecycleModule>(
+            '@electron/operation-lifecycle/mainOperationLifecycle',
+        );
+        mocks.registerMainOperation.mockImplementation(lifecycle.registerMainOperation);
+        const {
+            beginIpcInvokeCancellation,
+            cancelIpcInvoke,
+        } = await import('@electron/platform-ipc/ipcInvokeCancellation');
+        const sender = {id: context.senderId} as IpcMainInvokeEvent['sender'];
+        const registration = beginIpcInvokeCancellation(sender, requireRequestId('parse-pre-register-timeout'));
+        cancelIpcInvoke(sender, requireRequestId('parse-pre-register-timeout'), undefined, {timedOut: true});
+
+        try {
+            const error = await lifecycle.runWithMainOperationCancellationSignal(
+                registration.signal,
+                () => beginPdfAnnotationParse(
+                    context,
+                    '/logical/working.pdf',
+                    {expectedDocumentRevisionToken: revisionToken},
+                ),
+            ).then(() => null, (caught: unknown) => caught);
+
+            expect(isTimeoutError(error)).toBe(true);
+            expect(isAbortError(error)).toBe(false);
+        } finally {
+            registration.complete();
+            lifecycle.resetMainOperationLifecycleForTests();
+        }
+    });
 });

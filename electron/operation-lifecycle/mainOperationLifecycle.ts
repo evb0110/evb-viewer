@@ -1,5 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
+import { createAbortError } from '@contracts/isAbortError';
+import { isTimeoutError } from '@contracts/isTimeoutError';
 import { createMainOperationShuttingDownError } from '@contracts/mainOperationErrors';
 import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
 import { createLogger } from '@electron/utils/createLogger';
@@ -162,9 +164,19 @@ export function registerMainOperation(
         }
         requestOperationCancel(record, reason);
     };
-    const cancelFromParent = () => abort(cancellationSignal?.reason instanceof Error
-        ? cancellationSignal.reason.message
-        : 'IPC invoke canceled');
+    const cancelFromParent = () => {
+        if (record.kind === 'critical-write' && record.commitStarted) {
+            return;
+        }
+        const parentReason = cancellationSignal?.reason;
+        const reason = parentReason instanceof Error
+            ? parentReason.message
+            : 'IPC invoke canceled';
+        const abortReason = parentReason instanceof Error && isTimeoutError(parentReason)
+            ? parentReason
+            : createAbortError(reason);
+        requestOperationCancel(record, reason, abortReason);
+    };
     if (cancellationSignal?.aborted) {
         cancelFromParent();
     } else if (cancellationSignal) {
@@ -193,6 +205,10 @@ export function runWithMainOperationCancellationSignal<TResult>(
     return cancellationSignals.run(signal, callback);
 }
 
+export function getCurrentMainOperationCancellationSignal(): AbortSignal | undefined {
+    return cancellationSignals.getStore();
+}
+
 export function beginMainOperationShutdown(message = 'Main process is shutting down') {
     shutdownAdmissionMessage ??= message;
 }
@@ -200,7 +216,7 @@ export function beginMainOperationShutdown(message = 'Main process is shutting d
 function requestOperationCancel(
     operation: IMainOperationRecord,
     reason: string,
-    abortReason: Error = new Error(reason),
+    abortReason: Error = createAbortError(reason),
 ) {
     if (!operation.controller.signal.aborted) {
         operation.controller.abort(abortReason);

@@ -15,6 +15,7 @@ import {
     stat,
 } from 'node:fs/promises';
 import {join} from 'node:path';
+import {createAbortError} from '@contracts/isAbortError';
 import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
 import type {
     IOcrDiagnostic,
@@ -114,7 +115,7 @@ export interface IOcrJob {
 
 function throwIfAborted(signal: AbortSignal) {
     if (signal.aborted) {
-        throw signal.reason instanceof Error ? signal.reason : new Error('OCR job aborted');
+        throw signal.reason instanceof Error ? signal.reason : createAbortError('OCR job aborted');
     }
 }
 
