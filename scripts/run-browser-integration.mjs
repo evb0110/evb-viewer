@@ -83,6 +83,8 @@ export async function setup(project) {
 
     /** @type {Promise<void> | null} */
     let stopPromise = null;
+    /** @type {readonly NodeJS.Signals[]} */
+    const shutdownSignals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
     /** @param {NodeJS.Signals} signal */
     const handleSignal = (signal) => {
         void stopServer().finally(() => {
@@ -91,8 +93,9 @@ export async function setup(project) {
             }
         });
     };
-    process.on('SIGINT', handleSignal);
-    process.on('SIGTERM', handleSignal);
+    for (const signal of shutdownSignals) {
+        process.on(signal, handleSignal);
+    }
 
     const stopBrowserServer = async () => {
         if (!browserServerPromise) return;
@@ -134,8 +137,9 @@ export async function setup(project) {
     const stopServer = () => {
         if (stopPromise) return stopPromise;
         stopPromise = (async () => {
-            process.off('SIGINT', handleSignal);
-            process.off('SIGTERM', handleSignal);
+            for (const signal of shutdownSignals) {
+                process.off(signal, handleSignal);
+            }
             if (previousWsEndpoint === undefined) {
                 delete process.env[BROWSER_WS_ENDPOINT_ENV];
             } else {
@@ -155,6 +159,9 @@ export async function setup(project) {
         browserServerPromise = chromium.launchServer({
             headless: true,
             host: '127.0.0.1',
+            handleSIGINT: false,
+            handleSIGTERM: false,
+            handleSIGHUP: false,
         });
         // Prevent unhandled rejection if devServer startup fails before we await browserServerPromise.
         browserServerPromise.catch(() => {});
