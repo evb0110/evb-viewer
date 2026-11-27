@@ -197,75 +197,63 @@ async function runSerializedBrowserSettingsSave(settings: Partial<ISettingsData>
 function readAndMigrateBrowserSettings(options: IBrowserSettingsReadOptions = {}): IBrowserSettingsReadResult | null {
     // Either source written by a newer version throws before anything is written.
     const cookieSnapshot = readBrowserSettingsCookies();
-    assertSupportedBrowserSettingsPayload(cookieSnapshot?.rawSettings ?? null);
+    const rawLegacySettings = cookieSnapshot?.rawSettings ?? null;
+    assertSupportedBrowserSettingsPayload(rawLegacySettings);
     const {
         settings: persistedSettings,
         available: storageAvailable,
     } = readBrowserSettingsFromStorage(options);
-    if (cookieSnapshot && cookieSnapshot.rawSettings !== null) {
-        const isValidLegacyCookie = isValidLegacyBrowserSettingsPayload(cookieSnapshot.rawSettings);
-        if (isValidLegacyCookie) {
-            if (persistedSettings) {
-                expireLegacyBrowserSettingsCookie();
-                return {
-                    persisted: true,
-                    settings: persistedSettings,
-                };
-            }
-            const legacySettings = parseBrowserSettingsPayload(
-                cookieSnapshot.rawSettings,
-                cookieSnapshot.fallbackSettings,
-            );
-            let persisted = false;
-            try {
-                // Storage that could not be read is not overwritten.
-                if (storageAvailable) {
-                    writeBrowserSettingsToStorage(legacySettings);
-                    expireLegacyBrowserSettingsCookie();
-                    persisted = true;
-                }
-            } catch (error) {
-                if (!options.allowUnavailable) {
-                    throw error;
-                }
-            }
-            return {
-                persisted,
-                settings: legacySettings,
-            };
-        }
-        expireLegacyBrowserSettingsCookie();
-    }
+    const isValidLegacyCookie = rawLegacySettings !== null
+        && isValidLegacyBrowserSettingsPayload(rawLegacySettings);
 
     if (persistedSettings) {
+        if (rawLegacySettings !== null) {
+            expireLegacyBrowserSettingsCookie();
+        }
         return {
             persisted: true,
             settings: persistedSettings,
         };
     }
 
-    if (cookieSnapshot) {
-        const bootstrapSettings = parseBrowserSettingsPayload(
-            null,
-            cookieSnapshot.fallbackSettings,
-        );
-        let persisted = false;
-        try {
-            if (storageAvailable) {
-                writeBrowserSettingsToStorage(bootstrapSettings);
-                persisted = true;
-            }
-        } catch (error) {
-            if (!options.allowUnavailable) {
-                throw error;
-            }
-        }
+    if (!cookieSnapshot) {
+        return null;
+    }
+
+    if (rawLegacySettings !== null && !isValidLegacyCookie) {
+        expireLegacyBrowserSettingsCookie();
+    }
+
+    const migratedSettings = parseBrowserSettingsPayload(
+        isValidLegacyCookie ? rawLegacySettings : null,
+        cookieSnapshot.fallbackSettings,
+    );
+    if (!storageAvailable) {
+        // Storage that could not be read is not overwritten.
         return {
-            persisted,
-            settings: bootstrapSettings,
+            persisted: false,
+            settings: migratedSettings,
         };
     }
-    return null;
+
+    try {
+        writeBrowserSettingsToStorage(migratedSettings);
+        if (isValidLegacyCookie) {
+            expireLegacyBrowserSettingsCookie();
+        }
+        return {
+            persisted: true,
+            settings: migratedSettings,
+        };
+    } catch (error) {
+        if (!options.allowUnavailable) {
+            throw error;
+        }
+        return {
+            persisted: false,
+            settings: migratedSettings,
+        };
+    }
 }
 
 function refreshSharedSettings() {

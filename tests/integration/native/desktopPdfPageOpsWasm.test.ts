@@ -1,5 +1,6 @@
 import {
     access,
+    mkdir,
     mkdtemp,
     open,
     readFile,
@@ -787,5 +788,52 @@ describe('desktop evb-pdf-page-ops.wasm host-file streaming integration', () => 
         const canceled = await cancelNativeCommandGroupAndWait(cancelGroup);
         expect(canceled).toBe(true);
         await expect(pending).rejects.toThrow(/canceled|aborted/iu);
+    }, TIMEOUT_MS);
+
+    it('cleans up rewritten decrypt output on receipt write failure while preserving non-rewritten outputs', async () => {
+        tempRoot = await mkdtemp(join(tmpdir(), 'evb-desktop-page-ops-decrypt-receipt-'));
+        const wasmPath = resolveNativePageOpsPath()!;
+        const plainPdf = join(tempRoot, 'plain.pdf');
+        await createMultiPagePdf(plainPdf, 2);
+
+        const encryptedPdf = join(tempRoot, 'encrypted.pdf');
+        await runQpdf([
+            '--encrypt',
+            'secret123',
+            'owner456',
+            '256',
+            '--',
+            plainPdf,
+            encryptedPdf,
+        ]);
+        const passwordFile = join(tempRoot, 'pw.txt');
+        await writeFile(passwordFile, 'secret123\n', 'utf8');
+
+        // Blocking the receipt path with a directory forces atomicWriteFileSync's rename to fail.
+        const rewrittenOut = join(tempRoot, 'rewritten-out.pdf');
+        await mkdir(`${rewrittenOut}.decrypt.json`);
+        await expect(runNativeToolCommand(wasmPath, [
+            'decrypt',
+            '--input',
+            encryptedPdf,
+            '--output',
+            rewrittenOut,
+            '--password-file',
+            passwordFile,
+        ])).rejects.toThrow(/(?:EISDIR|EPERM|EACCES|ENOTEMPTY|EEXIST).*rename.*rewritten-out\.pdf\.decrypt\.json/u);
+        await expect(access(rewrittenOut)).rejects.toMatchObject({code: 'ENOENT'});
+
+        // Non-rewritten decrypt leaves any pre-existing file at --output untouched when receipt publication fails.
+        const preservedOut = join(tempRoot, 'preserved-out.pdf');
+        await writeFile(preservedOut, 'pre-existing-content', 'utf8');
+        await mkdir(`${preservedOut}.decrypt.json`);
+        await expect(runNativeToolCommand(wasmPath, [
+            'decrypt',
+            '--input',
+            plainPdf,
+            '--output',
+            preservedOut,
+        ])).rejects.toThrow(/(?:EISDIR|EPERM|EACCES|ENOTEMPTY|EEXIST).*rename.*preserved-out\.pdf\.decrypt\.json/u);
+        expect(await readFile(preservedOut, 'utf8')).toBe('pre-existing-content');
     }, TIMEOUT_MS);
 });

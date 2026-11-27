@@ -62,19 +62,19 @@ async function extractTextContentPageText(
     for (let index = 0; index < content.items.length; index += 128) {
         const chunk = content.items.slice(index, index + 128);
         for (const item of chunk) {
-            if ('str' in item) {
-                if (visibleBox && !pdfjsTextItemIntersectsBox(visibleBox, item, content.styles[item.fontName ?? ''])) {
-                    hiddenItems += 1;
-                    if (item.hasEOL && textItems.length > 0) {
-                        textItems[textItems.length - 1]!.separatorAfter = 'line';
-                    }
-                    continue;
-                }
+            if (!('str' in item)) continue;
+            if (!visibleBox || pdfjsTextItemIntersectsBox(visibleBox, item, content.styles[item.fontName ?? ''])) {
                 textItems.push({
                     ...item,
                     text: item.str,
                     separatorAfter: item.hasEOL ? 'line' : 'none',
                 });
+                continue;
+            }
+            hiddenItems += 1;
+            const previousItem = textItems.at(-1);
+            if (item.hasEOL && previousItem) {
+                previousItem.separatorAfter = 'line';
             }
         }
 
