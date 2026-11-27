@@ -31,7 +31,11 @@
 import type { IAgentAssistantModelOption } from '@contracts/agent';
 import { useTypedI18n } from '@app/composables/useTypedI18n';
 
-const props = defineProps<{
+const {
+    model,
+    modelLabel,
+    effort,
+} = defineProps<{
     model: IAgentAssistantModelOption | undefined;
     modelLabel: string;
     effort: string;
@@ -42,8 +46,8 @@ const emit = defineEmits<{
 }>();
 const { t } = useTypedI18n();
 const column = ref<HTMLElement | null>(null);
-const efforts = computed(() => props.model?.reasoningEfforts ?? []);
-const shown = computed(() => efforts.value.some(option => option.id === props.effort));
+const efforts = computed(() => model?.reasoningEfforts ?? []);
+const shown = computed(() => efforts.value.some(option => option.id === effort));
 
 /** Focuses the selected level, else the first; false when the model has none. */
 function focusLevel() {
@@ -70,13 +74,13 @@ function handleKeydown(event: KeyboardEvent) {
     next.focus();
     next.scrollIntoView({ block: 'nearest' });
     // A radio group selects the level the arrow moves to.
-    if (next.dataset.effortId && next.dataset.effortId !== props.effort) emit('pick', next.dataset.effortId);
+    if (next.dataset.effortId && next.dataset.effortId !== effort) emit('pick', next.dataset.effortId);
 }
 
 defineExpose({ focusLevel });
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .effort-column {
     display: flex;
     width: var(--app-assistant-picker-effort-width);
@@ -101,10 +105,9 @@ defineExpose({ focusLevel });
 .effort-model {
     min-width: 0;
     margin-left: auto;
-    overflow: hidden;
     font-size: var(--app-text-size-caption);
-    text-overflow: ellipsis;
-    white-space: nowrap;
+
+    @include app.truncate-single-line;
 }
 
 .effort-rows {
@@ -141,9 +144,8 @@ defineExpose({ focusLevel });
 .effort-label {
     min-width: 0;
     flex: 1 1 auto;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+
+    @include app.truncate-single-line;
 }
 
 .effort-check {

@@ -59,7 +59,7 @@ const panelStyle = computed(() => ({
 }));
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .agent-assistant-panel {
     position: relative;
     display: flex;
@@ -97,12 +97,11 @@ const panelStyle = computed(() => ({
 
 .agent-assistant-title {
     flex: 1;
-    overflow: hidden;
     color: var(--ui-text);
     font-size: var(--app-text-size-body);
     font-weight: var(--app-font-weight-semibold);
-    text-overflow: ellipsis;
-    white-space: nowrap;
+
+    @include app.truncate-single-line;
 }
 
 .assistant-presets {

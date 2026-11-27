@@ -553,7 +553,7 @@ function clearAll() {
 
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 /* In a short window the panel shrinks, leaving the thumbnail rail its
    minimum height, and scrolls so Apply numbering stays in reach. */
 .pdf-sidebar-pages-panel {
@@ -639,9 +639,8 @@ function clearAll() {
     color: var(--ui-text-muted);
     line-height: 1.3;
     min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+
+    @include app.truncate-single-line;
 }
 
 .pdf-sidebar-pages-clear-button {
@@ -659,9 +658,8 @@ function clearAll() {
     display: block;
     width: 100%;
     text-align: center;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+
+    @include app.truncate-single-line;
 }
 
 .pdf-sidebar-pages-selection-text--error {

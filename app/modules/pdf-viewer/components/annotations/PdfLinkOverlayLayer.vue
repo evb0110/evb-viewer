@@ -25,11 +25,11 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { getShellCapability } from '@app/utils/getShellCapability';
 import { normalizeAllowedExternalUrl } from '@contracts/externalUrl';
 
-const props = defineProps<{links: ILinkAnnotation[];}>();
+const { links } = defineProps<{links: ILinkAnnotation[];}>();
 const emit = defineEmits<{'navigate-destination': [dest: NonNullable<ILinkAnnotation['dest']>];}>();
 const {t} = useTypedI18n();
 
-const renderedLinks = computed(() => props.links.map(link => ({
+const renderedLinks = computed(() => links.map(link => ({
     link,
     id: link.id,
     href: link.url ?? '',
@@ -96,7 +96,7 @@ function handleClick(event: MouseEvent, link: ILinkAnnotation) {
 }
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .pdf-link-overlay-layer {
     position: absolute;
     inset: 0;
@@ -109,7 +109,7 @@ function handleClick(event: MouseEvent, link: ILinkAnnotation) {
     display: block;
     position: absolute;
     background: var(--app-pdf-link-bg);
-    transition: background 150ms ease;
+    transition: background $ease-standard;
     cursor: pointer;
 }
 

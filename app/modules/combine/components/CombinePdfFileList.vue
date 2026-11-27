@@ -17,7 +17,7 @@
                 :data-combine-row-index="row.index"
                 role="listitem"
                 :aria-posinset="row.position"
-                :aria-setsize="props.files.length"
+                :aria-setsize="files.length"
             >
                 <AppTooltip :text="t('combinePdf.dragToReorder')" :delay-duration="600">
                     <span
@@ -64,7 +64,7 @@
                             size="xs"
                             icon="i-ph-x"
                             :aria-label="t('combinePdf.removeFile')"
-                            :disabled="props.queueMutationLocked"
+                            :disabled="queueMutationLocked"
                             @click="emit('remove-file', row.index)"
                         />
                     </AppTooltip>
@@ -84,7 +84,10 @@ import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
 import type { ICombineFile } from '@app/modules/combine/combineFile';
 import { formatBytes } from '@app/utils/formatters';
 
-const props = defineProps<{
+const {
+    files,
+    queueMutationLocked,
+} = defineProps<{
     files: readonly ICombineFile[];
     queueMutationLocked: boolean;
 }>();
@@ -100,7 +103,7 @@ const {
 } = useTypedI18n();
 const DEFAULT_ROW_STRIDE_PX = 60;
 const rowStridePx = ref(DEFAULT_ROW_STRIDE_PX);
-const fileList = computed(() => props.files);
+const fileList = computed(() => files);
 
 const {
     list: virtualRows,
@@ -112,8 +115,8 @@ const {
 });
 const listRef = containerProps.ref;
 const mountedRows = computed(() => {
-    const lastIndex = props.files.length - 1;
-    const locked = props.queueMutationLocked;
+    const lastIndex = files.length - 1;
+    const locked = queueMutationLocked;
     return virtualRows.value.map((row, visibleIndex) => ({
         id: row.data.id,
         index: row.index,
@@ -175,14 +178,14 @@ function handleReorder(fromVisibleIndex: number, toVisibleIndex: number) {
 }
 
 function startReorder(event: PointerEvent, visibleIndex: number) {
-    if (props.queueMutationLocked) {
+    if (queueMutationLocked) {
         return;
     }
     onReorderPointerDown(event, visibleIndex);
 }
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .combine-file-list {
     flex: 1;
     min-height: 0;
@@ -255,12 +258,11 @@ function startReorder(event: PointerEvent, visibleIndex: number) {
 }
 
 .combine-file-copy strong {
-    overflow: hidden;
     color: var(--ui-text);
     font-size: var(--app-text-size-body);
     font-weight: var(--app-font-weight-semibold);
-    text-overflow: ellipsis;
-    white-space: nowrap;
+
+    @include app.truncate-single-line;
 }
 
 .combine-file-copy span {

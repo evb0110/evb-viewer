@@ -1,18 +1,7 @@
 <template>
-    <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
+    <UIcon
+        name="evb:print-current-page"
+        mode="svg"
         aria-hidden="true"
-    >
-        <path d="M6 9V3h9l3 3v3" />
-        <path d="M15 3v4h4" />
-        <path d="M6 17H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2" />
-        <path d="M6 14h12v7H6z" />
-        <path d="M12 17v2" />
-        <path d="M10.75 17.75 12 16.5l1.25 1.25" />
-    </svg>
+    />
 </template>

@@ -102,7 +102,10 @@ type TRenderedRow = {
     label: string;
 };
 
-const props = defineProps<{
+const {
+    instances,
+    selection,
+} = defineProps<{
     instances: IAssistantInstanceStatus[];
     selection: IAssistantSelection | null;
 }>();
@@ -134,9 +137,9 @@ const stateKeys = {
     missing: 'assistant.stateMissing',
 } as const;
 
-const railInstances = computed(() => props.instances.filter(instance => instance.enabled && instance.state !== 'disabled'));
-const activeKey = computed(() => props.selection ? modelPickerKey(props.selection.instanceId, props.selection.model) : null);
-const items = computed(() => props.instances.filter(isPickableInstance).flatMap(instance => instance.models.map((model): IModelPickerItem => {
+const railInstances = computed(() => instances.filter(instance => instance.enabled && instance.state !== 'disabled'));
+const activeKey = computed(() => selection ? modelPickerKey(selection.instanceId, selection.model) : null);
+const items = computed(() => instances.filter(isPickableInstance).flatMap(instance => instance.models.map((model): IModelPickerItem => {
     const key = modelPickerKey(instance.id, model.id);
     return {
         key,
@@ -148,7 +151,7 @@ const items = computed(() => props.instances.filter(isPickableInstance).flatMap(
 // Opens on Favorites when one can be picked, else on the selected model's provider (T3 Code).
 const chosenTab = ref<TModelPickerTab | null>(null);
 const tab = computed((): TModelPickerTab => chosenTab.value
-    ?? (items.value.some(item => item.isFavorite) ? 'favorites' : (props.selection?.instanceId ?? railInstances.value[0]?.id ?? 'favorites')));
+    ?? (items.value.some(item => item.isFavorite) ? 'favorites' : (selection?.instanceId ?? railInstances.value[0]?.id ?? 'favorites')));
 // Older models stay folded unless the selected model is one of them; each toggle flips that default.
 const toggledLegacy = ref(new Set<string>());
 const activeItem = computed(() => items.value.find(item => item.key === activeKey.value));
@@ -203,7 +206,7 @@ const railItems = computed(() => railInstances.value.map(instance => {
     return {
         id: instance.id,
         driver: instance.driver,
-        badge: instanceBadge(instance, props.instances),
+        badge: instanceBadge(instance, instances),
         description: describeInstance(instance),
         isSelected,
         disabled: !isPickableInstance(instance),
@@ -222,7 +225,7 @@ const renderedRows = computed<TRenderedRow[]>(() => {
                 optionId: optionId(row.key),
                 item,
                 isActive: row.key === activeKey.value,
-                badge: instanceBadge(item.instance, props.instances),
+                badge: instanceBadge(item.instance, instances),
                 favoriteLabel: `${t(isFavorite ? 'assistant.removeFavorite' : 'assistant.addFavorite')}: ${item.model.label}`,
                 favoriteIcon: isFavorite ? 'i-ph-star-fill' : 'i-ph-star',
                 hideStarUntilHover,
@@ -366,7 +369,7 @@ useEventListener(window, 'keydown', (event: KeyboardEvent) => {
 defineExpose({ focusSearch });
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .model-picker-content {
     display: flex;
     width: calc(var(--app-assistant-picker-rail-width) + var(--app-assistant-picker-list-width));
@@ -411,7 +414,7 @@ defineExpose({ focusSearch });
     color: var(--ui-text);
     cursor: pointer;
     font-size: var(--app-space-15xl);
-    transition: background-color 120ms ease;
+    transition: background-color $ease-quick;
 }
 
 .rail-button:hover,
@@ -533,9 +536,8 @@ defineExpose({ focusSearch });
 
 .row-name {
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+
+    @include app.truncate-single-line;
 }
 
 .row-check {

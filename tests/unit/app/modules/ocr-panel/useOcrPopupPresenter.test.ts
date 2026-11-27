@@ -222,6 +222,7 @@ function createPresenterHarness(ocr: TOcrMock = createOcrMock()) {
 
     return {
         scope,
+        documentPresenter: presenter,
         presenter: {
             ...presenter,
             ...view,
@@ -624,7 +625,7 @@ describe('useOcrPopupPresenter', () => {
             await harness.presenter.handleCopyLogs();
             expect(getDebugLogsMock).not.toHaveBeenCalled();
             expect(copyClipboardTextMock).not.toHaveBeenCalled();
-            expect(harness.presenter.copyLogsState.value).toBe('idle');
+            expect(harness.presenter.copyLogsTooltip.value).toBe('ocr.copyLogs');
 
             harness.ocr.error.value = 'OCR failed';
             await harness.presenter.handleCopyLogs();
@@ -633,13 +634,11 @@ describe('useOcrPopupPresenter', () => {
             expect(copyClipboardTextMock).toHaveBeenCalledTimes(1);
             expect(copyClipboardTextMock.mock.calls[0]?.[0]).toContain('uiError=OCR failed');
             expect(copyClipboardTextMock.mock.calls[0]?.[0]).toContain('[ocr] trace line');
-            expect(harness.presenter.copyLogsState.value).toBe('copied');
             expect(harness.presenter.copyLogsTooltip.value).toBe('ocr.logsCopied');
 
             copyClipboardTextMock.mockRejectedValueOnce(new Error('clipboard denied'));
             await harness.presenter.handleCopyLogs();
 
-            expect(harness.presenter.copyLogsState.value).toBe('failed');
             expect(harness.presenter.copyLogsTooltip.value).toBe('ocr.logsCopyFailed');
             expect(browserLoggerWarnMock).toHaveBeenCalledWith(
                 'ocr',
@@ -911,6 +910,35 @@ describe('useOcrPopupPresenter', () => {
             expect(harness.presenter.languageSearchQueryModel.value).toBe('rus');
             expect(harness.presenter.languagePickerItems.value.map(item => item.value)).toEqual(['rus']);
             expect('languageSearchQuery' in harness.presenter).toBe(false);
+        } finally {
+            stopHarness(harness.scope);
+        }
+    });
+
+    it('limits the document-facing presenter to progress, view attachment, agent operations, and applyResult', () => {
+        const harness = createPresenterHarness();
+
+        try {
+            expect(Object.keys(harness.documentPresenter).sort()).toEqual([
+                'applyResult',
+                'cancelOcrForAgent',
+                'createViewState',
+                'getAgentOcrSnapshot',
+                'progress',
+                'runOcrForAgent',
+            ]);
+            for (const removedKey of [
+                'results',
+                'error',
+                'hasResults',
+                'availableLanguages',
+                'copyLogsState',
+                'handleDialogOpened',
+                'handleDialogClosed',
+                'settings',
+            ]) {
+                expect(removedKey in harness.presenter).toBe(false);
+            }
         } finally {
             stopHarness(harness.scope);
         }

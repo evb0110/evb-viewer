@@ -572,7 +572,7 @@ function confirmClearRecent() {
     border-bottom: 1px solid var(--app-start-row-divider);
     text-align: left;
     background: transparent;
-    transition: background-color var(--app-transition-fast);
+    transition: background-color $ease-fast;
 }
 
 .recent-row:last-child {
@@ -710,9 +710,8 @@ html[data-recent-count='0'] .recent-table[aria-busy='true'] ~ .recent-footer {
 
 .recent-location--reveal {
     cursor: pointer;
-    transition:
-        background-color var(--app-transition-quick),
-        color var(--app-transition-quick);
+
+    @include transition-properties($ease-quick, background-color, color);
 }
 
 @media (hover: hover) {
@@ -736,9 +735,8 @@ html[data-recent-count='0'] .recent-table[aria-busy='true'] ~ .recent-footer {
 
 .recent-location-path {
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+
+    @include app.truncate-single-line;
 }
 
 .recent-col--time {
@@ -778,9 +776,8 @@ html[data-recent-count='0'] .recent-table[aria-busy='true'] ~ .recent-footer {
 
 .recent-file-name-prefix {
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+
+    @include app.truncate-single-line;
 }
 
 .recent-file-name-suffix {
@@ -846,9 +843,8 @@ html[data-recent-count='0'] .recent-table[aria-busy='true'] ~ .recent-footer {
     background: transparent;
     color: var(--ui-text-dimmed);
     cursor: pointer;
-    transition:
-        background-color var(--app-transition-quick),
-        color var(--app-transition-quick);
+
+    @include transition-properties($ease-quick, background-color, color);
 }
 
 .recent-action :deep(.iconify) {

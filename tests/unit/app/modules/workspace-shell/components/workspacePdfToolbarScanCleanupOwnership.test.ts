@@ -72,6 +72,7 @@ function mountToolbar(documentRef: typeof sourceA) {
         setup: (_props, {slots}) => () => slots.default?.(),
     }));
     app.component('UButton', defineComponent({setup: (_props, {slots}) => () => h('button', slots.default?.())}));
+    app.component('UIcon', defineComponent({setup: () => () => h('span')}));
     apps.push(app);
     app.mount(host);
     return host;

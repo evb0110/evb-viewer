@@ -193,7 +193,29 @@ import {createScanCleanupSparsePageOrder} from '@app/modules/scan-cleanup/runtim
 type TScanCleanupRailSort = 'natural' | 'classification' | 'confidence';
 const PAGE_KEYBOARD_STEP = 5;
 
-const props = defineProps<{
+const {
+    source,
+    totalPages,
+    selectionLeader,
+    selectedPages,
+    overrides,
+    pageOverrideDefaults = undefined,
+    marginsMm = undefined,
+    classifications,
+    confidences,
+    documentOutputMode,
+    preserveOriginalQuality,
+    recommendedOutputModes = undefined,
+    textAxes = undefined,
+    disabled,
+    canRedetect = false,
+    processedPages = undefined,
+    activePages = undefined,
+    sourcePending = false,
+    detectionActive = false,
+    settledPages = undefined,
+    active = false,
+} = defineProps<{
     source: IDocumentPageSource | null;
     totalPages: number;
     selectionLeader: number;
@@ -247,16 +269,16 @@ const classificationRank: Record<IScanCleanupPreviewMetadata['layoutClassificati
 // The rendered rows come from the source document, so its page count is the
 // one every row, its order and its override lookup are validated against;
 // while a restored tab reloads, `totalPages` can still describe another state.
-const railPageCount = computed(() => props.source?.pageCount ?? props.totalPages);
+const railPageCount = computed(() => source?.pageCount ?? totalPages);
 const orderedPages = computed<IScanCleanupPageOrder>(() => {
     const pageCount = railPageCount.value;
     if (sortMode.value === 'classification') {
         return createScanCleanupSparsePageOrder(
             pageCount,
-            props.classifications.keys(),
+            classifications.keys(),
             (left, right) => {
-                const leftValue = props.classifications.get(left);
-                const rightValue = props.classifications.get(right);
+                const leftValue = classifications.get(left);
+                const rightValue = classifications.get(right);
                 return (leftValue === undefined ? Number.POSITIVE_INFINITY : classificationRank[leftValue])
                     - (rightValue === undefined ? Number.POSITIVE_INFINITY : classificationRank[rightValue])
                     || left - right;
@@ -266,10 +288,10 @@ const orderedPages = computed<IScanCleanupPageOrder>(() => {
     if (sortMode.value === 'confidence') {
         return createScanCleanupSparsePageOrder(
             pageCount,
-            props.confidences.keys(),
+            confidences.keys(),
             (left, right) => {
-                const leftValue = props.confidences.get(left);
-                const rightValue = props.confidences.get(right);
+                const leftValue = confidences.get(left);
+                const rightValue = confidences.get(right);
                 return (leftValue ?? Number.POSITIVE_INFINITY) - (rightValue ?? Number.POSITIVE_INFINITY)
                     || left - right;
             },
@@ -282,9 +304,9 @@ const orderedPages = computed<IScanCleanupPageOrder>(() => {
     };
 });
 const orderedSource = computed<IDocumentPageSource | null>(() => {
-    const source = props.source;
+    const currentSource = source;
     const order = orderedPages.value;
-    if (!source) {
+    if (!currentSource) {
         return null;
     }
     function mapRequest(request: Parameters<IDocumentPageSource['renderPage']>[0]) {
@@ -293,16 +315,16 @@ const orderedSource = computed<IDocumentPageSource | null>(() => {
             pageNumber: order.pageAt(request.pageNumber) ?? request.pageNumber,
         };
     }
-    const thumbnailProvider = source.thumbnailProvider;
+    const thumbnailProvider = currentSource.thumbnailProvider;
     return {
-        kind: source.kind,
-        documentRef: source.documentRef,
+        kind: currentSource.kind,
+        documentRef: currentSource.documentRef,
         pageCount: order.length,
         getPageMetrics(position, signal) {
-            return source.getPageMetrics(order.pageAt(position) ?? position, signal);
+            return currentSource.getPageMetrics(order.pageAt(position) ?? position, signal);
         },
         renderPage(request) {
-            return source.renderPage(mapRequest(request));
+            return currentSource.renderPage(mapRequest(request));
         },
         thumbnailProvider: thumbnailProvider ? {renderThumbnail(request) {
             return thumbnailProvider.renderThumbnail(mapRequest(request));
@@ -310,10 +332,10 @@ const orderedSource = computed<IDocumentPageSource | null>(() => {
         dispose() {},
     };
 });
-const leaderPosition = computed(() => Math.max(1, orderedPages.value.positionOf(props.selectionLeader)));
+const leaderPosition = computed(() => Math.max(1, orderedPages.value.positionOf(selectionLeader)));
 const selectedPositions = computed(() => {
     const positions = new Set<number>();
-    for (const page of props.selectedPages) {
+    for (const page of selectedPages) {
         const position = orderedPages.value.positionOf(page);
         if (position >= 1) positions.add(position);
     }
@@ -326,15 +348,15 @@ function naturalPage(position: number) {
 
 function pageOverride(page: number) {
     return getScanCleanupPageOverride(
-        props.overrides,
+        overrides,
         requirePageNumber(page, Math.max(1, railPageCount.value)),
-        props.pageOverrideDefaults,
-        props.marginsMm,
+        pageOverrideDefaults,
+        marginsMm,
     );
 }
 
 function isCustomized(override: IScanCleanupPageOverride) {
-    return !isScanCleanupPageOverrideInherited(props.overrides, override);
+    return !isScanCleanupPageOverrideInherited(overrides, override);
 }
 
 function updateOverride(
@@ -342,7 +364,7 @@ function updateOverride(
     patch: Partial<IScanCleanupPageOverride>,
     currentOverride = pageOverride(page),
 ) {
-    if (props.disabled) {
+    if (disabled) {
         return;
     }
     emit('update:override', page, createScanCleanupPageOverride({
@@ -362,16 +384,16 @@ function toggleExcluded(position: number) {
 function displayedOutputMode(page: number, override: IScanCleanupPageOverride) {
     return resolveScanCleanupEffectiveOutputMode({
         options: {
-            outputMode: props.documentOutputMode,
-            preserveOriginalQuality: props.preserveOriginalQuality,
+            outputMode: documentOutputMode,
+            preserveOriginalQuality,
         },
         pageOverride: override,
-        detectedOutputMode: props.recommendedOutputModes?.get(page),
+        detectedOutputMode: recommendedOutputModes?.get(page),
     });
 }
 
 function classificationKind(page: number) {
-    const classification = props.classifications.get(page);
+    const classification = classifications.get(page);
     if (classification === 'two-page-spread') {
         return 'spread';
     }
@@ -393,7 +415,7 @@ function statusSummary(page: number, override: IScanCleanupPageOverride) {
     }
     const rotation = override.rotationDegrees;
     return [
-        scanCleanupLayoutLabel(t, override, props.classifications.get(page)),
+        scanCleanupLayoutLabel(t, override, classifications.get(page)),
         scanCleanupOutputModeShortLabel(t, displayedOutputMode(page, override)),
         rotation === 0 ? '' : `${rotation}°`,
     ].filter(Boolean).join(' · ');
@@ -401,16 +423,16 @@ function statusSummary(page: number, override: IScanCleanupPageOverride) {
 
 function attentionText(page: number, override: IScanCleanupPageOverride) {
     return scanCleanupPageAttentionHints(t, {
-        classification: props.classifications.get(page),
-        layoutConfidence: props.confidences.get(page),
+        classification: classifications.get(page),
+        layoutConfidence: confidences.get(page),
         override,
-        textAxis: props.textAxes?.get(page),
+        textAxis: textAxes?.get(page),
     }).join(' ');
 }
 
 function isPageActive(page: number, override: IScanCleanupPageOverride) {
-    return props.activePages?.has(page) === true
-        && props.processedPages?.has(page) !== true
+    return activePages?.has(page) === true
+        && processedPages?.has(page) !== true
         && !override.excluded;
 }
 
@@ -418,9 +440,9 @@ function isPageActive(page: number, override: IScanCleanupPageOverride) {
 // once the running job reports that page as read or analyzed it settles, even
 // though the rest of the batch is still going.
 function isDetectionPending(page: number) {
-    return props.detectionActive === true
-        && !props.classifications.has(page)
-        && props.settledPages?.has(page) !== true;
+    return detectionActive
+        && !classifications.has(page)
+        && settledPages?.has(page) !== true;
 }
 
 function includeLabel(override: IScanCleanupPageOverride) {
@@ -457,7 +479,7 @@ function resolveOverlayProjection(position: number) {
             role: 'switch',
             'aria-checked': !override.excluded,
             'aria-label': label,
-            disabled: props.disabled,
+            disabled,
         },
     };
 }
@@ -465,17 +487,17 @@ function resolveOverlayProjection(position: number) {
 function resolveLabelProjection(position: number) {
     const page = naturalPage(position);
     const override = pageOverride(page);
-    const active = isPageActive(page, override);
-    const processed = !active && props.processedPages?.has(page) === true;
+    const isActive = isPageActive(page, override);
+    const processed = !isActive && processedPages?.has(page) === true;
     const detectionPending = isDetectionPending(page);
     return {
         page,
         excluded: override.excluded,
         customized: isCustomized(override),
-        active,
-        activeLabel: active ? t('scanCleanup.pages.processing', {page}) : undefined,
+        active: isActive,
+        activeLabel: isActive ? t('scanCleanup.pages.processing', {page}) : undefined,
         processed,
-        attentionText: !active && !processed ? attentionText(page, override) : '',
+        attentionText: !isActive && !processed ? attentionText(page, override) : '',
         detectionPending,
         detectionPendingLabel: detectionPending ? t('scanCleanup.pages.detectionPending', {page}) : undefined,
         summary: detectionPending ? '' : statusSummary(page, override),
@@ -483,7 +505,7 @@ function resolveLabelProjection(position: number) {
 }
 
 function handleRowClick(position: number, event?: MouseEvent) {
-    if (props.disabled) {
+    if (disabled) {
         return;
     }
     const intent: TScanCleanupSelectionIntent = event?.shiftKey
@@ -501,14 +523,14 @@ const KEY_TARGETS: Readonly<Record<string, (position: number, count: number) => 
     PageDown: position => position + PAGE_KEYBOARD_STEP,
 };
 function handleKeydown(event: KeyboardEvent) {
-    if (props.disabled || (event.target instanceof Element && event.target.closest('button, input, select'))) return;
+    if (disabled || (event.target instanceof Element && event.target.closest('button, input, select'))) return;
     const pages = orderedPages.value;
     if (event.key === ' ') {
         event.preventDefault();
-        if (!event.repeat) emit('select-page', props.selectionLeader, 'toggle', pages);
+        if (!event.repeat) emit('select-page', selectionLeader, 'toggle', pages);
         return;
     }
-    const target = KEY_TARGETS[event.key]?.(Math.max(1, pages.positionOf(props.selectionLeader)), pages.length);
+    const target = KEY_TARGETS[event.key]?.(Math.max(1, pages.positionOf(selectionLeader)), pages.length);
     const page = target === undefined ? undefined : pages.pageAt(Math.min(pages.length, Math.max(1, target)));
     if (page === undefined) return;
     event.preventDefault();
@@ -517,7 +539,7 @@ function handleKeydown(event: KeyboardEvent) {
 
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .scan-thumbnail-rail {
     display: flex;
     min-width: 0;
@@ -633,7 +655,7 @@ function handleKeydown(event: KeyboardEvent) {
     flex: none;
     opacity: var(--document-thumbnail-action-opacity, 0);
     pointer-events: auto;
-    transition: opacity var(--app-transition-fast);
+    transition: opacity $ease-fast;
 }
 
 .scan-thumbnail-exclude-toggle[aria-checked='false'],
@@ -719,11 +741,10 @@ function handleKeydown(event: KeyboardEvent) {
     min-height: var(--app-thumbnail-min-label-height);
     align-items: center;
     gap: var(--app-space-xs);
-    overflow: hidden;
     color: var(--ui-text-muted);
     font-size: var(--app-text-size-kicker);
-    text-overflow: ellipsis;
-    white-space: nowrap;
+
+    @include app.truncate-single-line;
 }
 
 .scan-thumbnail-status.is-excluded {

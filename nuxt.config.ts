@@ -50,8 +50,15 @@ function buildIconBundles(iconNames: string[]) {
     });
 
     return {
+        customCollections: [{
+            prefix: 'evb',
+            dir: './app/assets/icons',
+        }],
         serverBundle: {collections},
-        clientBundle: {icons: iconNames},
+        clientBundle: {
+            icons: iconNames,
+            includeCustomCollections: true,
+        },
     };
 }
 
@@ -622,7 +629,7 @@ export default defineNuxtConfig({
         css: {
             preprocessorOptions: {
                 scss: {
-                    additionalData: '@use "~/assets/css/transitions" as *;\n',
+                    additionalData: '@use "~/assets/css/transitions" as *;\n@use "~/assets/css/mixins" as app;\n',
                 },
             },
         },

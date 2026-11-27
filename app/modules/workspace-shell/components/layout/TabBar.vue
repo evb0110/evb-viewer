@@ -601,7 +601,7 @@ function runContextCommand(command: TTabContextCommand) {
 }
 </style>
 
-<style scoped>
+<style lang="scss" scoped>
 .tab-bar {
     display: flex;
     align-items: stretch;
@@ -616,7 +616,7 @@ function runContextCommand(command: TTabContextCommand) {
 }
 
 .tab-bar.is-split-pane {
-    transition: background-color 0.12s ease, border-bottom-color 0.12s ease, box-shadow 0.12s ease;
+    @include transition-properties($ease-quick, background-color, border-bottom-color, box-shadow);
 }
 
 .tab-bar.is-split-active-pane {
@@ -664,9 +664,8 @@ function runContextCommand(command: TTabContextCommand) {
     position: relative;
     touch-action: none;
     -webkit-app-region: no-drag;
-    transition:
-        color var(--app-transition-quick),
-        background-color var(--app-transition-quick);
+
+    @include transition-properties($ease-quick, color, background-color);
 }
 
 .tab:not(.is-active):hover {
@@ -692,7 +691,7 @@ function runContextCommand(command: TTabContextCommand) {
     width: var(--app-divider-width);
     background: var(--app-tab-divider);
     pointer-events: none;
-    transition: opacity var(--app-transition-quick);
+    transition: opacity $ease-quick;
 }
 
 .tab.is-active::before,
@@ -703,13 +702,12 @@ function runContextCommand(command: TTabContextCommand) {
 }
 
 .tab-label {
-    overflow: hidden;
     padding-block: var(--app-space-2xs);
-    text-overflow: ellipsis;
-    white-space: nowrap;
     flex: 1;
     line-height: var(--app-line-height-body);
     min-width: 0;
+
+    @include app.truncate-single-line;
 }
 
 .tab-close {
@@ -725,9 +723,8 @@ function runContextCommand(command: TTabContextCommand) {
     background: transparent;
     color: var(--ui-text-dimmed);
     opacity: 0;
-    transition:
-        opacity var(--app-transition-fast),
-        background-color var(--app-transition-fast);
+
+    @include transition-properties($ease-fast, opacity, background-color);
 }
 
 .tab.is-dirty .tab-close {
@@ -800,9 +797,8 @@ function runContextCommand(command: TTabContextCommand) {
     background: transparent;
     color: var(--ui-text-dimmed);
     -webkit-app-region: no-drag;
-    transition:
-        background-color var(--app-transition-quick),
-        color var(--app-transition-quick);
+
+    @include transition-properties($ease-quick, background-color, color);
 }
 
 .tab-new:hover {
