@@ -2,78 +2,52 @@ import {
     contentOf,
     sameWitness,
 } from './contentWitness';
+import {
+    decodeJson,
+    decodeManifest,
+    DOCUMENTS_DIR,
+    encodeJson,
+    EXT_PATTERN,
+    hasFile,
+    hasNoUserEdits,
+    type IDestinationRevision,
+    type IManifest,
+    type IPendingPublish,
+    type IRevision,
+    isDirty,
+    isRecord,
+    MANIFEST_NAME,
+    namedFiles,
+    STORE_ID_PATTERN,
+    type TForeignRevisionState,
+    type THistoryRevision,
+} from './manifest';
 import type {
     IStoreFile,
     IStorePort,
     TExternalSource,
 } from './storePort';
 
-export const DOCUMENTS_DIR = 'documents';
-export const MANIFEST_NAME = 'manifest.json';
-/** Directory and window ids: also file names, so they never contain a separator. */
-export const STORE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/u;
-const EXT_PATTERN = /^[A-Za-z0-9]{1,16}$/u;
-const REVISION_FILE_PATTERN = /^r\d+\.[A-Za-z0-9]{1,16}$/u;
-const DRAFTS_FILE_PATTERN = /^drafts-[A-Za-z0-9-]{1,64}\.json$/u;
+export {
+    decodeJson,
+    decodeManifest,
+    DOCUMENTS_DIR,
+    encodeJson,
+    isDirty,
+    isRecord,
+    MANIFEST_NAME,
+    STORE_ID_PATTERN,
+};
+export type {
+    IDestinationRevision,
+    IManifest,
+    IPendingPublish,
+    IRevision,
+    TForeignRevisionState,
+    THistoryRevision,
+};
+
 const COPY_BYTES = 4 * 1024 * 1024;
-
-export type TForeignRevisionState = 'staged' | 'committed';
-
-/** The bytes `[0, length)` of `file`. `witness` names them once something established it: a content witness, or the witness of the destination they were copied from. */
-export interface IRevision {
-    id: number;
-    file: string;
-    length: number;
-    witness?: string | undefined;
-    /** Revision 1 copied from an externally modified destination: `'staged'` until published or archived for undo, then `'committed'`. */
-    foreign?: TForeignRevisionState | undefined;
-}
-
-/**
- * Revision 1 of a document opened from a destination, kept for undo while no file of the store holds it: the
- * destination's bytes, as long as the destination still has `witness`.
- */
-export interface IDestinationRevision {
-    id: 1;
-    witness: string;
-}
-
-export type THistoryRevision = IRevision | IDestinationRevision;
-
-const hasFile = (revision: THistoryRevision): revision is IRevision => 'file' in revision;
-
-/**
- * A publish whose outcome is unknown: `witness` is what `destination` holds if it finished (absent until the bytes are
- * staged), and `temp` the file it stages beside the destination, named before that file exists.
- */
-export interface IPendingPublish {
-    destination: string;
-    witness?: string | undefined;
-    temp?: string | undefined;
-    /** What the destination held before, for an `unsettled` record; the latest publish's is the manifest's `baseline`. */
-    baseline?: string | undefined;
-}
-
-export interface IManifest {
-    version: 1;
-    ext: string;
-    /** The file name the document was created under, for a view with no other name for it; absent in older stores. */
-    name?: string | undefined;
-    /** The id of the next revision, which also names its file. Revision 1 is the destination's bytes as opened. */
-    next: number;
-    current?: IRevision | undefined;
-    /** Revisions kept for undo and redo; never contains `current`. */
-    history: THistoryRevision[];
-    destination?: string | undefined;
-    /** The witness of the bytes last read from or published to `destination`. */
-    baseline?: string | undefined;
-    /** The latest publish while its outcome is unknown; recovery adopts it when the destination holds what it published. */
-    pendingPublish?: IPendingPublish | undefined;
-    /** Earlier publishes a later one followed before they could be settled, for example while their destination could not be read. */
-    unsettled?: IPendingPublish[] | undefined;
-    /** The immutable file holding the drafts that apply to `current`; absent when there are none. */
-    drafts?: string | undefined;
-}
 
 export interface IDocumentState {
     id: string;
@@ -152,11 +126,12 @@ type TRevisionSource = TExternalSource | TRevisionWriter | { move: string };
 /** The drafts a mutation leaves: the current ones, new ones (`undefined` clears), or none. */
 export type TDraftsAfter = 'keep' | 'clear' | { replace: unknown };
 /**
- * New bytes for a document: written from `source`, with `imported` its baseline and no history, as `TDocumentInit`'s;
+ * New bytes for a document: written from `source`, with `imported` its baseline and no history, as `TDocumentInit`'s,
+ * or `openOnly` when the bytes are solely an open-time normalization/decryption/repair rather than a user edit;
  * `move`: a file the caller wrote on the store's file system and gives up; `extend`: what the caller appended to the
  * current file, up to its end, after `ownCurrentFile`.
  */
-export type TReplacement = { kind: 'rewrite'; source: TExternalSource | TRevisionWriter; imported?: boolean } | { kind: 'move'; file: string } | { kind: 'extend' };
+export type TReplacement = { kind: 'rewrite'; source: TExternalSource | TRevisionWriter; imported?: boolean; openOnly?: boolean } | { kind: 'move'; file: string } | { kind: 'extend' };
 export type TMutation = ({ kind: 'append'; bytes: Uint8Array } | TReplacement) & { drafts: TDraftsAfter };
 export type TStaleRevision = { status: 'stale-revision'; current: IRevision | null };
 export type TMutationResult = { status: 'committed'; revision: IRevision } | TStaleRevision | { status: 'conflict' };
@@ -165,12 +140,13 @@ export type TDraftResult = { status: 'stored'; revision: IRevision | null } | TS
 export type TRestoreResult = { status: 'committed'; revision: IRevision | null } | TStaleRevision | { status: 'conflict' };
 /**
  * `imported`: bytes the person supplied without a destination; they are the baseline, so the document starts clean.
+ * `openOnly`: bytes produced solely during an open without a destination, eligible for cleanup if interrupted before any edit.
  * `id`: the directory's id when the caller must know it first, for example to lock it before it exists. A writer
  * `source` writes the first revision itself, such as bytes arriving as a stream. `name`: the file name the document
  * is created under; the manifest keeps it, and its extension, or `bin`, names the revision files, as `ext` does.
  */
 export type TDocumentInit = ({ ext: string } | { name: string }) & { id?: string }
-    & ({ destination: string } | { source: TExternalSource | TRevisionWriter; imported?: boolean });
+    & ({ destination: string } | { source: TExternalSource | TRevisionWriter; imported?: boolean; openOnly?: boolean });
 
 const extensionOf = (name: string) => /\.([A-Za-z0-9]{1,16})$/u.exec(name)?.[1]?.toLowerCase() ?? 'bin';
 
@@ -180,60 +156,6 @@ const extensionOf = (name: string) => /\.([A-Za-z0-9]{1,16})$/u.exec(name)?.[1]?
  * refuses every change and Save with this.
  */
 export class DamagedDocumentError extends Error {}
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-export function encodeJson(value: unknown) {
-    return new TextEncoder().encode(JSON.stringify(value));
-}
-
-export function decodeJson(bytes: Uint8Array): unknown {
-    return JSON.parse(new TextDecoder().decode(bytes));
-}
-
-const isCount = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
-const isOptionalString = (value: unknown) => value === undefined || typeof value === 'string';
-const isOptionalForeign = (value: unknown): value is TForeignRevisionState | undefined => value === undefined || value === 'staged' || value === 'committed';
-
-function isRevision(value: unknown): value is IRevision {
-    return isRecord(value) && isCount(value.id) && typeof value.file === 'string' && REVISION_FILE_PATTERN.test(value.file)
-        && isCount(value.length) && isOptionalString(value.witness) && isOptionalForeign(value.foreign);
-}
-
-const isDestinationRevision = (value: unknown) => isRecord(value) && value.id === 1 && typeof value.witness === 'string' && !('file' in value);
-const isPendingPublish = (value: unknown) => isRecord(value) && typeof value.destination === 'string' && isOptionalString(value.witness)
-    && isOptionalString(value.temp) && isOptionalString(value.baseline);
-
-function isManifest(value: unknown): value is IManifest {
-    return isRecord(value) && value.version === 1 && typeof value.ext === 'string' && EXT_PATTERN.test(value.ext)
-        && isOptionalString(value.name) && isCount(value.next) && Array.isArray(value.history)
-        && value.history.every(revision => isRevision(revision) || isDestinationRevision(revision))
-        && (value.current === undefined || isRevision(value.current))
-        && isOptionalString(value.destination) && isOptionalString(value.baseline)
-        && (value.drafts === undefined || (typeof value.drafts === 'string' && DRAFTS_FILE_PATTERN.test(value.drafts)))
-        && (value.pendingPublish === undefined || isPendingPublish(value.pendingPublish))
-        && (value.unsettled === undefined || (Array.isArray(value.unsettled) && value.unsettled.every(isPendingPublish)));
-}
-
-export function decodeManifest(bytes: Uint8Array): IManifest {
-    const value = decodeJson(bytes);
-    if (!isManifest(value)) throw new Error('Unreadable document manifest');
-    return value;
-}
-
-/** Dirty: drafts exist, a publish is unresolved, or the current bytes are not known to equal the baseline. */
-export function isDirty(manifest: IManifest) {
-    const { current } = manifest;
-    return manifest.drafts !== undefined || manifest.pendingPublish !== undefined || manifest.unsettled !== undefined
-        || (current !== undefined && !sameWitness(current.witness, manifest.baseline));
-}
-
-function namedFiles(manifest: IManifest) {
-    const files = [manifest.current, ...manifest.history].flatMap(revision => revision && hasFile(revision) ? [revision.file] : []);
-    return new Set(manifest.drafts === undefined ? files : [...files, manifest.drafts]);
-}
 
 /**
  * One document directory: `manifest.json` (the only commit point), revision files `r<id>.<ext>` that are
@@ -275,7 +197,14 @@ export class DocumentDirectory {
         } else {
             const name = `r1.${ext}`;
             const { file, length, witness } = await doc.createRevisionFile(name, init.source, init.imported === true);
-            await doc.commitFirst({ ...manifest, current: { id: 1, file: name, length, witness }, baseline: witness }, file, undefined);
+            const current: IRevision = {
+                id: 1,
+                file: name,
+                length,
+                witness,
+                ...(init.openOnly === true && init.imported !== true ? { openOnly: true as const } : {}),
+            };
+            await doc.commitFirst({ ...manifest, current, baseline: witness }, file, undefined);
         }
         return doc;
     }
@@ -600,7 +529,18 @@ export class DocumentDirectory {
                 : mutation.kind === 'move' ? { move: mutation.file } : this.copyThenAppend(base!, mutation.bytes);
             const created = await this.createRevisionFile(name, source, mutation.kind === 'rewrite' && mutation.imported === true);
             file = created.file;
-            revision = { id, file: name, length: created.length, witness: created.witness };
+            const canMarkOpenOnly = mutation.kind === 'rewrite'
+                && mutation.openOnly === true
+                && mutation.imported !== true
+                && drafts.name === undefined
+                && hasNoUserEdits(manifest);
+            revision = {
+                id,
+                file: name,
+                length: created.length,
+                witness: created.witness,
+                ...(canMarkOpenOnly ? { openOnly: true as const } : {}),
+            };
         }
         const history = revision.witness === undefined ? this.historyAfter(manifest.history) : [];
         await this.commit({ ...manifest, next: id + 1, current: revision, history, baseline: revision.witness ?? manifest.baseline, drafts: drafts.name }, file, drafts.value);

@@ -21,7 +21,6 @@ import {
 } from 'node:path';
 import {pipeline} from 'node:stream/promises';
 import {collectDocuments} from '@document-store/collectDocuments';
-import {sameWitness} from '@document-store/contentWitness';
 import {
     createDocument,
     decodeManifest,
@@ -42,9 +41,10 @@ import {
     createNodeStorePort,
 } from '@document-store/nodeStorePort';
 import {
-    saveDocument,
-    type TSaveResult,
-} from '@document-store/saveDocument';
+    createRevisionTokenCodec,
+    OpenDocument,
+} from '@document-store/openDocument';
+import type {TSaveResult} from '@document-store/saveDocument';
 import {
     createMissingRevisionError,
     createStaleRevisionError,
@@ -93,6 +93,7 @@ const log = createLogger('document-store');
 const STORE_DIR = 'document-store';
 /** The name a document's ref gives its bytes; nothing is stored under it. */
 const REF_NAME = 'document';
+const DESKTOP_REVISION_CODEC = createRevisionTokenCodec('numeric');
 
 export class WorkingCopyMaterializationError extends Error {
     readonly code: 'SOURCE_BACKING_CHANGED' | 'SOURCE_BACKING_UNAVAILABLE';
@@ -124,6 +125,7 @@ const openedBytesNotKeptError = () => new WorkingCopyMaterializationError(
 export interface IOpenDocument {
     readonly ref: string;
     readonly doc: DocumentDirectory;
+    readonly session: OpenDocument;
     readonly registrationId: number;
     /** The file the document was opened from or last saved to; absent for one the app made. */
     originalPath?: string;
@@ -246,11 +248,18 @@ export function getWorkingCopyDerivedPath(ref: string, name: string) {
     return join(ref, '..', 'derived', name);
 }
 
-function register(doc: DocumentDirectory, options: Omit<IOpenDocument, 'ref' | 'doc' | 'registrationId'>) {
-    const entry: IOpenDocument = {
+function register(doc: DocumentDirectory, options: Omit<IOpenDocument, 'ref' | 'doc' | 'session' | 'registrationId'>) {
+    let entry!: IOpenDocument;
+    const session = new OpenDocument(doc, {
+        codec: DESKTOP_REVISION_CODEC,
+        beforeEdit: () => nameDirectory(entry),
+        beforeMutation: () => preservePinnedRevisions(entry),
+    });
+    entry = {
         ...options,
         ref: refFor(doc),
         doc,
+        session,
         registrationId: nextRegistrationId++,
     };
     openDocuments.set(entry.ref, entry);
@@ -350,7 +359,7 @@ export async function reopenStoredDocument(id: string, options: {ownerWebContent
 
 export function documentRevisionToken(entry: IOpenDocument): TDocumentRevisionToken {
     // A document without bytes of its own and its first copy of the destination hold the same bytes: revision 1.
-    return requireDocumentRevisionToken(String(entry.doc.state().current?.id ?? 1));
+    return requireDocumentRevisionToken(entry.session.token());
 }
 
 export function getDocumentRevisionInfo(entry: IOpenDocument): IDocumentRevisionInfo {
@@ -360,26 +369,16 @@ export function getDocumentRevisionInfo(entry: IOpenDocument): IDocumentRevision
         token,
         documentRef: requireDocumentRef(entry.ref),
         authority: 'electron-working-copy',
-        contentRevision: Number(token),
+        contentRevision: entry.session.contentRevision(),
         mintedAt: createEpochMs(),
     };
-}
-
-const revisionIdOf = (token: string) => /^\d+$/u.test(token) ? Number(token) : -1;
-
-/** The store's revision id for a renderer's token: `null` names a document without bytes of its own. */
-function expectedRevisionId(entry: IOpenDocument, token: string | null) {
-    const current = entry.doc.state().current;
-    if (token === null) return current?.id ?? null;
-    const id = revisionIdOf(token);
-    return current === null && id === 1 ? null : id;
 }
 
 function staleRevisionError(entry: IOpenDocument, expected: TDocumentRevisionToken | null, current: IRevision | null) {
     return createStaleRevisionError({
         documentRef: requireDocumentRef(entry.ref),
         expectedRevision: expected,
-        actualRevision: requireDocumentRevisionToken(String(current?.id ?? 1)),
+        actualRevision: requireDocumentRevisionToken(DESKTOP_REVISION_CODEC.format(entry.doc.id, current?.id ?? 1, current?.foreign)),
     });
 }
 
@@ -416,16 +415,21 @@ export function normalizeExpectedDocumentRevisionToken(
 /** Throws unless `token` names the current revision of the document `path` belongs to. */
 export function assertWorkingCopyRevisionCurrent(path: string, token: TDocumentRevisionToken, senderId?: number) {
     const entry = requireOpenDocument(path, senderId);
-    if (documentRevisionToken(entry) !== token) throw staleRevisionError(entry, token, entry.doc.state().current);
+    if (entry.session.checkRevision(token).status !== 'ok') throw staleRevisionError(entry, token, entry.doc.state().current);
     return Promise.resolve();
 }
 
 /** A mutation must name the revision it was planned on. */
 export function assertQueuedWorkingCopyMutationPreconditions(path: string, token?: TDocumentRevisionToken | null) {
-    if (token === undefined || token === null) {
-        return Promise.reject(createMissingRevisionError({documentRef: requireDocumentRef(requireOpenDocument(path).ref)}));
+    const entry = requireOpenDocument(path);
+    const check = entry.session.checkRevision(token, {requireToken: true});
+    if (check.status === 'missing-revision') {
+        return Promise.reject(createMissingRevisionError({documentRef: requireDocumentRef(entry.ref)}));
     }
-    return assertWorkingCopyRevisionCurrent(path, token);
+    if (check.status === 'stale-revision') {
+        return Promise.reject(staleRevisionError(entry, token ?? null, entry.doc.state().current));
+    }
+    return Promise.resolve();
 }
 
 export function getWorkingCopyRevision(path: string, senderId?: number) {
@@ -548,13 +552,13 @@ export async function commitDocumentMutation(
     change: TReplacement,
     reason: TDocumentRevisionChangeReason,
 ) {
-    await nameDirectory(entry);
-    await preservePinnedRevisions(entry);
-    const previous = documentRevisionToken(entry);
-    await clearNextRevision(entry);
-    const result = await entry.doc.mutate(expectedRevisionId(entry, token), {...change, drafts: 'clear'});
-    if (result.status !== 'committed') throwFailedMutation(entry, token, result);
-    return notifyRevisionChanged(entry, previous, reason);
+    const outcome = await entry.session.mutate(token, {...change, drafts: 'clear'}, {
+        beforeRun: () => clearNextRevision(entry),
+    });
+    if (outcome.status === 'stale-revision') throw staleRevisionError(entry, token, entry.doc.state().current);
+    if (outcome.status === 'conflict') throw sourceChangedError();
+    if (outcome.status === 'missing-revision') throw createMissingRevisionError({documentRef: requireDocumentRef(entry.ref)});
+    return notifyRevisionChanged(entry, requireDocumentRevisionToken(outcome.previousToken), reason);
 }
 
 /**
@@ -583,7 +587,12 @@ export async function rewriteDocument(
         if (!current) await assertAdmission(entry, input);
         await rewrite(input, output);
         if (!(await stat(output).catch(() => null))?.size) throw new Error('The rewrite wrote no revision');
-        const result = await entry.doc.mutate(expectedRevisionId(entry, previous), {kind: 'rewrite', source: () => Promise.resolve(), drafts: 'clear'});
+        const result = await entry.doc.mutate(entry.session.resolveExpectedId(previous), {
+            kind: 'rewrite',
+            source: () => Promise.resolve(),
+            drafts: 'clear',
+            ...(reason === 'open' ? {openOnly: true} : {}),
+        });
         if (result.status !== 'committed') throwFailedMutation(entry, previous, result);
     } catch (error) {
         await removeOutput();
@@ -600,11 +609,10 @@ export async function rewriteDocument(
  * `DocumentDirectory.ensureCurrent`); one that cannot be read refuses with that.
  */
 export async function prepareDocumentAppend(entry: IOpenDocument, asItIs = false) {
-    await preservePinnedRevisions(entry);
-    const materialized = entry.doc.materialize(asItIs);
-    const revision = await (entry.doc.state().current ? materialized : materialized.catch((error: unknown) => {
+    const revision = await entry.session.prepareInPlaceAppend(asItIs).catch((error: unknown) => {
+        if (entry.doc.state().current !== null) throw error;
         throw new WorkingCopyMaterializationError('SOURCE_BACKING_UNAVAILABLE', `The original file cannot be read: ${getErrorMessage(error)}`, {cause: error, retryable: true});
-    })) && await entry.doc.ownCurrentFile();
+    });
     if (!revision) throw sourceChangedError();
     return revisionPath(entry, revision);
 }
@@ -613,10 +621,8 @@ export async function prepareDocumentAppend(entry: IOpenDocument, asItIs = false
  * Ends an append that `error` stopped before its commit, so no reader of the document's file meets its bytes: they are
  * cut, or, when the tool may still be writing, the document moves to a copy of its file and leaves the tool that one.
  */
-export async function discardDocumentAppend(entry: IOpenDocument, error?: unknown) {
-    await preservePinnedRevisions(entry);
-    const end = getUnprovenNativeTerminationDetail(error) === undefined ? entry.doc.ownCurrentFile() : entry.doc.abandonCurrentFile();
-    await end.catch(() => undefined);
+export function discardDocumentAppend(entry: IOpenDocument, error?: unknown) {
+    return entry.session.discardInPlaceAppend(getUnprovenNativeTerminationDetail(error) !== undefined);
 }
 
 /**
@@ -644,7 +650,7 @@ export async function appendToDocument(
     const path = await prepareDocumentAppend(entry);
     try {
         await append(path, path);
-        const result = await entry.doc.mutate(expectedRevisionId(entry, previous), {kind: 'extend', drafts: 'clear'});
+        const result = await entry.doc.mutate(entry.session.resolveExpectedId(previous), {kind: 'extend', drafts: 'clear'});
         if (result.status !== 'committed') throwFailedMutation(entry, previous, result);
     } catch (error) {
         await discardDocumentAppend(entry, error);
@@ -671,33 +677,25 @@ export function rewriteOpenDocument(
  * extended the current file moves the redo revision to a copy (a clone where the volume can).
  */
 export async function restoreOpenDocumentRevision(entry: IOpenDocument, token: TDocumentRevisionToken, expected: TDocumentRevisionToken | null) {
-    await nameDirectory(entry);
-    await preservePinnedRevisions(entry);
-    const previous = documentRevisionToken(entry);
-    const result = await entry.doc.restore(expectedRevisionId(entry, expected), revisionIdOf(token));
-    if (result.status === 'conflict') {
-        // A Save replaced the opened bytes when they could not be copied in first (see `keepDestinationRevision`).
-        const {history, baseline} = entry.doc.state();
-        const target = history.find(revision => revision.id === revisionIdOf(token));
-        if (target && !('file' in target) && !sameWitness(target.witness, baseline)) throw openedBytesNotKeptError();
+    const outcome = await entry.session.restore(expected, token, {ownCurrentFileAfterRestore: true});
+    if (outcome.status === 'conflict') {
+        if (outcome.sourceBackingUnavailable) throw openedBytesNotKeptError();
+        throw sourceChangedError();
     }
-    if (result.status !== 'committed') throwFailedMutation(entry, expected, result);
-    // Native tools read the current file to its end: an undone append must not be there.
-    await entry.doc.ownCurrentFile();
-    if (!result.revision) entry.admission = await stat(entry.doc.state().destination!, {bigint: true});
-    return notifyRevisionChanged(entry, previous, 'write');
+    if (outcome.status === 'stale-revision') throw staleRevisionError(entry, expected, entry.doc.state().current);
+    if (outcome.status === 'missing-revision') throw createMissingRevisionError({documentRef: requireDocumentRef(entry.ref)});
+    if (!outcome.revision) entry.admission = await stat(entry.doc.state().destination!, {bigint: true});
+    return notifyRevisionChanged(entry, requireDocumentRevisionToken(outcome.previousToken), 'write');
 }
 
 /** Keeps exactly the revisions `tokens` names for undo and redo; the files no revision names any more go. */
-export async function retainOpenDocumentRevisions(entry: IOpenDocument, tokens: readonly TDocumentRevisionToken[]) {
-    await preservePinnedRevisions(entry);
-    await entry.doc.retain(tokens.map(revisionIdOf));
+export function retainOpenDocumentRevisions(entry: IOpenDocument, tokens: readonly TDocumentRevisionToken[]) {
+    return entry.session.retain(tokens);
 }
 
 /** Stores the unsaved state that is not in the bytes yet, for revision `token`. */
 export async function setOpenDocumentDrafts(entry: IOpenDocument, token: string | null, drafts: unknown) {
-    const result = await entry.doc.setDrafts(expectedRevisionId(entry, token), drafts);
-    return result.status;
+    return (await entry.session.setDrafts(token, drafts)).status;
 }
 
 /**
@@ -709,21 +707,21 @@ export async function saveOpenDocument(entry: IOpenDocument, token: TDocumentRev
     commit?: TReplacement;
     saveAs?: string;
 } = {}): Promise<TSaveResult> {
-    if (options.commit) await nameDirectory(entry);
-    await preservePinnedRevisions(entry);
     const previous = documentRevisionToken(entry);
-    await clearNextRevision(entry);
     try {
-        const result = await saveDocument(entry.doc, {
-            expected: expectedRevisionId(entry, token),
-            ...(options.commit ? {commit: {...options.commit, drafts: 'clear'}} : {}),
+        const outcome = await entry.session.save(token, {
+            ...(options.commit ? {commitReplacement: options.commit} : {}),
             ...(options.saveAs === undefined ? {} : {saveAs: options.saveAs}),
+            beforeSave: () => clearNextRevision(entry),
         });
-        if (result.status === 'saved' && options.saveAs !== undefined) {
+        if (outcome.status !== 'result') {
+            return {status: 'stale-revision', current: entry.doc.state().current ?? null};
+        }
+        if (outcome.result.status === 'saved' && options.saveAs !== undefined) {
             entry.originalPath = options.saveAs;
             entry.role = 'current';
         }
-        return result;
+        return outcome.result;
     } finally {
         notifyRevisionChanged(entry, previous, 'save-sync');
     }

@@ -137,8 +137,10 @@ Collection decides each directory while holding it: desktop collects once at
 startup before the store opens anything, the browser takes the directory's
 Web Lock. It removes directories without a manifest and clean ones no
 checkpoint names. Unsaved edits are never collected. An unreferenced directory
-with only an interrupted open's output (no drafts, no publish to settle and at
-most two revisions made) can be removed. Every other unsaved directory no
+whose dirty manifest carries affirmative open-only evidence (no drafts, no
+publish to settle, an `openOnly` current revision and no user-edited file
+revisions in history) can be removed; older or ambiguous dirty manifests are
+preserved. Every other unsaved directory no
 window holds is offered for recovery, as a tab of its own when no workspace
 shows it, under the working reference its drafts name so they replay. A
 directory another window holds is not inspected, so a closed window's

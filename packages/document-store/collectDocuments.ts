@@ -1,27 +1,18 @@
+import type { IDocumentStore } from './documentDirectory';
 import {
     decodeManifest,
     DOCUMENTS_DIR,
-    type IDocumentStore,
-    type IManifest,
     isDirty,
+    isOpenOnlyManifest,
     MANIFEST_NAME,
     STORE_ID_PATTERN,
-} from './documentDirectory';
+} from './manifest';
 import {
     checkpointWindowId,
     type IUnreadableEntry,
     readWorkspaceCheckpoints,
     WORKSPACES_DIR,
 } from './workspaceCheckpoint';
-
-/**
- * What an open leaves, with nothing done since: no drafts, no publish to settle, and at most two revisions made (the
- * one it created or copied in, and one it wrote, such as a decrypted or normalized PDF). A window names a directory
- * in its checkpoint before the first edit, so an unsaved directory no checkpoint names that looks like this is an
- * open a crash cut short.
- */
-const isOpenOnly = (manifest: IManifest) => manifest.drafts === undefined && manifest.pendingPublish === undefined
-    && manifest.unsettled === undefined && manifest.next <= 3;
 
 /**
  * Removes the document directories nothing needs and returns the unsaved ones no window holds, for the recovery
@@ -64,7 +55,7 @@ export async function collectDocuments(store: IDocumentStore, hold: (id: string)
                 : undefined;
             if (manifest === null) continue;
             const unnamed = referencesKnown && !referenced.has(id);
-            if (manifest && isDirty(manifest) && !(unnamed && isOpenOnly(manifest))) {
+            if (manifest && isDirty(manifest) && !(unnamed && isOpenOnlyManifest(manifest))) {
                 unsaved.push(id);
             } else if (!manifest || unnamed) {
                 await port.remove(dir);

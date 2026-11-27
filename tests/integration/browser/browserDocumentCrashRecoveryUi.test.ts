@@ -23,7 +23,7 @@ import {
 const FILE_NAME = 'crash-recovery.pdf';
 const NOTE = 'Unsaved note that outlives a killed browser';
 
-async function launch(profile: string) {
+async function launch(profile: string, options: {failWorkspaceCheckpointWrites?: boolean} = {}) {
     const context = await chromium.launchPersistentContext(profile, {
         headless: true,
         viewport: {width: 1280, height: 900},
@@ -33,6 +33,46 @@ async function launch(profile: string) {
         // The person's file lives at the origin private file system's root, behind a File that acts as its
         // handle; the handle itself survives the restart in the browser's storage.
         await context.addInitScript(installPickerHandleFixture);
+        if (options.failWorkspaceCheckpointWrites) {
+            await context.addInitScript(() => {
+                Reflect.set(window, '__injectedCheckpointWriteFailures', 0);
+                const originalPostMessage = Worker.prototype.postMessage;
+                Worker.prototype.postMessage = function (
+                    this: Worker,
+                    message: unknown,
+                    transferOrOptions?: StructuredSerializeOptions | Transferable[],
+                ) {
+                    if (
+                        typeof message === 'object'
+                        && message !== null
+                        && 'id' in message
+                        && 'op' in message
+                        && 'args' in message
+                        && (message as {op: unknown}).op === 'writeAtomic'
+                        && Array.isArray((message as {args: unknown}).args)
+                        && typeof (message as {args: unknown[]}).args[0] === 'string'
+                        && ((message as {args: string[]}).args[0] ?? '').startsWith('workspaces/')
+                    ) {
+                        const count = Number(Reflect.get(window, '__injectedCheckpointWriteFailures') ?? 0);
+                        Reflect.set(window, '__injectedCheckpointWriteFailures', count + 1);
+                        const id = (message as {id: number}).id;
+                        queueMicrotask(() => {
+                            this.dispatchEvent(new MessageEvent('message', {
+                                data: {
+                                    id,
+                                    error: {
+                                        name: 'QuotaExceededError',
+                                        message: 'Injected workspace checkpoint write failure',
+                                    },
+                                },
+                            }));
+                        });
+                        return;
+                    }
+                    return originalPostMessage.call(this, message, transferOrOptions as StructuredSerializeOptions);
+                };
+            });
+        }
         await context.addInitScript((fileName) => {
             Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
             Reflect.set(window, 'showOpenFilePicker', async () => [new File([], fileName)]);
@@ -102,6 +142,28 @@ function writeUserFile(page: Page, bytes: Uint8Array, position = 0) {
         await output.write({type: 'write', position: at, data: Uint8Array.from(content)});
         await output.close();
     }, {fileName: FILE_NAME, content: Array.from(bytes), at: position});
+}
+
+function readCheckpointFaultState(page: Page) {
+    return page.evaluate(async () => {
+        const root = await navigator.storage.getDirectory();
+        const workspaces = await root.getDirectoryHandle('workspaces').catch(() => null);
+        const checkpoints: string[] = [];
+        for await (const name of workspaces?.keys() ?? []) checkpoints.push(name);
+        const documents = await root.getDirectoryHandle('documents').catch(() => null);
+        const manifests: Array<{next: number; drafts?: string; pendingPublish?: unknown; current?: {id: number; openOnly?: true}}> = [];
+        for await (const [, dir] of documents?.entries() ?? []) {
+            const manifest = await (dir as FileSystemDirectoryHandle).getFileHandle('manifest.json')
+                .then(async handle => JSON.parse(await (await handle.getFile()).text()) as {next: number; drafts?: string; pendingPublish?: unknown; current?: {id: number; openOnly?: true}})
+                .catch(() => null);
+            if (manifest) manifests.push(manifest);
+        }
+        return {
+            injectedFailures: Number(Reflect.get(window, '__injectedCheckpointWriteFailures') ?? 0),
+            checkpoints,
+            manifests,
+        };
+    });
 }
 
 describe('browser document lifecycle UI', () => {
@@ -224,12 +286,16 @@ describe('browser document lifecycle UI', () => {
         }
     }, 180_000);
 
-    // T2: a page edit is unsaved work from the moment it is committed, before the window records its layout.
-    it('restores a page rotation the browser was killed right after', async () => {
+    // T2: a page edit is unsaved work from the moment it is committed, before the window records its layout
+    // — including when the checkpoint write fails so no checkpoint names the directory.
+    it.each([
+        ['normal checkpoint write', false],
+        ['failed checkpoint write', true],
+    ] as const)('restores a page rotation the browser was killed right after (%s)', async (_label, failWorkspaceCheckpointWrites) => {
         const book = await createReadingBook('Crash recovery', FILE_NAME);
         mkdirSync(join(process.cwd(), '.devkit'), {recursive: true});
         const profile = mkdtempSync(join(process.cwd(), '.devkit', 'crash-recovery-profile-'));
-        let {context, page} = await launch(profile);
+        let {context, page} = await launch(profile, {failWorkspaceCheckpointWrites});
         try {
             await writeUserFile(page, book.buffer);
             await page.getByRole('button', {name: 'Open File', exact: true}).first().click();
@@ -242,6 +308,14 @@ describe('browser document lifecycle UI', () => {
             await page.getByRole('menuitem', {name: 'Rotate Clockwise', exact: true}).click();
             // The kill follows the rotation's commit within milliseconds, well inside the layout record's delay.
             await expect.poll(() => readCommittedRevisions(page), {interval: 5, timeout: 60_000}).not.toEqual(opened);
+            if (failWorkspaceCheckpointWrites) {
+                const storeState = await readCheckpointFaultState(page);
+                expect(storeState.injectedFailures).toBeGreaterThanOrEqual(1);
+                expect(storeState.checkpoints).toEqual([]);
+                expect(storeState.manifests).toEqual(expect.arrayContaining([
+                    expect.objectContaining({next: 3, current: expect.objectContaining({id: 2})}),
+                ]));
+            }
             killBrowser(profile);
             await context.close().catch(() => undefined);
             ({context, page} = await launch(profile));
@@ -251,6 +325,7 @@ describe('browser document lifecycle UI', () => {
                 return box ? box.width > box.height : false;
             }, {timeout: 30_000}).toBe(true);
             await settleActiveOpen(page);
+            expect(await page.locator('[data-tab-list] [role="tab"]').filter({hasText: FILE_NAME}).count()).toBe(1);
             const save = page.locator('.save-split-primary').first();
             await expect.poll(() => save.isDisabled(), {timeout: 15_000}).toBe(false);
             await save.click();
