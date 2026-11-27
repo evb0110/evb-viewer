@@ -1,9 +1,7 @@
 import {randomUUID} from 'node:crypto';
-import {
-    existsSync,
-    rmSync,
-} from 'node:fs';
+import {existsSync} from 'node:fs';
 import {rm} from 'node:fs/promises';
+import {createRequire} from 'node:module';
 import {
     dirname,
     join,
@@ -112,12 +110,21 @@ function createSearchWorkerPool() {
     let exitHookRegistered = false;
 
     const cleanupPendingStagedPathsOnProcessExit = () => {
-        for (const stagedPath of pendingStagedIndexPaths) {
-            try {
-                rmSync(stagedPath, {force: true});
-            } catch {
-                // Best-effort synchronous cleanup during process exit.
+        if (pendingStagedIndexPaths.size === 0) {
+            exitHookRegistered = false;
+            return;
+        }
+        try {
+            const {rmSync} = createRequire(import.meta.url)('node:fs') as typeof import('node:fs');
+            for (const stagedPath of pendingStagedIndexPaths) {
+                try {
+                    rmSync(stagedPath, {force: true});
+                } catch {
+                    // Best-effort synchronous cleanup during process exit.
+                }
             }
+        } catch {
+            // Best-effort synchronous cleanup during process exit.
         }
         pendingStagedIndexPaths.clear();
         exitHookRegistered = false;

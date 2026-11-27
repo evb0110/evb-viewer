@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
-import {constants as fsConstants} from 'node:fs';
 import {
+    constants as fsConstants,
     open,
     rename,
     rm,
@@ -21,7 +21,12 @@ import {
 
 const INDEX_READ_CHUNK_BYTES = 1024 * 1024;
 const INDEX_EOF_PROBE_BYTES = 4096;
-const INDEX_OPEN_FLAGS = fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0);
+
+function getIndexOpenFlags(): number | string {
+    return typeof fsConstants?.O_RDONLY === 'number'
+        ? fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0)
+        : 'r';
+}
 
 export interface IExecutePdfSearchWorkerCommandOptions {
     maxIndexBytes?: number;
@@ -96,7 +101,7 @@ async function readIndexFileOrNull(
 ): Promise<Uint8Array | null> {
     let handle: FileHandle | null = null;
     try {
-        handle = await open(indexPath, INDEX_OPEN_FLAGS);
+        handle = await open(indexPath, getIndexOpenFlags());
         const info = await handle.stat();
         if (!info.isFile()) {
             throw new PdfSearchNativeError(
