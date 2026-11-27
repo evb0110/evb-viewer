@@ -83,32 +83,32 @@
                 </div>
             </template>
             <div
-                v-for="file in filteredRecentFiles"
+                v-for="row in renderedRecentFiles"
                 v-else
-                :key="file.originalPath"
+                :key="row.key"
                 class="recent-row recent-row--data"
                 role="row"
-                :class="{ 'is-disabled': isRecentRowDisabled(file) }"
-                :data-recent-open-actionable="isRecentOpenReady(file) ? 'true' : 'false'"
-                :data-recent-open-ready="isRecentOpenReady(file) ? 'true' : 'false'"
-                :data-recent-source="String(file.originalPath)"
-                @pointerdown="pressRecent(file, $event)"
-                @click="openRecentFromRow(file, $event)"
+                :class="{ 'is-disabled': row.disabled }"
+                :data-recent-open-actionable="row.readyAttr"
+                :data-recent-open-ready="row.readyAttr"
+                :data-recent-source="row.source"
+                @pointerdown="pressRecent(row.file, $event)"
+                @click="openRecentFromRow(row.file, $event)"
             >
                 <span class="recent-col recent-col--name" role="cell">
                     <button
                         type="button"
                         class="recent-open"
-                        :title="file.fileName"
-                        :disabled="isRecentRowDisabled(file)"
-                        @click.stop="openRecent(file, $event)"
+                        :title="row.file.fileName"
+                        :disabled="row.disabled"
+                        @click.stop="openRecent(row.file, $event)"
                     >
                         <span class="recent-file-icon" aria-hidden="true">
-                            <FileTypeIcon :kind="getFileKind(file)" />
+                            <FileTypeIcon :kind="row.fileKind" />
                         </span>
                         <span class="recent-file-name">
-                            <span class="recent-file-name-prefix">{{ displayRecentFileName(file.fileName).prefix }}</span>
-                            <span class="recent-file-name-suffix">{{ displayRecentFileName(file.fileName).suffix }}</span>
+                            <span class="recent-file-name-prefix">{{ row.namePrefix }}</span>
+                            <span class="recent-file-name-suffix">{{ row.nameSuffix }}</span>
                         </span>
                     </button>
                 </span>
@@ -118,15 +118,15 @@
                     role="cell"
                 >
                     <button
-                        v-if="canRevealInFolder(file)"
+                        v-if="row.canReveal"
                         type="button"
                         class="recent-location recent-location--reveal"
                         :aria-label="t('status.showInFolder')"
                         :title="t('status.showInFolder')"
-                        @click.stop="revealRecent(file)"
+                        @click.stop="revealRecent(row.file)"
                     >
                         <UIcon name="i-ph-folder" class="recent-location-icon" aria-hidden="true" />
-                        <span class="recent-location-path">{{ getParentFolder(file.originalPath) }}</span>
+                        <span class="recent-location-path">{{ row.parentFolder }}</span>
                     </button>
                     <span v-else class="recent-location recent-location--static">
                         <UIcon name="i-ph-globe" class="recent-location-icon" aria-hidden="true" />
@@ -134,7 +134,7 @@
                     </span>
                 </span>
                 <span class="recent-col recent-col--time" role="cell">
-                    {{ formatRelativeTimeLocalized(file.timestamp, now) }}
+                    {{ row.relativeTime }}
                 </span>
                 <span class="recent-col recent-col--actions" role="cell">
                     <button
@@ -142,7 +142,7 @@
                         class="recent-action recent-action--remove"
                         :aria-label="t('emptyState.removeFromRecent')"
                         :title="t('emptyState.removeFromRecent')"
-                        @click.stop="removeRecent(file)"
+                        @click.stop="removeRecent(row.file)"
                     >
                         <UIcon name="i-ph-x" />
                     </button>
@@ -365,9 +365,42 @@ function canRevealInFolder(file: IRecentFile) {
     return !isBrowserDocumentRef(file.originalPath);
 }
 
-function getFileKind(file: IRecentFile) {
+function getFileKind(file: IRecentFile): ReturnType<typeof getDocumentKindFromPath> {
     return getDocumentKindFromPath(file.fileName);
 }
+
+interface IRenderedRecentFile {
+    file: IRecentFile;
+    key: IRecentFile['originalPath'];
+    source: string;
+    disabled: boolean;
+    readyAttr: 'true' | 'false';
+    fileKind: ReturnType<typeof getDocumentKindFromPath>;
+    namePrefix: string;
+    nameSuffix: string;
+    canReveal: boolean;
+    parentFolder: string;
+    relativeTime: string;
+}
+
+const renderedRecentFiles = computed<IRenderedRecentFile[]>(() => filteredRecentFiles.value.map((file): IRenderedRecentFile => {
+    const ready = isRecentOpenReady(file);
+    const nameParts = displayRecentFileName(file.fileName);
+    const canReveal = canRevealInFolder(file);
+    return {
+        file,
+        key: file.originalPath,
+        source: String(file.originalPath),
+        disabled: !ready,
+        readyAttr: ready ? 'true' : 'false',
+        fileKind: getFileKind(file),
+        namePrefix: nameParts.prefix,
+        nameSuffix: nameParts.suffix,
+        canReveal,
+        parentFolder: canReveal ? getParentFolder(file.originalPath) : '',
+        relativeTime: formatRelativeTimeLocalized(file.timestamp, now.value),
+    };
+}));
 
 
 const pendingRecentOpenPath = ref<string | null>(null);

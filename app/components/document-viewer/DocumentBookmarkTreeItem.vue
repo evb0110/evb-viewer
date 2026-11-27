@@ -12,7 +12,7 @@
             'is-drop-child': dropPosition === 'child',
         }"
         :data-bookmark-id="item.id"
-        :style="rowStyle"
+        :style="rowCssVars"
         tabindex="0"
         role="button"
         :aria-current="isActive ? 'location' : undefined"
@@ -54,12 +54,16 @@
             @keydown.escape.prevent="emit('cancel-edit')"
             @blur="commitEdit"
         >
-        <AppTooltip v-else :text="item.title || t('bookmarks.untitled')" :delay-duration="800">
+        <AppTooltip v-else :text="displayTitle" :delay-duration="800">
             <span
                 class="document-bookmark-item__title"
+                :class="{
+                    'is-bold': item.bold,
+                    'is-italic': item.italic,
+                }"
                 dir="auto"
-                :style="titleStyle"
-            >{{ item.title || t('bookmarks.untitled') }}</span>
+                :style="titleColorStyle"
+            >{{ displayTitle }}</span>
         </AppTooltip>
         <AppTooltip v-if="editMode" :text="t('bookmarks.actions')" :delay-duration="800">
             <button
@@ -110,14 +114,14 @@ const emit = defineEmits<{
     'drag-end': [];
 }>();
 const {t} = useTypedI18n();
+const BOOKMARK_DROP_EDGE_ZONE_RATIO = 0.28;
 const titleInputRef = ref<HTMLInputElement | null>(null);
 const editingTitle = ref('');
-const rowStyle = computed(() => ({marginInlineStart: `calc(${String(props.depth)} * var(--app-sidebar-outline-depth-indent))`}));
-const titleStyle = computed(() => ({
-    color: props.item.color ?? undefined,
-    fontWeight: props.item.bold ? '600' : '500',
-    fontStyle: props.item.italic ? 'italic' : 'normal',
-}));
+const displayTitle = computed(() => props.item.title || t('bookmarks.untitled'));
+const rowCssVars = computed(() => ({'--bookmark-depth': String(props.depth)}));
+const titleColorStyle = computed(() => (
+    props.item.color ? {'--bookmark-color': props.item.color} : undefined
+));
 
 watch(() => props.isEditing, async editing => {
     if (!editing) {
@@ -169,10 +173,10 @@ function commitEdit() {
 function detectDropPosition(event: DragEvent): TBookmarkDropPosition {
     const rect = getEventCurrentTarget(event, HTMLElement)?.getBoundingClientRect();
     const ratio = rect && rect.height > 0 ? (event.clientY - rect.top) / rect.height : 0.5;
-    if (ratio < 0.28) {
+    if (ratio < BOOKMARK_DROP_EDGE_ZONE_RATIO) {
         return 'before';
     }
-    return ratio > 0.72 ? 'after' : 'child';
+    return ratio > 1 - BOOKMARK_DROP_EDGE_ZONE_RATIO ? 'after' : 'child';
 }
 
 function handleDragStart(event: DragEvent) {
@@ -216,6 +220,7 @@ function handleDrop(event: DragEvent) {
     box-sizing: border-box;
     scroll-margin-block: var(--app-space-xs);
     height: var(--bookmark-row-height);
+    margin-inline-start: calc(var(--bookmark-depth, 0) * var(--app-sidebar-outline-depth-indent));
     display: flex;
     align-items: center;
     gap: var(--app-sidebar-row-gap);
@@ -327,11 +332,22 @@ function handleDrop(event: DragEvent) {
 .document-bookmark-item__title {
     flex: 1;
     min-width: 0;
+    color: var(--bookmark-color, inherit);
     font-size: var(--app-sidebar-row-font-size);
+    font-weight: 500;
+    font-style: normal;
     line-height: 1.4;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.document-bookmark-item__title.is-bold {
+    font-weight: 600;
+}
+
+.document-bookmark-item__title.is-italic {
+    font-style: italic;
 }
 
 .pdf-bookmark-item-input {

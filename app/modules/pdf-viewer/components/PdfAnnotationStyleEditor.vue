@@ -11,16 +11,16 @@
                     :aria-label="swatch" :aria-pressed="swatch === selectionColor"
                     @click="emit('update-properties', {color: swatch})" />
             </div>
-            <label v-if="selectionWidthProperty" class="style-row">
-                <span class="style-label">{{ selectionWidthProperty === 'fontSize' ? t('annotations.textSize') : t('annotations.stroke') }}</span>
+            <label v-if="selectedWidthControl" class="style-row">
+                <span class="style-label">{{ selectedWidthControl.label }}</span>
                 <input
-                    type="number" class="annotation-property-number" :aria-label="selectionWidthProperty === 'fontSize' ? t('annotations.textSize') : t('annotations.stroke')"
-                    :min="selectionWidthProperty === 'fontSize' ? 8 : 0.5" :max="selectionWidthProperty === 'fontSize' ? 72 : 24" step="0.5"
+                    type="number" class="annotation-property-number" :aria-label="selectedWidthControl.label"
+                    :min="selectedWidthControl.min" :max="selectedWidthControl.max" step="0.5"
                     :value="selectionWidthDisplay" :placeholder="t('annotations.mixedValues')"
                     @change="updateSelectedWidth($event)" />
             </label>
-            <p v-if="selectionWidthProperty === 'fontSize'" class="text-xs text-muted">
-                {{ t('annotations.textResizeHint') }}
+            <p v-if="selectedWidthControl?.hint" class="text-xs text-muted">
+                {{ selectedWidthControl.hint }}
             </p>
             <label v-if="selectionHasOpacity" class="style-row">
                 <span class="style-label">{{ t('annotations.opacity') }}</span>
@@ -49,7 +49,7 @@
                             @click="emit('update-properties', {rotationDelta: -90})" />
                     </AppTooltip>
                     <output class="style-rotation-value" data-annotation-rotation-value :aria-label="t('annotations.rotation')" aria-live="polite">
-                        {{ selectionRotation === null ? t('annotations.mixedValues') : `${Math.round(selectionRotation * 100) / 100}°` }}
+                        {{ selectionRotationDisplay }}
                     </output>
                     <AppTooltip :text="t('annotations.rotateClockwise', {degrees: 90})">
                         <UButton
@@ -129,12 +129,12 @@
                 <span class="style-label">{{ t('annotations.opacity') }}</span>
                 <input
                     type="range" min="0" max="100" step="5" :aria-label="t('annotations.opacity')"
-                    :value="Number(settings[opacitySettingKey]) * 100" @input="updateDefaultOpacity($event)" />
+                    :value="defaultOpacityPercent" @input="updateDefaultOpacity($event)" />
             </label>
-            <div v-if="isShapeTool(tool) && tool !== 'draw'" class="style-row">
+            <div v-if="showShapeFillControl" class="style-row">
                 <span class="style-label">{{ t('annotations.fillColor') }}</span>
                 <input
-                    type="color" :aria-label="t('annotations.fillColor')" :value="settings.shapeFillColor === 'transparent' ? '#ffffff' : settings.shapeFillColor"
+                    type="color" :aria-label="t('annotations.fillColor')" :value="defaultFillColorValue"
                     @input="updateSetting('shapeFillColor', inputValue($event))" />
                 <button type="button" @click="updateSetting('shapeFillColor', 'transparent')">{{ t('annotations.noFill') }}</button>
             </div>
@@ -157,7 +157,7 @@
 
         <div v-else class="annotation-style-editor-idle" role="status" aria-live="polite">
             <UIcon name="i-ph-sliders-horizontal" class="annotation-style-editor-idle-icon" />
-            <span class="annotation-style-editor-idle-label">{{ hasAnnotations ? t('annotations.styleDescription') : t('annotations.styleDescriptionNoAnnotations') }}</span>
+            <span class="annotation-style-editor-idle-label">{{ idleDescription }}</span>
         </div>
     </div>
 </template>
@@ -240,8 +240,38 @@ const selectionColorSwatches = computed(() => {
         ...colorSwatches,
     ] : colorSwatches;
 });
-const selectionWidthProperty = computed(() => selectedAnnotations.every(entity => entity.kind === 'text-box') ? 'fontSize'
-    : selectedAnnotations.every(entity => entity.kind === 'shape') ? 'strokeWidth' : null);
+interface ISelectedWidthControl {
+    property: 'fontSize' | 'strokeWidth';
+    label: string;
+    min: number;
+    max: number;
+    hint: string | null;
+}
+
+const selectedWidthControl = computed<ISelectedWidthControl | null>(() => {
+    if (selectedAnnotations.length === 0) {
+        return null;
+    }
+    if (selectedAnnotations.every(entity => entity.kind === 'text-box')) {
+        return {
+            property: 'fontSize',
+            label: t('annotations.textSize'),
+            min: 8,
+            max: 72,
+            hint: t('annotations.textResizeHint'),
+        };
+    }
+    if (selectedAnnotations.every(entity => entity.kind === 'shape')) {
+        return {
+            property: 'strokeWidth',
+            label: t('annotations.stroke'),
+            min: 0.5,
+            max: 24,
+            hint: null,
+        };
+    }
+    return null;
+});
 const selectionWidth = computed(() => commonSelectionValue(entity => entity.kind === 'text-box' ? entity.fontSize : entity.kind === 'shape' ? entity.strokeWidth : null));
 const selectionWidthDisplay = computed(() => selectionWidth.value === null ? '' : String(Math.round(selectionWidth.value * 100) / 100));
 const selectionHasOpacity = computed(() => selectedAnnotations.every(entity => entity.kind === 'shape' || entity.kind === 'text-markup'));
@@ -250,6 +280,11 @@ const selectionHasFill = computed(() => selectedAnnotations.every(entity => enti
 const selectionFill = computed(() => commonSelectionValue(entity => entity.kind === 'shape' ? entity.fill : null));
 const selectionHasRotation = computed(() => selectedAnnotations.every(entity => entity.kind === 'text-box' || entity.kind === 'placed-image'));
 const selectionRotation = computed(() => commonSelectionValue(entity => entity.kind === 'text-box' || entity.kind === 'placed-image' ? entity.rotation : null));
+const selectionRotationDisplay = computed(() => (
+    selectionRotation.value === null
+        ? t('annotations.mixedValues')
+        : `${Math.round(selectionRotation.value * 100) / 100}°`
+));
 
 function updateSelectedNumber(key: 'fontSize' | 'strokeWidth' | 'opacity', event: Event, min: number, max: number, divisor = 1) {
     if (inputValue(event).trim() === '') {
@@ -263,8 +298,10 @@ function updateSelectedNumber(key: 'fontSize' | 'strokeWidth' | 'opacity', event
     emit('update-properties', {[key]: bounded});
 }
 async function updateSelectedWidth(event: Event) {
-    if (selectionWidthProperty.value === 'fontSize') updateSelectedNumber('fontSize', event, 8, 72);
-    if (selectionWidthProperty.value === 'strokeWidth') updateSelectedNumber('strokeWidth', event, 0.5, 24);
+    const control = selectedWidthControl.value;
+    if (control) {
+        updateSelectedNumber(control.property, event, control.min, control.max);
+    }
     await nextTick();
     const input = event.target;
     if (input instanceof HTMLInputElement) input.value = selectionWidthDisplay.value;
@@ -280,6 +317,14 @@ const opacitySettingKey = computed(() => {
         case 'text': case 'stamp': case 'select': case 'none': case 'note': return null;
     }
 });
+const defaultOpacityPercent = computed(() => (
+    opacitySettingKey.value ? Number(settings[opacitySettingKey.value]) * 100 : 0
+));
+const showShapeFillControl = computed(() => isShapeTool(tool) && tool !== 'draw');
+const defaultFillColorValue = computed(() => (
+    settings.shapeFillColor === 'transparent' ? '#ffffff' : settings.shapeFillColor
+));
+const idleDescription = computed(() => t(hasAnnotations ? 'annotations.styleDescription' : 'annotations.styleDescriptionNoAnnotations'));
 function updateDefaultOpacity(event: Event) {
     const key = opacitySettingKey.value;
     if (key) updateSetting(key, Number(inputValue(event)) / 100);

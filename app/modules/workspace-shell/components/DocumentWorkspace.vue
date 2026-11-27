@@ -29,8 +29,8 @@
                 @update:ocr-popup-open="handleDropdownOpen('ocr', $event)"
                 @update:zoom-dropdown-open="handleDropdownOpen('zoom', $event)"
                 @update:page-dropdown-open="handleDropdownOpen('page', $event)"
-                @update:zoom="observeReaderCommand(); view.setZoomState({kind: 'custom', scale: $event})"
-                @update:view-mode="observeReaderCommand(); viewMode = $event"
+                @update:zoom="handleZoomUpdate"
+                @update:view-mode="handleViewModeUpdate"
                 @open-file="fileOps.handleOpenFileFromUi"
                 @open-settings="emit('open-settings')"
                 @open-scan-cleanup="scanCleanup.openScanCleanup"
@@ -183,6 +183,7 @@ import {
 } from '@app/modules/document-viewer/public';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import type { TPdfViewMode } from '@contracts/shared';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 const documentOpenSurface = createDocumentOpenSurfaceSession();
 provide(documentOpenSurfaceSessionKey, documentOpenSurface);
@@ -376,6 +377,17 @@ function runToolbarAction(action: () => unknown) {
 // The zoom control's own edits are the reader moving this view, as a scroll is;
 // the workspace's view commands count themselves.
 const observeReaderCommand = () => view.documentViewerRef.value?.observeReaderCommand?.();
+function handleZoomUpdate(scale: number) {
+    observeReaderCommand();
+    view.setZoomState({
+        kind: 'custom',
+        scale,
+    });
+}
+function handleViewModeUpdate(nextViewMode: TPdfViewMode) {
+    observeReaderCommand();
+    viewMode.value = nextViewMode;
+}
 const viewerCapabilities = computed(() => documentContext.viewerCapabilities.value ?? createDefaultWorkspaceViewerCapabilities());
 const {
     runAgentAction,

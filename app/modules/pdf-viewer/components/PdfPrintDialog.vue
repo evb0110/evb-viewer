@@ -33,9 +33,14 @@
                         option names run to 289px in Dutch and 288px in Russian,
                         while no locale's orientation name passes 101px.
                     -->
-                    <div class="flex min-w-0 flex-col gap-2 sm:col-span-2">
+                    <div
+                        v-for="group in advancedOptionGroups"
+                        :key="group.id"
+                        class="flex min-w-0 flex-col gap-2"
+                        :class="group.columnClass"
+                    >
                         <p class="m-0 text-xs text-muted">
-                            {{ t('print.layoutLabel') }}
+                            {{ group.label }}
                         </p>
                         <div class="grid gap-2">
                             <!--
@@ -46,32 +51,13 @@
                                 next one, which is what the longer non-English option names do.
                             -->
                             <UButton
-                                v-for="option in layoutOptions"
+                                v-for="option in group.options"
                                 :key="option.value"
-                                :color="viewMode === option.value ? 'primary' : 'neutral'"
-                                :variant="viewMode === option.value ? 'soft' : 'outline'"
-                                :aria-pressed="viewMode === option.value"
+                                :color="option.selected ? 'primary' : 'neutral'"
+                                :variant="option.selected ? 'soft' : 'outline'"
+                                :aria-pressed="option.selected"
                                 :class="optionButtonClass"
-                                @click="viewMode = option.value"
-                            >
-                                {{ option.label }}
-                            </UButton>
-                        </div>
-                    </div>
-
-                    <div class="flex min-w-0 flex-col gap-2">
-                        <p class="m-0 text-xs text-muted">
-                            {{ t('print.orientationLabel') }}
-                        </p>
-                        <div class="grid gap-2">
-                            <UButton
-                                v-for="option in orientationOptions"
-                                :key="option.value"
-                                :color="orientation === option.value ? 'primary' : 'neutral'"
-                                :variant="orientation === option.value ? 'soft' : 'outline'"
-                                :aria-pressed="orientation === option.value"
-                                :class="optionButtonClass"
-                                @click="orientation = option.value"
+                                @click="option.select"
                             >
                                 {{ option.label }}
                             </UButton>
@@ -301,6 +287,47 @@ const orientationOptions = computed<Array<{
     {
         value: 'landscape',
         label: t('print.orientationLandscape'),
+    },
+]);
+
+interface IPrintOptionGroup {
+    id: 'layout' | 'orientation';
+    label: string;
+    columnClass: string;
+    options: Array<{
+        value: string;
+        label: string;
+        selected: boolean;
+        select: () => void;
+    }>;
+}
+
+const advancedOptionGroups = computed<IPrintOptionGroup[]>(() => [
+    {
+        id: 'layout',
+        label: t('print.layoutLabel'),
+        columnClass: 'sm:col-span-2',
+        options: layoutOptions.value.map(option => ({
+            value: option.value,
+            label: option.label,
+            selected: viewMode.value === option.value,
+            select: () => {
+                viewMode.value = option.value;
+            },
+        })),
+    },
+    {
+        id: 'orientation',
+        label: t('print.orientationLabel'),
+        columnClass: '',
+        options: orientationOptions.value.map(option => ({
+            value: option.value,
+            label: option.label,
+            selected: orientation.value === option.value,
+            select: () => {
+                orientation.value = option.value;
+            },
+        })),
     },
 ]);
 

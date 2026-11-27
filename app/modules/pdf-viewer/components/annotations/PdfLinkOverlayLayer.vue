@@ -1,25 +1,20 @@
 <template>
     <div class="pdf-link-overlay-layer">
         <a
-            v-for="link in links"
-            :key="link.id"
+            v-for="item in renderedLinks"
+            :key="item.id"
             class="pdf-link-overlay"
             role="link"
             tabindex="0"
-            :data-href="link.url ?? ''"
-            :aria-label="link.url ? t('annotations.externalLink', {url: link.url}) : t('annotations.internalLink')"
-            :style="{
-                left: `${link.rect.left * 100}%`,
-                top: `${link.rect.top * 100}%`,
-                width: `${link.rect.width * 100}%`,
-                height: `${link.rect.height * 100}%`,
-            }"
+            :data-href="item.href"
+            :aria-label="item.ariaLabel"
+            :style="item.style"
             @pointerdown="onPointerDown"
-            @click.prevent="handleClick($event, link)"
+            @click.prevent="handleClick($event, item.link)"
             @auxclick.prevent
             @contextmenu.prevent
-            @keydown.enter.prevent="activateLink(link)"
-            @keydown.space.prevent="activateLink(link)"
+            @keydown.enter.prevent="activateLink(item.link)"
+            @keydown.space.prevent="activateLink(item.link)"
         />
     </div>
 </template>
@@ -30,9 +25,22 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { getShellCapability } from '@app/utils/getShellCapability';
 import { normalizeAllowedExternalUrl } from '@contracts/externalUrl';
 
-defineProps<{links: ILinkAnnotation[];}>();
+const props = defineProps<{links: ILinkAnnotation[];}>();
 const emit = defineEmits<{'navigate-destination': [dest: NonNullable<ILinkAnnotation['dest']>];}>();
 const {t} = useTypedI18n();
+
+const renderedLinks = computed(() => props.links.map(link => ({
+    link,
+    id: link.id,
+    href: link.url ?? '',
+    ariaLabel: link.url ? t('annotations.externalLink', {url: link.url}) : t('annotations.internalLink'),
+    style: {
+        left: `${link.rect.left * 100}%`,
+        top: `${link.rect.top * 100}%`,
+        width: `${link.rect.width * 100}%`,
+        height: `${link.rect.height * 100}%`,
+    },
+})));
 
 const DRAG_THRESHOLD_PX = 5;
 let pointerDownPos: {

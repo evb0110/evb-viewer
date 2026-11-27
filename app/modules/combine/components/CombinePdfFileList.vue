@@ -9,30 +9,30 @@
             :style="wrapperProps.style"
         >
             <div
-                v-for="(row, visibleIndex) in virtualRows"
-                :key="row.data.id"
+                v-for="row in mountedRows"
+                :key="row.id"
                 class="combine-file-row"
-                :class="{ 'is-row-dragging': reorderDragIndex === visibleIndex }"
+                :class="{ 'is-row-dragging': reorderDragIndex === row.visibleIndex }"
                 data-combine-row
                 :data-combine-row-index="row.index"
                 role="listitem"
-                :aria-posinset="row.index + 1"
+                :aria-posinset="row.position"
                 :aria-setsize="props.files.length"
             >
                 <AppTooltip :text="t('combinePdf.dragToReorder')" :delay-duration="600">
                     <span
                         class="combine-drag-handle"
                         aria-hidden="true"
-                        @pointerdown="(event) => startReorder(event, visibleIndex)"
+                        @pointerdown="startReorder($event, row.visibleIndex)"
                     >
                         <UIcon name="i-ph-dots-six-vertical" class="size-4" />
                     </span>
                 </AppTooltip>
-                <span class="combine-file-index">{{ row.index + 1 }}</span>
-                <FileTypeIcon :kind="row.data.kind" class="combine-file-icon" />
+                <span class="combine-file-index">{{ row.position }}</span>
+                <FileTypeIcon :kind="row.kind" class="combine-file-icon" />
                 <span class="combine-file-copy">
-                    <strong>{{ row.data.name }}</strong>
-                    <span>{{ formatBytes(row.data.size, {t, locale}) }}</span>
+                    <strong>{{ row.name }}</strong>
+                    <span>{{ row.sizeLabel }}</span>
                 </span>
                 <span class="combine-row-actions">
                     <AppTooltip :text="t('combinePdf.moveUp')" :delay-duration="600">
@@ -42,7 +42,7 @@
                             size="xs"
                             icon="i-ph-caret-up"
                             :aria-label="t('combinePdf.moveUp')"
-                            :disabled="row.index === 0 || props.queueMutationLocked"
+                            :disabled="!row.canMoveUp"
                             @click="emit('move-file', row.index, -1)"
                         />
                     </AppTooltip>
@@ -53,7 +53,7 @@
                             size="xs"
                             icon="i-ph-caret-down"
                             :aria-label="t('combinePdf.moveDown')"
-                            :disabled="row.index === props.files.length - 1 || props.queueMutationLocked"
+                            :disabled="!row.canMoveDown"
                             @click="emit('move-file', row.index, 1)"
                         />
                     </AppTooltip>
@@ -111,6 +111,24 @@ const {
     overscan: 12,
 });
 const listRef = containerProps.ref;
+const mountedRows = computed(() => {
+    const lastIndex = props.files.length - 1;
+    const locked = props.queueMutationLocked;
+    return virtualRows.value.map((row, visibleIndex) => ({
+        id: row.data.id,
+        index: row.index,
+        visibleIndex,
+        position: row.index + 1,
+        kind: row.data.kind,
+        name: row.data.name,
+        sizeLabel: formatBytes(row.data.size, {
+            t,
+            locale,
+        }),
+        canMoveUp: row.index > 0 && !locked,
+        canMoveDown: row.index < lastIndex && !locked,
+    }));
+});
 
 function measureRowStride() {
     const row = listRef.value?.querySelector<HTMLElement>('[data-combine-row]');

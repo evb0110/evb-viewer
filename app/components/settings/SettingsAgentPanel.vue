@@ -13,49 +13,49 @@
         <p v-for="notice in notices" :key="notice" class="settings-field-hint" role="status">{{ notice }}</p>
         <!-- Edits pause while a save or refresh runs, so its reply cannot overwrite them. -->
         <fieldset :disabled="!!activeAction" class="instance-editor">
-        <article v-for="instance in instances" :key="instance.id" class="settings-agent-card settings-agent-card--stack">
+        <article v-for="card in instanceCards" :key="card.instance.id" class="settings-agent-card settings-agent-card--stack">
             <div class="instance-heading">
-                <UIcon :name="instance.driver === 'codex' ? 'i-ph-terminal' : 'i-ph-brain'" />
-                <strong>{{ instance.displayName }}</strong>
-                <span>{{ instance.id }}</span>
-                <USwitch v-model="instance.enabled" :label="t('assistant.instanceEnabled')" size="sm" />
+                <UIcon :name="card.icon" />
+                <strong>{{ card.instance.displayName }}</strong>
+                <span>{{ card.instance.id }}</span>
+                <USwitch v-model="card.instance.enabled" :label="t('assistant.instanceEnabled')" size="sm" />
             </div>
-            <p class="settings-field-hint">{{ t(instanceStatus(instance.id).label.key) }}</p>
-            <p v-if="instanceStatus(instance.id).message" class="instance-message">{{ instanceStatus(instance.id).message }}</p>
+            <p class="settings-field-hint">{{ t(card.statusLabelKey) }}</p>
+            <p v-if="card.statusMessage" class="instance-message">{{ card.statusMessage }}</p>
             <dl class="settings-agent-details">
-                <div><dt>{{ t('assistant.binaryPath') }}</dt><dd>{{ liveInstance(instance.id)?.binaryPath || instance.binaryPath }}</dd></div>
-                <div><dt>{{ t('assistant.version') }}</dt><dd>{{ liveInstance(instance.id)?.version }}</dd></div>
-                <div><dt>{{ t('assistant.homePath') }}</dt><dd>{{ liveInstance(instance.id)?.homePath || instance.homePath }}</dd></div>
+                <div><dt>{{ t('assistant.binaryPath') }}</dt><dd>{{ card.binaryPath }}</dd></div>
+                <div><dt>{{ t('assistant.version') }}</dt><dd>{{ card.version }}</dd></div>
+                <div><dt>{{ t('assistant.homePath') }}</dt><dd>{{ card.homePath }}</dd></div>
             </dl>
-            <p v-if="loginCodes[instance.id]" class="instance-message">{{ t('assistant.deviceCode') }} {{ loginCodes[instance.id] }}</p>
-            <a v-if="loginUrls[instance.id]" :href="loginUrls[instance.id]" target="_blank" rel="noopener noreferrer">{{ loginUrls[instance.id] }}</a>
+            <p v-if="card.loginCode" class="instance-message">{{ t('assistant.deviceCode') }} {{ card.loginCode }}</p>
+            <a v-if="card.loginUrl" :href="card.loginUrl" target="_blank" rel="noopener noreferrer">{{ card.loginUrl }}</a>
             <div class="settings-agent-actions settings-agent-actions--assistant">
-                <UButton :label="t('assistant.refresh')" icon="i-ph-arrows-clockwise" color="neutral" variant="ghost" size="xs" :disabled="!!activeAction" @click="refreshInstance(instance.id)" />
-                <UButton v-if="liveInstance(instance.id)?.canSignIn && !liveInstance(instance.id)?.loginPending" :label="t('assistant.signIn')" size="xs" :disabled="!!activeAction" @click="loginInstance(instance.id, 'chatgpt')" />
-                <UButton v-if="liveInstance(instance.id)?.canSignIn && !liveInstance(instance.id)?.loginPending" :label="t('assistant.signInDeviceCode')" color="neutral" variant="ghost" size="xs" :disabled="!!activeAction" @click="loginInstance(instance.id, 'device-code')" />
-                <UButton v-if="liveInstance(instance.id)?.loginPending" :label="t('assistant.cancelLogin')" size="xs" :disabled="!!activeAction" @click="cancelInstanceLogin(instance.id)" />
-                <UButton :label="t('assistant.deleteInstance')" icon="i-ph-trash" color="error" variant="ghost" size="xs" :disabled="!!activeAction" @click="instances = instances.filter(item => item.id !== instance.id)" />
+                <UButton :label="t('assistant.refresh')" icon="i-ph-arrows-clockwise" color="neutral" variant="ghost" size="xs" :disabled="!!activeAction" @click="refreshInstance(card.instance.id)" />
+                <UButton v-if="card.canSignIn" :label="t('assistant.signIn')" size="xs" :disabled="!!activeAction" @click="loginInstance(card.instance.id, 'chatgpt')" />
+                <UButton v-if="card.canSignIn" :label="t('assistant.signInDeviceCode')" color="neutral" variant="ghost" size="xs" :disabled="!!activeAction" @click="loginInstance(card.instance.id, 'device-code')" />
+                <UButton v-if="card.loginPending" :label="t('assistant.cancelLogin')" size="xs" :disabled="!!activeAction" @click="cancelInstanceLogin(card.instance.id)" />
+                <UButton :label="t('assistant.deleteInstance')" icon="i-ph-trash" color="error" variant="ghost" size="xs" :disabled="!!activeAction" @click="removeInstance(card.instance.id)" />
             </div>
             <details class="instance-editor">
                 <summary>{{ t('assistant.editInstance') }}</summary>
                 <div class="instance-fields">
-                    <UFormField :label="t('assistant.displayName')"><UInput v-model="instance.displayName" class="w-full" /></UFormField>
-                    <UFormField :label="t('assistant.binaryPath')"><UInput :model-value="instance.binaryPath ?? ''" class="w-full" @update:model-value="instance.binaryPath = String($event)" /></UFormField>
-                    <UFormField :label="t('assistant.homePath')"><UInput :model-value="instance.homePath ?? ''" class="w-full" @update:model-value="instance.homePath = String($event)" /></UFormField>
-                    <UFormField v-if="instance.driver === 'codex'" :label="t('assistant.shadowHomePath')"><UInput :model-value="instance.shadowHomePath ?? ''" class="w-full" @update:model-value="instance.shadowHomePath = String($event)" /></UFormField>
-                    <UFormField :label="t('assistant.launchArgs')" :hint="instance.launchArgsSecret && instance.launchArgsConfigured ? t('assistant.secretConfigured') : ''">
-                        <UInput :model-value="instance.launchArgs ?? ''" :type="instance.launchArgsSecret ? 'password' : 'text'" autocomplete="off" class="w-full" @update:model-value="instance.launchArgs = String($event)" />
+                    <UFormField :label="t('assistant.displayName')"><UInput v-model="card.instance.displayName" class="w-full" /></UFormField>
+                    <UFormField :label="t('assistant.binaryPath')"><UInput :model-value="card.instance.binaryPath ?? ''" class="w-full" @update:model-value="card.instance.binaryPath = String($event)" /></UFormField>
+                    <UFormField :label="t('assistant.homePath')"><UInput :model-value="card.instance.homePath ?? ''" class="w-full" @update:model-value="card.instance.homePath = String($event)" /></UFormField>
+                    <UFormField v-if="card.instance.driver === 'codex'" :label="t('assistant.shadowHomePath')"><UInput :model-value="card.instance.shadowHomePath ?? ''" class="w-full" @update:model-value="card.instance.shadowHomePath = String($event)" /></UFormField>
+                    <UFormField :label="t('assistant.launchArgs')" :hint="card.launchArgsHint">
+                        <UInput :model-value="card.instance.launchArgs ?? ''" :type="card.instance.launchArgsSecret ? 'password' : 'text'" autocomplete="off" class="w-full" @update:model-value="card.instance.launchArgs = String($event)" />
                     </UFormField>
-                    <UCheckbox v-model="instance.launchArgsSecret" :label="t('assistant.secret')" />
+                    <UCheckbox v-model="card.instance.launchArgsSecret" :label="t('assistant.secret')" />
                     <fieldset class="instance-fields">
                         <legend>{{ t('assistant.environment') }}</legend>
-                        <div v-for="(entry, index) in instance.environment" :key="index" class="environment-row">
+                        <div v-for="(entry, index) in card.instance.environment" :key="index" class="environment-row">
                             <UInput v-model="entry.name" :aria-label="t('assistant.environmentName')" :placeholder="t('assistant.environmentName')" />
                             <UInput v-model="entry.value" :aria-label="t('assistant.environmentValue')" :placeholder="entry.secret && entry.configured ? t('assistant.secretConfigured') : t('assistant.environmentValue')" :type="entry.secret ? 'password' : 'text'" autocomplete="off" />
                             <UCheckbox v-model="entry.secret" :label="t('assistant.secret')" />
-                            <UButton :aria-label="t('assistant.removeEnvironment')" icon="i-ph-x" color="neutral" variant="ghost" @click="instance.environment?.splice(index, 1)" />
+                            <UButton :aria-label="t('assistant.removeEnvironment')" icon="i-ph-x" color="neutral" variant="ghost" @click="removeEnvironmentEntry(card.instance, index)" />
                         </div>
-                        <UButton :label="t('assistant.addEnvironment')" icon="i-ph-plus" color="neutral" variant="outline" size="xs" @click="(instance.environment ??= []).push({ name: '', value: '', secret: false })" />
+                        <UButton :label="t('assistant.addEnvironment')" icon="i-ph-plus" color="neutral" variant="outline" size="xs" @click="addEnvironmentEntry(card.instance)" />
                     </fieldset>
                 </div>
             </details>
@@ -301,8 +301,46 @@ const drivers = [
     },
 ];
 let disposed = false;
-function liveInstance(id: string) { return liveState.value?.instances.find(instance => instance.id === id) ?? null; }
-function instanceStatus(id: string) { return getSettingsAssistantStatusModel(liveInstance(id)); }
+const liveInstancesById = computed(() => new Map(
+    (liveState.value?.instances ?? []).map(instance => [
+        instance.id,
+        instance,
+    ]),
+));
+const instanceCards = computed(() => instances.value.map(instance => {
+    const live = liveInstancesById.value.get(instance.id) ?? null;
+    const instanceStatus = getSettingsAssistantStatusModel(live);
+    const loginPending = Boolean(live?.loginPending);
+    return {
+        instance,
+        icon: instance.driver === 'codex' ? 'i-ph-terminal' : 'i-ph-brain',
+        statusLabelKey: instanceStatus.label.key,
+        statusMessage: instanceStatus.message,
+        binaryPath: live?.binaryPath || instance.binaryPath,
+        version: live?.version,
+        homePath: live?.homePath || instance.homePath,
+        loginCode: loginCodes.value[instance.id] ?? '',
+        loginUrl: loginUrls.value[instance.id] ?? '',
+        canSignIn: Boolean(live?.canSignIn) && !loginPending,
+        loginPending,
+        launchArgsHint: instance.launchArgsSecret && instance.launchArgsConfigured
+            ? t('assistant.secretConfigured')
+            : '',
+    };
+}));
+function removeInstance(id: string) {
+    instances.value = instances.value.filter(item => item.id !== id);
+}
+function addEnvironmentEntry(instance: IAssistantInstanceConfig) {
+    (instance.environment ??= []).push({
+        name: '',
+        value: '',
+        secret: false,
+    });
+}
+function removeEnvironmentEntry(instance: IAssistantInstanceConfig, index: number) {
+    instance.environment?.splice(index, 1);
+}
 function applyInstances(result: IAssistantInstancesResult) {
     if (disposed) return;
     notices.value = result.notices;
@@ -380,7 +418,7 @@ function refreshInstance(instanceId: string) {
         const state = await getAgentCapability().getAssistantState({
             selection: {
                 instanceId,
-                model: liveInstance(instanceId)?.defaultModel ?? '',
+                model: liveInstancesById.value.get(instanceId)?.defaultModel ?? '',
                 effort: 'medium',
                 speedMode: 'standard',
             },

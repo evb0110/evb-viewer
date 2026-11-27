@@ -61,123 +61,121 @@
         >
             <div v-bind="commentsWrapperProps">
                 <div
-                v-for="virtualComment in virtualComments"
-                :key="annotationIdForSummary(virtualComment.data)"
-                class="note-item"
-                :data-annotation-id="annotationIdForSummary(virtualComment.data)"
-                :data-annotation-kind="virtualComment.data.annotationKind"
-                :class="{ 'is-active': activeCommentStableKey === annotationIdForSummary(virtualComment.data) }"
-                :style="noteItemStyle(virtualComment.data)"
-            >
-                <button
-                    type="button"
-                    class="note-item-content"
-                    :aria-pressed="activeCommentStableKey === annotationIdForSummary(virtualComment.data)"
-                    @click="focusComment(virtualComment.data)"
-                                @dblclick.prevent.stop="openComment(virtualComment.data)"
-                                @keydown.enter.stop.prevent="openComment(virtualComment.data)"
+                    v-for="row in mountedCommentRows"
+                    :key="row.id"
+                    class="note-item"
+                    :data-annotation-id="row.id"
+                    :data-annotation-kind="row.comment.annotationKind"
+                    :class="{ 'is-active': row.active }"
+                    :style="row.style"
                 >
-                <template v-for="comment in [virtualComment.data]" :key="annotationIdForSummary(comment)">
-                <span class="note-item-top">
-                    <span class="note-item-page">
-                        <template v-for="(part, index) in highlightTextParts(pageLabel(comment))" :key="`page-${comment.stableKey}-${index}`">
-                            <span v-if="!part.match">{{ part.text }}</span>
-                            <mark v-else class="note-match">{{ part.text }}</mark>
-                        </template>
-                    </span>
-                    <span class="note-item-type">
-                        <UIcon v-if="isStampSubtype(normalizedSubtype(comment))" name="i-ph-image" aria-hidden="true" />
-                        <template v-for="(part, index) in highlightTextParts(commentTypeLabel(comment))" :key="`type-${comment.stableKey}-${index}`">
-                            <span v-if="!part.match">{{ part.text }}</span>
-                            <mark v-else class="note-match">{{ part.text }}</mark>
-                        </template>
-                    </span>
-                    <span
-                        v-if="inlineChipKind(comment)"
-                        class="note-item-color-chip"
-                        :class="`note-item-color-chip--${inlineChipKind(comment)}`"
-                        :style="inlineChipStyle(comment)"
-                        :aria-label="inlineChipAriaLabel(comment)"
-                    />
-                </span>
-                <span
-                    v-if="hasShapeStylePreview(comment)"
-                    class="note-item-shape-style"
-                    :aria-label="shapeStyleAriaLabel(comment)"
-                >
-                    <span
-                        class="note-item-shape-stroke"
-                        :style="shapeStrokeStyle(comment)"
-                        aria-hidden="true"
-                    />
-                    <span
-                        v-if="hasShapeFill(comment)"
-                        class="note-item-shape-fill"
-                        :style="{backgroundColor: comment.fillColor ?? undefined, opacity: shapeOpacity(comment)}"
-                        aria-hidden="true"
-                    />
-                    <span class="note-item-shape-style-text">
-                        <template v-for="(part, index) in highlightTextParts(shapeStyleLabel(comment))" :key="`style-${comment.stableKey}-${index}`">
-                            <span v-if="!part.match">{{ part.text }}</span>
-                            <mark v-else class="note-match">{{ part.text }}</mark>
-                        </template>
-                    </span>
-                </span>
-                <span v-else class="note-item-text">
-                    <span
-                        :class="textMarkupKind(comment) ? `note-item-text-mark note-item-text-mark--${textMarkupKind(comment)}` : null"
-                        :style="textMarkupKind(comment) ? textMarkupStyle(comment) : null"
+                    <button
+                        type="button"
+                        class="note-item-content"
+                        :aria-pressed="row.active"
+                        @click="focusComment(row.comment)"
+                        @dblclick.prevent.stop="openComment(row.comment)"
+                        @keydown.enter.stop.prevent="openComment(row.comment)"
                     >
-                        <template v-for="(part, index) in highlightTextParts(annotationPreview(comment))" :key="`text-${comment.stableKey}-${index}`">
-                            <span v-if="!part.match">{{ part.text }}</span>
-                            <mark v-else class="note-match">{{ part.text }}</mark>
-                        </template>
-                    </span>
-                </span>
-                <span class="note-item-meta">
-                    <span>
-                        <template v-for="(part, index) in highlightTextParts(authorLabel(comment))" :key="`author-${comment.stableKey}-${index}`">
-                            <span v-if="!part.match">{{ part.text }}</span>
-                            <mark v-else class="note-match">{{ part.text }}</mark>
-                        </template>
-                    </span>
-                    <span v-if="commentTimeLabel(comment)">{{ commentTimeLabel(comment) }}</span>
-                </span>
-                <span
-                    v-if="comment.replies?.length"
-                    class="note-item-replies"
-                    data-testid="annotation-note-replies"
-                >
-                    <span
-                        v-for="(reply, replyIndex) in comment.replies"
-                        :key="`${comment.stableKey}-reply-${replyIndex}`"
-                        class="note-item-reply"
-                        data-testid="annotation-note-reply"
+                        <span class="note-item-top">
+                            <span class="note-item-page">
+                                <template v-for="(part, index) in row.pageParts" :key="`page-${row.comment.stableKey}-${index}`">
+                                    <span v-if="!part.match">{{ part.text }}</span>
+                                    <mark v-else class="note-match">{{ part.text }}</mark>
+                                </template>
+                            </span>
+                            <span class="note-item-type">
+                                <UIcon v-if="row.isStamp" name="i-ph-image" aria-hidden="true" />
+                                <template v-for="(part, index) in row.typeParts" :key="`type-${row.comment.stableKey}-${index}`">
+                                    <span v-if="!part.match">{{ part.text }}</span>
+                                    <mark v-else class="note-match">{{ part.text }}</mark>
+                                </template>
+                            </span>
+                            <span
+                                v-if="row.chipClass"
+                                class="note-item-color-chip"
+                                :class="row.chipClass"
+                                :style="row.chipStyle"
+                                :aria-label="row.chipAriaLabel"
+                            />
+                        </span>
+                        <span
+                            v-if="row.showShapeStyle"
+                            class="note-item-shape-style"
+                            :aria-label="row.shapeStyleAriaLabel"
+                        >
+                            <span
+                                class="note-item-shape-stroke"
+                                :style="row.shapeStrokeStyle"
+                                aria-hidden="true"
+                            />
+                            <span
+                                v-if="row.hasShapeFill"
+                                class="note-item-shape-fill"
+                                :style="row.shapeFillStyle"
+                                aria-hidden="true"
+                            />
+                            <span class="note-item-shape-style-text">
+                                <template v-for="(part, index) in row.shapeStyleParts" :key="`style-${row.comment.stableKey}-${index}`">
+                                    <span v-if="!part.match">{{ part.text }}</span>
+                                    <mark v-else class="note-match">{{ part.text }}</mark>
+                                </template>
+                            </span>
+                        </span>
+                        <span v-else class="note-item-text">
+                            <span
+                                :class="row.previewClass"
+                                :style="row.previewStyle"
+                            >
+                                <template v-for="(part, index) in row.previewParts" :key="`text-${row.comment.stableKey}-${index}`">
+                                    <span v-if="!part.match">{{ part.text }}</span>
+                                    <mark v-else class="note-match">{{ part.text }}</mark>
+                                </template>
+                            </span>
+                        </span>
+                        <span class="note-item-meta">
+                            <span>
+                                <template v-for="(part, index) in row.authorParts" :key="`author-${row.comment.stableKey}-${index}`">
+                                    <span v-if="!part.match">{{ part.text }}</span>
+                                    <mark v-else class="note-match">{{ part.text }}</mark>
+                                </template>
+                            </span>
+                            <span v-if="row.timeLabel">{{ row.timeLabel }}</span>
+                        </span>
+                        <span
+                            v-if="row.replies.length"
+                            class="note-item-replies"
+                            data-testid="annotation-note-replies"
+                        >
+                            <span
+                                v-for="reply in row.replies"
+                                :key="reply.key"
+                                class="note-item-reply"
+                                data-testid="annotation-note-reply"
+                            >
+                                <span class="note-item-reply-author">
+                                    {{ reply.author }}
+                                </span>
+                                <span class="note-item-reply-text">
+                                    <template v-for="(part, index) in reply.parts" :key="index">
+                                        <span v-if="!part.match">{{ part.text }}</span>
+                                        <mark v-else class="note-match">{{ part.text }}</mark>
+                                    </template>
+                                </span>
+                            </span>
+                        </span>
+                    </button>
+                    <button
+                        v-if="!row.comment.readOnly"
+                        type="button"
+                        class="note-item-delete"
+                        :aria-label="t('annotations.delete')"
+                        @click="emit('delete-comment', row.comment)"
+                        @dblclick.stop.prevent
                     >
-                        <span class="note-item-reply-author">
-                            {{ reply.author?.trim() || t('annotations.unknownAuthor') }}
-                        </span>
-                        <span class="note-item-reply-text">
-                            <template v-for="(part, index) in highlightTextParts(replyDisplayText(reply))" :key="index">
-                                <span v-if="!part.match">{{ part.text }}</span>
-                                <mark v-else class="note-match">{{ part.text }}</mark>
-                            </template>
-                        </span>
-                    </span>
-                </span>
-                </template>
-                </button>
-                <button
-                    v-if="!virtualComment.data.readOnly"
-                    type="button"
-                    class="note-item-delete"
-                    :aria-label="t('annotations.delete')"
-                    @click="emit('delete-comment', virtualComment.data)"
-                    @dblclick.stop.prevent
-                >
-                    <UIcon name="i-ph-trash" />
-                </button>
-            </div>
+                        <UIcon name="i-ph-trash" />
+                    </button>
+                </div>
             </div>
 
             <DocumentPanelEmptyState
@@ -338,6 +336,47 @@ const {
     },
     overscan: 6,
 });
+
+const mountedCommentRows = computed(() => virtualComments.value.map(({data: comment}) => {
+    const id = annotationIdForSummary(comment);
+    const chipKind = inlineChipKind(comment);
+    const markupKind = textMarkupKind(comment);
+    const showShapeStyle = hasShapeStylePreview(comment);
+    const shapeFillVisible = showShapeStyle && hasShapeFill(comment);
+    return {
+        comment,
+        id,
+        active: activeCommentStableKey.value === id,
+        style: noteItemStyle(comment),
+        pageParts: highlightTextParts(pageLabel(comment)),
+        isStamp: isStampSubtype(normalizedSubtype(comment)),
+        typeParts: highlightTextParts(commentTypeLabel(comment)),
+        chipClass: chipKind ? `note-item-color-chip--${chipKind}` : null,
+        chipStyle: chipKind ? inlineChipStyle(comment) : undefined,
+        chipAriaLabel: chipKind ? inlineChipAriaLabel(comment) : undefined,
+        showShapeStyle,
+        shapeStyleAriaLabel: showShapeStyle ? shapeStyleAriaLabel(comment) : undefined,
+        shapeStrokeStyle: showShapeStyle ? shapeStrokeStyle(comment) : undefined,
+        hasShapeFill: shapeFillVisible,
+        shapeFillStyle: shapeFillVisible
+            ? {
+                backgroundColor: comment.fillColor ?? undefined,
+                opacity: shapeOpacity(comment),
+            }
+            : undefined,
+        shapeStyleParts: showShapeStyle ? highlightTextParts(shapeStyleLabel(comment)) : [],
+        previewClass: !showShapeStyle && markupKind ? `note-item-text-mark note-item-text-mark--${markupKind}` : null,
+        previewStyle: !showShapeStyle && markupKind ? textMarkupStyle(comment) : undefined,
+        previewParts: showShapeStyle ? [] : highlightTextParts(annotationPreview(comment)),
+        authorParts: highlightTextParts(authorLabel(comment)),
+        timeLabel: commentTimeLabel(comment),
+        replies: (comment.replies ?? []).map((reply, replyIndex) => ({
+            key: `${comment.stableKey}-reply-${replyIndex}`,
+            author: reply.author?.trim() || t('annotations.unknownAuthor'),
+            parts: highlightTextParts(replyDisplayText(reply)),
+        })),
+    };
+}));
 
 // A scale change moves the stride, and the container scrolls in pixels, so the
 // same `scrollTop` addresses a different comment afterwards. Re-express the

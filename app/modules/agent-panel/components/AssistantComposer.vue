@@ -6,12 +6,21 @@
                 <UButton class="remove-image" :aria-label="t('assistant.removeImageAttachment', { name: image.name })" icon="i-ph-x" size="xs" color="neutral" variant="solid" @click="emit('removeImage', image.id)" />
             </div>
         </div>
-        <textarea ref="input" :value="modelValue" :aria-label="t('assistant.documentPlaceholder')" :placeholder="t(hasDocument ? 'assistant.documentPlaceholder' : 'assistant.workspacePlaceholder')" rows="3" :class="{ 'is-scrollable': scrollable }" class="composer-input app-scrollbar" @input="emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)" @keydown="handleKeydown" @paste="emit('paste', $event)" />
+        <textarea ref="input" :value="modelValue" :aria-label="t('assistant.documentPlaceholder')" :placeholder="inputPlaceholder" rows="3" :class="{ 'is-scrollable': scrollable }" class="composer-input app-scrollbar" @input="handleInput" @keydown="handleKeydown" @paste="emit('paste', $event)" />
         <p v-if="error" class="composer-error" role="alert">{{ error }}</p>
         <div class="composer-footer">
             <AssistantProviderModelPicker ref="picker" :instances="instances" :selection="selection" @select="emit('select', $event)" />
-            <AppTooltip :text="showStop ? t('assistant.stop') : sendDisabledReason || t(running ? 'assistant.sendSteer' : 'assistant.send')">
-                <UButton class="composer-send" :aria-label="showStop ? t('assistant.stop') : sendDisabledReason || t(running ? 'assistant.sendSteer' : 'assistant.send')" :icon="showStop ? 'i-ph-stop' : 'i-ph-arrow-up'" :color="showStop ? 'error' : 'primary'" :disabled="showStop ? interrupting : Boolean(sendDisabledReason)" :loading="showStop && interrupting" type="button" @click="showStop ? emit('interrupt') : emit('submit')" />
+            <AppTooltip :text="primaryAction.label">
+                <UButton
+                    class="composer-send"
+                    :aria-label="primaryAction.label"
+                    :icon="primaryAction.icon"
+                    :color="primaryAction.color"
+                    :disabled="primaryAction.disabled"
+                    :loading="primaryAction.loading"
+                    type="button"
+                    @click="handlePrimaryAction"
+                />
             </AppTooltip>
         </div>
     </form>
@@ -59,6 +68,34 @@ const { textarea: input } = useTextareaAutosize({
     },
 });
 const showStop = computed(() => props.running && !props.modelValue.trim() && !props.images.length);
+const inputPlaceholder = computed(() => t(props.hasDocument ? 'assistant.documentPlaceholder' : 'assistant.workspacePlaceholder'));
+const primaryAction = computed(() => (
+    showStop.value
+        ? {
+            label: t('assistant.stop'),
+            icon: 'i-ph-stop',
+            color: 'error' as const,
+            disabled: props.interrupting,
+            loading: props.interrupting,
+        }
+        : {
+            label: props.sendDisabledReason || t(props.running ? 'assistant.sendSteer' : 'assistant.send'),
+            icon: 'i-ph-arrow-up',
+            color: 'primary' as const,
+            disabled: Boolean(props.sendDisabledReason),
+            loading: false,
+        }
+));
+function handleInput(event: Event) {
+    emit('update:modelValue', (event.target as HTMLTextAreaElement).value);
+}
+function handlePrimaryAction() {
+    if (showStop.value) {
+        emit('interrupt');
+        return;
+    }
+    emit('submit');
+}
 function handleKeydown(event: KeyboardEvent) {
     // Safari may clear isComposing before the final IME Enter.
     const legacyCode: unknown = Reflect.get(event, 'keyCode');
