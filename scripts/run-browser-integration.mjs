@@ -10,8 +10,9 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // One development server owns the compiled client/worker graph for this lane,
-// and one shared Chromium server serves isolated contexts across ordinary specs.
-// Persistent-context specs still launch their own browser processes.
+// and the supervised CLI starts one shared Chromium server for ordinary specs.
+// Persistent-context specs still launch their own browser processes, and direct
+// Vitest runs (such as Nightly Firefox/WebKit) do not require Chromium.
 const BROWSER_WS_ENDPOINT_ENV = 'EVB_BROWSER_INTEGRATION_WS_ENDPOINT';
 const BROWSER_ORIGIN_ENV = 'EVB_BROWSER_INTEGRATION_ORIGIN';
 const BROWSER_SERVER_OUTPUT_PATH_ENV = 'EVB_BROWSER_INTEGRATION_SERVER_OUTPUT_PATH';
@@ -48,17 +49,33 @@ function forceKillProcessTreeSync(pid, processTree) {
     ], { signal: 'SIGKILL' });
 }
 
-/** @param {AbortSignal} [abortSignal] */
-async function startBrowserIntegrationHarness(abortSignal) {
+/** @param {NodeJS.Signals} signal */
+function reraiseSignal(signal) {
+    if (process.platform === 'win32') {
+        process.exit(1);
+    }
+    process.kill(process.pid, signal);
+}
+
+/**
+ * @param {{
+ *   abortSignal?: AbortSignal,
+ *   launchChromiumServer: boolean,
+ * }} options
+ */
+async function startBrowserIntegrationHarness({
+    abortSignal,
+    launchChromiumServer,
+}) {
     const { tsImport } = await import('tsx/esm/api');
     const [
         processTree,
         { buildNuxtDevServerEnv },
-        { chromium },
+        playwrightModule,
     ] = await Promise.all([
         tsImport('./electron-run/electronRunProcessTree.ts', import.meta.url),
         tsImport('./electron-run/electronRunLaunchConfig.ts', import.meta.url),
-        import('playwright'),
+        launchChromiumServer ? import('playwright') : Promise.resolve(null),
     ]);
     const {
         findFreePort,
@@ -171,18 +188,20 @@ async function startBrowserIntegrationHarness(abortSignal) {
     };
 
     try {
-        browserServerPromise = chromium.launchServer({
-            headless: true,
-            host: '127.0.0.1',
-            handleSIGINT: false,
-            handleSIGTERM: false,
-            handleSIGHUP: false,
-        }).then((server) => {
-            browserPid = server.process()?.pid ?? null;
-            return server;
-        });
-        // Prevent unhandled rejection if devServer startup fails before we await browserServerPromise.
-        browserServerPromise.catch(() => {});
+        if (playwrightModule) {
+            browserServerPromise = playwrightModule.chromium.launchServer({
+                headless: true,
+                host: '127.0.0.1',
+                handleSIGINT: false,
+                handleSIGTERM: false,
+                handleSIGHUP: false,
+            }).then((server) => {
+                browserPid = server.process()?.pid ?? null;
+                return server;
+            });
+            // Prevent unhandled rejection if devServer startup fails before we await browserServerPromise.
+            browserServerPromise.catch(() => {});
+        }
         await once(devServer, 'spawn');
         const deadline = Date.now() + 90_000;
         while (true) {
@@ -222,14 +241,18 @@ async function startBrowserIntegrationHarness(abortSignal) {
                 abortSignal.addEventListener('abort', onAbort, { once: true });
             });
         }
-        const activeBrowserServer = await browserServerPromise;
-        if (!activeBrowserServer) {
-            throw new Error('Failed to launch shared Chromium server for browser integration tests');
+        let wsEndpoint = null;
+        if (browserServerPromise) {
+            const activeBrowserServer = await browserServerPromise;
+            if (!activeBrowserServer) {
+                throw new Error('Failed to launch shared Chromium server for browser integration tests');
+            }
+            wsEndpoint = activeBrowserServer.wsEndpoint();
         }
         return {
             origin,
             outputPath,
-            wsEndpoint: activeBrowserServer.wsEndpoint(),
+            wsEndpoint,
             stop,
         };
     } catch (error) {
@@ -258,25 +281,40 @@ async function runSupervisedCli() {
     let receivedSignal = null;
     /** @type {Promise<void> | null} */
     let teardownPromise = null;
+    let signalReraised = false;
+
+    const removeSignalHandlers = () => {
+        for (const candidate of SHUTDOWN_SIGNALS) {
+            process.off(candidate, handleSignal);
+        }
+    };
+
+    const finalizePendingSignal = () => {
+        if (!receivedSignal || signalReraised) return false;
+        signalReraised = true;
+        removeSignalHandlers();
+        reraiseSignal(receivedSignal);
+        return true;
+    };
 
     /** @param {NodeJS.Signals | null} signal */
     const teardown = (signal) => {
-        if (teardownPromise) return teardownPromise;
-        if (signal) {
+        if (signal && !receivedSignal) {
             receivedSignal = signal;
             abortController.abort();
         }
+        if (teardownPromise) return teardownPromise;
         teardownPromise = (async () => {
-            for (const candidate of SHUTDOWN_SIGNALS) {
-                process.off(candidate, handleSignal);
-            }
+            // Keep signal handlers installed while teardown runs so a second
+            // signal (or a signal arriving during ordinary teardown) cannot
+            // terminate the supervisor before child processes are reaped.
             const resolvedHarness = harness ?? (harnessPromise ? await harnessPromise.catch(() => null) : null);
             const results = await Promise.allSettled([
                 vitestChild ? killSpawnedProcessTree(vitestChild, 1_500) : Promise.resolve(),
                 resolvedHarness ? resolvedHarness.stop() : Promise.resolve(),
             ]);
             const rejected = results.find(result => result.status === 'rejected');
-            if (rejected && !signal) {
+            if (rejected && !receivedSignal) {
                 throw rejected.reason;
             }
         })();
@@ -285,11 +323,8 @@ async function runSupervisedCli() {
 
     /** @param {NodeJS.Signals} signal */
     const handleSignal = (signal) => {
-        void teardown(signal).finally(() => {
-            if (process.platform === 'win32') {
-                process.exit(1);
-            }
-            process.kill(process.pid, signal);
+        void teardown(signal).catch(() => {}).finally(() => {
+            finalizePendingSignal();
         });
     };
     for (const signal of SHUTDOWN_SIGNALS) {
@@ -297,10 +332,14 @@ async function runSupervisedCli() {
     }
 
     try {
-        harnessPromise = startBrowserIntegrationHarness(abortController.signal);
+        harnessPromise = startBrowserIntegrationHarness({
+            abortSignal: abortController.signal,
+            launchChromiumServer: true,
+        });
         harness = await harnessPromise;
         if (receivedSignal) {
-            await teardown(receivedSignal);
+            await teardown(receivedSignal).catch(() => {});
+            finalizePendingSignal();
             return;
         }
         vitestChild = spawn(process.execPath, [
@@ -315,25 +354,26 @@ async function runSupervisedCli() {
                 ...process.env,
                 [BROWSER_ORIGIN_ENV]: harness.origin,
                 [BROWSER_SERVER_OUTPUT_PATH_ENV]: harness.outputPath,
-                [BROWSER_WS_ENDPOINT_ENV]: harness.wsEndpoint,
+                [BROWSER_WS_ENDPOINT_ENV]: /** @type {string} */ (harness.wsEndpoint),
             },
         });
         const [
             exitCode,
             exitSignal,
         ] = await once(vitestChild, 'close');
-        if (receivedSignal) {
-            await teardownPromise;
-            return;
-        }
         await teardown(null);
+        if (finalizePendingSignal()) return;
+        removeSignalHandlers();
         process.exitCode = exitCode ?? (exitSignal ? 1 : 1);
     } catch (error) {
         if (receivedSignal) {
-            await teardownPromise;
+            await teardown(receivedSignal).catch(() => {});
+            finalizePendingSignal();
             return;
         }
         await teardown(null);
+        if (finalizePendingSignal()) return;
+        removeSignalHandlers();
         throw error;
     }
 }
@@ -353,17 +393,77 @@ export async function setup(project) {
         return () => {};
     }
 
-    const previousWsEndpoint = process.env[BROWSER_WS_ENDPOINT_ENV];
-    const harness = await startBrowserIntegrationHarness();
-    process.env[BROWSER_WS_ENDPOINT_ENV] = harness.wsEndpoint;
-    project.provide('browserIntegrationOrigin', harness.origin);
-    project.provide('browserIntegrationServerOutputPath', harness.outputPath);
-    return async () => {
-        if (previousWsEndpoint === undefined) {
-            delete process.env[BROWSER_WS_ENDPOINT_ENV];
-        } else {
-            process.env[BROWSER_WS_ENDPOINT_ENV] = previousWsEndpoint;
-        }
-        await harness.stop();
+    // Direct Vitest invocations (e.g. Nightly Firefox/WebKit or single-spec runs)
+    // do not launch a shared Chromium server; ordinary Chromium specs fall back to
+    // local `chromium.launch()`. Install a SIGHUP handler before startup because
+    // Vitest only traps SIGINT/SIGTERM and default SIGHUP bypasses Node's `exit` hook.
+    const abortController = new AbortController();
+    /** @type {Promise<Awaited<ReturnType<typeof startBrowserIntegrationHarness>>> | null} */
+    let harnessPromise = null;
+    /** @type {Awaited<ReturnType<typeof startBrowserIntegrationHarness>> | null} */
+    let harness = null;
+    let sighupReceived = false;
+    let sighupReraised = false;
+    /** @type {Promise<void> | null} */
+    let stopDirectPromise = null;
+
+    const stopDirect = () => {
+        if (stopDirectPromise) return stopDirectPromise;
+        stopDirectPromise = (async () => {
+            const resolvedHarness = harness ?? (harnessPromise ? await harnessPromise.catch(() => null) : null);
+            if (resolvedHarness) {
+                await resolvedHarness.stop();
+            }
+        })();
+        return stopDirectPromise;
     };
+
+    const finalizeSighup = () => {
+        if (!sighupReceived || sighupReraised) return false;
+        sighupReraised = true;
+        process.off('SIGHUP', handleSighup);
+        reraiseSignal('SIGHUP');
+        return true;
+    };
+
+    const handleSighup = () => {
+        sighupReceived = true;
+        abortController.abort();
+        void stopDirect().catch(() => {}).finally(() => {
+            finalizeSighup();
+        });
+    };
+    process.on('SIGHUP', handleSighup);
+
+    try {
+        harnessPromise = startBrowserIntegrationHarness({
+            abortSignal: abortController.signal,
+            launchChromiumServer: false,
+        });
+        harness = await harnessPromise;
+        if (sighupReceived) {
+            await stopDirect().catch(() => {});
+            finalizeSighup();
+            return () => {};
+        }
+        project.provide('browserIntegrationOrigin', harness.origin);
+        project.provide('browserIntegrationServerOutputPath', harness.outputPath);
+        return async () => {
+            try {
+                await stopDirect();
+            } finally {
+                if (!finalizeSighup()) {
+                    process.off('SIGHUP', handleSighup);
+                }
+            }
+        };
+    } catch (error) {
+        if (sighupReceived) {
+            await stopDirect().catch(() => {});
+            finalizeSighup();
+            return () => {};
+        }
+        process.off('SIGHUP', handleSighup);
+        throw error;
+    }
 }

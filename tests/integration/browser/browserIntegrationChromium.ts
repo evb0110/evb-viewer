@@ -14,9 +14,14 @@ export const BROWSER_INTEGRATION_WS_ENDPOINT_ENV = 'EVB_BROWSER_INTEGRATION_WS_E
 
 const wrappedVideoContexts = new WeakSet<BrowserContext>();
 
+function combineErrors(errors: unknown[], message: string): unknown {
+    return errors.length === 1 ? errors[0] : new AggregateError(errors, message);
+}
+
 // Playwright clears `recordVideo.dir` for server-backed `chromium.connect()`
 // contexts and deletes server temp recordings on disconnect. Export recorded
-// videos into the requested directory as each context closes.
+// videos into the requested directory as each context closes and surface any
+// export failure instead of dropping video evidence silently.
 function attachRemoteVideoExport(context: BrowserContext, videoDir: string): void {
     if (wrappedVideoContexts.has(context)) return;
     wrappedVideoContexts.add(context);
@@ -32,16 +37,32 @@ function attachRemoteVideoExport(context: BrowserContext, videoDir: string): voi
     const originalClose = context.close.bind(context);
     context.close = async (options) => {
         for (const page of context.pages()) trackPage(page);
+        const failures: unknown[] = [];
         try {
             await originalClose(options);
-        } finally {
-            if (!exported) {
-                exported = true;
-                if (videos.size > 0) {
+        } catch (closeError) {
+            failures.push(closeError);
+        }
+        if (!exported) {
+            exported = true;
+            if (videos.size > 0) {
+                try {
                     await mkdir(videoDir, { recursive: true });
-                    await Promise.allSettled([...videos].map(video => video.saveAs(join(videoDir, `${randomUUID()}.webm`))));
+                    const results = await Promise.allSettled(
+                        [...videos].map(video => video.saveAs(join(videoDir, `${randomUUID()}.webm`))),
+                    );
+                    for (const result of results) {
+                        if (result.status === 'rejected') {
+                            failures.push(result.reason);
+                        }
+                    }
+                } catch (exportError) {
+                    failures.push(exportError);
                 }
             }
+        }
+        if (failures.length > 0) {
+            throw combineErrors(failures, `Failed closing context or exporting videos to ${videoDir}`);
         }
     };
 }
@@ -62,10 +83,19 @@ function wrapConnectedBrowserForVideoExport(browser: Browser): Browser {
             const page = await context.newPage();
             const originalPageClose = page.close.bind(page);
             page.close = async (closeOptions) => {
+                const failures: unknown[] = [];
                 try {
                     await originalPageClose(closeOptions);
-                } finally {
+                } catch (closeError) {
+                    failures.push(closeError);
+                }
+                try {
                     await context.close();
+                } catch (contextError) {
+                    failures.push(contextError);
+                }
+                if (failures.length > 0) {
+                    throw combineErrors(failures, 'Failed closing page or its owning context');
                 }
             };
             return page;
@@ -87,10 +117,23 @@ export async function connectOrLaunchChromium(): Promise<Browser> {
 
 export async function closeChromiumBrowser(browser: Browser | undefined): Promise<void> {
     if (!browser) return;
+    const failures: unknown[] = [];
     try {
-        await Promise.allSettled(browser.contexts().map(context => context.close()));
+        const results = await Promise.allSettled(browser.contexts().map(context => context.close()));
+        for (const result of results) {
+            if (result.status === 'rejected') {
+                failures.push(result.reason);
+            }
+        }
     } finally {
-        await browser.close();
+        try {
+            await browser.close();
+        } catch (closeError) {
+            failures.push(closeError);
+        }
+    }
+    if (failures.length > 0) {
+        throw combineErrors(failures, 'Failed closing Chromium browser contexts or connection');
     }
 }
 
