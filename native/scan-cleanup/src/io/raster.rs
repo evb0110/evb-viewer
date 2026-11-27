@@ -10,7 +10,7 @@ use jbig2_codec::{decode_pdf_generic_source, DecodeLimits, Jbig2Error};
 use scan_primitives::{GrayImage, RgbImage};
 use std::{
     fs::File,
-    io::{Cursor, ErrorKind, Read, Write},
+    io::{BufReader, Cursor, ErrorKind, Read, Write},
     path::Path,
 };
 use thiserror::Error;
@@ -306,13 +306,15 @@ fn validate_dimensions(width: usize, height: usize) -> Result<(), String> {
     Ok(())
 }
 
+const RASTER_READ_BUFFER_BYTES: usize = 64 * 1024;
+
 // Check the file signature so raster decoding does not depend on its suffix.
 fn open_sniffed(path: &Path) -> Result<(impl Read, bool), RasterReadError> {
-    let mut file = File::open(path)?;
+    let mut reader = BufReader::with_capacity(RASTER_READ_BUFFER_BYTES, File::open(path)?);
     let mut magic = [0u8; 2];
     let mut filled = 0;
     while filled < magic.len() {
-        match file.read(&mut magic[filled..]) {
+        match reader.read(&mut magic[filled..]) {
             Ok(0) => break,
             Ok(count) => filled += count,
             Err(error) if error.kind() == ErrorKind::Interrupted => continue,
@@ -320,7 +322,7 @@ fn open_sniffed(path: &Path) -> Result<(impl Read, bool), RasterReadError> {
         }
     }
     let is_ppm = is_ppm_signature(&magic[..filled]);
-    Ok((Cursor::new(magic).take(filled as u64).chain(file), is_ppm))
+    Ok((Cursor::new(magic).take(filled as u64).chain(reader), is_ppm))
 }
 
 fn map_decoder_error(error: evb_raster_io::RasterError) -> RasterReadError {

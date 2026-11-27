@@ -2,7 +2,7 @@ use evb_raster_io::DecodeLimits;
 use std::{
     fmt::Write as FmtWrite,
     fs::{self, File, OpenOptions},
-    io::Write,
+    io::{BufWriter, Write},
     path::{Path, PathBuf},
 };
 
@@ -31,7 +31,7 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
 
 pub(crate) fn write_atomic_with(
     path: &Path,
-    write: impl FnOnce(&mut File) -> Result<(), String>,
+    write: impl FnOnce(&mut BufWriter<File>) -> Result<(), String>,
 ) -> Result<(), String> {
     write_atomic_with_random(path, write, fill_publication_random)
 }
@@ -210,9 +210,11 @@ impl Drop for StagedFileBackup {
     }
 }
 
+const ATOMIC_WRITE_BUFFER_BYTES: usize = 64 * 1024;
+
 fn write_atomic_with_random(
     path: &Path,
-    write: impl FnOnce(&mut File) -> Result<(), String>,
+    write: impl FnOnce(&mut BufWriter<File>) -> Result<(), String>,
     mut fill_random: impl FnMut(&mut [u8]) -> Result<(), String>,
 ) -> Result<(), String> {
     let (file, temporary) = open_randomized_temporary(path, &mut fill_random)?;
@@ -220,8 +222,13 @@ fn write_atomic_with_random(
     // this block, before either rename or error cleanup, so the
     // no-partial-temp guarantee is cross-platform.
     let write_result = {
-        let mut file = file;
-        write(&mut file).and_then(|()| file.sync_all().map_err(|error| error.to_string()))
+        let mut writer = BufWriter::with_capacity(ATOMIC_WRITE_BUFFER_BYTES, file);
+        write(&mut writer).and_then(|()| {
+            let file = writer
+                .into_inner()
+                .map_err(|error| error.into_error().to_string())?;
+            file.sync_all().map_err(|error| error.to_string())
+        })
     };
     let result =
         write_result.and_then(|()| fs::rename(&temporary, path).map_err(|error| error.to_string()));

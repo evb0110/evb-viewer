@@ -1,3 +1,7 @@
+#[cfg(test)]
+use crate::bw::{
+    binarize_normalized_with_diagnostics, binarize_normalized_with_diagnostics_excluding,
+};
 use crate::clock::Instant;
 pub use crate::domain::geometry::{AppliedMargins, PageHalf};
 use crate::engine::edge_band::{owned_ink_pixels, LEAF_EDGE_BAND_FRACTION};
@@ -23,11 +27,13 @@ use crate::{
         reusable_illumination_model,
     },
     bw::{
-        binarize_normalized_with_diagnostics, binarize_normalized_with_diagnostics_excluding,
-        binary_to_gray, dark_background_ocr_mask, is_horizontally_fused_extent_admissible,
-        paper_reference, picture_protection_radius, resolve_binarization_diagnostics,
+        binarize_normalized_with_diagnostics_excluding_shared,
+        binarize_normalized_with_diagnostics_shared, binary_to_gray, compute_raw_gradient_bounds,
+        dark_background_ocr_mask, is_horizontally_fused_extent_admissible, paper_reference,
+        picture_protection_radius, protected_picture_mask, resolve_binarization_diagnostics,
         resolve_spread_binarization_plans, BinarizationDiagnostics, BinarizationInput,
-        SpreadBinarizationPlan, BLEED_CRISPNESS_FLOOR, BLEED_SHALLOW_DEPTH, RULE_RAW_DEPTH,
+        RawGradientBounds, SpreadBinarizationPlan, BLEED_CRISPNESS_FLOOR, BLEED_SHALLOW_DEPTH,
+        RULE_RAW_DEPTH,
     },
     cache::{PageCache, StageCacheKey},
     calibration::{CalibrationConfig, PageCalibration},
@@ -66,7 +72,7 @@ use crate::{
 use rayon::prelude::*;
 use scan_primitives::{
     distance::squared_euclidean_distance,
-    morphology::{dilate, dilate_gray, erode, erode_gray},
+    morphology::{dilate, erode, erode_gray},
     threshold::otsu_threshold,
     Affine, BinaryImage, ComponentMap, GrayImage, Point, Polygon, Rect,
 };
@@ -2817,6 +2823,7 @@ fn unowned_text_recall(text_mask: &BinaryImage, binary: &BinaryImage) -> BinaryI
     components.retain(|component| !contacted[component.label as usize])
 }
 
+#[cfg(test)]
 fn filter_soft_shallow_bleed_components(
     binary: &BinaryImage,
     raw: &GrayImage,
@@ -2826,9 +2833,36 @@ fn filter_soft_shallow_bleed_components(
     dpi: f64,
     local_route: bool,
 ) -> BinaryImage {
+    filter_soft_shallow_bleed_components_with_shared(
+        binary,
+        raw,
+        picture_mask,
+        None,
+        None,
+        text_mask,
+        text_vicinity_mask,
+        dpi,
+        local_route,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn filter_soft_shallow_bleed_components_with_shared(
+    binary: &BinaryImage,
+    raw: &GrayImage,
+    picture_mask: Option<&BinaryImage>,
+    precomputed_protected_picture: Option<&BinaryImage>,
+    precomputed_gradient_bounds: Option<&RawGradientBounds>,
+    text_mask: Option<&BinaryImage>,
+    text_vicinity_mask: Option<&BinaryImage>,
+    dpi: f64,
+    local_route: bool,
+) -> BinaryImage {
     debug_assert_eq!(binary.width(), raw.width());
     debug_assert_eq!(binary.height(), raw.height());
     debug_assert!(picture_mask
+        .is_none_or(|mask| { mask.width() == binary.width() && mask.height() == binary.height() }));
+    debug_assert!(precomputed_protected_picture
         .is_none_or(|mask| { mask.width() == binary.width() && mask.height() == binary.height() }));
     debug_assert!(text_mask
         .is_none_or(|mask| { mask.width() == binary.width() && mask.height() == binary.height() }));
@@ -2843,13 +2877,18 @@ fn filter_soft_shallow_bleed_components(
     let crispness_floor = f64::from(BLEED_CRISPNESS_FLOOR);
     let shallow_depth = BLEED_SHALLOW_DEPTH;
 
-    let gradient_radius = (dpi * 0.12 / 25.4).round().clamp(1.0, 4.0) as usize;
     let boundary_radius = (dpi * 0.07 / 25.4).round().clamp(1.0, 3.0) as usize;
     let boundary = erode(binary, boundary_radius, boundary_radius);
-    let (raw_max, raw_min) = rayon::join(
-        || erode_gray(raw, gradient_radius, gradient_radius),
-        || dilate_gray(raw, gradient_radius, gradient_radius),
-    );
+    let owned_gradient_bounds;
+    let gradient_bounds = match precomputed_gradient_bounds {
+        Some(bounds) => bounds,
+        None => {
+            owned_gradient_bounds = compute_raw_gradient_bounds(raw, dpi);
+            &owned_gradient_bounds
+        }
+    };
+    let raw_max = &gradient_bounds.raw_max;
+    let raw_min = &gradient_bounds.raw_min;
     let components = ComponentMap::from_binary(binary);
     let (raw_sums, raw_counts) = components.gray_sums_by_component(raw);
     let mut gradient_sums = vec![0u64; components.components().len() + 1];
@@ -2859,10 +2898,9 @@ fn filter_soft_shallow_bleed_components(
     let mut deep_pixels = vec![0usize; components.components().len() + 1];
     let mut text_overlap = vec![0usize; components.components().len() + 1];
     let mut protected = vec![false; components.components().len() + 1];
-    let protected_picture = picture_mask.map(|mask| {
-        let radius = picture_protection_radius(dpi);
-        dilate(mask, radius, radius)
-    });
+    let protected_picture = precomputed_protected_picture
+        .map(Cow::Borrowed)
+        .or_else(|| picture_mask.map(|mask| Cow::Owned(protected_picture_mask(mask, dpi))));
     for y in 0..binary.height() {
         for x in 0..binary.width() {
             if !binary.get(x, y) {
@@ -2953,15 +2991,15 @@ fn filter_soft_shallow_bleed_components(
         return retained;
     }
     BinaryImage::from_fn_parallel(retained.width(), retained.height(), |x, y| {
-        let label = components.label_at(x, y) as usize;
-        retained.get(x, y)
-            && (underline_components[label]
-                || raw.get(x, y) < shallow_floor
-                || f64::from(raw_max.get(x, y).saturating_sub(raw_min.get(x, y)))
-                    >= crispness_floor
-                || protected_picture
-                    .as_ref()
-                    .is_some_and(|mask| mask.get(x, y)))
+        if !retained.get(x, y) {
+            return false;
+        }
+        raw.get(x, y) < shallow_floor
+            || f64::from(raw_max.get(x, y).saturating_sub(raw_min.get(x, y))) >= crispness_floor
+            || protected_picture
+                .as_ref()
+                .is_some_and(|mask| mask.get(x, y))
+            || underline_components[components.label_at(x, y) as usize]
     })
 }
 
@@ -2969,10 +3007,31 @@ fn filter_soft_shallow_bleed_components(
 /// survived source analysis but was absent from the binary input. This is a
 /// narrow fallback for threshold loss; the primary preservation path exempts
 /// rule-scale binary components from post-processing in `bw`.
+#[cfg(test)]
 fn restore_genuine_horizontal_rules(
     binary: &BinaryImage,
     raw: &GrayImage,
     picture_mask: Option<&BinaryImage>,
+    text_mask: Option<&BinaryImage>,
+    text_vicinity_mask: Option<&BinaryImage>,
+    dpi: f64,
+) -> BinaryImage {
+    restore_genuine_horizontal_rules_with_protected(
+        binary,
+        raw,
+        picture_mask,
+        None,
+        text_mask,
+        text_vicinity_mask,
+        dpi,
+    )
+}
+
+fn restore_genuine_horizontal_rules_with_protected(
+    binary: &BinaryImage,
+    raw: &GrayImage,
+    picture_mask: Option<&BinaryImage>,
+    precomputed_protected_picture: Option<&BinaryImage>,
     text_mask: Option<&BinaryImage>,
     text_vicinity_mask: Option<&BinaryImage>,
     dpi: f64,
@@ -2986,6 +3045,8 @@ fn restore_genuine_horizontal_rules(
     debug_assert_eq!(binary.height(), raw.height());
     debug_assert!(picture_mask
         .is_none_or(|mask| { mask.width() == binary.width() && mask.height() == binary.height() }));
+    debug_assert!(precomputed_protected_picture
+        .is_none_or(|mask| { mask.width() == binary.width() && mask.height() == binary.height() }));
     debug_assert!(text_mask
         .is_none_or(|mask| { mask.width() == binary.width() && mask.height() == binary.height() }));
     debug_assert!(text_vicinity_mask
@@ -2996,10 +3057,9 @@ fn restore_genuine_horizontal_rules(
 
     let paper = paper_reference(raw);
     let raw_dark_floor = paper.saturating_sub(RULE_RAW_DEPTH);
-    let picture_owner = picture_mask.map(|mask| {
-        let radius = picture_protection_radius(dpi);
-        dilate(mask, radius, radius)
-    });
+    let picture_owner = precomputed_protected_picture
+        .map(Cow::Borrowed)
+        .or_else(|| picture_mask.map(|mask| Cow::Owned(protected_picture_mask(mask, dpi))));
     let raw_candidates = BinaryImage::from_fn_parallel(raw.width(), raw.height(), |x, y| {
         raw.get(x, y) <= raw_dark_floor
             && !picture_owner.as_ref().is_some_and(|mask| mask.get(x, y))
