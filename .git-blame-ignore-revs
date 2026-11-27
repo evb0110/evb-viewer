@@ -1,0 +1,6 @@
+# Mechanical formatting commits ignored by `git blame` (configure locally with
+# `git config blame.ignoreRevsFile .git-blame-ignore-revs`; GitHub applies this
+# file automatically in its blame view).
+
+# style: apply repository-wide Prettier 3.10.1 formatting
+dd2561c0ffbdc99f1f92e26496bb41daa00c3c0d
