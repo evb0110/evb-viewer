@@ -4923,7 +4923,7 @@ describe('Electron E2E - Viewer Smoke', () => {
                     return;
                 }
                 const rail = document.querySelector<HTMLElement>(
-                    '.editor-pane.is-active .pdf-sidebar-pages-thumbnails .pdf-thumbnails',
+                    '.editor-pane.is-active [data-pdf-thumbnail-drop-target] .pdf-thumbnails',
                 );
                 const railRect = rail?.getBoundingClientRect() ?? null;
                 const outputScale = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
@@ -5477,10 +5477,10 @@ describe('Electron E2E - Viewer Smoke', () => {
                     return;
                 }
                 const canvases = Array.from(document.querySelectorAll<HTMLCanvasElement>(
-                    '.editor-pane.is-active .pdf-sidebar-pages-thumbnails .document-thumbnail-list__canvas-host canvas',
+                    '.editor-pane.is-active [data-pdf-thumbnail-drop-target] .document-thumbnail-list__canvas-host canvas',
                 ));
                 const container = document.querySelector<HTMLElement>(
-                    '.editor-pane.is-active .pdf-sidebar-pages-thumbnails .pdf-thumbnails',
+                    '.editor-pane.is-active [data-pdf-thumbnail-drop-target] .pdf-thumbnails',
                 );
                 const containerRect = container?.getBoundingClientRect() ?? null;
                 for (const canvas of canvases) {
@@ -5536,7 +5536,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         // after it, or the test measures its own scroll as rail movement.
         const centeredAtMs = await session.page.evaluate(() => {
             const container = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active .pdf-sidebar-pages-thumbnails .pdf-thumbnails',
+                '.editor-pane.is-active [data-pdf-thumbnail-drop-target] .pdf-thumbnails',
             );
             const current = document.querySelector<HTMLElement>(
                 '.editor-pane.is-active [data-thumbnail-page="18"]',
@@ -5571,7 +5571,7 @@ describe('Electron E2E - Viewer Smoke', () => {
                 19,
             ].map((page) => {
                 const container = document.querySelector<HTMLElement>(
-                    '.editor-pane.is-active .pdf-sidebar-pages-thumbnails .pdf-thumbnails',
+                    '.editor-pane.is-active [data-pdf-thumbnail-drop-target] .pdf-thumbnails',
                 );
                 const canvas = document.querySelector<HTMLCanvasElement>(
                     `.editor-pane.is-active [data-thumbnail-page="${String(page)}"] .document-thumbnail-list__canvas-host canvas`,
@@ -5864,7 +5864,7 @@ describe('Electron E2E - Viewer Smoke', () => {
 
         const visualContinuity = await session.page.evaluate(async () => {
             const rail = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active .pdf-sidebar-pages-thumbnails .pdf-thumbnails',
+                '.editor-pane.is-active [data-pdf-thumbnail-drop-target] .pdf-thumbnails',
             );
             if (!rail) {
                 throw new Error('PDF thumbnail rail was not found');

@@ -1,5 +1,13 @@
 <template>
-    <div ref="tabBarRef" class="tab-bar">
+    <div
+        ref="tabBarRef"
+        class="tab-bar"
+        :class="{
+            'is-split-pane': panePresentation !== 'single',
+            'is-split-active-pane': panePresentation === 'split-active',
+        }"
+        :data-pane-presentation="panePresentation"
+    >
         <div class="tab-strip" data-tab-list>
             <div
                 class="tab-list"
@@ -133,11 +141,13 @@ type TTabContextMenuItem =
 const {
     activeTabId,
     contextAvailability = undefined,
+    panePresentation = 'single',
     tabs,
 } = defineProps<{
     tabs: TTabView[];
     activeTabId: string | null;
     contextAvailability?: ITabContextAvailability | null;
+    panePresentation?: 'single' | 'split-active' | 'split-inactive' | undefined;
 }>();
 
 const emit = defineEmits<{
@@ -577,6 +587,19 @@ function runContextCommand(command: TTabContextCommand) {
     border-bottom: 1px solid var(--ui-border);
     user-select: none;
     -webkit-app-region: drag;
+}
+
+.tab-bar.is-split-pane {
+    transition: background-color 0.12s ease, border-bottom-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.tab-bar.is-split-active-pane {
+    background: var(--app-editor-pane-active-tabbar-bg);
+    border-bottom-color: var(--app-editor-pane-active-tabbar-divider);
+    box-shadow: inset 0 1px 0 var(--app-editor-pane-active-tabbar-glow);
+
+    --app-tab-divider: var(--app-editor-pane-active-tabbar-divider);
+    --app-tab-hover-bg: color-mix(in oklab, var(--app-editor-pane-active-tabbar-bg) 55%, var(--ui-bg) 45%);
 }
 
 .tab-strip {

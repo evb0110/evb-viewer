@@ -97,12 +97,19 @@ vi.mock('@app/components/sidebar/AppSidebarShell.vue', async () => {
                 required: true,
             },
             outerScroll: Boolean,
+            widthPx: {
+                type: Number,
+                default: undefined,
+            },
         },
         emits: ['update:model-value'],
         setup: (props, {
             emit,
             slots,
-        }) => () => vue.h('aside', {'data-shell-stub': ''}, [
+        }) => () => vue.h('aside', {
+            'data-shell-stub': '',
+            style: props.widthPx === undefined ? undefined : {width: `${props.widthPx}px`},
+        }, [
             (props.tabs as Array<{value: string}>).map(tab => vue.h('button', {
                 key: tab.value,
                 type: 'button',
@@ -268,5 +275,43 @@ describe('PdfSidebar bookmark panel retention', () => {
         const shell = host.querySelector<HTMLElement>('[data-shell-stub]')!;
 
         expect(shell.style.width).toBe(`${SIDEBAR.DEFAULT_WIDTH}px`);
+    });
+
+    it('binds widthPx on AppSidebarShell and drop-target attribute on DocumentSidebarPagesPanel', async () => {
+        const {default: RealAppSidebarShell} = await vi.importActual<typeof import('@app/components/sidebar/AppSidebarShell.vue')>('@app/components/sidebar/AppSidebarShell.vue');
+        const {default: RealDocumentSidebarPagesPanel} = await vi.importActual<typeof import('@app/components/document-viewer/DocumentSidebarPagesPanel.vue')>('@app/components/document-viewer/DocumentSidebarPagesPanel.vue');
+        const slot = defineComponent({inheritAttrs: false, setup: (_props, {slots}) => () => h('div', slots.default?.())});
+
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp(defineComponent({setup: () => () => h('div', [
+            h(RealAppSidebarShell, {
+                modelValue: 'thumbnails',
+                tabs: [{
+                    value: 'thumbnails',
+                    label: 'Pages',
+                    title: 'Pages',
+                    icon: 'i-ph-file',
+                }],
+                widthPx: 280,
+            }, {default: () => h(RealDocumentSidebarPagesPanel, {acceptsExternalPdfDrop: true})}),
+            h(RealDocumentSidebarPagesPanel, {acceptsExternalPdfDrop: false}),
+        ])}));
+        app.component('UTabs', slot);
+        app.component('AppTooltip', slot);
+        app.component('UIcon', slot);
+        app.mount(host);
+        await nextTick();
+        try {
+            const shell = host.querySelector<HTMLElement>('.app-sidebar-shell');
+            expect(shell?.style.width).toBe('280px');
+            const rails = host.querySelectorAll<HTMLElement>('.document-sidebar-pages-panel__rail');
+            expect(rails).toHaveLength(2);
+            expect(rails[0]?.hasAttribute('data-pdf-thumbnail-drop-target')).toBe(true);
+            expect(rails[1]?.hasAttribute('data-pdf-thumbnail-drop-target')).toBe(false);
+        } finally {
+            app.unmount();
+            host.remove();
+        }
     });
 });

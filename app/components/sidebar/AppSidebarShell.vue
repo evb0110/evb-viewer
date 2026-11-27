@@ -1,5 +1,5 @@
 <template>
-    <aside ref="shellRef" class="app-sidebar-shell">
+    <aside ref="shellRef" class="app-sidebar-shell" :style="shellStyle">
         <UTabs
             :model-value="modelValue"
             :items="displayTabs"
@@ -46,15 +46,22 @@ const {
     modelValue,
     outerScroll = false,
     tabs,
+    widthPx = undefined,
 } = defineProps<{
     modelValue: string;
     tabs: IAppSidebarShellTab[];
     outerScroll?: boolean | undefined;
+    widthPx?: number | undefined;
 }>();
 const emit = defineEmits<{'update:model-value': [value: string];}>();
 const shellRef = useTemplateRef<HTMLElement>('shellRef');
 const tabFitProbeRef = useTemplateRef<HTMLElement>('tabFitProbeRef');
 const isCompact = ref(true);
+const shellStyle = computed(() => (
+    widthPx === undefined
+        ? undefined
+        : {width: `${widthPx}px`}
+));
 const displayTabs = computed(() => tabs.map(item => ({
     ...item,
     // Keep the localized label in the DOM when the compact layout hides it
@@ -98,6 +105,7 @@ watch(() => tabs, async () => {
     flex: 1;
     height: 100%;
     min-width: 0;
+    max-width: 100%;
     flex-direction: column;
     overflow: hidden;
     background: var(--app-sidebar-bg);
@@ -110,7 +118,7 @@ watch(() => tabs, async () => {
     min-height: 0;
 }
 
-.app-sidebar-shell__content > :deep(*) {
+.app-sidebar-shell__content > :slotted(*) {
     width: 100%;
 }
 

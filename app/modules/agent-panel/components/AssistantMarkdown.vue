@@ -191,13 +191,10 @@ const RenderedMarkdown = () => renderBlocks(tokens.value, { count: 0 });
     border-color: var(--ui-border);
 }
 
-.assistant-markdown :deep(code) {
-    font-family: var(--app-font-mono);
-    font-size: var(--app-text-size-body-sm);
-}
-
 /* Inline code keeps its background on every wrapped line (T3 Code index.css@0b6f482dc5). */
 .assistant-markdown :deep(:not(pre) > code) {
+    font-family: var(--app-font-mono);
+    font-size: var(--app-text-size-body-sm);
     padding: var(--app-assistant-inline-code-padding);
     border-radius: var(--app-radius-xs);
     background: var(--ui-bg-accented);
@@ -271,21 +268,5 @@ const RenderedMarkdown = () => renderBlocks(tokens.value, { count: 0 });
 .assistant-markdown :deep(th) {
     border-bottom-color: var(--app-assistant-table-header-rule);
     font-weight: var(--app-font-weight-semibold);
-}
-
-.assistant-markdown :deep(.is-keyword) {
-    color: var(--ui-primary);
-}
-
-.assistant-markdown :deep(.is-string) {
-    color: var(--ui-success);
-}
-
-.assistant-markdown :deep(.is-number) {
-    color: var(--ui-warning);
-}
-
-.assistant-markdown :deep(.is-comment) {
-    color: var(--ui-text-dimmed);
 }
 </style>

@@ -1,7 +1,10 @@
 <template>
     <section class="document-sidebar-pages-panel" data-document-sidebar-pages-panel>
         <slot name="header" />
-        <div class="document-sidebar-pages-panel__rail" :class="railClass">
+        <div
+            class="document-sidebar-pages-panel__rail"
+            :data-pdf-thumbnail-drop-target="acceptsExternalPdfDrop ? '' : undefined"
+        >
             <slot />
         </div>
         <slot name="footer" />
@@ -9,7 +12,7 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{railClass?: string | undefined;}>();
+const {acceptsExternalPdfDrop = false} = defineProps<{acceptsExternalPdfDrop?: boolean | undefined;}>();
 </script>
 
 <style scoped>

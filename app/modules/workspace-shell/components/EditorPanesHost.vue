@@ -27,12 +27,13 @@
             v-for="pane in panes"
             :key="pane.paneId"
             :to="paneSlotTargets.get(pane.paneId) ?? parkingTarget ?? 'body'"
-            :disabled="!(paneSlotTargets.get(pane.paneId) ?? parkingTarget)"
+            :disabled="isPaneRenderedInPlace(pane.paneId)"
         >
                 <EditorPaneView
                     :key="pane.paneId"
                     :pane="pane"
                     :pane-count="panes.length"
+                    :in-place="isPaneRenderedInPlace(pane.paneId)"
                     :tabs="tabs"
                     :active-pane-id="activePaneId"
                     :is-tab-transition-busy="isTabTransitionBusy"
@@ -151,6 +152,9 @@ onErrorCaptured((error, instance, info) => {
 const parkingTarget = ref<HTMLElement | null>(null);
 const hostRef = ref<HTMLElement | null>(null);
 const paneSlotTargets = shallowReactive(new Map<string, HTMLElement>());
+function isPaneRenderedInPlace(paneId: string) {
+    return !(paneSlotTargets.get(paneId) ?? parkingTarget.value);
+}
 const zenActivePaneId = computed(() => {
     const tabId = parseTabId(zenActiveTabId);
     return tabId === null
@@ -276,13 +280,6 @@ function handlePaneSlot(paneId: string, element: HTMLElement | null) {
 <style scoped>
 .editor-panes-host {
     position: relative;
-}
-
-/* A pane rendered in place, before its slot exists, covers the host as the
-   single slot of the initial layout will. */
-.editor-panes-host > :deep(.editor-pane) {
-    position: absolute;
-    inset: 0;
 }
 
 .editor-pane-parking {

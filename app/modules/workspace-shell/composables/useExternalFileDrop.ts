@@ -36,7 +36,7 @@ function isSidebarDropArea(event: DragEvent) {
     if (!(target instanceof Element)) {
         return false;
     }
-    return Boolean(target.closest('.pdf-sidebar-pages-thumbnails'));
+    return Boolean(target.closest('[data-pdf-thumbnail-drop-target]'));
 }
 
 function isToolDropArea(event: DragEvent) {
