@@ -1068,4 +1068,79 @@ describe('browserPageOpsWorkerClient', () => {
         }
     });
 
+    it('preserves NotReadableError and structured string error codes across browserPageOps.worker -> settleBrowserWorkerResult via errorEnvelope', async () => {
+        const {settleBrowserWorkerResult} = await import('@app/platform/browser-api/settleBrowserWorkerResult');
+        const workerListeners: Array<(event: MessageEvent<unknown>) => void> = [];
+        const posted: unknown[] = [];
+        let thrownError: Error = new DOMException('The requested file could not be read, typically due to permission problems.', 'NotReadableError');
+        vi.stubGlobal('self', {
+            addEventListener: (type: string, listener: (event: MessageEvent<unknown>) => void) => {
+                if (type === 'message') workerListeners.push(listener);
+            },
+            postMessage: (message: unknown) => {
+                posted.push(message);
+            },
+        });
+        vi.resetModules();
+        vi.doMock('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm', async (original) => ({
+            ...await original<typeof import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm')>(),
+            tryRunBrowserPageOpsWithWasm: async () => {
+                throw thrownError;
+            },
+        }));
+        await import('@app/platform/browser-api/browserPageOps.worker');
+        expect(workerListeners.length).toBeGreaterThan(0);
+
+        type TRejectedWorkerError = Error & {
+            code?: unknown;
+            errorEnvelope?: {code: string; details?: {name?: string}};
+        };
+        const dispatchRender = async (id: number): Promise<TRejectedWorkerError | null> => {
+            await workerListeners.at(-1)!({
+                data: {
+                    id,
+                    type: 'renderScanCleanupRaster',
+                    payload: {
+                        source: new Blob([Uint8Array.of(1, 2, 3)]),
+                        cacheKey: 'stale-blob-doc\u0000rev-1',
+                        request: {
+                            pageNumber: 1,
+                            dpi: 72,
+                            renderBox: 'cropBox',
+                            maxPixels: 1_000_000,
+                        },
+                    },
+                },
+            } as MessageEvent<unknown>);
+            let rejected: TRejectedWorkerError | null = null;
+            const pending = new Map([
+                [id, {
+                    requestType: 'renderScanCleanupRaster',
+                    resolveData: () => true,
+                    reject: (err: Error) => {
+                        rejected = err as TRejectedWorkerError;
+                    },
+                }],
+            ]);
+            settleBrowserWorkerResult(pending, posted.at(-1), () => undefined);
+            return rejected;
+        };
+
+        const notReadable = await dispatchRender(77);
+        expect(notReadable).toBeInstanceOf(Error);
+        expect(notReadable!.code).toBe('NotReadableError');
+        expect(notReadable!.errorEnvelope).toMatchObject({
+            code: 'NotReadableError',
+            details: {name: 'NotReadableError'},
+        });
+        expect(notReadable!.message).not.toContain('NotReadableError');
+
+        thrownError = Object.assign(new Error('Disk quota exhausted'), {code: 'QUOTA_EXCEEDED'});
+        const coded = await dispatchRender(78);
+        expect(coded).toBeInstanceOf(Error);
+        expect(coded!.code).toBe('QUOTA_EXCEEDED');
+        expect(coded!.errorEnvelope).toMatchObject({code: 'QUOTA_EXCEEDED'});
+        vi.doUnmock('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
+    });
+
 });

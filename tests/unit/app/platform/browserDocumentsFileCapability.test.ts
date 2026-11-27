@@ -2723,7 +2723,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
                 const tail = new TextEncoder().encode('%tail');
                 await file.writeAt(base, tail);
                 return base + tail.byteLength;
-            });
+            }, {allowForeignBase: true});
             return revision;
         });
 
@@ -3185,6 +3185,53 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             mode: 'exact',
             expectedDocumentRevisionToken: currentRev.token,
         })).rejects.toThrow('PDF is encrypted');
+    });
+
+    it('rejects applyPdfNativeMutationsToWorkingCopy with original-changed without materializing foreign bytes when the source file changed externally', async () => {
+        let physical = await createPdfBytes();
+        let lastModified = 1_000;
+        const handle = createFileSystemFileHandle({
+            name: 'annotation-flush.pdf',
+            getFile: async () => new File([physical], 'annotation-flush.pdf', {
+                type: 'application/pdf',
+                lastModified,
+            }),
+        });
+        const {
+            capability,
+            browserDocumentStore: store,
+        } = await loadBrowserDocumentsFileCapability();
+        const source = await store.registerFile(new File([physical], 'annotation-flush.pdf', {
+            type: 'application/pdf',
+            lastModified,
+        }), {
+            ...PDF_SOURCE_OPTIONS,
+            saveHandle: handle,
+        });
+        const working = await store.cloneAsWorkingCopy(source);
+        const entry = await store.requireEntry(working);
+        const initialRevision = await store.getDocumentRevision(working);
+        expect(entry.doc?.state().current).toBeNull();
+
+        // External process replaces the handle-backed PDF before an annotation flush (e.g. before Rotate/Crop).
+        physical = await createPdfBytes([400, 400]);
+        lastModified = 2_000;
+
+        const applied = await capability.applyPdfNativeMutationsToWorkingCopy!(
+            working,
+            {},
+            requirePdfDateString('D:20260102000000Z'),
+            {expectedDocumentRevisionToken: initialRevision.token},
+        );
+        expect(applied).toMatchObject({
+            applied: false,
+            validation: null,
+            reason: 'original-changed',
+            externalWriteCommitted: false,
+        });
+        // The working copy must NOT be materialized to foreign revision :1:s.
+        expect(entry.doc?.state().current).toBeNull();
+        expect((await store.getDocumentRevision(working)).token).toBe(initialRevision.token);
     });
 });
 

@@ -13,7 +13,10 @@ import {
     type IScanCleanupSettingsFile,
     type IScanCleanupSettingsReadRequest,
 } from '@contracts/scan-cleanup/scanCleanupSettings';
-import {canUseBrowserScanCleanupWorker} from '@app/platform/browser-api/browserScanCleanupWorkerClient';
+import {
+    canUseBrowserScanCleanupWorker,
+    resetDrainingBrowserScanCleanupWorkers,
+} from '@app/platform/browser-api/browserScanCleanupWorkerClient';
 import {canUseBrowserPdfCombineWorker} from '@app/platform/browser-api/browserPdfCombineWorkerClient';
 import {createBrowserScanCleanupConversionOwner} from '@app/platform/browser-api/createBrowserScanCleanupConversionOwner';
 import {
@@ -328,7 +331,23 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
     cancelDetection: (jobId, owner) => detection.cancelDetection(jobId, owner),
     getDetectionJobState: (jobId, owner) => detection.getDetectionJobState(jobId, owner),
     subscribeDetectionJob: (jobId, owner) => detection.subscribeDetectionJob(jobId, owner),
-    start: request => conversion.start(request),
+    start(request) {
+        // Retire any in-flight preview for this document and terminate its draining
+        // worker so a conversion never stalls behind a retiring preview slot.
+        void admitPreview(() => {
+            const claimed = [
+                base,
+                detail,
+            ].filter(work => work !== null && work.ref === request.sourcePdfPath);
+            if (base?.ref === request.sourcePdfPath) base = null;
+            if (detail?.ref === request.sourcePdfPath) detail = null;
+            return claimed;
+        }).then(async retiring => {
+            await Promise.all(retiring.map(retire));
+            resetDrainingBrowserScanCleanupWorkers();
+        });
+        return conversion.start(request);
+    },
     cancel: (jobId, owner) => conversion.cancel(jobId, owner),
     getJobState: (jobId, owner) => conversion.getJobState(jobId, owner),
     subscribeJob: (jobId, owner) => conversion.getJobState(jobId, owner),

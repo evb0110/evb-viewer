@@ -95,6 +95,7 @@ import {createPagePlanResolver} from '@evb/scan-cleanup/core/createPagePlanResol
 import {runBoundedRasterProducerConsumer} from '@evb/scan-cleanup/core/streamingRasterHandoff';
 import {
     estimateBrowserScanCleanupEngineBytes,
+    resetDrainingBrowserScanCleanupWorkers,
     runBrowserScanCleanupWorkerRequest,
 } from '@app/platform/browser-api/browserScanCleanupWorkerClient';
 import {resolveBrowserPageLanes} from '@app/platform/browser-api/browserWorkerClient';
@@ -246,6 +247,9 @@ export async function runBrowserScanCleanupConversion({
     signal,
     onProgress,
 }: IRunBrowserScanCleanupConversionInput): Promise<IBrowserScanCleanupConversionResult> {
+    // Reclaim any retiring warm-canceled preview worker immediately so a 1-page
+    // conversion sharing its threaded worker key never waits for its drain timer.
+    resetDrainingBrowserScanCleanupWorkers();
     const geometryRecords: IPdfPageSize[] = [];
     return coordinateScanCleanupConversion<
         IBrowserScanCleanupConversionResult,

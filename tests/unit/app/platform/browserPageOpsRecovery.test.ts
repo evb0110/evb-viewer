@@ -1,5 +1,13 @@
-import {readFile} from 'node:fs/promises';
-import {resolve} from 'node:path';
+import {
+    mkdtemp,
+    readFile,
+    rm,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {
+    join,
+    resolve,
+} from 'node:path';
 import {PDFDocument} from 'pdf-lib';
 import {afterEach, expect, it, onTestFinished, vi} from 'vitest';
 import type * as TBrowserDocumentStore from '@app/platform/browserDocumentStore';
@@ -7,10 +15,16 @@ import {
     BROWSER_MAX_FULL_READ_BYTES,
     BrowserDocumentStore,
 } from '@app/platform/browserDocumentStore';
+import {browserPublication} from '@app/platform/browser/browserPublication';
+import {openDocument} from '@document-store/documentDirectory';
+import {createNodeStorePort} from '@document-store/nodeStorePort';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {createBrowserPageOpsCapability} from '@app/platform/browser-api/createBrowserPageOpsCapability';
-import {MemoryStorage} from '@tests/unit/app/platform/browserPlatformTestDoubles';
+import {
+    createFileSystemFileHandle,
+    MemoryStorage,
+} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 
 const state = vi.hoisted(() => ({
     store: null as BrowserDocumentStore | null,
@@ -102,4 +116,61 @@ it('refuses main-thread getPageGeometry fallback on oversized Blobs without call
         .rejects.toMatchObject({code: 'too-large'});
     expect(arrayBufferSpy).not.toHaveBeenCalled();
     expect(state.worker).not.toHaveBeenCalled();
+});
+
+it('rejects rotate on an externally replaced handle-backed PDF without committing foreign revision 1:s', async () => {
+    vi.stubGlobal('window', {localStorage: new MemoryStorage()});
+    vi.stubGlobal('document', {cookie: ''});
+    const root = await mkdtemp(join(process.env.TMPDIR ?? tmpdir(), 'browser-pageops-foreign-'));
+    onTestFinished(() => rm(root, {recursive: true, force: true}));
+    const store = state.store = new BrowserDocumentStore();
+    const docStore = {port: createNodeStorePort(root), publication: browserPublication};
+    vi.spyOn(store, 'stores').mockResolvedValue({durable: docStore, memory: docStore});
+
+    const pdfDocA = await PDFDocument.create();
+    pdfDocA.addPage([200, 300]);
+    const pdfA = new Uint8Array(await pdfDocA.save());
+    const pdfDocB = await PDFDocument.create();
+    pdfDocB.addPage([400, 500]);
+    pdfDocB.addPage([400, 500]);
+    const pdfB = new Uint8Array(await pdfDocB.save());
+
+    const disk = {bytes: pdfA, lastModified: 100};
+    const handle = createFileSystemFileHandle({
+        name: 'handle-rotate.pdf',
+        getFile: async () => new File([disk.bytes], 'handle-rotate.pdf', {type: 'application/pdf', lastModified: disk.lastModified}),
+    });
+    const sourceRef = await store.registerFile(new File([disk.bytes], 'handle-rotate.pdf', {type: 'application/pdf', lastModified: disk.lastModified}), {
+        saveKind: 'pdf',
+        saveHandle: handle,
+    });
+    const workingRef = await store.cloneAsWorkingCopy(sourceRef);
+    onTestFinished(() => store.release(workingRef));
+    const entry = await store.requireEntry(workingRef);
+    const docId = entry.doc!.id;
+    const before = await store.getDocumentRevision(workingRef);
+
+    // Replace the picked file externally before any private bytes exist.
+    disk.bytes = pdfB;
+    disk.lastModified = 200;
+
+    const unused = async () => {throw new Error('Unexpected picker');};
+    const api = createBrowserPageOpsCapability({
+        clearSearchCaches: () => {}, openInputAccept: '.pdf', pickFiles: unused,
+        buildOpenPdfPickerTypes: () => [], createCombinedPdfFromPaths: unused,
+        pickSaveTarget: unused, saveBytesToPickerOrDownload: unused,
+        writeBytesToHandle: unused, repairWorkingCopy: async () => false,
+    });
+
+    await expect(api.rotate(workingRef, [1], 1, 90, {expectedDocumentRevisionToken: before.token}))
+        .rejects.toMatchObject({name: 'BrowserDocumentSourceChangedError'});
+
+    expect(entry.doc!.state().current).toBeNull();
+    expect((await store.getDocumentRevision(workingRef)).token).toBe(before.token);
+
+    // Recovery/reload must not see replacement PDF B materialized as revision 1:s.
+    await entry.doc!.close();
+    const reopened = await openDocument(docStore, docId);
+    expect(reopened.state().current).toBeNull();
+    await reopened.close();
 });

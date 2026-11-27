@@ -737,30 +737,30 @@ export class BrowserDocumentStore {
     // In-place edits -----------------------------------------------------------------------------------------
 
     /**
-     * Lets `append` write past the bytes of revision `token` in the document's own file, without committing
-     * what it writes: readers keep reading that revision. `append` returns the file's new length, or null when
-     * it appended nothing. The returned lease names the appended bytes until `save` or `commitAppend` commits
-     * them or `discardAppend` cuts them; one append is pending per document, and a new one cuts the one before.
-     * A document without own bytes copies its file in first as it is now: Save refuses a changed one, Save As rescues it.
+     * Stages an uncommitted append past `token`; materializes from destination only against baseline unless
+     * `allowForeignBase` is true (Save As rescue).
      */
     public async stageAppend(
         ref: string,
         token: TDocumentRevisionToken | null | undefined,
         append: (file: IStoreFile, base: number) => Promise<number | null>,
+        {allowForeignBase = false}: {allowForeignBase?: boolean} = {},
     ) {
         const entry = await this.requireEntry(ref);
         const doc = this.requireDoc(entry);
         const instance = entry.instance;
-        this.expectedRevision(entry, token, {allowStagedBase: true});
+        const revOpts = {allowStagedBase: allowForeignBase};
+        const checkActive = () => { if (!this.isActiveEntry(entry, doc, instance)) this.throwStale(entry, token); };
+        this.expectedRevision(entry, token, revOpts);
         try {
             return await doc.run(async () => {
-                if (!this.isActiveEntry(entry, doc, instance)) this.throwStale(entry, token);
-                this.expectedRevision(entry, token, {allowStagedBase: true});
-                if (await doc.ensureCurrent(true) === null) throw new BrowserDocumentSourceChangedError(entry.ref);
-                if (!this.isActiveEntry(entry, doc, instance)) this.throwStale(entry, token);
+                checkActive();
+                this.expectedRevision(entry, token, revOpts);
+                if (await doc.ensureCurrent(allowForeignBase) === null) throw new BrowserDocumentSourceChangedError(entry.ref);
+                checkActive();
                 await doc.applyOwnCurrentFile();
-                if (!this.isActiveEntry(entry, doc, instance)) this.throwStale(entry, token);
-                this.expectedRevision(entry, token, {allowStagedBase: true});
+                checkActive();
+                this.expectedRevision(entry, token, revOpts);
                 entry.pendingAppend = undefined;
                 const base = doc.state().current!.length;
                 const file = doc.currentFile();
@@ -769,7 +769,7 @@ export class BrowserDocumentStore {
                     if (await file.size() > base) await file.truncate(base);
                     const length = await append(file, base);
                     if (length === null) return null;
-                    if (!this.isActiveEntry(entry, doc, instance)) this.throwStale(entry, token);
+                    checkActive();
                     lease = crypto.randomUUID();
                     entry.pendingAppend = {lease, token: this.tokenOf(entry), length};
                     return lease;
@@ -778,7 +778,7 @@ export class BrowserDocumentStore {
                 }
             });
         } catch (error) {
-            if (!this.isActiveEntry(entry, doc, instance)) this.throwStale(entry, token);
+            checkActive();
             throw error;
         }
     }

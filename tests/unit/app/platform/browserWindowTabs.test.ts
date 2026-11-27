@@ -993,7 +993,7 @@ describe('browser recovery diagnostics', () => {
             const extra = new TextEncoder().encode(' +edit');
             await file.writeAt(base, extra);
             return base + extra.byteLength;
-        });
+        }, {allowForeignBase: true});
         expect(lease).not.toBeNull();
         expect(rescueEntry.doc?.state().current?.foreign).toBe('staged');
         // Drafts remain rejected while foreign bytes are staged for rescue.
@@ -1137,7 +1137,7 @@ describe('browser recovery diagnostics', () => {
             const extra = new TextEncoder().encode(' +staged');
             await file.writeAt(base, extra);
             return base + extra.byteLength;
-        });
+        }, {allowForeignBase: true});
         expect(lease).not.toBeNull();
         expect(entry.doc?.state().current?.foreign).toBe('staged');
         expect(repo.tokenOf(entry)).toBe(`drt1:browser:${docId}:1:s`);
@@ -1236,7 +1236,7 @@ describe('browser recovery diagnostics', () => {
             const extra = new TextEncoder().encode(' +rescued');
             await file.writeAt(base, extra);
             return base + extra.byteLength;
-        });
+        }, {allowForeignBase: true});
         expect(rescueLease).not.toBeNull();
         expect(await repo.save(workingRef, originalToken, {commit: rescueLease!})).toEqual({status: 'conflict'});
         const rev2Token = repo.tokenOf(reopenedEntry);

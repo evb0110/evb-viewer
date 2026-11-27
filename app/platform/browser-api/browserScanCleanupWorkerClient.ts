@@ -129,6 +129,11 @@ function getOwner() {
     return owner;
 }
 
+/** Immediately terminates any warm-canceled preview/detection workers still draining. */
+export function resetDrainingBrowserScanCleanupWorkers() {
+    owner?.resetDrainingWorkers();
+}
+
 /** The buffers and bitmaps a request owns; the worker takes them over. */
 function transferablesOf(value: unknown, found = new Set<Transferable>()): Set<Transferable> {
     if (value instanceof Uint8Array) {
@@ -218,7 +223,10 @@ function runOnWorker<K extends TBrowserScanCleanupWorkerRequestType>(
     }), {
         ...(ENGINELESS_REQUESTS.has(type) ? {} : scanCleanupEngineAdmission(concurrency)),
         // Keep the warm preview/detection worker pool alive across superseding cancels;
-        // only heavy final page renders tear down the worker on cancel.
+        // only heavy final page renders tear down the worker on cancel and immediately
+        // preempt any retiring preview worker on the same threaded key.
         keepWarmOnCancel: type !== 'render-page',
+        terminateDrainingSameKey: type === 'render-page',
+        terminateDrainingWhenFull: type === 'render-page' || type === 'assemble-raster',
     }).finally(() => signal.removeEventListener('abort', abort));
 }

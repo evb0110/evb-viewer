@@ -2075,4 +2075,255 @@ describe('scan cleanup run coordinator', () => {
         expect(unsubscribe).toHaveBeenCalledOnce();
         firstCleanup();
     });
+
+    it('cancels the workspace open transaction and closes the tab when the 30s handoff deadline expires before presentation', async () => {
+        vi.useFakeTimers();
+        vi.stubGlobal('useToast', () => ({add: vi.fn(), remove: vi.fn()}));
+        vi.stubGlobal('useTypedI18n', () => ({t: translate}));
+        const {ref} = await import('vue');
+        const {useWorkspaceDocumentSessions} = await import('@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions');
+        const {useAppShellWorkspaceRouting} = await import('@app/modules/workspace-shell/composables/useAppShellWorkspaceRouting');
+        const {createWorkspaceExposeFixture} = await import('@tests/unit/app/modules/workspace-shell/workspaceTestFixtures');
+        const {requireDocumentRef} = await import('@contracts/documentRef');
+
+        const tabs = ref<Array<{id: string}>>([]);
+        const activeTabId = ref<string | null>(null);
+        const activePaneId = ref<string | null>('pane-1');
+        const documentSessions = useWorkspaceDocumentSessions({activeTabId, tabs});
+        let nextTab = 1;
+        const removedTabs: string[] = [];
+        const presentationGate = Promise.withResolvers<{status: 'presented'}>();
+        const closeGate = Promise.withResolvers<boolean>();
+        const closeFileSpy = vi.fn(async () => closeGate.promise);
+
+        const routing = useAppShellWorkspaceRouting({
+            activePaneId,
+            activeTabId,
+            documentSessions,
+            tabLifecycleById: ref({}),
+            createTab: ({activate}) => {
+                const id = `tab-${String(nextTab++)}`;
+                tabs.value = [...tabs.value, {id}];
+                if (activate) activeTabId.value = id;
+                const session = documentSessions.getSession(id)!;
+                session.attachWorkspace(id, createWorkspaceExposeFixture({
+                    handleOpenFileWithResult: async (target) => {
+                        const op = session.runOpen({
+                            kind: 'open',
+                            target: {
+                                fileName: 'cleaned.pdf',
+                                originalPath: target.kind === 'pdf' ? target.originalPath : null,
+                            },
+                        }, async (_shape, txId) => {
+                            if (target.kind === 'pdf') {
+                                session.commitFile({
+                                    originalPath: target.originalPath,
+                                    workingCopyPath: target.workingPath,
+                                    isDjvu: false,
+                                }, txId);
+                            }
+                            return {presentation: presentationGate.promise};
+                        });
+                        const finished = await op.finished;
+                        return finished.status === 'presented';
+                    },
+                    handleCloseFileFromUi: async (closeOpts) => {
+                        await closeOpts?.onCloseCommit?.();
+                        return closeFileSpy();
+                    },
+                }));
+                return {
+                    id,
+                    fileName: null,
+                    originalPath: null,
+                    isDirty: false,
+                    isDjvu: false,
+                };
+            },
+            getTabById: () => null,
+            removeTabFromState: (tabId) => {
+                removedTabs.push(tabId);
+                tabs.value = tabs.value.filter(t => t.id !== tabId);
+            },
+            resolveTabForAction: () => null,
+            handleCloseTab: async () => undefined,
+            moveTabToNewWindow: async () => undefined,
+            moveTabToWindow: async () => undefined,
+            mergeWindowInto: async () => undefined,
+        });
+
+        let listener: (state: TScanCleanupJobState) => void = () => undefined;
+        const toastAdd = vi.fn();
+        const acknowledgeCompletedOutputs = vi.fn(async () => undefined);
+        capability.value = {
+            ...stubCapability(next => { listener = next; }, () => 'handoff-timeout-job'),
+            acknowledgeCompletedOutputs,
+        };
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const outputPath = requireDocumentRef('/managed/slow-cleaned.pdf');
+        const workingPath = requireDocumentRef('/tmp/slow-cleaned-working.pdf');
+        const cleanup = coordinator.installScanCleanupRunCoordinator(coordinatorDeps({
+            toast: {add: toastAdd},
+            openGeneratedPdf: async (_path, signal) => routing.handleOpenInNewTab({
+                kind: 'pdf',
+                originalPath: outputPath,
+                workingPath,
+                isGenerated: true,
+            }, undefined, {activate: true, signal}),
+        }));
+
+        try {
+            await coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/slow.pdf',
+                options: createScanCleanupOptions(),
+            });
+            listener(completedState('handoff-timeout-job', outputPath));
+
+            await vi.advanceTimersByTimeAsync(30_000);
+            await Promise.resolve();
+            await Promise.resolve();
+
+            // Even while close is still pending, the aborted tab must already be removed so it cannot paint.
+            expect(tabs.value).toHaveLength(0);
+            expect(removedTabs).toEqual(['tab-1']);
+
+            // Late presentation arriving after the 30s timeout must NOT reopen or leave a tab behind.
+            presentationGate.resolve({status: 'presented'});
+            closeGate.resolve(true);
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(tabs.value).toHaveLength(0);
+            expect(removedTabs).toEqual(['tab-1']);
+            expect(acknowledgeCompletedOutputs).not.toHaveBeenCalled();
+            expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
+                color: 'error',
+                title: 'scanCleanup.openResultFailed',
+            }));
+        } finally {
+            presentationGate.resolve({status: 'presented'});
+            closeGate.resolve(true);
+            cleanup();
+            vi.unstubAllGlobals();
+            vi.useRealTimers();
+        }
+    });
+
+    it('treats a handoff whose presentation already committed when the 30s deadline fires as success', async () => {
+        vi.useFakeTimers();
+        vi.stubGlobal('useToast', () => ({add: vi.fn(), remove: vi.fn()}));
+        vi.stubGlobal('useTypedI18n', () => ({t: translate}));
+        const {ref} = await import('vue');
+        const {useWorkspaceDocumentSessions} = await import('@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions');
+        const {useAppShellWorkspaceRouting} = await import('@app/modules/workspace-shell/composables/useAppShellWorkspaceRouting');
+        const {createWorkspaceExposeFixture} = await import('@tests/unit/app/modules/workspace-shell/workspaceTestFixtures');
+        const {requireDocumentRef} = await import('@contracts/documentRef');
+
+        const tabs = ref<Array<{id: string}>>([]);
+        const activeTabId = ref<string | null>(null);
+        const activePaneId = ref<string | null>('pane-1');
+        const documentSessions = useWorkspaceDocumentSessions({activeTabId, tabs});
+        let nextTab = 1;
+        let finishOuterOpen!: () => void;
+
+        const routing = useAppShellWorkspaceRouting({
+            activePaneId,
+            activeTabId,
+            documentSessions,
+            tabLifecycleById: ref({}),
+            createTab: ({activate}) => {
+                const id = `tab-${String(nextTab++)}`;
+                tabs.value = [...tabs.value, {id}];
+                if (activate) activeTabId.value = id;
+                const session = documentSessions.getSession(id)!;
+                session.attachWorkspace(id, createWorkspaceExposeFixture({
+                    handleOpenFileWithResult: async (target) => {
+                        const op = session.runOpen({
+                            kind: 'open',
+                            target: {
+                                fileName: 'committed.pdf',
+                                originalPath: target.kind === 'pdf' ? target.originalPath : null,
+                            },
+                        }, async (_shape, txId) => {
+                            if (target.kind === 'pdf') {
+                                session.commitFile({
+                                    originalPath: target.originalPath,
+                                    workingCopyPath: target.workingPath,
+                                    isDjvu: false,
+                                }, txId);
+                            }
+                            return {presentation: Promise.resolve({status: 'presented' as const})};
+                        });
+                        await op.finished;
+                        // Simulate presentation already committed in the controller while the outer promise
+                        // has not unwound before the 30s timer fires.
+                        await new Promise<void>(resolve => { finishOuterOpen = resolve; });
+                        return true;
+                    },
+                }));
+                return {
+                    id,
+                    fileName: null,
+                    originalPath: null,
+                    isDirty: false,
+                    isDjvu: false,
+                };
+            },
+            getTabById: () => null,
+            removeTabFromState: (tabId) => {
+                tabs.value = tabs.value.filter(t => t.id !== tabId);
+            },
+            resolveTabForAction: () => null,
+            handleCloseTab: async () => undefined,
+            moveTabToNewWindow: async () => undefined,
+            moveTabToWindow: async () => undefined,
+            mergeWindowInto: async () => undefined,
+        });
+
+        let listener: (state: TScanCleanupJobState) => void = () => undefined;
+        const toastAdd = vi.fn();
+        const acknowledgeCompletedOutputs = vi.fn(async () => undefined);
+        capability.value = {
+            ...stubCapability(next => { listener = next; }, () => 'handoff-committed-job'),
+            acknowledgeCompletedOutputs,
+        };
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const outputPath = requireDocumentRef('/managed/already-committed.pdf');
+        const workingPath = requireDocumentRef('/tmp/already-committed-working.pdf');
+        const cleanup = coordinator.installScanCleanupRunCoordinator(coordinatorDeps({
+            toast: {add: toastAdd},
+            openGeneratedPdf: async (_path, signal) => routing.handleOpenInNewTab({
+                kind: 'pdf',
+                originalPath: outputPath,
+                workingPath,
+                isGenerated: true,
+            }, undefined, {activate: true, signal}),
+        }));
+
+        try {
+            await coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/already-committed.pdf',
+                options: createScanCleanupOptions(),
+            });
+            listener(completedState('handoff-committed-job', outputPath));
+
+            // Advance to the 30s deadline after presentation already committed in session.snapshot.
+            await vi.advanceTimersByTimeAsync(30_000);
+            finishOuterOpen?.();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(tabs.value).toHaveLength(1);
+            expect(acknowledgeCompletedOutputs).toHaveBeenCalledWith([outputPath]);
+            expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
+                color: 'success',
+                title: 'scanCleanup.completedTitle',
+            }));
+        } finally {
+            finishOuterOpen?.();
+            cleanup();
+            vi.unstubAllGlobals();
+            vi.useRealTimers();
+        }
+    });
 });

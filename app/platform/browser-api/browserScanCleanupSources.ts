@@ -9,6 +9,10 @@ import {
     type IScanCleanupRasterRow,
 } from '@evb/scan-cleanup/core/sourceRasterFacts';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
+import {
+    BROWSER_DOCUMENT_FULL_READ_TOO_LARGE,
+    BrowserDocumentReadError,
+} from '@app/platform/browser/browserDocumentReadError';
 import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdfjsDocument';
 import {
     evictBrowserPageOpsDocumentCache,
@@ -48,15 +52,40 @@ const INSPECTED_PAGE_FACTS_SCHEMA = v.object({
     hasAnnotations: v.boolean(),
 });
 
+export async function readBoundedRevisionBlobBytes(
+    blob: Blob,
+    maxBytes: number,
+    ref: string,
+): Promise<Uint8Array> {
+    if (blob.size > maxBytes) {
+        throw new BrowserDocumentReadError(
+            BROWSER_DOCUMENT_FULL_READ_TOO_LARGE,
+            `Browser document is too large to load fully into memory (${ref}: `
+            + `${Math.floor(blob.size / (1024 * 1024))}MB > ${Math.round(maxBytes / (1024 * 1024))}MB limit)`,
+            {maxBytes},
+        );
+    }
+    return new Uint8Array(await blob.arrayBuffer());
+}
+
 /**
  * Opens one revision of a source: its page records, read once by the same
  * Rust reader desktop's page-size sidecar runs, and its PDF.js document.
  */
 async function openSource(ref: string, revision: string, signal: AbortSignal): Promise<IBrowserScanCleanupSource> {
     const token = requireDocumentRevisionToken(revision);
-    await browserDocumentStore.assertDocumentRevisionCurrent(ref, token);
-    const source = await browserDocumentStore.readableBlob(ref);
-    const data = await browserDocumentStore.read(ref, {maxBytes: BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - REQUEST_HEADER.bytes});
+    const {
+        blob: source,
+        instance,
+        byteRevision,
+    } = await browserDocumentStore.readableRevision(ref, {token});
+    const assertCurrent = () => browserDocumentStore.assertDocumentRevisionCurrent(ref, token, {
+        strict: true,
+        expectedInstance: instance,
+        ...(byteRevision === undefined ? {} : {expectedByteRevision: byteRevision}),
+    });
+    const data = await readBoundedRevisionBlobBytes(source, BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - REQUEST_HEADER.bytes, ref);
+    await assertCurrent();
     let pageOpsEngineSha256: string | null = null;
     const inspected = await runBrowserPageOpsWorkerRequest('inspectScanCleanupPdf', {
         data,
@@ -104,7 +133,7 @@ async function openSource(ref: string, revision: string, signal: AbortSignal): P
     const pdf = await loadBrowserPdfjsDocument(ref);
     try {
         signal.throwIfAborted();
-        await browserDocumentStore.assertDocumentRevisionCurrent(ref, token);
+        await assertCurrent();
     } catch (error) {
         await pdf.loadingTask.destroy();
         throw error;
@@ -119,12 +148,19 @@ async function openSource(ref: string, revision: string, signal: AbortSignal): P
         pageOpsEngineSha256,
         rasterFacts: reduceScanCleanupRasterRows(rasterRows),
         annotatedPages,
+        assertCurrent,
         get source() {
             return currentSource;
         },
         async refreshSource() {
-            await browserDocumentStore.assertDocumentRevisionCurrent(ref, token);
-            currentSource = await browserDocumentStore.readableBlob(ref);
+            const refreshed = await browserDocumentStore.readableRevision(ref, {token});
+            if (
+                refreshed.instance !== instance
+                || (byteRevision !== undefined && refreshed.byteRevision !== byteRevision)
+            ) {
+                await assertCurrent();
+            }
+            currentSource = refreshed.blob;
             return currentSource;
         },
         pdf,

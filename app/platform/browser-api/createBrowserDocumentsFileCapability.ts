@@ -335,19 +335,34 @@ export function createBrowserDocumentsFileCapability(
                 : undefined;
             let appended: Exclude<Awaited<ReturnType<typeof appendPdfMutationsToStoreFile>>, IBrowserPageOpsWasmFailure> | undefined;
             let failure: IBrowserPageOpsWasmFailure | undefined;
-            const lease = await browserDocumentStore.stageAppend(path, options.expectedDocumentRevisionToken, async (file, base) => {
-                const result = await appendPdfMutationsToStoreFile(file, base, {
-                    mutations,
-                    modifiedAt,
-                    ...(appearanceSource ? {appearanceSource} : {}),
+            let lease: string | null;
+            try {
+                lease = await browserDocumentStore.stageAppend(path, options.expectedDocumentRevisionToken, async (file, base) => {
+                    const result = await appendPdfMutationsToStoreFile(file, base, {
+                        mutations,
+                        modifiedAt,
+                        ...(appearanceSource ? {appearanceSource} : {}),
+                    });
+                    if (isBrowserPageOpsWasmFailure(result)) {
+                        failure = result;
+                        return null;
+                    }
+                    appended = result;
+                    return result.length;
                 });
-                if (isBrowserPageOpsWasmFailure(result)) {
-                    failure = result;
-                    return null;
-                }
-                appended = result;
-                return result.length;
-            });
+            } catch (error) {
+                if (!(error instanceof BrowserDocumentSourceChangedError)) throw error;
+                return {
+                    applied: false,
+                    validation: null,
+                    reason: 'original-changed',
+                    externalWriteCommitted: false,
+                    error: {
+                        code: 'io',
+                        message: error.message,
+                    },
+                } satisfies IPdfNativeSaveResult;
+            }
             if (lease === null || !appended) {
                 return {
                     applied: false,

@@ -327,12 +327,30 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
         } satisfies TBrowserPageOpsWorkerResponse;
         await postResponse(response);
     } catch (error) {
-        const response = {
+        const errorName = typeof error === 'object' && error !== null && typeof Reflect.get(error, 'name') === 'string'
+            ? Reflect.get(error, 'name') as string
+            : undefined;
+        const errorCode = typeof error === 'object' && error !== null && typeof Reflect.get(error, 'code') === 'string'
+            ? Reflect.get(error, 'code') as string
+            : undefined;
+        const envelopeCode = errorCode && errorCode.length > 0
+            ? errorCode
+            : errorName && errorName !== 'Error' && errorName.length > 0
+                ? errorName
+                : undefined;
+        const message = getErrorMessage(error);
+        await postResponse({
             id: request.id,
             ok: false,
-            error: getErrorMessage(error),
-        } satisfies TBrowserPageOpsWorkerResponse;
-        await postResponse(response);
+            error: message,
+            ...(envelopeCode
+                ? {errorEnvelope: {
+                    code: envelopeCode,
+                    message,
+                    ...(errorName && errorName !== 'Error' ? {details: {name: errorName}} : {}),
+                }}
+                : {}),
+        });
     } finally {
         if (request.type === 'decrypt') {
             request.payload.password = '';

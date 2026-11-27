@@ -15,7 +15,10 @@ import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TWindowTabsAction } from '@contracts/windowTabs';
 import type { ITabLifecycleState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { TWorkspaceDocumentSessions } from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
-import { snapshotOccupiesTab } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {
+    snapshotOccupiesTab,
+    type IWorkspaceDocumentSnapshot,
+} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import {
     describeDocumentTarget,
     describeOpenResult,
@@ -67,6 +70,25 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
 
     function readFailure(tabId: string) {
         return documentSessions.getSession(tabId)?.snapshot.value.failure ?? null;
+    }
+
+    function isTargetMatchingSession(
+        target: TWorkspaceOpenDocumentTarget,
+        snapshot: IWorkspaceDocumentSnapshot,
+    ) {
+        const {identity} = snapshot;
+        if (typeof target === 'string') {
+            return identity.originalPath === target || identity.documentRef === target;
+        }
+        if (target.kind === 'pdf') {
+            return identity.workingCopyPath === target.workingPath
+                || identity.originalPath === target.originalPath
+                || identity.documentRef === target.originalPath;
+        }
+        if (target.kind === 'djvu') {
+            return identity.originalPath === target.originalPath;
+        }
+        return false;
     }
 
     async function openInTab(tabId: string, target: TWorkspaceOpenDocumentTarget, signal?: AbortSignal) {
@@ -131,9 +153,68 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             if (claim && claimed) session.markFailed(null);
             return false;
         }
-        return typeof target === 'string'
+        const preOpenInstanceId = session.snapshot.value.identity.documentInstanceId;
+        const openPromise = typeof target === 'string'
             ? workspace.handleOpenFileDirectWithPersist(target, pageShape)
             : workspace.handleOpenFileWithResult(target);
+        if (!signal) {
+            return openPromise;
+        }
+        // Keep the abort signal bound to the workspace's open transaction so
+        // timeout and presentation settle the same claim: canceling before
+        // presentation aborts the transaction, while an already-committed
+        // presentation settles as success.
+        const openTransactionId = session.snapshot.value.activeTransaction?.id ?? null;
+        let settled = false;
+        let onAbort: (() => void) | null = null;
+        try {
+            return await new Promise<boolean>((resolve, reject) => {
+                const finish = (opened: boolean) => {
+                    if (settled) return;
+                    settled = true;
+                    resolve(opened);
+                };
+                const fail = (error: unknown) => {
+                    if (settled) return;
+                    settled = true;
+                    reject(error);
+                };
+                const handleAbort = () => {
+                    if (settled) return;
+                    const currentSession = documentSessions.getSession(tabId);
+                    const snap = currentSession?.snapshot.value;
+                    const presentedThisOpen = currentSession === session
+                        && snap !== undefined
+                        && snap.phase === 'presented'
+                        && snap.activeTransaction === null
+                        && snap.failure === null
+                        && snap.identity.documentInstanceId !== null
+                        && snap.identity.documentInstanceId !== preOpenInstanceId;
+                    if (presentedThisOpen) {
+                        finish(true);
+                        return;
+                    }
+                    if (
+                        currentSession === session
+                        && snap?.activeTransaction !== null
+                        && (openTransactionId === null || snap?.activeTransaction.id === openTransactionId)
+                    ) {
+                        session.markFailed(null);
+                    }
+                    finish(false);
+                };
+                onAbort = handleAbort;
+                signal.addEventListener('abort', handleAbort, {once: true});
+                openPromise.then(finish, fail);
+                if (signal.aborted) {
+                    handleAbort();
+                }
+            });
+        } finally {
+            if (onAbort) {
+                signal.removeEventListener('abort', onAbort);
+            }
+        }
     }
 
     async function handleFallbackToolbarOpenFile() {
@@ -181,7 +262,30 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
                 tabId: tab.id,
             }, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
         }
-        // Another open or document may have taken the tab meanwhile; it keeps it.
+        // If an aborted open already committed file state before presentation
+        // settled, close that unpresented document so the tab does not stay open
+        // after timeout reports failure. Another open or document keeps its tab.
+        if (!opened && placement.signal?.aborted) {
+            const abortedSession = documentSessions.getSession(tab.id);
+            if (
+                abortedSession
+                && abortedSession.snapshot.value.activeTransaction === null
+                && !canReuseTab(tab.id)
+                && isTargetMatchingSession(target, abortedSession.snapshot.value)
+            ) {
+                logPdfRenderTrace('pdf-open-replacement-rollback', {
+                    failedTabId: tab.id,
+                    restoredTabId: outgoingTabId,
+                });
+                // Start closing while the workspace view is still attached, then unmount
+                // the tab immediately so a slow close cannot leave the aborted document
+                // open or painting in the UI.
+                const closePromise = abortedSession.close({}).catch(() => undefined);
+                options.removeTabFromState(tab.id);
+                await closePromise;
+                return false;
+            }
+        }
         if (!opened && canReuseTab(tab.id)) {
             logPdfRenderTrace('pdf-open-replacement-rollback', {
                 failedTabId: tab.id,
