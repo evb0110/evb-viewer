@@ -1,4 +1,3 @@
-import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     ComputedRef,
     InjectionKey,
@@ -14,6 +13,18 @@ interface IPdfSkeletonContext {
 
 const pdfSkeletonContextKey: InjectionKey<IPdfSkeletonContext> = Symbol('PdfSkeletonContext');
 
+function buildFallbackInsets(width: number, height: number): IContentInsets {
+    const horizontal = clamp(width * 0.08, 24, width / 3);
+    const vertical = clamp(height * 0.1, 32, height / 3);
+
+    return {
+        top: vertical,
+        right: horizontal,
+        bottom: vertical,
+        left: horizontal,
+    };
+}
+
 export const usePdfSkeletonContext = () => {
     const context = inject(pdfSkeletonContextKey);
     if (!context) {
@@ -27,40 +38,20 @@ export const usePdfSkeletonInsets = (
     basePageHeight: MaybeRefOrGetter<number | null>,
     effectiveScale: MaybeRefOrGetter<number>,
 ) => {
-    const skeletonContentInsets = ref<IContentInsets | null>(null);
-    const skeletonContentInsetMetrics = ref<{
-        width: number;
-        height: number;
-    } | null>(null);
-
-    function areSkeletonInsetMetricsCurrent(width: number, height: number) {
-        const metrics = skeletonContentInsetMetrics.value;
-        return Boolean(
-            metrics
-            && Math.abs(metrics.width - width) < 0.001
-            && Math.abs(metrics.height - height) < 0.001,
-        );
-    }
-
-    function setSkeletonContentInsets(width: number, height: number) {
-        skeletonContentInsetMetrics.value = {
-            width,
-            height,
-        };
-        skeletonContentInsets.value = buildFallbackInsets(width, height);
-    }
-
-    const scaledSkeletonPadding = computed<IContentInsets | null>(() => {
+    const skeletonContentInsets = computed<IContentInsets | null>(() => {
         const width = toValue(basePageWidth);
         const height = toValue(basePageHeight);
         if (!width || !height) {
             return null;
         }
+        return buildFallbackInsets(width, height);
+    });
 
-        if (!skeletonContentInsets.value || !areSkeletonInsetMetricsCurrent(width, height)) {
-            setSkeletonContentInsets(width, height);
+    const scaledSkeletonPadding = computed<IContentInsets | null>(() => {
+        const insets = skeletonContentInsets.value;
+        if (!insets) {
+            return null;
         }
-        const insets = skeletonContentInsets.value ?? buildFallbackInsets(width, height);
         const scale = toValue(effectiveScale);
 
         return {
@@ -84,50 +75,13 @@ export const usePdfSkeletonInsets = (
         scaledPageHeight,
     });
 
-    function buildFallbackInsets(width: number, height: number): IContentInsets {
-        const horizontal = clamp(width * 0.08, 24, width / 3);
-        const vertical = clamp(height * 0.1, 32, height / 3);
-
-        return {
-            top: vertical,
-            right: horizontal,
-            bottom: vertical,
-            left: horizontal,
-        };
-    }
-
-    function computeSkeletonInsets(
-        pdfPage: IPdfPage,
-        renderVersion: number,
-        getCurrentVersion: () => number,
-    ) {
-        void pdfPage;
-        const width = toValue(basePageWidth);
-        const height = toValue(basePageHeight);
-        if (!width || !height) {
-            skeletonContentInsets.value = null;
-            skeletonContentInsetMetrics.value = null;
-            return Promise.resolve();
-        }
-
-        if (getCurrentVersion() !== renderVersion) {
-            return Promise.resolve();
-        }
-
-        setSkeletonContentInsets(width, height);
-        return Promise.resolve();
-    }
-
-    function resetInsets() {
-        skeletonContentInsets.value = null;
-        skeletonContentInsetMetrics.value = null;
-    }
+    // Insets derive purely from admitted page dimensions; kept as a no-op for viewport reset callers.
+    function resetInsets() {}
 
     return {
         skeletonContentInsets,
         scaledSkeletonPadding,
         scaledPageHeight,
-        computeSkeletonInsets,
         resetInsets,
     };
 };

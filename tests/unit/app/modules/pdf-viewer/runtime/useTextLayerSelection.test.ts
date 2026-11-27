@@ -8,7 +8,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import { useTextLayerSelection } from '@app/modules/pdf-viewer/runtime/composables/useTextLayerSelection';
+import {
+    setupTextLayer,
+    teardownTextLayer,
+} from '@app/modules/pdf-viewer/runtime/composables/useTextLayerSelection';
 
 interface ITextLayerHarness {
     cleanup: () => void;
@@ -28,7 +31,6 @@ function createTextLayer(content: string): ITextLayerHarness {
     layer.append(span);
     document.body.append(layer);
 
-    const {setupTextLayer, teardownTextLayer} = useTextLayerSelection();
     setupTextLayer(layer);
     const cleanup = () => teardownTextLayer(layer);
     cleanups.push(cleanup);

@@ -26,8 +26,14 @@ import type { IOcrWord } from '@contracts/shared';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import { buildOcrWordKey } from '@contracts/ocrText';
 import { usePdfSearchHighlight } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearchHighlight';
-import { useTextLayerSelection } from '@app/modules/pdf-viewer/runtime/composables/useTextLayerSelection';
-import { usePdfWordBoxes } from '@app/modules/pdf-viewer/runtime/composables/usePdfWordBoxes';
+import {
+    setupTextLayer,
+    teardownTextLayer,
+} from '@app/modules/pdf-viewer/runtime/composables/useTextLayerSelection';
+import {
+    isOcrDebugEnabled,
+    usePdfWordBoxes,
+} from '@app/modules/pdf-viewer/runtime/composables/usePdfWordBoxes';
 import { useOcrTextContent } from '@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent';
 import {
     pdfViewportScrollActivity,
@@ -92,7 +98,6 @@ export const usePdfTextLayerRenderer = (deps: {
     const scrollActivity = deps.scrollActivity ?? pdfViewportScrollActivity;
     const activeDeferredStructTreeControllers = new Set<AbortController>();
     const deferredTextLayerWakers = new Map<number, Set<() => void>>();
-    const { setupTextLayer, teardownTextLayer } = useTextLayerSelection();
     const {
         clearHighlights,
         highlightPage,
@@ -100,7 +105,6 @@ export const usePdfTextLayerRenderer = (deps: {
     const {
         renderPageWordBoxes,
         clearWordBoxes,
-        isOcrDebugEnabled,
         clearOcrDebugBoxes,
         renderOcrDebugBoxes,
     } = usePdfWordBoxes();

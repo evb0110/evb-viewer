@@ -221,7 +221,7 @@
             @cancel="cancelUnencryptedSaveNotice"
         />
         <AppUpdatesDialog
-            :open="updatesDialog.open"
+            :open="updatesDialogOpen"
             :phase="updatesDialog.phase"
             :title="updatesDialogBindings.updatesDialogTitle"
             :description="updatesDialogBindings.updatesDialogDescription"
@@ -278,7 +278,8 @@ import { useTabsShellBindings } from '@app/modules/workspace-shell/composables/u
 import { useAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/composables/useAgentWorkspaceSnapshot';
 import { useAssistantPanelResize } from '@app/modules/workspace-shell/composables/useAssistantPanelResize';
 import { useAssistantChatScope } from '@app/modules/workspace-shell/composables/useAssistantChatScope';
-import { useAppUpdates } from '@app/composables/useAppUpdates';
+import { provideAppUpdates } from '@app/composables/useAppUpdates';
+import { provideAssistantPanel } from '@app/composables/useAssistantPanel';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import { useEditorPanesManager } from '@app/modules/workspace-shell/composables/useEditorPanesManager';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
@@ -458,13 +459,15 @@ const {
     closeDialog: closeUpdatesDialog,
     deferUpdate,
     dialog: updatesDialog,
+    dialogOpen: updatesDialogOpen,
     dialogVersion: updatesDialogVersion,
+    dispose: disposeAppUpdates,
     downloadUpdate,
     ensureInitialized: ensureUpdatesInitialized,
     installUpdateNow,
     skipUpdateVersion,
     status: updatesStatus,
-} = useAppUpdates();
+} = provideAppUpdates();
 const documentSessions = useWorkspaceDocumentSessions({
     activeTabId,
     tabs,
@@ -535,7 +538,7 @@ const {
     isScopedCommandRunning: tabId => isScopedCommandRunning(tabId),
 });
 const assistantPanelEnabled = computed(() => isDesktopRuntime.value && appSettings.value.assistantPanelEnabled);
-const assistantPanel = useAssistantPanel({
+const assistantPanel = provideAssistantPanel({
     isEnabled: computed(() => assistantPanelEnabled.value && !isFullscreen.value),
     hasActiveDocument: assistantHasActiveDocument,
 });
@@ -670,6 +673,7 @@ onMounted(() => {
 
 onUnmounted(() => {
     shellRootLifecycle.dispose();
+    disposeAppUpdates();
     unsubscribeZenModeChange?.();
     unsubscribeZenModeChange = null;
     cleanupAppShellE2EHooks?.();

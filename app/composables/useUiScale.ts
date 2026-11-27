@@ -54,7 +54,7 @@ function resolveEffectiveUiScale(
     return PRESET_SCALE_FACTORS[preference];
 }
 
-function applyUiScaleToDocument(scale: number, snapshot: IHostEnvironmentSnapshot) {
+export function applyUiScaleToDocument(scale: number, snapshot: IHostEnvironmentSnapshot) {
     if (typeof document === 'undefined') {
         return;
     }

@@ -43,7 +43,10 @@ vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
     warn: mocks.warn,
 }}));
 
-const { useUiScale } = await import('@app/composables/useUiScale');
+const {
+    applyUiScaleToDocument,
+    useUiScale,
+} = await import('@app/composables/useUiScale');
 
 const cookieStore: TRefStore = new Map();
 const stateStore: TRefStore = new Map();
@@ -170,9 +173,7 @@ describe('useUiScale', () => {
     });
 
     it('publishes the scale and platform the document styles read', () => {
-        const uiScale = useUiScale();
-
-        uiScale.applyUiScaleToDocument(0.9, windowsSnapshot(1.5));
+        applyUiScaleToDocument(0.9, windowsSnapshot(1.5));
 
         expect(document.documentElement.style.getPropertyValue('--app-ui-scale')).toBe('0.9');
         expect(document.documentElement.dataset.platform).toBe('win32');

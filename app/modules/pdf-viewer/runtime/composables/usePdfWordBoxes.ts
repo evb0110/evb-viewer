@@ -217,7 +217,6 @@ export const usePdfWordBoxes = () => {
         createWordBoxOverlays,
         clearWordBoxes,
         renderPageWordBoxes,
-        isOcrDebugEnabled,
         clearOcrDebugBoxes,
         renderOcrDebugBoxes,
     };

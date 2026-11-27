@@ -129,7 +129,7 @@ describe('useFailureToast', () => {
             'Renderer failure',
             'The document could not be opened.',
         ].join('\n'));
-        expect(useFailureToast().copyFailurePresentation).toBe(copyFailurePresentation);
+        expect('copyFailurePresentation' in useFailureToast()).toBe(false);
     });
 
     it('keeps technical details in Copy details instead of the short toast text', async () => {
@@ -275,5 +275,45 @@ describe('useFailureToast', () => {
         await nextTick();
 
         expect(toastAdd).toHaveBeenCalledOnce();
+    });
+
+    it('rejects malformed failure presentations and filters blank detail lines', async () => {
+        const {
+            getNonEmptyDetails,
+            isFailurePresentation,
+        } = await loadFailureToast();
+        const failure = createFailure();
+
+        expect(isFailurePresentation({
+            failure,
+            title: 'Valid failure',
+            description: 'Reason',
+        })).toBe(true);
+        expect(isFailurePresentation({
+            failure,
+            title: 'Valid failure without description',
+        })).toBe(true);
+        expect(isFailurePresentation({ failure: 123 })).toBe(false);
+        expect(isFailurePresentation({
+            failure,
+            title: 42,
+        })).toBe(false);
+        expect(isFailurePresentation({
+            failure,
+            title: 'Bad description',
+            description: 99,
+        })).toBe(false);
+        expect(isFailurePresentation({
+            failure: { eventId: '' },
+            title: 'Incomplete receipt',
+        })).toBe(false);
+
+        expect(getNonEmptyDetails([
+            undefined,
+            '   ',
+            'First line',
+            '',
+            'Second line',
+        ])).toBe('First line\nSecond line');
     });
 });

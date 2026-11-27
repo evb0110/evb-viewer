@@ -26,7 +26,7 @@ interface IUsePdfRenderViewModelOptions {
     getPage: (pageNumber: number) => Promise<IPdfPage>;
     openSurface: Pick<IDocumentOpenSurfaceSession, 'snapshot'>;
     isVisualReloadTransitionActive: Ref<boolean>;
-    skeletonContentInsets: Ref<IContentInsets | null>;
+    skeletonContentInsets: Readonly<Ref<IContentInsets | null>>;
     isPageBuffered: (page: number) => boolean;
     isPageRenderedForClass: (page: number) => boolean;
     isPageRenderFailed: (page: number) => boolean;

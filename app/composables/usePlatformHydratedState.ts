@@ -36,16 +36,42 @@ interface IPlatformHydratedLoadRecord {
     consecutiveFailures: number;
 }
 
-const loadRecords = new Map<string, IPlatformHydratedLoadRecord>();
+const loadRecordsByApp = new WeakMap<object, Map<string, IPlatformHydratedLoadRecord>>();
+const fallbackHydrationAppKey = {};
 
-function getLoadRecord(key: string) {
-    let record = loadRecords.get(key);
+function resolveHydrationAppKey(): object {
+    if (typeof tryUseNuxtApp === 'function') {
+        const nuxtApp = tryUseNuxtApp();
+        if (nuxtApp) {
+            return nuxtApp;
+        }
+    }
+    if (typeof useNuxtApp === 'function') {
+        try {
+            const nuxtApp = useNuxtApp();
+            if (nuxtApp) {
+                return nuxtApp;
+            }
+        } catch {
+            // Outside an active Nuxt app context (e.g. standalone unit tests).
+        }
+    }
+    return getCurrentInstance()?.appContext.app ?? fallbackHydrationAppKey;
+}
+
+function getLoadRecord(appKey: object, key: string) {
+    let appRecords = loadRecordsByApp.get(appKey);
+    if (!appRecords) {
+        appRecords = new Map<string, IPlatformHydratedLoadRecord>();
+        loadRecordsByApp.set(appKey, appRecords);
+    }
+    let record = appRecords.get(key);
     if (!record) {
         record = {
             promise: null,
             consecutiveFailures: 0,
         };
-        loadRecords.set(key, record);
+        appRecords.set(key, record);
     }
     return record;
 }
@@ -57,7 +83,7 @@ export const usePlatformHydratedState = <T>(
     const isLoading = useState(`${options.key}:is-loading`, () => false);
     const isResolved = useState(`${options.key}:is-resolved`, () => options.initialResolved);
     const error = useState<string | null>(`${options.key}:error`, () => null);
-    const loadRecord = getLoadRecord(options.key);
+    const loadRecord = getLoadRecord(resolveHydrationAppKey(), options.key);
     const lifecycle = createDisposalFlag();
     // A prerendered page hydrates this state from the server's payload, which
     // cannot hold what only the browser knows. Once the page is live, a value

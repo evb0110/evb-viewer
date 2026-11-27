@@ -246,7 +246,7 @@ function enableGlobalSelectionListener() {
     };
 }
 
-function teardownTextLayer(textLayerDiv: HTMLElement) {
+export function teardownTextLayer(textLayerDiv: HTMLElement) {
     clearPdfSelectionForLayerTeardown({ target: textLayerDiv });
 
     const entry = textLayers.get(textLayerDiv);
@@ -272,7 +272,7 @@ function teardownTextLayer(textLayerDiv: HTMLElement) {
 }
 
 /** Selection behavior of a complete text layer; the layer's teardown ends it. */
-function setupTextLayer(textLayerDiv: HTMLElement) {
+export function setupTextLayer(textLayerDiv: HTMLElement) {
     teardownTextLayer(textLayerDiv);
     const endOfContent = document.createElement('div');
     endOfContent.className = 'end-of-content';
@@ -294,8 +294,3 @@ function setupTextLayer(textLayerDiv: HTMLElement) {
     });
     enableGlobalSelectionListener();
 }
-
-export const useTextLayerSelection = () => ({
-    setupTextLayer,
-    teardownTextLayer,
-});

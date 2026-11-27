@@ -2340,6 +2340,7 @@ describe('updates robustness', () => {
         const ui = await renderers(owner);
         vi.stubGlobal('watch', watch);
         vi.stubGlobal('onScopeDispose', onScopeDispose);
+        vi.doMock('@app/components/AppFailureToastDescription.vue', () => ({default: {name: 'AppFailureToastDescription'}}));
         const {useAppShellUpdatesDialog} = await import('@app/modules/workspace-shell/composables/useAppShellUpdatesDialog');
         const toasts: Array<Array<{
             title:string;
@@ -2379,7 +2380,10 @@ describe('updates robustness', () => {
             await vi.advanceTimersByTimeAsync(0);
             await nextTick();
             expect(toasts.flat().filter(t=>t.title==='updates.errorTitle')).toHaveLength(1);
-        } finally { for (const scope of scopes) scope.stop(); }
+        } finally {
+            for (const scope of scopes) scope.stop();
+            vi.doUnmock('@app/components/AppFailureToastDescription.vue');
+        }
     });
 
     it('keeps native installation errors outside the shipped shutdown path', async () => {

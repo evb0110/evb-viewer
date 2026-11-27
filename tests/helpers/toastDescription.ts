@@ -1,17 +1,41 @@
-import type { VNode } from 'vue';
+import { decodeHTML } from 'entities';
+import {
+    createSSRApp,
+    ssrContextKey,
+    type ComponentInternalInstance,
+    type VNode,
+} from 'vue';
+import { ssrRenderVNode } from 'vue/server-renderer';
 
-function readVNodeText(node: unknown): string {
-    if (typeof node === 'string') {
-        return node;
+const ssrApp = createSSRApp({ render: () => null });
+ssrApp.provide(ssrContextKey, { modules: new Set() });
+const ssrParent = {
+    appContext: ssrApp._context,
+    provides: ssrApp._context.provides,
+} as unknown as ComponentInternalInstance;
+
+function flattenSsrBuffer(chunks: unknown[]): string {
+    let html = '';
+    for (const chunk of chunks) {
+        if (typeof chunk === 'string') {
+            html += chunk;
+        } else if (Array.isArray(chunk)) {
+            html += flattenSsrBuffer(chunk);
+        }
     }
-    if (!node || typeof node !== 'object' || !('children' in node)) {
-        return '';
-    }
-    const {children} = node as VNode;
-    if (typeof children === 'string') {
-        return children;
-    }
-    return Array.isArray(children) ? children.map(readVNodeText).join('') : '';
+    return html;
+}
+
+function renderVNodeToLines(root: VNode): string {
+    const buffer: unknown[] = [];
+    ssrRenderVNode((item) => {
+        buffer.push(item);
+    }, root, ssrParent);
+    const html = flattenSsrBuffer(buffer)
+        .replace(/<!--[\s\S]*?-->/gu, '')
+        .replace(/<\/[a-z0-9-]+>\s*<[a-z0-9-]+(?:\s[^>]*)?>/giu, '\n')
+        .replace(/<[^>]+>/gu, '');
+    return decodeHTML(html);
 }
 
 /**
@@ -25,10 +49,7 @@ export function readToastDescription(description: unknown) {
     if (typeof description !== 'function') {
         return '';
     }
-    const root = (description as () => VNode)();
-    return Array.isArray(root.children)
-        ? root.children.filter(Boolean).map(readVNodeText).join('\n')
-        : readVNodeText(root);
+    return renderVNodeToLines((description as () => VNode)());
 }
 
 function toastDescriptionMatcher(name: string, matches: (text: string) => boolean, expected: string) {

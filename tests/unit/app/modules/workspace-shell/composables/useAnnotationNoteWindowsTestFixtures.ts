@@ -1,5 +1,11 @@
-import {ref} from 'vue';
-import {vi} from 'vitest';
+import {
+    effectScope,
+    ref,
+} from 'vue';
+import {
+    onTestFinished,
+    vi,
+} from 'vitest';
 import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import type {AnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {useAnnotationNoteWindows} from '@app/modules/workspace-shell/composables/useAnnotationNoteWindows';
@@ -43,8 +49,11 @@ export function createHarness(comment = createComment(), options: Pick<Parameter
         >(() => true),
     };
 
+    const scope = effectScope();
+    onTestFinished(() => scope.stop());
+
     return {
         deps,
-        windows: useAnnotationNoteWindows(deps),
+        windows: scope.run(() => useAnnotationNoteWindows(deps))!,
     };
 }

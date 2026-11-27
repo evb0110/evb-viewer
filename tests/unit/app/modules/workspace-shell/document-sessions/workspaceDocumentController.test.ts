@@ -657,4 +657,52 @@ describe('a document assigned to a hidden tab', () => {
         });
         expect(chosen.isDeferredReaderOpen()).toBe(false);
     });
+
+    it('registers sessions synchronously on tab admission so activeDocumentSession stays a pure lookup', () => {
+        const tabs = ref<ITab[]>([{ id: 'tab-1' }]);
+        const activeTabId = ref<string | null>('tab-1');
+        const documentSessions = useWorkspaceDocumentSessions({
+            activeTabId,
+            tabs,
+        });
+
+        const sessionsMapChanges = vi.fn();
+        watch(documentSessions.documentSessionsByTabId, sessionsMapChanges, { flush: 'sync' });
+
+        // Same-tick open: adding a tab and activating it registers the session during tab admission.
+        tabs.value = [
+            ...tabs.value,
+            { id: 'tab-2' },
+        ];
+        expect(sessionsMapChanges).toHaveBeenCalledTimes(1);
+
+        activeTabId.value = 'tab-2';
+        expect(documentSessions.activeDocumentSession.value).toBe(documentSessions.getSession('tab-2'));
+        expect(documentSessions.activeDocumentView.value).toBe(documentSessions.getView('tab-2'));
+        // Reading the computed getters must not trigger any reactive mutation on the session registry.
+        expect(sessionsMapChanges).toHaveBeenCalledTimes(1);
+
+        // Same-tick restore: assignDocument before tab admission is consumed synchronously on admission.
+        const restoredPath = requireDocumentRef('/docs/same-tick-restored.pdf');
+        documentSessions.assignDocument('tab-restored-sync', {
+            fileName: 'same-tick-restored.pdf',
+            originalPath: restoredPath,
+            isDirty: false,
+            isDjvu: false,
+        });
+        tabs.value = [
+            ...tabs.value,
+            { id: 'tab-restored-sync' },
+        ];
+        expect(sessionsMapChanges).toHaveBeenCalledTimes(2);
+        activeTabId.value = 'tab-restored-sync';
+        expect(documentSessions.activeDocumentSession.value?.snapshot.value.identity.originalPath).toBe(restoredPath);
+        expect(sessionsMapChanges).toHaveBeenCalledTimes(2);
+
+        // Unknown activeTabId returns null purely without mutating the registry.
+        activeTabId.value = 'tab-unadmitted';
+        expect(documentSessions.activeDocumentSession.value).toBeNull();
+        expect(documentSessions.activeDocumentView.value).toBeNull();
+        expect(sessionsMapChanges).toHaveBeenCalledTimes(2);
+    });
 });
