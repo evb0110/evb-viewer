@@ -1,7 +1,5 @@
 @use './transitions' as *;
 
-/* ── Page Container & Canvas ───────────────────────────────────────── */
-
 .page_container {
     position: relative;
     margin: 0 auto;
@@ -124,8 +122,6 @@
     text-align: center;
 }
 
-/* ── Text Layer (PDF.js) ───────────────────────────────────────────── */
-
 .pdfViewer .text-layer {
     position: absolute;
     text-align: initial;
@@ -200,8 +196,6 @@
         top: 0;
     }
 }
-
-/* ── Annotation Layers ─────────────────────────────────────────────── */
 
 .pdfViewer .annotation-layer {
     position: absolute;
@@ -690,8 +684,6 @@
     /* stylelint-enable declaration-no-important */
 }
 
-/* ── Container & Viewer ────────────────────────────────────────────── */
-
 .pdfViewer {
     position: relative;
     width: 100%;
@@ -830,8 +822,6 @@
     overflow-y: hidden;
 }
 
-/* ── Drag Mode Cursor Overrides ────────────────────────────────────── */
-
 .pdfViewer.drag-mode {
     &.is-dragging {
         /* stylelint-disable declaration-no-important -- css-important-allow: Drag mode locks cursor priority across PDF.js layers and child controls. */
@@ -886,8 +876,6 @@
     /* stylelint-enable no-descending-specificity */
 }
 
-/* ── Note Placement Cursor Overrides ───────────────────────────────── */
-
 .pdfViewer.is-placing-comment {
     /* stylelint-disable declaration-no-important -- css-important-allow: Comment placement locks the cursor over PDF.js layers. */
     cursor: crosshair !important;
@@ -924,8 +912,6 @@
         /* stylelint-enable declaration-no-important */
     }
 }
-
-/* ── Markup Subtype Visual Overrides (underline / strikethrough / squiggly) ──── */
 
 .pdfViewer .annotationEditorLayer .highlightEditor.pdf-markup-subtype-visual-ready .internal,
 .pdfViewer .annotation-editor-layer .highlightEditor.pdf-markup-subtype-visual-ready .internal {
@@ -981,8 +967,6 @@
     user-select: none;
     position: relative;
 }
-
-/* ── FreeText Editor & Resize Handles ──────────────────────────────── */
 
 .pdfViewer .freeTextEditor {
     --resizer-size: var(--evb-resizer-size, clamp(6px, calc(8px / var(--total-scale-factor, 1)), 10px));
@@ -1056,7 +1040,7 @@
 
 .pdfViewer .annotationEditorLayer.disabled.nonEditing .freeTextEditor.pdf-comment-marker-anchor-editor,
 .pdfViewer .annotation-editor-layer.disabled.nonEditing .freeTextEditor.pdf-comment-marker-anchor-editor {
-    /* stylelint-disable declaration-no-important -- css-important-allow: Sticky-note anchor FreeText editors are hidden persistence anchors; the Vue marker owns interaction. */
+    /* stylelint-disable declaration-no-important -- css-important-allow: Remnant of the former PDF.js FreeText note-marker bridge (ADR 0003); keeps any anchor editor non-interactive while the Vue annotation layer owns note markers. */
     pointer-events: none !important;
     /* stylelint-enable declaration-no-important */
 }
@@ -1078,7 +1062,7 @@
 .pdfViewer .annotation-editor-layer.disabled.nonEditing .freeTextEditor.pdf-comment-marker-anchor-editor > .resizers > .resizer,
 .pdfViewer .annotationEditorLayer.disabled.nonEditing .freeTextEditor.pdf-comment-marker-anchor-editor .overlay,
 .pdfViewer .annotation-editor-layer.disabled.nonEditing .freeTextEditor.pdf-comment-marker-anchor-editor .overlay {
-    /* stylelint-disable declaration-no-important -- css-important-allow: Keep hidden sticky-note anchors from catching marker drags. */
+    /* stylelint-disable declaration-no-important -- css-important-allow: Remnant of the former PDF.js FreeText note-marker bridge (ADR 0003); keeps hidden anchor editors from catching marker drags. */
     pointer-events: none !important;
     /* stylelint-enable declaration-no-important */
 }

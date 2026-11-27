@@ -24,8 +24,9 @@ import {
  * - **Corner order.** The PDF specification orders a quad's four points
  *   upper-left, upper-right, lower-left, lower-right; PDF.js writes the same
  *   order but many producers do not, and PDF.js's own reader re-sorts them.
- *   {@link toCanonicalTextMarkupRectFromQuad} therefore projects each quad
- *   through its own min/max corners, so any corner order yields one rect.
+ *   Each quad is therefore converted to its min/max bounds before
+ *   {@link toCanonicalTextMarkupRect} normalizes the rect, so any corner order
+ *   yields one rect.
  * - **Quad order.** Nothing in the format pins the order of quads inside
  *   `/QuadPoints`. {@link matchCanonicalTextMarkupGeometry} compares the two
  *   lists as multisets instead of index by index, so a reordered array is not

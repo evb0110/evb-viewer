@@ -859,7 +859,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                 });
             }
         };
-        // The command returns at its durable result; the lease and indicator last until its new revision's job ends (CR-4).
+        // The command returns at its durable result; the lease and indicator last until its new revision's job ends.
         const durable = Promise.withResolvers<boolean>();
         void deps.runWithDocumentOperationLease(resolveOperationKind(request), async () => {
             try {
@@ -936,7 +936,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                         || deps.document.workingCopyPath.value !== sessionPath) {
                         return false;
                     }
-                    // The Save before the copy and the copy are one turn of the picked document: the dialog closes at their durable results (D3-R7).
+                    // The Save before the copy and the copy are one turn of the picked document: the dialog closes at their durable results.
                     return await deps.runWithDocumentOperationLease('optimize-pdf', async (holder) => {
                         if (deps.document.workingCopyPath.value !== sessionPath || (canSave.value && !await saveIfDirty(undefined, holder)) || controller.signal.aborted) {
                             return false;

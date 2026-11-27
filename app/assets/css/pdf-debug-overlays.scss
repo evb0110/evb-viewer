@@ -1,7 +1,5 @@
 /* OCR word boxes and debug overlay layers */
 
-/* ── Word Boxes Layer ──────────────────────────────────────────────── */
-
 .pdfViewer .pdf-word-boxes-layer {
     position: absolute;
     inset: 0;
@@ -19,8 +17,6 @@
 .pdfViewer .pdf-word-box.pdf-word-box--current {
     background: var(--app-debug-word-box-current-bg);
 }
-
-/* ── OCR Debug Layer ───────────────────────────────────────────────── */
 
 .pdfViewer .pdf-ocr-debug-layer {
     position: absolute;

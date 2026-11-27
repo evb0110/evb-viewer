@@ -52,7 +52,7 @@
 import {useTypedI18n} from '@app/composables/useTypedI18n';
 import {
     formatFailurePresentationDescription,
-    type FailurePresentation,
+    type IFailurePresentation,
 } from '@app/composables/useFailureToast';
 import type { IDocumentSearchMatch } from '@app/modules/document-viewer/search/documentSearch';
 import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
@@ -79,7 +79,7 @@ const {
     deferSkeleton?: boolean;
     documentLoadGeneration: number;
     errorMessage: string;
-    errorPresentation?: FailurePresentation | null;
+    errorPresentation?: IFailurePresentation | null;
     hostOwnsSkeleton?: boolean;
     openSurfaceGeneration: number | null;
     pageNumber: number;

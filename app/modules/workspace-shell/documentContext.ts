@@ -196,7 +196,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
     ));
 
     // Close and window close end the document's jobs so no reader holds their decision (#1598),
-    // while Save republishes a released revision inside its own document operation lease turn (N7).
+    // while Save republishes a released revision inside its own document operation lease turn.
     const jobReleaser = createDocumentJobReleaser({
         workingCopyPath: file.workingCopyPath,
         pdfSrc: file.pdfSrc,
@@ -315,9 +315,9 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
                 viewer: pdfViewerRef,
                 // Every view's open text editors; it resolves once the store holds their drafts.
                 commitEditorsForSave: pdfDocumentAnnotations.commitPendingDraftsForSave,
-                // A Save reads the PDF after a revision published outside its turn has loaded, however that ended (CR-4).
+                // A Save reads the PDF after a revision published outside its turn has loaded, however that ended.
                 // Inside Save's lease, republish a revision whose job an active close release ended while keeping the
-                // release active for Save's own adoption (#1598, N7).
+                // release active for Save's own adoption (#1598).
                 runSaveTransaction: async (request) => {
                     if (views.viewPorts.value.size) {
                         jobReleaser.republishForSave();

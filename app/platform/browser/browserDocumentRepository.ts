@@ -203,8 +203,6 @@ export class BrowserDocumentStore {
         return this.storesPromise;
     }
 
-    // Registration -------------------------------------------------------------------------------------------
-
     /** A ref for a file before it is registered; the file is read in place until something needs it stored. */
     public getRefForFile(file: File): TDocumentRef {
         const known = this.fileRefs.get(file);
@@ -324,8 +322,6 @@ export class BrowserDocumentStore {
         return workingRef;
     }
 
-    // Reading ------------------------------------------------------------------------------------------------
-
     public async ensureEntry(ref: string): Promise<IBrowserDocumentEntry | null> {
         const known = this.entries.get(ref);
         if (known) return known;
@@ -434,8 +430,6 @@ export class BrowserDocumentStore {
             this.removalListeners.delete(listener);
         };
     }
-
-    // Writing ------------------------------------------------------------------------------------------------
 
     /** Replaces the bytes. Unsaved drafts described the old bytes, so they go with them. */
     public async write(ref: string, data: Uint8Array | ArrayBuffer, options: IWriteOptions = {}) {
@@ -650,8 +644,6 @@ export class BrowserDocumentStore {
         await this.requireSession(await this.requireEntry(ref)).retain(revisions);
     }
 
-    // In-place edits -----------------------------------------------------------------------------------------
-
     /**
      * Stages an uncommitted append past `token`; materializes from destination only against baseline unless
      * `allowForeignBase` is true (Save As rescue).
@@ -693,8 +685,6 @@ export class BrowserDocumentStore {
             async (path, length) => (await storeFileBlob(entry.store!.port, path)).slice(0, length),
         );
     }
-
-    // Lifecycle ----------------------------------------------------------------------------------------------
 
     /** Lets go of a document this window keeps no view of; its bytes stay in the store. */
     public unload(ref: string) {
@@ -752,8 +742,6 @@ export class BrowserDocumentStore {
         return [...this.entries.values()];
     }
 
-    // Recent Files -------------------------------------------------------------------------------------------
-
     public async touchRecentFile(ref: string) {
         const entry = await this.requireEntry(ref);
         if (entry.retention === 'transient' || entry.memoryOnly) {
@@ -795,8 +783,6 @@ export class BrowserDocumentStore {
         const source = await this.admittedSource(workingCopy);
         return source ? this.recentFiles.readReadingView(source.sourceRef, source.witness) : null;
     }
-
-    // Internals ----------------------------------------------------------------------------------------------
 
     /** The source a reading view belongs to, with the witness of the file it was opened on. */
     private async admittedSource(ref: string) {

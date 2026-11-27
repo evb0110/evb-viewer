@@ -1,4 +1,7 @@
-import { until } from '@vueuse/core';
+import {
+    until,
+    whenever,
+} from '@vueuse/core';
 import {resolveVisiblePageLabelsDuringMetadataRefresh} from '@app/modules/pdf-viewer/public';
 import type { TDocumentPageLabelLookup } from '@app/modules/document-viewer/public';
 import type { TDocumentContext } from '@app/modules/workspace-shell/documentContext';
@@ -184,10 +187,8 @@ export const useWorkspacePresentation = (
             totalPages: view.totalPages.value,
         });
     }
-    watch(hasOpenError, (failed) => {
-        if (failed) {
-            dispatchStartupOpenVisualReady('document-error', true);
-        }
+    whenever(hasOpenError, () => {
+        dispatchStartupOpenVisualReady('document-error', true);
     });
 
     return {

@@ -1,5 +1,5 @@
 import type {Ref} from 'vue';
-import type {FailurePresentation} from '@app/composables/useFailureToast';
+import type {IFailurePresentation} from '@app/composables/useFailureToast';
 import type {TWorkspaceFailureSurface} from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 import {tryOnScopeDispose} from '@vueuse/core';
 import type {IAnnotationCommentSummary} from '@app/types/annotations';
@@ -24,7 +24,7 @@ interface IAnnotationNoteWindowRuntime {
     dirty: boolean;
     /** The persistence attempt in flight: the text it submitted and its outcome. */
     attempt: {text: string; done: Promise<boolean>} | null;
-    error: string | FailurePresentation | null;
+    error: string | IFailurePresentation | null;
     order: number;
     pendingEmbeddedSave: boolean;
     saveGeneration: number;

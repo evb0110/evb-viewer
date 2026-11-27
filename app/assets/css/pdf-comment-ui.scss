@@ -1,8 +1,6 @@
 /* Comment tooltips, popup editors, textarea, action buttons, and visibility states */
 
 .pdfViewer {
-    /* ── Comment Tooltips ──────────────────────────────────────────────── */
-
     .pdf-annotation-comment-tooltip {
         position: absolute;
         z-index: var(--app-z-pdf-comment-tooltip);
@@ -49,8 +47,6 @@
             filter: drop-shadow(0 -1px 1px var(--app-pdf-comment-arrow-shadow));
         }
     }
-
-    /* ── Popup Comment Editors ─────────────────────────────────────────── */
 
     .pdf-annotation-comment-popup {
         position: absolute;

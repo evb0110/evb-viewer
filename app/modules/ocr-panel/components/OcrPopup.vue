@@ -43,10 +43,9 @@
                 class="ocr-body flex min-h-0 flex-1 flex-col gap-4"
                 :class="{ 'is-configuring': viewState === 'configure' || viewState === 'error' }"
             >
-                <!-- CONFIGURE / ERROR STATE (config stays editable so errors stay recoverable) -->
+                <!-- Configuration stays editable after an OCR error so errors remain recoverable -->
                 <template v-if="viewState === 'configure' || viewState === 'error'">
                     <div class="ocr-settings app-scrollbar app-scroll-region--balanced flex flex-col gap-4">
-                        <!-- Error banner -->
                         <div
                             v-if="viewState === 'error'"
                             class="error"
@@ -77,7 +76,6 @@
                             </div>
                         </div>
 
-                        <!-- Page Range Selection -->
                         <div
                             class="section"
                         >
@@ -159,7 +157,6 @@
                             </UCollapsible>
                         </div>
 
-                        <!-- Quality Profile Selection -->
                         <div
                             class="section"
                         >
@@ -184,7 +181,6 @@
                             </URadioGroup>
                         </div>
 
-                        <!-- OCR tuning -->
                         <div class="section-row">
                             <div class="section">
                                 <URadioGroup
@@ -232,7 +228,6 @@
                             </div>
                         </div>
                     </div>
-                    <!-- Language Selection -->
                     <div class="section language-picker">
                         <div class="language-picker-header">
                             <span class="label">{{ t('ocr.languages') }}</span>
@@ -320,7 +315,6 @@
                     </div>
                 </template>
 
-                <!-- RUNNING STATE -->
                 <div
                     v-else-if="viewState === 'running' || viewState === 'applying'"
                     class="ocr-progress-panel flex flex-col gap-3"
@@ -339,7 +333,6 @@
                     </span>
                 </div>
 
-                <!-- RESULTS STATE -->
                 <div
                     v-else
                     class="ocr-results-panel flex flex-col items-center gap-3"

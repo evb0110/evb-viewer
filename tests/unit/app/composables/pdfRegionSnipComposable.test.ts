@@ -11,15 +11,15 @@ import {
 } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfRegionSnip';
 import {capturePdfRegionAsPngBlob} from '@app/modules/pdf-viewer/engine/pdf-region-capture/capturePdfRegionAsPngBlob';
 import type {ISnipPointerPayload} from '@app/modules/pdf-viewer/engine/pdf-region-drag/snipPointerPayload';
-import type {FailurePresentation} from '@app/composables/useFailureToast';
+import type {IFailurePresentation} from '@app/composables/useFailureToast';
 
 const output = vi.hoisted(() => ({
     clipboard: null as Blob | null,
-    failures: [] as FailurePresentation[],
+    failures: [] as IFailurePresentation[],
 }));
 vi.mock('@app/composables/useFailureToast', () => ({
     useFailureToast: () => ({
-        presentFailureToast: (failure: FailurePresentation) => output.failures.push(failure),
+        presentFailureToast: (failure: IFailurePresentation) => output.failures.push(failure),
         presentNoticeToast: () => {},
     }),
     isFailurePresentation: () => false,

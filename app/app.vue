@@ -33,8 +33,9 @@ import AppFatalRuntimeDialog from '@app/components/AppFatalRuntimeDialog.vue';
 import { setRendererDiagnosticsPreference } from '@app/utils/failureReporter';
 import type {IRuntimeErrorReport} from '@app/composables/useRuntimeErrorReports';
 import {
-    useFailureToast, type FailurePresentation,
+    useFailureToast, type IFailurePresentation,
 } from '@app/composables/useFailureToast';
+import { applyUiScaleToDocument } from '@app/composables/useUiScale';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getOrCaptureRendererBootstrapFailure } from '@app/utils/getOrCaptureRendererBootstrapFailure';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
@@ -74,7 +75,6 @@ const {
 const {
     effectiveScale: uiEffectiveScale,
     hostSnapshot: uiHostSnapshot,
-    applyUiScaleToDocument,
     attachHostEnvironmentListener,
     refreshHostSnapshot,
     setPreferenceFromSettings,
@@ -103,7 +103,7 @@ const {
 const diagnosticsConsentBusy = ref<string | null>(null);
 const {presentFailureToast} = useFailureToast();
 
-const settingsSaveFailurePresentation = computed<FailurePresentation | null>(() => {
+const settingsSaveFailurePresentation = computed<IFailurePresentation | null>(() => {
     const capture = settingsSaveFailure.value;
     if (!capture) {
         return null;

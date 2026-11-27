@@ -153,8 +153,6 @@ export interface INativePdfMutationProjection {
 
 export interface IPdfViewerSaveTransactionSource {
     getSourcePdfData: () => Promise<Uint8Array | null>;
-    /** Compatibility index for snapshot-only callers while they migrate to source reads. */
-    readonly [key: string]: unknown;
 }
 
 export interface IPdfViewerNativeMaterializationRequest extends IPdfViewerSaveTransactionDescriptors {

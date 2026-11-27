@@ -21,7 +21,7 @@ import {
     copyTextToClipboard,
     getNonEmptyDetails,
     useFailureToast,
-    type FailurePresentation,
+    type IFailurePresentation,
 } from '@app/composables/useFailureToast';
 
 /**
@@ -59,7 +59,7 @@ export type TWorkspaceSaveFailureReason =
 export function describeDocumentOpenFailure(
     error: unknown,
     t: TTranslateFn,
-): FailurePresentation & {description: string} {
+): IFailurePresentation & {description: string} {
     const technicalDetails = getErrorMessage(error).trim();
     return {
         failure: getFailureReceipt(error) ?? BrowserLogger.error('workspace', 'Document failed to open', error, {code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED'}),
@@ -75,7 +75,7 @@ export const useWorkspaceFailureSurface = () => {
     const { t } = useTypedI18n();
     const toast = useToast();
     const { presentFailureToast } = useFailureToast();
-    const saveFailurePresentation = shallowRef<FailurePresentation | null>(null);
+    const saveFailurePresentation = shallowRef<IFailurePresentation | null>(null);
 
     // Only the operation reported last per domain, so a long session of failed
     // attempts cannot accumulate ids nothing will ever read again.
@@ -129,7 +129,7 @@ export const useWorkspaceFailureSurface = () => {
         operationId: string,
         reason: TWorkspaceSaveFailureReason,
         detail?: string | null,
-        existingReceipt?: FailureReceipt | FailurePresentation,
+        existingReceipt?: FailureReceipt | IFailurePresentation,
         diagnostics?: IPdfPersistFailure,
         saveAs?: () => void,
     ) {
@@ -153,7 +153,7 @@ export const useWorkspaceFailureSurface = () => {
             },
             {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
         );
-        const presentation: FailurePresentation = {
+        const presentation: IFailurePresentation = {
             ...priorPresentation,
             failure: receipt,
             title: t('errors.file.save'),
@@ -217,10 +217,10 @@ export const useWorkspaceFailureSurface = () => {
         cause?: unknown;
         message?: string;
         retry?: () => void;
-        previous?: FailurePresentation;
-    }): FailurePresentation {
+        previous?: IFailurePresentation;
+    }): IFailurePresentation {
         const reason = (input.cause === undefined ? input.message ?? '' : getErrorMessage(input.cause)).trim() || t('errors.annotation.noteUpdateRejected');
-        const presentation: FailurePresentation = {
+        const presentation: IFailurePresentation = {
             failure: getFailureReceipt(input.cause) ?? input.previous?.failure ?? BrowserLogger.error(
                 'annotations', 'Annotation note operation failed', input.cause ?? reason,
                 {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},

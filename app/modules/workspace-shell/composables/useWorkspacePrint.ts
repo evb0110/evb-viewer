@@ -50,7 +50,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import {
     useFailureToast,
-    type FailurePresentation,
+    type IFailurePresentation,
 } from '@app/composables/useFailureToast';
 import { isPathPdfSource } from '@app/modules/pdf-viewer/public';
 import type { IPrintableSourcePath } from '@app/modules/workspace-shell/composables/createPrintableSourceDataResolver';
@@ -386,7 +386,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             error,
             getFailureReceipt(error) ?? {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
         );
-        const presentation: FailurePresentation = {
+        const presentation: IFailurePresentation = {
             failure,
             title: t('print.failed'),
             description: localizedError,

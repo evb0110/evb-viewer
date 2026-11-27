@@ -176,14 +176,16 @@ vi.mock('@app/composables/useAppUpdates', () => ({useAppUpdates: () => ({
     isCheckInProgress: ref(false),
     isUpdateSupported: ref(false),
 })}));
-vi.mock('@app/composables/useUiScale', () => ({useUiScale: () => ({
-    effectiveScale: ref(1),
-    hostSnapshot: ref({platform: 'linux'}),
+vi.mock('@app/composables/useUiScale', () => ({
     applyUiScaleToDocument: vi.fn(),
-    attachHostEnvironmentListener: () => () => {},
-    refreshHostSnapshot: vi.fn(),
-    setPreferenceFromSettings: vi.fn(),
-})}));
+    useUiScale: () => ({
+        effectiveScale: ref(1),
+        hostSnapshot: ref({platform: 'linux'}),
+        attachHostEnvironmentListener: () => () => {},
+        refreshHostSnapshot: vi.fn(),
+        setPreferenceFromSettings: vi.fn(),
+    }),
+}));
 vi.mock('@app/composables/useFatalRuntimeError', () => ({useFatalRuntimeError: () => ({
     fatalRuntimeError: ref(null),
     setFatalRuntimeError: vi.fn(),
