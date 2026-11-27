@@ -117,7 +117,7 @@ impl<'a> OverlayDestinations<'a> {
 }
 
 /// Collects every unresolved internal destination reachable from `annotation`,
-/// including `/Dest`, `/A`, and chained `/Next` actions (dictionaries or arrays).
+/// including `/Dest`, `/A`, `/AA`, and chained `/Next` actions (dictionaries or arrays).
 fn annotation_action_destinations(document: &Document, annotation: &Dictionary) -> Vec<Object> {
     let mut destinations = Vec::new();
     if let Ok(dest) = annotation.get(b"Dest") {
@@ -125,17 +125,19 @@ fn annotation_action_destinations(document: &Document, annotation: &Dictionary) 
             destinations.push(resolved.clone());
         }
     }
-    let Ok(root_action) = annotation.get(b"A") else {
-        return destinations;
-    };
-    let mut pending = vec![root_action.clone()];
-    let mut visited_ids = HashSet::new();
-    let mut visited_nodes = 0usize;
-    while let Some(item) = pending.pop() {
-        if visited_nodes >= 256 {
-            break;
+    let mut pending = Vec::new();
+    if let Ok(root_action) = annotation.get(b"A") {
+        pending.push(root_action.clone());
+    }
+    if let Ok(additional_actions) = annotation.get(b"AA") {
+        if let Ok((_, Object::Dictionary(aa_dict))) = document.dereference(additional_actions) {
+            for (_, action) in aa_dict.iter() {
+                pending.push(action.clone());
+            }
         }
-        visited_nodes += 1;
+    }
+    let mut visited_ids = HashSet::new();
+    while let Some(item) = pending.pop() {
         let Ok((id, resolved)) = document.dereference(&item) else {
             continue;
         };
