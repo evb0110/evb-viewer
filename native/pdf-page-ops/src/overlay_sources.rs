@@ -568,12 +568,13 @@ pub(crate) fn overlay_text_bytes(
     })
 }
 
-/// Appends `revision` at `offset` in `sink` and returns the bytes read back
-/// from `offset`. An empty slice still calls `Write::write(&[])` (unlike
-/// `Write::write_all`, which is a no-op on empty slices) so a lazy-cloning host
-/// sink materializes its base file before the first read.
+/// Appends an overlay `revision` at `offset` in `sink` and returns the bytes
+/// read back from `offset`. Unlike the shared append helper (which leaves empty
+/// revisions as no-ops so no-op saves copy 0 bytes), an empty slice here calls
+/// `Write::write(&[])` so `overlay_text_to_sink`'s staging seed materializes a
+/// lazy-cloning host sink before the first batched read.
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
-pub(crate) fn write_append_revision_to_sink<S: Write + ByteSource>(
+pub(crate) fn write_overlay_append_revision_to_sink<S: Write + ByteSource>(
     sink: &mut S,
     offset: u64,
     revision: &[u8],
@@ -1220,7 +1221,7 @@ mod tests {
         let len = base.len() as u64;
         sink.set_cursor(len);
 
-        let written = write_append_revision_to_sink(&mut sink, len, &[]).unwrap();
+        let written = write_overlay_append_revision_to_sink(&mut sink, len, &[]).unwrap();
         assert!(written.is_empty());
         assert_eq!(sink.write_calls(), 1);
 
@@ -1256,7 +1257,7 @@ mod tests {
             |offset, revision| {
                 let mut writer = append_sink.clone();
                 writer.set_cursor(offset);
-                write_append_revision_to_sink(&mut writer, offset, revision)
+                write_overlay_append_revision_to_sink(&mut writer, offset, revision)
             },
             1,
         )
@@ -1304,7 +1305,7 @@ mod tests {
             |offset, revision| {
                 let mut writer = append_sink.clone();
                 writer.set_cursor(offset);
-                write_append_revision_to_sink(&mut writer, offset, revision)
+                write_overlay_append_revision_to_sink(&mut writer, offset, revision)
             },
             1,
         )

@@ -650,6 +650,29 @@ describe('desktop evb-pdf-page-ops.wasm host-file streaming integration', () => 
         ]);
         const qdfText = await readFile(qdfOut, 'latin1');
         expect(qdfText).toContain(sentinel);
+
+        // No-op save-mutations --append must still copy 0 bytes and leave --output untouched.
+        const noopMutationsPath = join(tempRoot, 'noop-shapes.json');
+        const noopOut = join(tempRoot, 'noop-out.pdf');
+        await writeFile(noopMutationsPath, JSON.stringify({
+            shapes: {
+                totalPages: 1,
+                shapes: [],
+            },
+        }), 'utf8');
+        await runNativeToolCommand(wasmPath, [
+            'save-mutations',
+            '--input',
+            targetPdf,
+            '--output',
+            noopOut,
+            '--mutations-file',
+            noopMutationsPath,
+            '--modified-at',
+            'D:20260829120000Z',
+            '--append',
+        ]);
+        await expect(access(noopOut)).rejects.toMatchObject({code: 'ENOENT'});
     }, TIMEOUT_MS);
 
     it('enforces read-only alias refusal, u32 bounds, crop parity, and immediate group cancellation', async () => {

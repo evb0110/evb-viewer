@@ -474,7 +474,7 @@ fn overlay_text_file(pages: &[u32], tail: &[u8], source_count: u32) -> Result<Ve
         || HostSink,
         tail,
         &mut writer,
-        append_to_source_file,
+        append_overlay_to_source_file,
     )?;
     writer
         .into_inner()
@@ -641,10 +641,26 @@ fn ocr_text_layer(after_page: u32, payload: &[u8], source_count: u32) -> Result<
 }
 
 /// Writes `revision` after the `len` bytes of source 0's file and returns what
-/// the file then holds there.
+/// the file then holds there. Empty revisions remain a no-op so no-op saves
+/// copy 0 bytes and do not publish a staged file.
 fn append_to_source_file(len: u64, revision: &[u8]) -> Result<Vec<u8>> {
     SINK_LEN.set(len);
-    write_append_revision_to_sink(&mut HostSink, len, revision)
+    HostSink.write_all(revision).map_err(io_domain_error)?;
+    let mut written = vec![0; revision.len()];
+    if !revision.is_empty() {
+        HostSink
+            .read_at(len, &mut written)
+            .map_err(io_domain_error)?;
+    }
+    Ok(written)
+}
+
+/// Overlay-staging variant of `append_to_source_file`: a 0-byte revision still
+/// invokes `HostSink::write(&[])` so the host materializes source 0 into the
+/// staging sink before the batched overlay reads it back.
+fn append_overlay_to_source_file(len: u64, revision: &[u8]) -> Result<Vec<u8>> {
+    SINK_LEN.set(len);
+    write_overlay_append_revision_to_sink(&mut HostSink, len, revision)
 }
 
 fn host_source_len(index: u32) -> Result<u64> {
