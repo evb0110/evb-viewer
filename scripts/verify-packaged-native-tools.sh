@@ -564,7 +564,6 @@ if [ "$platform" = "mac" ]; then
     exit 1
   fi
 
-  run_macos_packaged_tool_smoke "qpdf" "$(packaged_entry_path qpdf)" --version
   run_macos_packaged_tool_smoke "pdfinfo" "$(packaged_entry_path pdfinfo)" -v
   run_macos_packaged_tool_smoke "pdftoppm" "$(packaged_entry_path pdftoppm)" -v
   run_macos_packaged_tool_smoke "pdftotext" "$(packaged_entry_path pdftotext)" -v

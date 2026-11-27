@@ -219,7 +219,6 @@ describe('real OCR worker durable page checkpoints', () => {
 
             await expect(writeSearchablePdf({
                 pdfPageOpsBinary: 'evb-pdf-page-ops',
-                qpdfBinary: 'qpdf',
                 sourcePdfPath: join(tempDir, 'source.pdf'),
                 pages: streamingCheckpoints(),
                 tempDir,

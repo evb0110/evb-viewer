@@ -1,6 +1,5 @@
-import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
 import type {TTerminationProofSink} from '@electron/resources/jobBroker';
-import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {
     getQpdfPageCountArgs,
     parseQpdfPageCount,
@@ -17,7 +16,7 @@ export interface IPdfPageCountOptions {
 }
 
 export async function getPdfPageCount(pdfPath: string, options: IPdfPageCountOptions = {}) {
-    const result = await runNativeToolCommand(getPdfNativeToolPaths().qpdf, getQpdfPageCountArgs(pdfPath), {
+    const result = await runDesktopQpdfWasm(getQpdfPageCountArgs(pdfPath), {
         timeoutMs: QPDF_TIMEOUT_MS,
         allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
         commandLabel: 'qpdf(page-count)',

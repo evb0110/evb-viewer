@@ -5,10 +5,8 @@ import type {
     IOcrPipelinePaths,
     TWorkerLog,
 } from '@electron/features/ocr/pipeline/types';
-import {
-    runNativeToolCommand,
-    type IRunNativeToolCommandOptions,
-} from '@electron/native-tools/runNativeToolCommand';
+import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {isAbortError} from '@electron/utils/abort';
 import {getErrorMessage} from '@electron/utils/error';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
@@ -70,7 +68,7 @@ export function createOcrRasterRenderLimits(
 }
 
 export async function preparePdfForPoppler(
-    paths: Pick<IOcrPipelinePaths, 'qpdfBinary' | 'tempDir'>,
+    paths: Pick<IOcrPipelinePaths, 'tempDir'>,
     log: TWorkerLog,
     sourcePdfPath: string,
     sessionId: string,
@@ -80,23 +78,18 @@ export async function preparePdfForPoppler(
     const normalizedPdfPath = trackTempFile(join(paths.tempDir, `${sessionId}-poppler-input.pdf`));
 
     try {
-        const commandOptions: IRunNativeToolCommandOptions = {
+        await runDesktopQpdfWasm([
+            sourcePdfPath,
+            normalizedPdfPath,
+        ], {
             commandLabel: 'qpdf(poppler-preflight)',
             allowedExitCodes: [
                 0,
                 3,
             ],
             timeoutMs: QPDF_TIMEOUT_MS,
-            log,
-        };
-        if (signal !== undefined) {
-            commandOptions.signal = signal;
-        }
-
-        await runNativeToolCommand(paths.qpdfBinary, [
-            sourcePdfPath,
-            normalizedPdfPath,
-        ], commandOptions);
+            ...(signal === undefined ? {} : {signal}),
+        });
 
         const normalizedStat = await stat(normalizedPdfPath);
         if (normalizedStat.size <= 0) {

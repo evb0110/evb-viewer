@@ -15,7 +15,6 @@ export interface IPdfNativeToolPaths extends IPopplerRuntimePaths {
     pdftoppm: string;
     pdftotext: string;
     pdfimages?: string;
-    qpdf: string;
 }
 
 export interface IResolvePdfNativeToolPathsOptions {
@@ -100,20 +99,10 @@ export function resolvePdfNativeToolPaths(options: IResolvePdfNativeToolPathsOpt
     const popplerDataDir = pathExists(popplerDataDirCandidate) ? popplerDataDirCandidate : undefined;
     const popplerFontConfigDir = pathExists(popplerFontConfigDirCandidate) ? popplerFontConfigDirCandidate : undefined;
 
-    const qpdfDir = join(options.nativeToolsBase, 'qpdf', options.platformArch);
-    const qpdf = getPdfToolBinaryPath({
-        dir: qpdfDir,
-        exists: pathExists,
-        isPackaged: options.isPackaged,
-        name: 'qpdf',
-        platform: options.platform,
-    });
-
     const paths: IPdfNativeToolPaths = {
         pdfinfo,
         pdftoppm,
         pdftotext,
-        qpdf,
     };
     if (pdfimages !== undefined) {
         paths.pdfimages = pdfimages;

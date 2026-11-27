@@ -1,7 +1,7 @@
 const {readFile, writeFile} = require('node:fs/promises');
 const {pathToFileURL} = require('node:url');
 const {join, dirname} = require('node:path');
-const cp = require('node:child_process');
+const workerThreads = require('node:worker_threads');
 const moduleApi = require('node:module');
 const esbuild = require('esbuild');
 const {app} = require('electron');
@@ -35,6 +35,7 @@ async function main() {
             ['@document-store', 'packages/document-store'],
             ['@electron', 'electron'],
             ['@electron-worker-bundles', 'packages/electron-worker-bundles'],
+            ['@node-runtime', 'packages/node-runtime'],
             ['@pdf-core', 'packages/pdf-core'],
         ].map(([name, path]) => [name, join(process.cwd(), path)])),
         bundle: true,
@@ -43,20 +44,29 @@ async function main() {
         format: 'esm',
     };
     const bundlePath = join(runtimeDirectory, 'publication.mjs');
-    await esbuild.build({
-        ...bundleOptions,
-        stdin: {
-            contents: [
-                "export {createDocument, openDocument} from '@document-store/documentDirectory';",
-                "export {createNodeStorePort} from '@document-store/nodeStorePort';",
-                "export {saveDocument} from '@document-store/saveDocument';",
-                "export {createDesktopPublication} from '@electron/file-access/documentPublication';",
-                "export {verifyPdfTempFile} from '@electron/features/documents/main/verifyPdfTempFile';",
-            ].join('\n'),
-            resolveDir: process.cwd(),
-        },
-        outfile: bundlePath,
-    });
+    const workerBundlePath = join(runtimeDirectory, 'pdf-page-ops-worker.js');
+    await Promise.all([
+        esbuild.build({
+            ...bundleOptions,
+            stdin: {
+                contents: [
+                    "export {createDocument, openDocument} from '@document-store/documentDirectory';",
+                    "export {createNodeStorePort} from '@document-store/nodeStorePort';",
+                    "export {saveDocument} from '@document-store/saveDocument';",
+                    "export {createDesktopPublication} from '@electron/file-access/documentPublication';",
+                    "export {verifyPdfTempFile} from '@electron/features/documents/main/verifyPdfTempFile';",
+                ].join('\n'),
+                resolveDir: process.cwd(),
+            },
+            outfile: bundlePath,
+        }),
+        esbuild.build({
+            ...bundleOptions,
+            entryPoints: [join(process.cwd(), 'electron/native-tools/pdfPageOpsWorker.ts')],
+            outfile: workerBundlePath,
+        }),
+        writeFile(join(runtimeDirectory, 'package.json'), '{"type":"module"}\n'),
+    ]);
     const {createDocument, openDocument, createNodeStorePort, saveDocument, createDesktopPublication, verifyPdfTempFile} = await import(pathToFileURL(bundlePath).href);
     await writeFile(`${resultPath}.imported`, `${process.pid}\n`);
     const root = join(runtimeDirectory, 'store');
@@ -73,48 +83,38 @@ async function main() {
         const changed = await document.mutate(null, {kind: 'rewrite', source: sourcePath, drafts: 'clear'});
         if (changed.status !== 'committed') throw new Error(`Mutation failed: ${changed.status}`);
     }
-    // Validation runs directly in main and spawns qpdf as a native child.
-    // Hold that validation child at the publication stage barrier, after the
-    // sibling copy exists, so both native cancellation and publication cleanup
+    // Validation runs directly in main through the pooled evb-qpdf.wasm worker.
+    // Hold that validation worker at the publication stage barrier, after the
+    // sibling copy exists, so both worker cancellation and publication cleanup
     // are exercised.
     let utilityExited = false;
     async function cancelValidationAtPublicationBarrier() {
-        const heldScript = join(runtimeDirectory, 'held-validation-child.cjs');
-        await writeFile(heldScript, `const fs = require('node:fs');
-fs.watch(${JSON.stringify(runtimeDirectory)}, () => {});
-fs.writeFileSync(${JSON.stringify(`${controlPath}.utility-ready`)}, String(process.pid));
+        const heldWorkerScript = join(runtimeDirectory, 'held-validation-worker.cjs');
+        await writeFile(heldWorkerScript, `const fs = require('node:fs');
+const {parentPort} = require('node:worker_threads');
+parentPort.on('message', (message) => {
+    if (message && Array.isArray(message.args) && message.args.includes('--check')) {
+        fs.writeFileSync(${JSON.stringify(`${controlPath}.utility-ready`)}, String(process.pid));
+        setInterval(() => {}, 60_000);
+    }
+});
 `);
-        const originalSpawn = cp.spawn;
-        let trackedChildExit = null;
-        cp.spawn = function(command, args, options) {
-            if (Array.isArray(args) && args.includes('--check')) {
-                const separatorIndex = args.indexOf('--');
-                const spawnCommand = separatorIndex >= 0 ? command : process.execPath;
-                const spawnArgs = separatorIndex >= 0
-                    ? [
-                        ...args.slice(0, separatorIndex + 1),
-                        process.execPath,
-                        heldScript,
-                    ]
-                    : [heldScript];
-                const child = originalSpawn.call(this, spawnCommand, spawnArgs, {
-                    ...options,
-                    env: {
-                        ...(options && options.env ? options.env : process.env),
-                        ELECTRON_RUN_AS_NODE: '1',
-                    },
-                });
-                trackedChildExit = new Promise(resolve => {
-                    const markExited = () => {
-                        utilityExited = true;
-                        resolve();
-                    };
-                    child.once('exit', markExited);
-                    child.once('close', markExited);
-                });
-                return child;
+        const OriginalWorker = workerThreads.Worker;
+        let trackedWorkerExit = null;
+        workerThreads.Worker = class HeldQpdfWorker extends OriginalWorker {
+            constructor(filename, options) {
+                if (options && options.workerData && options.workerData.kind === 'qpdf') {
+                    super(heldWorkerScript, {workerData: options.workerData});
+                    trackedWorkerExit = new Promise(resolve => {
+                        this.once('exit', () => {
+                            utilityExited = true;
+                            resolve();
+                        });
+                    });
+                    return;
+                }
+                super(filename, options);
             }
-            return originalSpawn.call(this, command, args, options);
         };
         moduleApi.syncBuiltinESMExports();
         try {
@@ -125,16 +125,16 @@ fs.writeFileSync(${JSON.stringify(`${controlPath}.utility-ready`)}, String(proce
             await waitForPath(`${controlPath}.cancel`);
             controller.abort(new Error('Windows integration utility cancellation'));
             const error = await outcome;
-            if (trackedChildExit) {
+            if (trackedWorkerExit) {
                 await Promise.race([
-                    trackedChildExit,
+                    trackedWorkerExit,
                     new Promise(resolve => setTimeout(resolve, 2_000)),
                 ]);
             }
             if (!error) throw new Error('Validation completed despite the dispatch barrier');
             throw error;
         } finally {
-            cp.spawn = originalSpawn;
+            workerThreads.Worker = OriginalWorker;
             moduleApi.syncBuiltinESMExports();
         }
     }

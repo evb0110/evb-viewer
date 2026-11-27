@@ -131,6 +131,10 @@ enum OpenMode {
     /// in the trailer even when empty-password decryption succeeds, and tolerates
     /// unreadable encrypted object streams when a user password is required.
     Conformance,
+    /// Strict structural verification for save promotion: qpdf's terminal
+    /// revision, no bytes before the header, exact declared stream lengths
+    /// with no endstream recovery scan, and no duplicate dictionary keys.
+    StrictVerify,
     /// The base of an append: qpdf's terminal revision, no bytes before the
     /// header, encryption refused from the index.
     AppendBase,
@@ -174,6 +178,12 @@ impl SourcePdf<File> {
         Self::open_conformance(file, len)
     }
 
+    /// Strict structural verification of the file at `path` without stream decoding.
+    pub(crate) fn open_strict_verify_path(path: &Path) -> Result<Self> {
+        let (file, len) = open_source_file(path)?;
+        Self::open_strict_verify(file, len)
+    }
+
     /// The PDF in the file at `path` as the base of an incremental append,
     /// with the source that reads the streams the base leaves unread.
     pub(crate) fn open_append_base_path(path: &Path) -> Result<(Self, IncrementalDocument)> {
@@ -215,6 +225,15 @@ impl<S: ByteSource> SourcePdf<S> {
         Self::open_indexed(bytes, len, OpenMode::Conformance, &[])
     }
 
+    /// Strict structural verification without stream decoding: enforces qpdf's
+    /// terminal xref locator, exact declared stream lengths (no recovery),
+    /// unique dictionary keys, and a readable page tree.
+    pub(crate) fn open_strict_verify(bytes: S, len: u64) -> Result<Self> {
+        let pdf = Self::open_indexed(bytes, len, OpenMode::StrictVerify, &[])?;
+        PageTreeResolver::with_both_ends(&pdf.document).map_err(page_tree_damaged)?;
+        Ok(pdf)
+    }
+
     /// The base of an incremental append. Plaintext objects appended to an
     /// encrypted file would be unreadable, so encryption, which the index
     /// shows, is refused before any object is read: the unlock flow rewrites
@@ -234,12 +253,13 @@ impl<S: ByteSource> SourcePdf<S> {
     }
 
     fn open_indexed(bytes: S, len: u64, mode: OpenMode, named: &[ObjectId]) -> Result<Self> {
-        let reader = Reader::new(&bytes, len)?;
+        let mut reader = Reader::new(&bytes, len)?;
+        reader.strict = matches!(mode, OpenMode::StrictVerify);
         let index = match mode {
             // An append extends the revision every reader takes as the last
             // one: the one qpdf's locator finds, as admission at open
             // requires of every base.
-            OpenMode::AppendBase => {
+            OpenMode::AppendBase | OpenMode::StrictVerify => {
                 if reader.base != 0 {
                     return Err(corrupt("PDF has bytes before its header"));
                 }
@@ -251,23 +271,25 @@ impl<S: ByteSource> SourcePdf<S> {
         if trailer_encrypted {
             match mode {
                 OpenMode::Decrypting => return Self::open_decrypted(bytes, len, index.start),
-                OpenMode::Conformance => {
-                    if let Some(encrypt_entry) = index.trailer.get(b"Encrypt").ok().cloned() {
-                        if let Ok(len_usize) = usize::try_from(len) {
-                            if len_usize <= MAX_ENCODED_PDF_BYTES {
-                                let mut data = vec![0; len_usize];
-                                bytes.read_at(0, &mut data).map_err(io_domain_error)?;
-                                if let Ok(mut document) = load_pdf_bytes_bounded(&data, Some("")) {
-                                    if !document.is_encrypted() {
-                                        document.trailer.set(b"Encrypt", encrypt_entry);
-                                        return Ok(Self {
-                                            document,
-                                            streams: HashMap::new(),
-                                            reals: HashMap::new(),
-                                            bytes,
-                                            len,
-                                            xref_start: index.start,
-                                        });
+                OpenMode::Conformance | OpenMode::StrictVerify => {
+                    if matches!(mode, OpenMode::Conformance) {
+                        if let Some(encrypt_entry) = index.trailer.get(b"Encrypt").ok().cloned() {
+                            if let Ok(len_usize) = usize::try_from(len) {
+                                if len_usize <= MAX_ENCODED_PDF_BYTES {
+                                    let mut data = vec![0; len_usize];
+                                    bytes.read_at(0, &mut data).map_err(io_domain_error)?;
+                                    if let Ok(mut document) = load_pdf_bytes_bounded(&data, Some("")) {
+                                        if !document.is_encrypted() {
+                                            document.trailer.set(b"Encrypt", encrypt_entry);
+                                            return Ok(Self {
+                                                document,
+                                                streams: HashMap::new(),
+                                                reals: HashMap::new(),
+                                                bytes,
+                                                len,
+                                                xref_start: index.start,
+                                            });
+                                        }
                                     }
                                 }
                             }
@@ -304,7 +326,7 @@ impl<S: ByteSource> SourcePdf<S> {
             })
             .copied()
             .collect::<Vec<_>>();
-        if matches!(mode, OpenMode::Conformance) {
+        if matches!(mode, OpenMode::Conformance | OpenMode::StrictVerify) {
             for (&number, entry) in &index.entries {
                 match entry {
                     XrefEntry::Offset { generation, .. } => named.push((number, *generation)),
@@ -841,6 +863,7 @@ struct Reader<'a, S: ?Sized> {
     /// Where `%PDF-` starts. Offsets count from it, as lopdf reads them.
     base: u64,
     version: String,
+    strict: bool,
 }
 
 impl<'a, S: ByteSource + ?Sized> Reader<'a, S> {
@@ -860,6 +883,7 @@ impl<'a, S: ByteSource + ?Sized> Reader<'a, S> {
             len,
             base: base as u64,
             version,
+            strict: false,
         })
     }
 
@@ -890,6 +914,7 @@ impl<'a, S: ByteSource + ?Sized> Reader<'a, S> {
             let truncated = (bytes.len() as u64) < self.len - start;
             match parse(&mut Cursor {
                 bytes: &bytes,
+                strict: self.strict,
                 ..Cursor::default()
             }) {
                 Ok(value) => return Ok(value),
@@ -910,6 +935,11 @@ impl<'a, S: ByteSource + ?Sized> Reader<'a, S> {
                         NativeErrorCode::TooLarge,
                         format!("PDF exceeds the {MAX_PDF_OBJECTS}-object admission ceiling"),
                     ))
+                }
+                Err(DuplicateKey(key)) => {
+                    return Err(corrupt(format!(
+                        "PDF object at offset {offset} has duplicate dictionary key /{key}"
+                    )))
                 }
                 Err(_) => {
                     return Err(corrupt(format!(
@@ -1268,6 +1298,9 @@ impl<'a, S: ByteSource + ?Sized> Reader<'a, S> {
                 return Ok((start, len));
             }
         }
+        if self.strict {
+            return Err(corrupt("PDF stream /Length does not end at endstream"));
+        }
         const ENDSTREAM: &[u8] = b"endstream";
         let end = bound.map_or(self.len, |bound| (self.base + bound).min(self.len));
         let mut found = None;
@@ -1309,17 +1342,43 @@ impl<'a, S: ByteSource + ?Sized> Reader<'a, S> {
     }
 
     /// Whether `len` bytes of stream data from absolute offset `start` end
-    /// where `endstream` follows.
+    /// where `endstream` follows (and, in strict mode, a properly delimited
+    /// `endstream` followed by `endobj`).
     fn ends_at_endstream(&self, start: u64, len: u64) -> Result<bool> {
         let Some(end) = start.checked_add(len).filter(|end| *end <= self.len) else {
             return Ok(false);
         };
-        let after = Self::read(self.bytes, self.len, end, 64)?;
+        let after = Self::read(self.bytes, self.len, end, if self.strict { 256 } else { 64 })?;
         let skipped = after
             .iter()
             .take_while(|byte| is_pdf_whitespace(**byte))
             .count();
-        Ok(after[skipped..].starts_with(b"endstream"))
+        let Some(rest) = after[skipped..].strip_prefix(b"endstream") else {
+            return Ok(false);
+        };
+        if !self.strict {
+            return Ok(true);
+        }
+        // Strict verification rejects trailing tokens glued onto `endstream`
+        // (e.g. `endstreamJUNK`) and requires a properly delimited `endobj`.
+        let Some(&next) = rest.first() else {
+            return Ok(false);
+        };
+        if !is_pdf_whitespace(next) && !is_pdf_delimiter(next) {
+            return Ok(false);
+        }
+        let mut cursor = Cursor {
+            bytes: rest,
+            strict: true,
+            ..Cursor::default()
+        };
+        cursor.skip_space();
+        let Some(after_endobj) = cursor.bytes[cursor.pos..].strip_prefix(b"endobj") else {
+            return Ok(false);
+        };
+        Ok(after_endobj
+            .first()
+            .is_none_or(|&byte| is_pdf_whitespace(byte) || is_pdf_delimiter(byte)))
     }
 
     /// A stream's decoded data, for the cross-reference and object streams
@@ -1625,7 +1684,7 @@ impl<'r, 'a, S: ByteSource + ?Sized> Loader<'r, 'a, S> {
         let Some(pos) = data.member_start(number, slot) else {
             return Ok(None);
         };
-        Self::parse_member(&data, pos, container, number)
+        Self::parse_member(&data, pos, container, number, self.reader.strict)
     }
 
     fn parse_member(
@@ -1633,16 +1692,24 @@ impl<'r, 'a, S: ByteSource + ?Sized> Loader<'r, 'a, S> {
         pos: usize,
         container: u32,
         number: u32,
+        strict: bool,
     ) -> Result<Option<(Object, RealSpellings)>> {
         let mut cursor = Cursor {
             bytes: &data.content,
             pos,
+            strict,
             ..Cursor::default()
         };
         match cursor.object(0) {
             Ok(object) => Ok(Some((object, cursor.reals))),
             Err(Crowded) => Err(too_many_elements(format!(
                 "{number} 0 in stream {container}"
+            ))),
+            Err(DuplicateKey(key)) => Err(corrupt(format!(
+                "PDF object {number} 0 in stream {container} has duplicate dictionary key /{key}"
+            ))),
+            Err(_) if strict => Err(corrupt(format!(
+                "PDF object {number} 0 in stream {container} is malformed"
             ))),
             Err(_) => Ok(None),
         }
@@ -1667,7 +1734,9 @@ impl<'r, 'a, S: ByteSource + ?Sized> Loader<'r, 'a, S> {
             let Some(pos) = data.member_start(number, index) else {
                 continue;
             };
-            if let Some(member) = Self::parse_member(data, pos, container, number)? {
+            if let Some(member) =
+                Self::parse_member(data, pos, container, number, self.reader.strict)?
+            {
                 self.charge(&member.0)?;
                 self.prefetched.insert(number, member);
             }
@@ -1943,8 +2012,10 @@ enum ParseFailure {
     Crowded,
     /// A cross-reference table lists more than `MAX_PDF_OBJECTS` objects.
     TooManyObjects,
+    /// Strict verification encountered a duplicate dictionary key.
+    DuplicateKey(String),
 }
-use ParseFailure::{Crowded, Incomplete, Invalid, TooManyObjects};
+use ParseFailure::{Crowded, DuplicateKey, Incomplete, Invalid, TooManyObjects};
 
 fn too_many_elements(object: String) -> Box<dyn Error> {
     domain_error(
@@ -2006,6 +2077,7 @@ struct Cursor<'a> {
     path: Vec<u8>,
     reals: RealSpellings,
     elements: usize,
+    strict: bool,
 }
 
 impl<'a> Cursor<'a> {
@@ -2109,9 +2181,14 @@ impl<'a> Cursor<'a> {
                             let value = self.object(depth + 1)?;
                             self.path.truncate(mark);
                             // The first of duplicate keys counts, as qpdf
-                            // and pypdf read it.
+                            // and pypdf read it. Strict verification refuses
+                            // duplicate keys just as strict qpdf exit 0 does.
                             if !dictionary.has(&key) {
                                 dictionary.set(key, value);
+                            } else if self.strict {
+                                return Err(DuplicateKey(
+                                    String::from_utf8_lossy(&key).into_owned(),
+                                ));
                             }
                         }
                         _ => return Err(Invalid),
@@ -2809,6 +2886,85 @@ mod tests {
         assert_eq!(
             error.downcast_ref::<NativeError>().unwrap().code,
             NativeErrorCode::TooLarge
+        );
+    }
+
+    #[test]
+    fn strict_verify_rejects_duplicate_dictionary_keys_and_bad_stream_lengths() {
+        let dup_pdf = include_bytes!("../tests/fixtures/page-engine/duplicate-info-dates.pdf");
+        assert!(
+            SourcePdf::open(&dup_pdf[..], dup_pdf.len() as u64).is_ok(),
+            "normal open tolerates duplicate dictionary keys"
+        );
+        let dup_err = SourcePdf::open_strict_verify(&dup_pdf[..], dup_pdf.len() as u64)
+            .err()
+            .expect("strict verify must reject duplicate dictionary keys");
+        assert!(
+            dup_err.to_string().contains("duplicate dictionary key"),
+            "unexpected strict verify error: {dup_err}"
+        );
+
+        // Stream with declared /Length 50 but actual data is 4 bytes ("test").
+        let mut bad_stream = b"%PDF-1.7\n".to_vec();
+        let o1 = bad_stream.len();
+        bad_stream.extend_from_slice(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+        let o2 = bad_stream.len();
+        bad_stream.extend_from_slice(b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
+        let o3 = bad_stream.len();
+        bad_stream.extend_from_slice(
+            b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R >>\nendobj\n",
+        );
+        let o4 = bad_stream.len();
+        bad_stream.extend_from_slice(b"4 0 obj\n<< /Length 50 >>\nstream\ntest\nendstream\nendobj\n");
+        let xref = bad_stream.len();
+        bad_stream.extend_from_slice(
+            format!(
+                "xref\n0 5\n0000000000 65535 f \n{o1:010} 00000 n \n{o2:010} 00000 n \n{o3:010} 00000 n \n{o4:010} 00000 n \ntrailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n"
+            )
+            .as_bytes(),
+        );
+        assert!(
+            SourcePdf::open_strict_verify(&bad_stream[..], bad_stream.len() as u64).is_err(),
+            "strict verify must reject a mismatched declared stream /Length"
+        );
+
+        // Stream with trailing junk glued onto endstream ("endstreamJUNK") or missing endobj.
+        let make_stream_ending_pdf = |ending: &[u8]| {
+            let mut pdf = b"%PDF-1.7\n".to_vec();
+            let o1 = pdf.len();
+            pdf.extend_from_slice(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+            let o2 = pdf.len();
+            pdf.extend_from_slice(b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
+            let o3 = pdf.len();
+            pdf.extend_from_slice(
+                b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R >>\nendobj\n",
+            );
+            let o4 = pdf.len();
+            pdf.extend_from_slice(b"4 0 obj\n<< /Length 4 >>\nstream\ntest\n");
+            pdf.extend_from_slice(ending);
+            let xref = pdf.len();
+            pdf.extend_from_slice(
+                format!(
+                    "xref\n0 5\n0000000000 65535 f \n{o1:010} 00000 n \n{o2:010} 00000 n \n{o3:010} 00000 n \n{o4:010} 00000 n \ntrailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n"
+                )
+                .as_bytes(),
+            );
+            pdf
+        };
+        let valid_ending = make_stream_ending_pdf(b"endstream\nendobj\n");
+        assert!(
+            SourcePdf::open_strict_verify(&valid_ending[..], valid_ending.len() as u64).is_ok(),
+            "strict verify must accept a valid endstream/endobj ending"
+        );
+        let junk_ending = make_stream_ending_pdf(b"endstreamJUNK\nendobj\n");
+        assert!(
+            SourcePdf::open_strict_verify(&junk_ending[..], junk_ending.len() as u64).is_err(),
+            "strict verify must reject endstreamJUNK"
+        );
+        let missing_endobj = make_stream_ending_pdf(b"endstream\n");
+        assert!(
+            SourcePdf::open_strict_verify(&missing_endobj[..], missing_endobj.len() as u64).is_err(),
+            "strict verify must reject stream missing endobj"
         );
     }
 }

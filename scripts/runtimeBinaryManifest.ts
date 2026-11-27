@@ -32,31 +32,6 @@ const RUNTIME_ARCHIVES = {
         archiveBytes: 32409679,
         archiveSha256: 'da4957f71b3fd9e693ddff18640aef1df4dfac48c61a8b551dfa9ed88b2c1eb8',
     },
-    'qpdf-linux-arm64': {
-        releaseName: 'runtime-binaries-v2',
-        archiveBytes: 1397021,
-        archiveSha256: '4a34454a29526e77d388a3af26dbaaad3c30569f1edf968b2c3e9ddded7a0a05',
-    },
-    // v4 restores the shared libqpdf that pdf-page-ops loads beside qpdf.
-    'qpdf-darwin-arm64': {
-        releaseName: 'runtime-binaries-v4',
-        archiveBytes: 1350407,
-        archiveSha256: '8b148823fa24423285a2b768a54021af6d6c5f41295858957f04756faaafa2ec',
-    },
-    'qpdf-linux-x64': {
-        releaseName: 'runtime-binaries-v2',
-        archiveBytes: 1479305,
-        archiveSha256: '51fed57410899a653137cff8a90ee6528bc319f9d7e0d6bed80fa92626c53cb6',
-    },
-    'qpdf-win32-x64': {
-        archiveBytes: 3205447,
-        archiveSha256: 'a9b0295aef660c10644c351c2b1810066d930e9d8b871bd3d81755adcbe434dd',
-    },
-    'qpdf-win32-arm64': {
-        releaseName: 'runtime-binaries-v2',
-        archiveBytes: 27716063,
-        archiveSha256: '8a6130a25600225d0df1e3097eb168c8b1185abdd707cf5f88e37a85745f1feb',
-    },
     'tesseract-tessdata': {
         assetName: 'tesseract-tessdata-v3',
         archiveBytes: 335082789,
@@ -95,10 +70,11 @@ export const RUNTIME_BINARY_MANIFEST_ENTRIES: readonly IRuntimeBinaryManifestEnt
     'linux-arm64',
     'win32-x64',
     'win32-arm64',
-] as const).flatMap(target => [
-    createRuntimeEntry('poppler', target, target.startsWith('win32') ? 'pdftoppm.exe' : 'pdftoppm'),
-    createRuntimeEntry('qpdf', target, target.startsWith('win32') ? 'qpdf.exe' : 'qpdf'),
-])];
+] as const).map(target => createRuntimeEntry(
+    'poppler',
+    target,
+    target.startsWith('win32') ? 'pdftoppm.exe' : 'pdftoppm',
+))];
 
 export const TESSDATA_RUNTIME_DATA_ENTRY: IRuntimeBinaryDataManifestEntry = {
     archiveKind: 'tar.gz',
@@ -111,5 +87,5 @@ export const TESSDATA_RUNTIME_DATA_ENTRY: IRuntimeBinaryDataManifestEntry = {
 export const RUNTIME_BINARY_MANIFEST: IRuntimeBinaryManifest = {
     entries: RUNTIME_BINARY_MANIFEST_ENTRIES,
     dataEntries: [TESSDATA_RUNTIME_DATA_ENTRY],
-    manifestSha256: '1c5c5fe0a746c00b71120b6d291754fd064a56642b6ed78226d8f2f8faac1f24',
+    manifestSha256: '5ef4782a6ae0faad19806a7150980a6b34875ef7ba0f1dd59e3b24c8af490331',
 };

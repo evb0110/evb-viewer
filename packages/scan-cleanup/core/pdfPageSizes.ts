@@ -351,9 +351,6 @@ export async function* readPdfPageSizeChunks(
             '--output',
             outputPath,
         ];
-        if (options.qpdfBinary !== undefined) {
-            args.push('--qpdf', options.qpdfBinary);
-        }
         if (options.nativeMetadataOnly) {
             args.push('--metadata-only');
         }

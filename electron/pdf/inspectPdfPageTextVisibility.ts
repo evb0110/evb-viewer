@@ -74,7 +74,6 @@ export async function inspectPdfPageTextVisibility(input: {
     pdfPath: string;
     pageNumbers: readonly number[];
     pdfPageOpsBinary?: string | undefined;
-    qpdfBinary?: string | undefined;
     tempDir: string;
     signal?: AbortSignal;
     withEvbOcrText?: boolean;
@@ -113,10 +112,6 @@ export async function inspectPdfPageTextVisibility(input: {
             input.pdfPath,
             '--pages-file',
             pagesPath,
-            ...(input.qpdfBinary === undefined ? [] : [
-                '--qpdf',
-                input.qpdfBinary,
-            ]),
             ...(input.withEvbOcrText === true ? ['--with-evb-ocr-text'] : []),
         ], {
             commandLabel: 'evb-pdf-page-ops(ocr-text-visibility)',

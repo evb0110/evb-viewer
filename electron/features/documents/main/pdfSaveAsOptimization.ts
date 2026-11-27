@@ -16,8 +16,8 @@ import {
 } from '@electron/utils/atomicReplace';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
-import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
+import { hasNativeErrorCode } from '@contracts/nativeErrors';
+import { runDesktopQpdfWasm } from '@electron/native-tools/qpdfWasmWorkerClient';
 import {
     getQpdfLosslessRewriteArgs,
     QPDF_SUCCESS_EXIT_CODES,
@@ -43,6 +43,7 @@ const LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES = runtimeConfig.test.largePdfSaveOptimiz
 
 interface IPdfSaveOptimizationOptions {
     cancelGroup?: string;
+    failOnTooLarge?: boolean;
     force?: boolean;
     minBytes?: number;
     skipSemanticPreflight?: boolean;
@@ -85,7 +86,7 @@ async function rewritePdfLosslessly(
     signal?: AbortSignal,
     cancelGroup?: string,
 ) {
-    await runNativeToolCommand(getPdfNativeToolPaths().qpdf, getQpdfLosslessRewriteArgs(inputPath, outputPath), {
+    await runDesktopQpdfWasm(getQpdfLosslessRewriteArgs(inputPath, outputPath), {
         allowedExitCodes: QPDF_SUCCESS_EXIT_CODES,
         commandLabel: label,
         timeoutMs: QPDF_LOSSLESS_REWRITE_TIMEOUT_MS,
@@ -166,6 +167,14 @@ async function optimizePdf(
         if (options.signal?.aborted || isAbortError(error)) {
             throw options.signal?.aborted ? abortErrorFromSignal(options.signal) : error;
         }
+        if (
+            options.force === true
+            && options.failOnTooLarge !== false
+            && hasNativeErrorCode(error)
+            && error.code === 'too-large'
+        ) {
+            throw error;
+        }
         logger.warn(`PDF save optimization failed for "${tempPath}": ${getErrorMessage(error)}`);
         return null;
     } finally {
@@ -200,6 +209,7 @@ export function optimizeGeneratedPdfForInteraction(
 ) {
     return optimizePdf(tempPath, {
         force: true,
+        failOnTooLarge: false,
         skipSemanticPreflight: true,
         label: 'qpdf(generated-pdf-optimize)',
         ...(options.signal ? { signal: options.signal } : {}),

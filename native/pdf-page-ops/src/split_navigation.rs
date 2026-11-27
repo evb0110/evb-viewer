@@ -536,10 +536,11 @@ pub(crate) fn split_destination_mapper<'a>(
         let Some(array) = names.resolve(destination)? else {
             return Ok(None);
         };
-        let id = array
-            .first()
-            .ok_or("Missing destination page")?
-            .as_reference()?;
+        let target = array.first().ok_or("Missing destination page")?;
+        if matches!(target, Object::Null) {
+            return Ok(None);
+        }
+        let id = target.as_reference()?;
         let Some(outputs) = by_source.get(&id) else {
             return Ok(None);
         };

@@ -34,6 +34,7 @@ import {createLogger} from '@electron/utils/createLogger';
 import {onSenderLifetimeEnd} from '@electron/utils/onSenderLifetimeEnd';
 import {getWorkerTaskFailureReceipt} from '@electron/utils/workerTask';
 import { SCAN_CLEANUP_PLATFORM_FEATURE } from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
+import { resolveDesktopQpdfPath } from '@electron/native-tools/qpdfWasmWorkerClient';
 import { runScanCleanupWorkerTask } from '@electron/features/scan-cleanup/runScanCleanupWorkerTask';
 import {
     acknowledgeScanCleanupCompletedOutputs,
@@ -851,7 +852,7 @@ export function createScanCleanupService(
                                         ),
                                     },
                                     {
-                                        qpdfBinary: pdfPaths.qpdf,
+                                        qpdfBinary: resolveDesktopQpdfPath(),
                                         pdftoppmBinary: pdfPaths.pdftoppm,
                                         ...(pdfPaths.pdfimages ? {pdfimagesBinary: pdfPaths.pdfimages} : {}),
                                         scanCleanupBinary,

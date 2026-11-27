@@ -26,7 +26,7 @@ document work. This page is the map. The decisions behind it are in
 │   scan-cleanup · pdf-page-ops · pdf-image-combine ·      │
 │   pdf-search · jbig2-codec · evb-raster-io ·             │
 │   scan-primitives · evb-native-support                   │
-│   plus third-party: poppler, qpdf                         │
+│   plus third-party: poppler                               │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -126,13 +126,16 @@ atomic file replacement on macOS/Linux so native sidecars cannot outlive the
 app or bypass memory caps. The binaries ship with the app they were built with, so there is no version negotiation: every binary carries a build ID
 (a hash of the sources it links, from `scripts/native-build-id.mjs`), and a
 development build refuses a binary whose ID differs from its own. The scan-cleanup, pdf-page-ops, pdf-image-combine and pdf-search crates build to
-WebAssembly; `pdf-search` (`evb-pdf-search.wasm`) and `pdf-page-ops`
-(`evb-pdf-page-ops.wasm`) run as WASM modules in both desktop worker threads
-(streaming host files by position via Node `fs` so multi-GiB PDFs never buffer
-whole files in memory) and browser Web Workers.
-
-> **Desktop `qpdf` WASM readiness benchmark (Go verdict, deferred to follow-up):**
-> Mounting Node `fs` positional I/O directly on `evb-qpdf.wasm` (Emscripten 64-bit `off_t`) handles 1 GiB, 2 GiB, 2.5 GiB (>2 GiB), and 5 GiB sparse (>4 GiB) PDFs cleanly with flat RSS (~96–284 MiB peak RSS; `--show-npages` ~20–24 ms, `--check` ~218–422 ms, `--linearize --stream-data=preserve` ~1.25–2.26 s, full rewrite ~1.18–1.20x native). Native `qpdf` remains bundled until a dedicated follow-up retires it cleanly alongside `scan-cleanup`.
+WebAssembly; `pdf-search` (`evb-pdf-search.wasm`), `pdf-page-ops`
+(`evb-pdf-page-ops.wasm`), and `qpdf` (`evb-qpdf.wasm`) run as WASM modules in
+both desktop worker threads (streaming host files by position via Node `fs`
+under virtual paths so multi-GiB PDFs never buffer whole files in memory) and
+browser Web Workers. For PDFs containing a single stream larger than 2 GiB
+(which exceeds wasm32 `std::string` limits in `evb-qpdf.wasm`), desktop Save
+verification routes cleanly to `evb-pdf-page-ops.wasm`'s 64-bit streaming
+structural check, while whole-file optimize, repair, and conformance-repair
+operations fail closed with a typed `too-large` error without writing truncated
+output.
 
 | Crate | Owns |
 | --- | --- |

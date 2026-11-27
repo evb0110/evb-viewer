@@ -1,7 +1,6 @@
 import { getErrorMessage } from '@contracts/getErrorMessage';
+import { runDesktopQpdfWasm } from '@electron/native-tools/qpdfWasmWorkerClient';
 import { fsyncFile } from '@electron/utils/fsyncPath';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
-import {execFile} from 'node:child_process';
 import {
     createHash,
     randomUUID,
@@ -25,9 +24,6 @@ import {
     resolve,
 } from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {promisify} from 'node:util';
-
-const execFileAsync = promisify(execFile);
 
 export type TExactPdfFixtureCopyMode = 'clone' | 'stream';
 
@@ -394,18 +390,18 @@ async function hashFile(path: string, timeoutMs: number, signal?: AbortSignal) {
 }
 
 async function runQpdf(
-    qpdfPath: string,
     args: string[],
     timeoutMs: number,
     signal?: AbortSignal,
 ) {
     try {
         throwIfAborted(signal);
-        return await execFileAsync(qpdfPath, args, {
-            encoding: 'utf8',
-            maxBuffer: 128 * 1024,
-            signal,
-            timeout: timeoutMs,
+        return await runDesktopQpdfWasm(args, {
+            commandLabel: 'qpdf(stage-exact-fixture)',
+            maxStdoutBytes: 128 * 1024,
+            maxStderrBytes: 128 * 1024,
+            timeoutMs,
+            ...(signal === undefined ? {} : {signal}),
         });
     } catch (error) {
         throw new Error(`qpdf failed for ${args.at(-1) ?? '<fixture>'}`, {cause: error});
@@ -420,7 +416,6 @@ export async function readExactPdfFixtureIdentity(
     const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     assertTimeout(timeoutMs);
     throwIfAborted(options.signal);
-    const qpdfPath = getPdfNativeToolPaths().qpdf;
     assertMaxBytes(maxBytes);
     const fileStat = await stat(path);
     if (!fileStat.isFile()) {
@@ -439,7 +434,7 @@ export async function readExactPdfFixtureIdentity(
             {stdout: pageCountOutput},
             sha256,
         ] = await Promise.all([
-            runQpdf(qpdfPath, [
+            runQpdf([
                 '--show-npages',
                 path,
             ], timeoutMs, siblingController.signal),
@@ -451,7 +446,7 @@ export async function readExactPdfFixtureIdentity(
     } finally {
         options.signal?.removeEventListener('abort', onAbort);
     }
-    await runQpdf(qpdfPath, [
+    await runQpdf([
         '--check',
         path,
     ], timeoutMs, options.signal);

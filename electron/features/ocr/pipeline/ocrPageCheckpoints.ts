@@ -13,6 +13,7 @@ import {
 import {join} from 'node:path';
 import * as v from 'valibot';
 import {BROWSER_OCR_ENGINE_REVISION} from '@contracts/browserOcrEngine';
+import {BROWSER_QPDF_ENGINE_WASM_SHA256} from '@contracts/browserQpdfEngine';
 import {OCR_WORD_GEOMETRY_SCHEMA} from '@contracts/browserPageOpsWorker';
 import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
 import type {
@@ -87,7 +88,7 @@ export function createOcrCheckpointFingerprint(job: {
             scanCleanup: getNativeToolBuildIdentity('evb-scan-cleanup'),
             pageOps: getNativeToolBuildIdentity('evb-pdf-page-ops'),
             poppler: getRuntimeToolArchiveIdentity('poppler'),
-            qpdf: getRuntimeToolArchiveIdentity('qpdf'),
+            qpdf: BROWSER_QPDF_ENGINE_WASM_SHA256,
             models: models.map(model => [
                 model,
                 OCR_LANGUAGE_MODEL_SHA256[model],

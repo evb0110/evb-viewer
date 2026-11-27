@@ -43,6 +43,9 @@ vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
     getPdfNativeToolPaths: () => ({ qpdf: '/native/qpdf' }),
 }));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({ runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args) }));
+vi.mock('@electron/native-tools/qpdfWasmWorkerClient', () => ({
+    runDesktopQpdfWasm: (args: string[], options?: unknown) => mocks.runNativeToolCommand('/native/qpdf', args, options),
+}));
 vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => ({
     debug: vi.fn(),
     error: vi.fn(),

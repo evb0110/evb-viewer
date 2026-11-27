@@ -65,7 +65,6 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolComm
 vi.mock('@electron/native-tools/buildPopplerEnv', () => ({buildPopplerEnv: () => undefined}));
 vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({
     pdfinfo: '/tools/pdfinfo',
-    qpdf: '/tools/qpdf',
 })}));
 
 beforeEach(() => {
@@ -122,8 +121,6 @@ describe('native PDF metadata parsing', () => {
             'read-document-catalog',
             '--input',
             '/tmp/a.pdf',
-            '--qpdf',
-            '/tools/qpdf',
         ], expect.anything());
     });
 

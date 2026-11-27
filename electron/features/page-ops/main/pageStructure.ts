@@ -4,7 +4,6 @@ import {
 } from 'fs/promises';
 import {join} from 'path';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { createManagedScratchTempDir } from '@electron/utils/managedScratchTemp';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';
@@ -145,8 +144,6 @@ export async function rotatePages(
             pdfPath,
             '--mutations-file',
             mutationsPath,
-            '--qpdf',
-            getPdfNativeToolPaths().qpdf,
             '--modified-at',
             createNativeModifiedAt(),
             '--append',

@@ -28,6 +28,7 @@ import {
     readPdfPageTexts,
     streamPdfPageTexts,
 } from '@electron/features/search/pdfPageTexts';
+import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
 
 const execFileAsync = promisify(execFile);
 const hostResourceDirectory = `${process.platform}-${process.arch}`;
@@ -40,12 +41,11 @@ const hostIsPackaged = [
 const nativeToolCommandTimeoutMs = 15_000;
 const nativeToolContractTestTimeoutMs = nativeToolCommandTimeoutMs + 5_000;
 
-function nativeToolPath(tool: 'pdftotext' | 'qpdf') {
-    const packageName = tool === 'qpdf' ? 'qpdf' : 'poppler';
+function nativeToolPath(tool: 'pdftotext') {
     return resolve(
         process.cwd(),
         'resources',
-        packageName,
+        'poppler',
         hostResourceDirectory,
         'bin',
         `${tool}${executableSuffix}`,
@@ -53,14 +53,14 @@ function nativeToolPath(tool: 'pdftotext' | 'qpdf') {
 }
 
 describe.skipIf(!hostIsPackaged)('shipped native document binary contracts', () => {
-    it('keeps qpdf JSON compatible with the JavaScript page contract', async () => {
+    it('keeps qpdf WASM JSON compatible with the JavaScript page contract', async () => {
         const fixture = resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf');
-        const {stdout} = await execFileAsync(nativeToolPath('qpdf'), [
+        const {stdout} = await runDesktopQpdfWasm([
             '--json',
             fixture,
         ], {
-            maxBuffer: 8 * 1024 * 1024,
-            timeout: nativeToolCommandTimeoutMs,
+            timeoutMs: nativeToolCommandTimeoutMs,
+            commandLabel: 'qpdf(json-contract-test)',
         });
         const result = JSON.parse(stdout) as {
             pages?: unknown[];

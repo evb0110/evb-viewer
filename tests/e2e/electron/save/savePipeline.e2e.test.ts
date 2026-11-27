@@ -116,7 +116,7 @@ import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObse
 import {getErrorMessage} from '@contracts/getErrorMessage';
 import {electronUserDataPath} from '@scripts/electron-run/electronRunSessionPaths';
 import {extractTextWithPdfjs} from '@electron/features/search/pdfjsPageTexts';
-import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
+import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
 
 const E2E_TIMEOUT_MS = 180_000;
 const SAVE_TIMEOUT_MS = 60_000;
@@ -408,10 +408,10 @@ async function createGeneratedTextPdfWithForeignNotes() {
 // The saved file must be structurally clean, not merely recoverable, and carry
 // every page's original text.
 async function expectSavedPdfKeepsGeneratedText(path: string) {
-    await execFileAsync(getPdfNativeToolPaths().qpdf, [
+    await runDesktopQpdfWasm([
         '--check',
         path,
-    ], {maxBuffer: 1024 * 1024});
+    ], {commandLabel: 'qpdf(e2e-save-pipeline-check)'});
     expect(await extractTextWithPdfjs(path)).toEqual(await extractTextWithPdfjs(GENERATED_TEXT_FIXTURE));
 }
 

@@ -1,6 +1,3 @@
-#[path = "../../test-support/external_tool.rs"]
-mod external_tool;
-
 use std::{
     fs::{self, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
@@ -453,18 +450,9 @@ fn malformed_reply_preserves_its_square_and_readable_thread() {
     fs::remove_file(output).unwrap();
 }
 
-fn metadata_qpdf_path() -> PathBuf {
-    let bundled = external_tool::bundled_tool_path("qpdf", "qpdf");
-    if std::env::var_os("QPDF_PATH").is_none() && bundled.is_file() {
-        return bundled;
-    }
-    external_tool::tool_path("QPDF_PATH", "qpdf", "qpdf")
-}
-
 fn metadata_command(operation: &str, input: &Path, output: Option<&Path>) -> Value {
     let mut command = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"));
     command.args([operation, "--input"]).arg(input);
-    command.arg("--qpdf").arg(metadata_qpdf_path());
     if let Some(output) = output {
         command.arg("--output").arg(output);
     }
@@ -1036,8 +1024,6 @@ fn selected_and_complete_metadata_values_keep_object_resource_limits() {
         let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
             .args(["parse-annotations", "--input"])
             .arg(&input)
-            .arg("--qpdf")
-            .arg(metadata_qpdf_path())
             .arg("--output")
             .arg(&output)
             .args(["--modified-at", "D:20260830130000Z"])
@@ -1083,8 +1069,6 @@ fn nul_escaped_names_in_a_managed_note_keep_their_reader_view_through_save_and_u
             .arg(input)
             .arg("--mutations-file")
             .arg(mutations)
-            .arg("--qpdf")
-            .arg(metadata_qpdf_path())
             .args(["--modified-at", "D:20260830140000Z"])
             .output()
             .unwrap();
@@ -1234,8 +1218,6 @@ fn conformance_keeps_unreachable_signatures_and_validates_optional_catalog_dicti
     let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
         .args(["pdf-conformance", "--input"])
         .arg(&input)
-        .arg("--qpdf")
-        .arg(metadata_qpdf_path())
         .output()
         .unwrap();
     assert!(!result.status.success());
@@ -1277,8 +1259,6 @@ fn conformance_keeps_unreachable_signatures_and_validates_optional_catalog_dicti
         let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
             .args(["read-document-catalog", "--input"])
             .arg(&input)
-            .arg("--qpdf")
-            .arg(metadata_qpdf_path())
             .output()
             .unwrap();
         // The indexed reader finds the damaged stream's end at its

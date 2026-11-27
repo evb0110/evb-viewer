@@ -165,7 +165,10 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolComm
 }}));
 vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
-    getPdfNativeToolPaths: () => ({qpdf: '/mock/qpdf'}),
+    getPdfNativeToolPaths: () => ({}),
+}));
+vi.mock('@electron/native-tools/qpdfWasmWorkerClient', () => ({
+    runDesktopQpdfWasm: (args: string[], options?: unknown) => mocks.runNativeToolCommand('/mock/qpdf', args, options),
 }));
 vi.mock('@electron/features/page-ops/main/resolveNativePageOpsPath', () => ({resolveNativePageOpsPath: () => '/mock/page-ops'}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
@@ -234,8 +237,6 @@ describe('analyzePdfConformanceFile', () => {
                 'pdf-conformance',
                 '--input',
                 '/tmp/input.pdf',
-                '--qpdf',
-                '/mock/qpdf',
             ],
             expect.objectContaining({
                 onTerminationProof: expect.any(Function),
@@ -411,8 +412,6 @@ describe('analyzePdfConformanceFileDirect', () => {
                     'pdf-conformance',
                     '--input',
                     '/tmp/sparse-2gib.pdf',
-                    '--qpdf',
-                    '/mock/qpdf',
                 ],
                 expect.objectContaining({
                     maxStdoutBytes: 64 * 1024,
@@ -515,8 +514,6 @@ describe('validatePdfFile', () => {
                 'pdf-conformance',
                 '--input',
                 '/tmp/slow.pdf',
-                '--qpdf',
-                '/mock/qpdf',
             ],
             expect.objectContaining({
                 maxStdoutBytes: 64 * 1024,

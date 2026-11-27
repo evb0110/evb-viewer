@@ -65,6 +65,10 @@ import {
     cancelDesktopPageOpsWasmGroup,
     cancelDesktopPageOpsWasmGroupAndWait,
 } from '@electron/native-tools/pdfPageOpsWorkerClient';
+import {
+    cancelDesktopQpdfWasmGroup,
+    cancelDesktopQpdfWasmGroupAndWait,
+} from '@electron/native-tools/qpdfWasmWorkerClient';
 
 export interface IRunCommandOptions {
     cwd?: string;
@@ -951,7 +955,9 @@ function unregisterCancelGroupCompletion(cancelGroup: string, completion: TCance
 }
 
 export function cancelNativeCommandGroup(cancelGroup: string) {
-    const canceledWasm = cancelDesktopPageOpsWasmGroup(cancelGroup);
+    const canceledPageOps = cancelDesktopPageOpsWasmGroup(cancelGroup);
+    const canceledQpdf = cancelDesktopQpdfWasmGroup(cancelGroup);
+    const canceledWasm = canceledPageOps || canceledQpdf;
     const handlers = activeCancelGroups.get(cancelGroup);
     if (!handlers || handlers.size === 0) {
         return canceledWasm;
@@ -963,7 +969,18 @@ export function cancelNativeCommandGroup(cancelGroup: string) {
 }
 
 export async function cancelNativeCommandGroupAndWait(cancelGroup: string) {
-    const wasmPromise = cancelDesktopPageOpsWasmGroupAndWait(cancelGroup);
+    const wasmPromise = Promise.all([
+        cancelDesktopPageOpsWasmGroupAndWait(cancelGroup),
+        cancelDesktopQpdfWasmGroupAndWait(cancelGroup),
+    ]).then(([
+        pageOpsSettled,
+        qpdfSettled,
+    ]) => {
+        if (pageOpsSettled === null && qpdfSettled === null) {
+            return null;
+        }
+        return (pageOpsSettled ?? true) && (qpdfSettled ?? true);
+    });
     const handlers = activeCancelGroups.get(cancelGroup);
     const completions = activeCancelGroupCompletions.get(cancelGroup);
     if (!handlers || !completions || handlers.size === 0 || completions.size === 0) {

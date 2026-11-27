@@ -2,9 +2,9 @@ import {compact} from 'es-toolkit';
 import type {IPdfValidationResult} from '@contracts/pdfConformance';
 
 /**
- * The qpdf command lines EVB Viewer runs and how it reads their results. Desktop
- * runs them with its bundled qpdf, the browser with the same qpdf built to
- * WebAssembly (`scripts/build-qpdf-wasm.sh`), so both shells take one decision.
+ * The qpdf command lines EVB Viewer runs and how it reads their results. Both
+ * desktop and browser run the same qpdf compiled to WebAssembly
+ * (`scripts/build-qpdf-wasm.sh`), so both shells take one decision.
  */
 
 /** qpdf finished without warnings. */

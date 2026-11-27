@@ -50,8 +50,6 @@ export async function inspectScanCleanupSourceTextOmission(input: {
         input.pdfPath,
         '--pages-file',
         input.pagesPath,
-        '--qpdf',
-        input.qpdfBinary,
     ], {
         signal: input.signal,
         commandLabel: 'evb-pdf-page-ops(ocr-text-visibility:scan-cleanup)',

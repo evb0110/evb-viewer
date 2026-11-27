@@ -365,6 +365,18 @@ async function run() {
         }
         await assertNoPageOperationResidue(workingCopyPath);
 
+        // Exercise a full qpdf --check validation via the packaged evb-qpdf.wasm worker.
+        const qpdfValidation = await page.evaluate(async ({pdfPath}) => {
+            const api = (window as IE2EWindow).electronAPI;
+            if (!api?.documentPdf?.validatePdfPath) {
+                throw new Error('electronAPI.documentPdf.validatePdfPath is unavailable');
+            }
+            return api.documentPdf.validatePdfPath(pdfPath);
+        }, {pdfPath: workingCopyPath});
+        if (!qpdfValidation.isValid || qpdfValidation.tool !== 'qpdf') {
+            throw new Error(`Packaged smoke qpdf WASM validation failed: ${JSON.stringify(qpdfValidation)}`);
+        }
+
         const searchResult = await page.evaluate(async ({pdfPath}) => {
             const api = (window as IE2EWindow).electronAPI;
             if (!api?.search?.run) {

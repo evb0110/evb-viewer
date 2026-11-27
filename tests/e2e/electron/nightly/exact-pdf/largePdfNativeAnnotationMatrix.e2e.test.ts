@@ -13,13 +13,11 @@ import {
     rmSync,
     writeFileSync,
 } from 'node:fs';
-import {execFile} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {
     dirname,
     join,
 } from 'node:path';
-import {promisify} from 'node:util';
 import {
     readPdfAnnotationIndex,
     type IPdfAnnotationIndexEntry,
@@ -61,7 +59,7 @@ import {
     validateExactPdfFixtureIdentity,
 } from '@scripts/ci/stageExactPdfFixture';
 import type {Page} from 'puppeteer-core';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
+import { runDesktopQpdfWasm } from '@electron/native-tools/qpdfWasmWorkerClient';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { resolvePdfPageOpsWasmPath } from '@node-runtime/pdfPageOpsWasmRunner';
 import { electronAppTempDirPath } from '@scripts/electron-run/electronRunSessionPaths';
@@ -74,7 +72,6 @@ const PLACED_IMAGE_PAGE_NUMBER = 31;
 const PLACED_IMAGE_PAGE_INDEX = PLACED_IMAGE_PAGE_NUMBER - 1;
 const exactFixtureExpectation = resolveExactPdfFixtureExpectation();
 const exactFixtureArtifactDirectories: string[] = [];
-const execFileAsync = promisify(execFile);
 type TCanonicalKind = 'note' | 'placed-image' | 'shape' | 'text-box' | 'text-markup';
 type TCanonicalShapeTool = 'Circle' | 'Draw' | 'Line' | 'Rectangle' | 'Arrow';
 
@@ -195,14 +192,13 @@ async function readShapeIndex(page: Page, documentPath: string) {
 }
 
 async function readObject(documentPath: string, ref: IAnnotationRef) {
-    const {stdout} = await execFileAsync(getPdfNativeToolPaths().qpdf, [
+    const {stdout} = await runDesktopQpdfWasm([
         `--show-object=${ref.objectNumber},${ref.generationNumber}`,
         '--raw-stream-data',
         documentPath,
     ], {
-        encoding: 'utf8',
-        maxBuffer: 2 * 1024 * 1024,
-        timeout: 30_000,
+        timeoutMs: 30_000,
+        commandLabel: 'qpdf(e2e-matrix-read-object)',
     });
     return stdout;
 }
@@ -867,10 +863,13 @@ async function saveCanonicalRevision(page: Page, documentPath: string, label: st
         {label},
     );
     expect(event.detail.documentRevisionToken).toEqual(expect.any(String));
-    await execFileAsync(getPdfNativeToolPaths().qpdf, [
+    await runDesktopQpdfWasm([
         '--check',
         documentPath,
-    ], {timeout: 60_000});
+    ], {
+        timeoutMs: 60_000,
+        commandLabel: 'qpdf(e2e-matrix-check)',
+    });
     return event.detail.documentRevisionToken;
 }
 

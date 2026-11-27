@@ -32,6 +32,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@electron/features/page-ops/main/resolveNativePageOpsPath', () => ({resolveNativePageOpsPath: () => '/mock/evb-pdf-page-ops'}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
+vi.mock('@electron/native-tools/qpdfWasmWorkerClient', () => ({
+    runDesktopQpdfWasm: (args: string[], options?: unknown) => mocks.runNativeToolCommand('/mock/qpdf', args, options),
+}));
 vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
     getPdfNativeToolPaths: () => mocks.getPdfNativeToolPaths(),
@@ -503,10 +506,7 @@ describe('page metadata remap', () => {
         expect(args[0]).toBe('save-mutations');
         expect(args).toContain('--append');
         expect(args).toContain('--append-in-place');
-        expect(args).toEqual(expect.arrayContaining([
-            '--qpdf',
-            '/mock/qpdf',
-        ]));
+        expect(args).not.toContain('--qpdf');
         expect(args.some(arg => arg.startsWith('--incremental-validation'))).toBe(false);
     });
 

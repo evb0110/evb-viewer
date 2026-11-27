@@ -24,7 +24,6 @@ type TNativeResourcePathType = 'directory' | 'file';
 
 export const NATIVE_TOOL_RESOURCE_FAMILY_IDS = [
     'poppler',
-    'qpdf',
     'pdf-image-combine',
     'pdf-print-dialog',
     'scan-cleanup',
@@ -190,16 +189,6 @@ export const NATIVE_TOOL_RESOURCE_FAMILIES: readonly INativeToolResourceFamily[]
             'poppler',
         ],
         stagedRootSegments: ['poppler'],
-    },
-    {
-        id: 'qpdf',
-        label: 'qpdf native tools',
-        packagedEntries: [packagedBinary('qpdf')],
-        sourceRootSegments: [
-            'resources',
-            'qpdf',
-        ],
-        stagedRootSegments: ['qpdf'],
     },
     {
         id: 'pdf-print-dialog',

@@ -1,4 +1,3 @@
-import {execFile} from 'node:child_process';
 import {
     access,
     mkdtemp,
@@ -10,7 +9,6 @@ import {
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {promisify} from 'node:util';
 import {
     PDFDocument,
     StandardFonts,
@@ -25,18 +23,20 @@ import {
 } from 'vitest';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
 import {shutdownPdfPageOpsWorkers} from '@electron/native-tools/pdfPageOpsWorkerClient';
+import {
+    runDesktopQpdfWasm,
+    shutdownQpdfWasmWorkers,
+} from '@electron/native-tools/qpdfWasmWorkerClient';
 import {cancelNativeCommandGroupAndWait} from '@electron/native-tools/runNativeCommand';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
-import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 
-const execFileAsync = promisify(execFile);
 const TIMEOUT_MS = 120_000;
 
 async function runQpdf(args: string[]) {
-    return execFileAsync(getPdfNativeToolPaths().qpdf, args, {
-        encoding: 'utf8',
-        maxBuffer: 512 * 1024,
-        timeout: TIMEOUT_MS,
+    return runDesktopQpdfWasm(args, {
+        maxStdoutBytes: 512 * 1024,
+        maxStderrBytes: 512 * 1024,
+        timeoutMs: TIMEOUT_MS,
     });
 }
 
@@ -129,6 +129,7 @@ describe('desktop evb-pdf-page-ops.wasm host-file streaming integration', () => 
 
     afterAll(() => {
         shutdownPdfPageOpsWorkers();
+        shutdownQpdfWasmWorkers();
     });
 
     it('runs page-structure edits, queries, decrypt, print-layout, and text-box-appearance via WASM', async () => {

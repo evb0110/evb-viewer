@@ -14,6 +14,7 @@ import {readPnmSize} from '@ocr-core/ppmRaster';
 import {getErrorMessage} from '@electron/utils/error';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
+import { runDesktopQpdfWasm } from '@electron/native-tools/qpdfWasmWorkerClient';
 
 export interface IOcrWorkerPipelineHarness {
     /** The pages this harness's engine recognized, in order. */
@@ -165,7 +166,6 @@ export async function createOcrWorkerPipelineHarness(options: {
                     tessdataPath: root,
                     pdftoppmBinary: getPdfNativeToolPaths().pdftoppm,
                     pdftotextBinary: getPdfNativeToolPaths().pdftotext,
-                    qpdfBinary: getPdfNativeToolPaths().qpdf,
                     tempDir: root,
                 },
                 runEngine,
@@ -196,7 +196,10 @@ export async function hasOcrWorkerPipelineTools() {
     const tools = getPdfNativeToolPaths();
     const run = promisify(execFile);
     return Promise.all([
-        run(tools.qpdf, ['--version']),
+        runDesktopQpdfWasm(['--version'], {
+            timeoutMs: 10_000,
+            commandLabel: 'qpdf(ocr-harness-probe)',
+        }),
         run(tools.pdftoppm, ['-v']),
         run(tools.pdftotext, ['-v']),
     ]).then(() => true).catch(() => false);

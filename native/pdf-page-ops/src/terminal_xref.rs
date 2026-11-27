@@ -7,7 +7,6 @@ const TERMINAL_TAIL_BYTES: u64 = 1024 * 1024;
 const LOPDF_EOF_SEARCH_BYTES: usize = 512;
 const LOPDF_STARTXREF_SEARCH_BYTES: usize = 25;
 const LOPDF_HEADER_LINE_BYTES: usize = 64 * 1024;
-const QPDF_PAGE_COUNT_OUTPUT_BYTES: usize = 1024;
 /// qpdf takes the last `startxref` followed by an integer that starts in a
 /// file's final 1054 bytes; with recovery off it refuses a file without one.
 pub(crate) const QPDF_STARTXREF_SEARCH_BYTES: u64 = 1054;
@@ -172,27 +171,16 @@ fn classify_refusal(error: Box<dyn Error>) -> Result<AppendAdmission> {
 
 /// Runs the append loaders' structural acceptance: the terminal-xref guard,
 /// then for an eager base lopdf's startxref locator and the loader's
-/// cross-reference chain preflight. A larger base gets qpdf's page-tree read
-/// with recovery off and the loader's page ceiling; its full qpdf structural
-/// read costs seconds, so it is not run here and such a base is never called
-/// appendable. Every base then gets the indexed read annotation, label and OCR
-/// saves open it with (`indexed_base_admission`).
-pub(crate) fn append_admission(path: &Path, qpdf_path: Option<&Path>) -> Result<AppendAdmission> {
+/// cross-reference chain preflight. Every base then gets the indexed read
+/// annotation, label and OCR saves open it with (`indexed_base_admission`).
+pub(crate) fn append_admission(path: &Path) -> Result<AppendAdmission> {
     let mut file = File::open(path).map_err(io_domain_error)?;
     let file_len = file.metadata().map_err(io_domain_error)?.len();
     let admission = append_admission_from(&mut file, file_len, PDF_PATH_LOAD_POLICY, || {
-        let qpdf_path = qpdf_path.ok_or_else(large_base_needs_qpdf)?;
-        let temp = TempQpdfFiles::create()?;
-        match run_qpdf_bounded(
-            path,
-            qpdf_path,
-            &["--suppress-recovery", "--show-npages"],
-            &temp,
-            QPDF_PAGE_COUNT_OUTPUT_BYTES,
-        ) {
-            Ok(_) => large_base_admission(&temp),
-            Err(error) => classify_refusal(error),
-        }
+        Ok(AppendAdmission::Unverified(
+            "PDF exceeds eager append-admission ceiling; verified through indexed reader"
+                .to_string(),
+        ))
     })?;
     indexed_base_admission(admission, &file, file_len)
 }
@@ -334,13 +322,6 @@ pub(crate) fn append_admission_of_source_desktop<S: ByteSource>(
     indexed_base_admission(admission, source, len)
 }
 
-fn large_base_needs_qpdf() -> Box<dyn Error> {
-    domain_error(
-        NativeErrorCode::InvalidRequest,
-        "Large PDF append admission requires the bundled qpdf",
-    )
-}
-
 fn append_admission_from(
     file: &mut (impl Read + Seek),
     file_len: u64,
@@ -432,25 +413,6 @@ fn strip_lopdf_eol(bytes: &[u8]) -> Option<&[u8]> {
         .or_else(|| bytes.strip_prefix(b"\r"))
 }
 
-fn large_base_admission(temp: &TempQpdfFiles) -> Result<AppendAdmission> {
-    let output = read_file_bounded(
-        &temp.structure,
-        QPDF_PAGE_COUNT_OUTPUT_BYTES,
-        "qpdf page count",
-    )?;
-    let page_count = std::str::from_utf8(&output)?.trim().parse::<usize>()?;
-    Ok(if page_count > MAX_PATH_INPUT_PDF_PAGES {
-        AppendAdmission::Limited(format!(
-            "PDF page count {page_count} exceeds the native path-load limit"
-        ))
-    } else {
-        AppendAdmission::Unverified(
-            "The object and structure ceilings of a base this large are checked when an edit is saved"
-                .to_string(),
-        )
-    })
-}
-
 pub(crate) fn read_window(
     file: &mut (impl Read + Seek),
     offset: usize,
@@ -463,12 +425,8 @@ pub(crate) fn read_window(
     Ok(window)
 }
 
-pub(crate) fn write_append_admission(
-    input_path: &Path,
-    qpdf_path: Option<&Path>,
-    output: &mut impl Write,
-) -> Result<()> {
-    let (verdict, reason) = match append_admission(input_path, qpdf_path)? {
+pub(crate) fn write_append_admission(input_path: &Path, output: &mut impl Write) -> Result<()> {
+    let (verdict, reason) = match append_admission(input_path)? {
         AppendAdmission::Appendable => ("appendable", None),
         AppendAdmission::Repairable(reason) => ("repairable", Some(reason)),
         AppendAdmission::Limited(reason) => ("limited", Some(reason)),
@@ -590,7 +548,7 @@ mod tests {
     fn assert_admission_matches_appender(label: &str, bytes: &[u8], expected_appendable: bool) {
         let path = temp_path(label);
         fs::write(&path, bytes).unwrap();
-        let admission = append_admission(&path, None).unwrap();
+        let admission = append_admission(&path).unwrap();
         let len = fs::metadata(&path).unwrap().len();
         let appender_accepts = load_pdf_path(&path).is_ok()
             && SourcePdf::open_append_base(bytes, len)
@@ -807,26 +765,11 @@ mod tests {
         )
         .unwrap();
         drop(file);
-        let qpdf_path = temp_path("large-fake-qpdf");
-        for (script, expected) in [
-            ("printf '3\\n'", "unverified"),
-            ("printf '250000\\n'", "limited"),
-            (
-                "echo \"qpdf: can't find startxref\" >&2; exit 2",
-                "repairable",
-            ),
-        ] {
-            let _fake = crate::write_fake_executable(&qpdf_path, &format!("#!/bin/sh\n{script}\n"));
-            let admission = append_admission(&path, Some(&qpdf_path)).unwrap();
-            let verdict = match admission {
-                AppendAdmission::Appendable => "appendable",
-                AppendAdmission::Repairable(_) => "repairable",
-                AppendAdmission::Limited(_) => "limited",
-                AppendAdmission::Unverified(_) => "unverified",
-            };
-            assert_eq!(verdict, expected, "{script}: {admission:?}");
-        }
-        let _ = fs::remove_file(&qpdf_path);
+        let admission = append_admission(&path).unwrap();
+        assert!(
+            matches!(admission, AppendAdmission::Unverified(_)),
+            "expected large valid base to be unverified: {admission:?}"
+        );
         fs::remove_file(&path).unwrap();
     }
 

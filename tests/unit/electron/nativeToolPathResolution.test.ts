@@ -54,7 +54,7 @@ describe('native resource base resolution', () => {
     it('resolves a generic native resource root without requiring OCR resources', () => {
         expect(resolveNativeResourcesBase('/repo/dist-electron', false, {
             cwd: '/worktree',
-            exists: candidate => candidate === path.join('/repo', 'resources', 'qpdf'),
+            exists: candidate => candidate === path.join('/repo', 'resources', 'poppler'),
         })).toBe(path.join('/repo', 'resources'));
     });
 
@@ -64,7 +64,7 @@ describe('native resource base resolution', () => {
 });
 
 describe('PDF native tool path boundary', () => {
-    it('resolves Poppler and QPDF paths from the native tools base', () => {
+    it('resolves Poppler paths from the native tools base', () => {
         const popplerBase = path.join('/repo/resources/poppler/darwin-arm64');
         const existingPaths = new Set([
             path.join(popplerBase, 'bin', 'pdfinfo'),
@@ -73,7 +73,6 @@ describe('PDF native tool path boundary', () => {
             path.join(popplerBase, 'bin', 'pdfimages'),
             path.join(popplerBase, 'share', 'poppler'),
             path.join(popplerBase, 'etc', 'fonts'),
-            path.join('/repo/resources/qpdf/darwin-arm64', 'bin', 'qpdf'),
         ]);
 
         expect(resolvePdfNativeToolPaths({
@@ -89,7 +88,6 @@ describe('PDF native tool path boundary', () => {
             pdfimages: path.join(popplerBase, 'bin', 'pdfimages'),
             popplerDataDir: path.join(popplerBase, 'share', 'poppler'),
             popplerFontConfigDir: path.join(popplerBase, 'etc', 'fonts'),
-            qpdf: path.join('/repo/resources/qpdf/darwin-arm64', 'bin', 'qpdf'),
         });
     });
 
@@ -118,7 +116,6 @@ describe('PDF native tool path boundary', () => {
             pdfinfo: 'pdfinfo',
             pdftoppm: 'pdftoppm',
             pdftotext: 'pdftotext',
-            qpdf: 'qpdf',
         });
     });
 });

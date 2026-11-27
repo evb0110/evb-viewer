@@ -511,7 +511,6 @@ async function* streamPdfPageTextRanges(
                 pdfPath,
                 pageNumbers: windows.slice(index, inspectedWindows).flatMap(later => range(later.firstPage, later.lastPage + 1)),
                 pdfPageOpsBinary: resolvePageOpsBinary(),
-                qpdfBinary: getPdfNativeToolPaths().qpdf,
                 tempDir: getAppTempDir(),
                 ...(signal === undefined ? {} : {signal}),
                 withEvbOcrText: true,

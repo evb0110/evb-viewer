@@ -62,6 +62,7 @@ import {
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {readDocumentBytes} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
+import { runDesktopQpdfWasm } from '@electron/native-tools/qpdfWasmWorkerClient';
 import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 
 const CORPUS_DIRECTORY = resolve(
@@ -109,7 +110,7 @@ function copyFreshFixture(sourcePath: string, label: string) {
     return destination;
 }
 
-function createGeneratedEncryptedFixture(sourcePath: string) {
+async function createGeneratedEncryptedFixture(sourcePath: string) {
     mkdirSync(INTEROP_E2E_SCRATCH_ROOT, {recursive: true});
     const directory = mkdtempSync(join(
         INTEROP_E2E_SCRATCH_ROOT,
@@ -118,7 +119,7 @@ function createGeneratedEncryptedFixture(sourcePath: string) {
     interopE2eFixtureDirectories.push(directory);
     const destination = join(directory, 'encrypted-input.pdf');
     const password = `evb-interop-${process.pid}-${Date.now()}-${randomUUID()}`;
-    execFileSync(getPdfNativeToolPaths().qpdf, [
+    await runDesktopQpdfWasm([
         '--encrypt',
         password,
         password,
@@ -126,7 +127,7 @@ function createGeneratedEncryptedFixture(sourcePath: string) {
         '--',
         sourcePath,
         destination,
-    ], {stdio: 'pipe'});
+    ], {commandLabel: 'qpdf(e2e-interop-encrypt)'});
     return {
         password,
         path: destination,
@@ -629,7 +630,7 @@ describe('Electron E2E - VPS interoperability acceptance', () => {
 
     it('opens a generated encrypted corpus input and saves a password-free output', async () => {
         const session = sessionFixture.getSession();
-        const encrypted = createGeneratedEncryptedFixture(STOCK_FIXTURE);
+        const encrypted = await createGeneratedEncryptedFixture(STOCK_FIXTURE);
         const artifactDirectory = join(
             process.cwd(),
             '.devkit/artifacts',

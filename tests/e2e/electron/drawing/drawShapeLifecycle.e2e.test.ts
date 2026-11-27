@@ -32,6 +32,7 @@ import {
     clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
+import { runDesktopQpdfWasm } from '@electron/native-tools/qpdfWasmWorkerClient';
 import {
     clickAnnotationTool,
     setAnnotationColor,
@@ -2320,10 +2321,10 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         await waitForShapeCount(page, 1);
         await page.waitForFunction(() => document.querySelector('.editor-pane.is-active .notes-list')?.textContent?.includes('Edited skewed comment with real input') === true);
         await page.screenshot({path: join(directory, 'reopened.png')});
-        execFileSync(getPdfNativeToolPaths().qpdf, [
+        await runDesktopQpdfWasm([
             '--check',
             sourcePath,
-        ], {encoding: 'utf8'});
+        ], {commandLabel: 'qpdf(e2e-draw-check)'});
         console.log(`A37 saved-byte evidence: ${directory}`);
     });
 
@@ -2590,12 +2591,12 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         await saveViaWindowHandle(page);
         await waitForInkCountOnDisk(fixturePath, 1);
         const qdfPath = join(outputDirectory, 'page-exit.qdf.pdf');
-        execFileSync(getPdfNativeToolPaths().qpdf, [
+        await runDesktopQpdfWasm([
             '--qdf',
             '--object-streams=disable',
             fixturePath,
             qdfPath,
-        ], { encoding: 'utf8' });
+        ], {commandLabel: 'qpdf(e2e-draw-qdf)'});
         const inkDictionary = readFileSync(qdfPath, 'latin1').split('endobj')
             .find(dictionary => dictionary.includes('/Subtype /Ink')) ?? '';
         expect(countTopLevelArrays(inkDictionary, '/InkList'), 'one Ink annotation saves both paths').toBe(2);
@@ -2709,20 +2710,18 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
             'the closed arrowhead stays filled in the reopened editor',
         ).toBe(true);
 
-        const {
-            qpdf, pdftoppm,
-        } = getPdfNativeToolPaths();
-        execFileSync(qpdf, [
+        const { pdftoppm } = getPdfNativeToolPaths();
+        await runDesktopQpdfWasm([
             '--check',
             outputPath,
-        ], { encoding: 'utf8' });
+        ], {commandLabel: 'qpdf(e2e-draw-arrow-check)'});
         const qdfPath = join(outputDirectory, 'arrow.qdf.pdf');
-        execFileSync(qpdf, [
+        await runDesktopQpdfWasm([
             '--qdf',
             '--object-streams=disable',
             outputPath,
             qdfPath,
-        ], { encoding: 'utf8' });
+        ], {commandLabel: 'qpdf(e2e-draw-arrow-qdf)'});
         const qdf = readFileSync(qdfPath, 'latin1');
         const lineDictionary = qdf.split('endobj')
             ?.find(dictionary => dictionary.includes('/ClosedArrow')) ?? '';

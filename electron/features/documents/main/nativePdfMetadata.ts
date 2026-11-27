@@ -231,7 +231,6 @@ export async function readExactPageGeometry(physicalPath: string, signal: AbortS
     }
     const pages = await readPdfNativePageGeometry(physicalPath, {
         pdfPageOpsBinary: binaryPath,
-        qpdfBinary: getPdfNativeToolPaths().qpdf,
         tempDir: getAppTempDir(),
         signal,
         cancelGroup,

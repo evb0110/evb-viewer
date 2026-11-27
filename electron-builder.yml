@@ -19,10 +19,11 @@ asarUnpack:
   - dist-electron/pdf-page-ops-worker.js
   - dist-electron/ocr-engine-host.js
   - dist-electron/ocr-engine-worker.js
-  # The OCR, DjVuLibre, and PDF page-ops WASM engines that worker threads read by path.
+  # The OCR, DjVuLibre, PDF page-ops, and qpdf WASM engines that worker threads read by path.
   - nuxt-output/public/wasm/evb-tesseract.*
   - nuxt-output/public/wasm/evb-djvulibre.*
   - nuxt-output/public/wasm/evb-pdf-page-ops.wasm
+  - nuxt-output/public/wasm/evb-qpdf.*
 npmRebuild: false
 afterPack: ./scripts/afterPack.cjs
 afterSign: ./scripts/afterSign.cjs
@@ -48,8 +49,6 @@ files:
   - "!nuxt-output/public/evb-viewer-og.png"
   - "!nuxt-output/public/robots.txt"
   - "!nuxt-output/public/sitemap.xml"
-  # The browser qpdf engine; desktop runs the native qpdf.
-  - "!nuxt-output/public/wasm/evb-qpdf.*"
   # The threaded browser cleanup engine needs a cross-origin isolated page the
   # desktop shell does not serve; desktop runs the native cleanup engine.
   - "!nuxt-output/public/wasm/evb-scan-cleanup-threads.wasm"

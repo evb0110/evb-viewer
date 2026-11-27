@@ -171,7 +171,6 @@ vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
     getPdfNativeToolPaths: () => ({
         pdftoppm: '/mock/pdftoppm',
         pdfinfo: '/mock/pdfinfo',
-        qpdf: '/mock/qpdf',
         pdfimages: mocks.pdfimagesPath,
         popplerDataDir: mocks.popplerDataDir,
         popplerFontConfigDir: mocks.popplerFontConfigDir,
@@ -187,6 +186,10 @@ vi.mock('@electron/utils/fsyncPath', () => ({
     fsyncFileSync: () => undefined,
 }));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runCommand}));
+vi.mock('@electron/native-tools/qpdfWasmWorkerClient', () => ({
+    resolveDesktopQpdfPath: () => '/mock/qpdf',
+    runDesktopQpdfWasm: (args: string[], options?: unknown) => mocks.runCommand('/mock/qpdf', args, options),
+}));
 vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => ({
     isNativePdfImageCombineDisabled: () => mocks.nativeImageCombinePath === null,
     resolveNativePdfImageCombinePath: () => mocks.nativeImageCombinePath,
@@ -351,6 +354,7 @@ const {buildMultiPageTiffOutputSuffixes} = await import('@pdf-core/imageExportFi
 const UTIF = utifModule as typeof utifModule & ITiffEncoderModule;
 const realPdfLib = await vi.importActual<typeof TPdfLib>('pdf-lib');
 const realNativeTools = await vi.importActual<typeof TViMockOriginalModule>('@electron/pdf/nativeToolPaths');
+const realQpdfWasm = await vi.importActual<typeof import('@electron/native-tools/qpdfWasmWorkerClient')>('@electron/native-tools/qpdfWasmWorkerClient');
 const realFs = await vi.importActual<typeof FsPromises>('fs/promises');
 const realAtomicReplace = await vi.importActual<typeof TAtomicReplace>('@electron/utils/atomicReplace');
 const realManagedScratch = await vi.importActual<typeof TManagedScratch>('@electron/utils/managedScratchTemp');
@@ -376,7 +380,6 @@ function resolveRealPdfToolPaths() {
 // real-PDF export case past its budget. Launch each once at collection, outside
 // any test budget; a missing tool still fails that case, not the whole file.
 const realPdfToolVersionFlags = {
-    qpdf: '--version',
     pdfinfo: '-v',
     pdftoppm: '-v',
 } as const;
@@ -1163,8 +1166,8 @@ describe('image export', () => {
         }
         let probedPdfPath = '';
         mocks.runCommand.mockImplementation(async (command: string, args: string[], options?: unknown) => {
-            if (command === '/mock/qpdf' && args[0]?.startsWith('@')) {
-                const subsetPdfPath = (await readFile(args[0].slice(1), 'utf8')).split('\n').at(-1)!;
+            if (command === '/mock/qpdf' && args.includes('--pages')) {
+                const subsetPdfPath = args.at(-1)!;
                 await writeFile(subsetPdfPath, '%PDF-1.7 subset');
                 return {
                     stdout: '',
@@ -1826,7 +1829,6 @@ describe('image export', () => {
             mocks.popplerDataDir = toolPaths.popplerDataDir;
             mocks.popplerFontConfigDir = toolPaths.popplerFontConfigDir;
             const commands: Record<string, string> = {
-                '/mock/qpdf': toolPaths.qpdf,
                 '/mock/pdfinfo': toolPaths.pdfinfo,
                 '/mock/pdftoppm': toolPaths.pdftoppm,
                 '/mock/pdfimages': pdfimages,
@@ -1836,6 +1838,13 @@ describe('image export', () => {
                 signal?: AbortSignal;
                 onStdout?: (chunk: string) => void;
             }) => {
+                if (command === '/mock/qpdf') {
+                    const result = await realQpdfWasm.runDesktopQpdfWasm(args, {
+                        ...(options?.signal === undefined ? {} : {signal: options.signal}),
+                    });
+                    options?.onStdout?.(result.stdout);
+                    return result;
+                }
                 const result = await runFile(commands[command]!, args, {
                     env: options?.env,
                     signal: options?.signal,
@@ -1977,7 +1986,6 @@ describe('image export', () => {
         mocks.popplerDataDir = toolPaths.popplerDataDir;
         mocks.popplerFontConfigDir = toolPaths.popplerFontConfigDir;
         const commands: Record<string, string> = {
-            '/mock/qpdf': toolPaths.qpdf,
             '/mock/pdfinfo': toolPaths.pdfinfo,
             '/mock/pdftoppm': toolPaths.pdftoppm,
         };
@@ -1986,6 +1994,13 @@ describe('image export', () => {
             signal?: AbortSignal;
             onStdout?: (chunk: string) => void;
         }) => {
+            if (command === '/mock/qpdf') {
+                const result = await realQpdfWasm.runDesktopQpdfWasm(args, {
+                    ...(options?.signal === undefined ? {} : {signal: options.signal}),
+                });
+                options?.onStdout?.(result.stdout);
+                return result;
+            }
             const result = await runFile(commands[command]!, args, {
                 env: options?.env,
                 signal: options?.signal,
@@ -3142,7 +3157,7 @@ describe('image export', () => {
         expect(listStagedNames(tempDir)).toEqual([]);
     });
 
-    it.runIf(process.platform !== 'win32')('exports the requested newline source through bundled qpdf and cleans its scope', async () => {
+    it.runIf(process.platform !== 'win32')('exports the requested newline source through evb-qpdf.wasm and cleans its scope', async () => {
         const source = join(tempDir, 'source\nname.pdf');
         const sibling = join(tempDir, 'source name.pdf');
         const requested = await realPdfLib.PDFDocument.create();
@@ -3152,29 +3167,25 @@ describe('image export', () => {
         await writeFile(source, await requested.save()); await writeFile(sibling, await wrong.save());
         mocks.pdfPageCount = 2; mocks.renderPageCount = 1;
         const defaultRun = mocks.runCommand.getMockImplementation()!;
-        const qpdf = resolveRealPdfToolPaths().qpdf;
         let subsetVerified = false;
         mocks.runCommand.mockImplementation(async (command: string, args: string[], options?: unknown) => {
-            if (command === '/mock/qpdf' && args[0]?.startsWith('@')) {
-                const result = await runFile(qpdf, args);
-                const subset = (await readFile(args[0].slice(1), 'utf8')).split('\n').at(-1)!;
+            if (command === '/mock/qpdf' && args.includes('--pages')) {
+                const result = await realQpdfWasm.runDesktopQpdfWasm(args);
+                const subset = args.at(-1)!;
                 expect((await realPdfLib.PDFDocument.load(await readFile(subset))).getPageCount()).toBe(1);
-                const pages = await runFile(qpdf, [
+                const pages = await realQpdfWasm.runDesktopQpdfWasm([
                     '--show-pages',
                     subset,
                 ]);
                 const content = /content:\s+(\d+) (\d+) R/u.exec(pages.stdout)!;
-                const stream = await runFile(qpdf, [
+                const stream = await realQpdfWasm.runDesktopQpdfWasm([
                     `--show-object=${content[1]},${content[2]}`,
                     '--filtered-stream-data',
                     subset,
                 ]);
                 expect(stream.stdout.toUpperCase()).toContain(Buffer.from('EXACT_EXPORT_SENTINEL').toString('hex').toUpperCase());
                 subsetVerified = true;
-                return {
-                    ...result,
-                    exitCode: 0,
-                };
+                return result;
             }
             return defaultRun(command, args, options);
         });
@@ -3189,18 +3200,17 @@ describe('image export', () => {
         'ordinary',
         'newline',
     ])(
-        'retains subset bytes and qpdf artifacts in the injected scope on a marked failure (%s)', async spelling => {
+        'retains subset bytes in the injected scope on a marked failure (%s)', async spelling => {
             const source = join(tempDir, spelling === 'newline' ? 'source\nname.pdf' : 'source.pdf');
             await writeFile(source, '%PDF-1.7\n%%EOF\n');
             mocks.pdfPageCount = 2;
             const defaultRun = mocks.runCommand.getMockImplementation()!;
             const error = markUnprovenNativeTermination(new Error('subset qpdf timeout'), 'subset writer still alive');
-            let argsPath = ''; let subsetPath = '';
+            let subsetPath = '';
             const injectedScopes: string[] = [];
             mocks.runCommand.mockImplementation(async (command: string, args: string[], options?: unknown) => {
-                if (command === '/mock/qpdf' && args[0]?.startsWith('@')) {
-                    argsPath = args[0].slice(1);
-                    subsetPath = (await readFile(argsPath, 'utf8')).split('\n').at(-1)!;
+                if (command === '/mock/qpdf' && args.includes('--pages')) {
+                    subsetPath = args.at(-1)!;
                     await writeFile(subsetPath, 'partially written subset');
                     throw error;
                 }
@@ -3217,9 +3227,6 @@ describe('image export', () => {
                 })).rejects.toBe(error);
                 expect(await readFile(subsetPath, 'utf8')).toBe('partially written subset');
                 expect(dirname(subsetPath)).toBe(injectedScopes[0]);
-                expect(dirname(argsPath)).toBe(injectedScopes[0]);
-                expect(existsSync(argsPath)).toBe(true);
-                expect((await readdir(dirname(argsPath))).some(name => name.startsWith('path-'))).toBe(spelling === 'newline');
                 expect(existsSync(output)).toBe(false);
             } finally {
             // The seam has no live child. Dispose only this test's retained fixtures.

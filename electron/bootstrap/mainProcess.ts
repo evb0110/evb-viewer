@@ -603,8 +603,15 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
         {
             label: 'pdf-page-ops-workers',
             run: async () => {
-                const {shutdownPdfPageOpsWorkers} = await import('@electron/native-tools/pdfPageOpsWorkerClient');
+                const [
+                    {shutdownPdfPageOpsWorkers},
+                    {shutdownQpdfWasmWorkers},
+                ] = await Promise.all([
+                    import('@electron/native-tools/pdfPageOpsWorkerClient'),
+                    import('@electron/native-tools/qpdfWasmWorkerClient'),
+                ]);
                 shutdownPdfPageOpsWorkers();
+                await shutdownQpdfWasmWorkers();
             },
         },
         {

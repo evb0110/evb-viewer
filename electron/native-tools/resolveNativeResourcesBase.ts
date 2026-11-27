@@ -4,7 +4,6 @@ import { join } from 'path';
 const DEFAULT_NATIVE_RESOURCE_ROOTS = [
     'tesseract',
     'poppler',
-    'qpdf',
     'pdf-image-combine',
     'pdf-page-ops',
     'scan-cleanup',

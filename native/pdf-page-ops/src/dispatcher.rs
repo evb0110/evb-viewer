@@ -46,7 +46,9 @@ pub(crate) enum Operation {
     },
     AnnotationNameIndex,
     EmbeddedShapeIndex,
-    PdfConformance,
+    PdfConformance {
+        strict: bool,
+    },
     AppendAdmission,
     Decrypt {
         password_file: Option<PathBuf>,
@@ -83,7 +85,6 @@ pub(crate) struct Config {
     pub(crate) input_path: PathBuf,
     /// Absent for the queries that print their JSON result on stdout.
     pub(crate) output_path: Option<PathBuf>,
-    pub(crate) qpdf_path: Option<PathBuf>,
 }
 
 pub fn run_cli_entry(args: Vec<String>) -> Result<()> {
@@ -110,12 +111,12 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
     let mut left = None;
     let mut right = None;
     let mut page_number = None;
-    let mut qpdf_path = None;
     let mut physical = false;
     let mut append = false;
     let mut with_evb_ocr_text = false;
     let mut append_in_place = false;
     let mut metadata_only = false;
+    let mut strict = false;
     let mut view_mode = None;
     let mut orientation = None;
 
@@ -211,9 +212,6 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
                 args.next()
                     .ok_or("Missing --annotation-ownership-cache value")?;
             }
-            "--qpdf" | "--qpdf-path" => {
-                qpdf_path = Some(PathBuf::from(args.next().ok_or("Missing --qpdf value")?))
-            }
             "--with-evb-ocr-text" => {
                 with_evb_ocr_text = true;
             }
@@ -225,6 +223,9 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             }
             "--metadata-only" => {
                 metadata_only = true;
+            }
+            "--strict" => {
+                strict = true;
             }
             "--view-mode" => {
                 view_mode = Some(PrintViewMode::parse(
@@ -242,6 +243,9 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
 
     if metadata_only && command != "page-sizes" {
         return Err("--metadata-only is only valid for page-sizes".into());
+    }
+    if strict && command != "pdf-conformance" && command != "conformance" {
+        return Err("--strict is only valid for pdf-conformance".into());
     }
 
     if append_in_place && (!append || command != "save-mutations") {
@@ -308,7 +312,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         },
         "annotation-index" | "annotation-name-index" => Operation::AnnotationNameIndex,
         "embedded-shape-index" | "shape-index" => Operation::EmbeddedShapeIndex,
-        "pdf-conformance" | "conformance" => Operation::PdfConformance,
+        "pdf-conformance" | "conformance" => Operation::PdfConformance { strict },
         "append-admission" => Operation::AppendAdmission,
         "decrypt" => Operation::Decrypt { password_file },
         "page-geometry" | "get-page-geometry" => Operation::PageGeometry {
@@ -351,7 +355,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         operation,
         Operation::PageGeometry { .. }
             | Operation::OcrTextVisibility { .. }
-            | Operation::PdfConformance
+            | Operation::PdfConformance { .. }
             | Operation::AppendAdmission
             | Operation::ReadDocumentCatalog(..)
     );
@@ -366,25 +370,20 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         operation,
         input_path: input_path.ok_or("Missing --input value")?,
         output_path,
-        qpdf_path,
     })
 }
 
 pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
     match &config.operation {
-        Operation::PdfConformance => {
+        Operation::PdfConformance { strict } => {
             return write_pdf_conformance(
                 &config.input_path,
-                config.qpdf_path.as_deref(),
+                *strict,
                 &mut std::io::stdout().lock(),
             )
         }
         Operation::AppendAdmission => {
-            return write_append_admission(
-                &config.input_path,
-                config.qpdf_path.as_deref(),
-                &mut std::io::stdout().lock(),
-            )
+            return write_append_admission(&config.input_path, &mut std::io::stdout().lock())
         }
         Operation::ReadDocumentCatalog(..) => {
             let source = &SourcePdf::open_path(&config.input_path)?.document;
@@ -509,7 +508,6 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 source_path,
                 output_path,
                 &instructions,
-                config.qpdf_path.as_deref(),
             );
         }
         Operation::ReplacePageImages { instructions_file } => {
@@ -732,17 +730,9 @@ mod tests {
     #[test]
     fn parses_page_geometry_request() {
         let config = parse_args(
-            [
-                "page-geometry",
-                "--input",
-                "input.pdf",
-                "--page",
-                "7",
-                "--qpdf",
-                "qpdf",
-            ]
-            .into_iter()
-            .map(String::from),
+            ["page-geometry", "--input", "input.pdf", "--page", "7"]
+                .into_iter()
+                .map(String::from),
         )
         .unwrap();
 
@@ -752,7 +742,6 @@ mod tests {
         ));
         assert_eq!(config.input_path, PathBuf::from("input.pdf"));
         assert_eq!(config.output_path, None);
-        assert_eq!(config.qpdf_path, Some(PathBuf::from("qpdf")));
     }
 
     #[test]

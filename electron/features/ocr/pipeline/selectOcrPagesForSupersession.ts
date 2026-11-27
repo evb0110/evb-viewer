@@ -92,7 +92,6 @@ export async function selectOcrPagesForSupersession(input: {
     supersessionPolicy: TOcrTextSupersessionPolicy;
     pdftotextBinary?: string;
     pdfPageOpsBinary?: string;
-    qpdfBinary?: string;
     tempDir: string;
     log: TWorkerLog;
     signal: AbortSignal;
@@ -103,7 +102,6 @@ export async function selectOcrPagesForSupersession(input: {
         pdfPath: input.sourcePdfPath,
         pageNumbers: requestedPageNumbers,
         pdfPageOpsBinary: input.pdfPageOpsBinary,
-        qpdfBinary: input.qpdfBinary,
         tempDir: input.tempDir,
         signal: input.signal,
     });

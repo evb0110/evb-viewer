@@ -11,6 +11,7 @@ import {
     afterAll, describe, expect, it, onTestFinished,
 } from 'vitest';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
+import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
 import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
     resolveExactPdfFixtureExpectation, readExactPdfFixtureIdentity, validateExactPdfFixtureIdentity,
@@ -367,20 +368,19 @@ acceptanceDescribe('Electron E2E - macOS PDF print acceptance', () => {
         expect(printResult).toEqual(expect.objectContaining({success: true}));
         expect(existsSync(outputPath)).toBe(true);
 
-        const qpdfPath = getPdfNativeToolPaths().qpdf;
-        await execFileAsync(qpdfPath, [
+        await runDesktopQpdfWasm([
             '--check',
             outputPath,
         ], {
-            maxBuffer: 128 * 1024,
-            timeout: 60_000,
+            timeoutMs: 60_000,
+            commandLabel: 'qpdf(e2e-macos-print-check)',
         });
-        const {stdout: pageCountOutput} = await execFileAsync(qpdfPath, [
+        const {stdout: pageCountOutput} = await runDesktopQpdfWasm([
             '--show-npages',
             outputPath,
         ], {
-            maxBuffer: 16 * 1024,
-            timeout: 60_000,
+            timeoutMs: 60_000,
+            commandLabel: 'qpdf(e2e-macos-print-page-count)',
         });
         expect(Number.parseInt(pageCountOutput.trim(), 10)).toBe(1);
 

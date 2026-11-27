@@ -1844,7 +1844,6 @@ describe('scanCleanupPreviewCompositionTest', () => {
             expect(defaultDependencies.resolvePageOpsBinary()).toSatisfy(
                 value => value === null || typeof value === 'string',
             );
-            expect(defaultDependencies.resolveQpdfBinary!()).toEqual(expect.any(String));
             expect(defaultDependencies.getPdftoppmBinary()).toEqual(expect.any(String));
             expect(defaultDependencies.isRasterDetectionAvailable!()).toBeTypeOf('boolean');
             await expect(readFile(sourcePath, 'utf8')).resolves.toBe('fixture');
