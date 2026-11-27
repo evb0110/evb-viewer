@@ -729,11 +729,12 @@ pub(crate) fn write_incremental_revision(
         Ok(())
     })?;
 
-    let validation_result = validate_incremental_append_output(
+    let validation_result = validate_incremental_append_output_matching(
         output_path,
         previous_len,
         previous_xref_start,
         expected_object_ids,
+        Some(revision_bytes),
     )
     .map_err(|error| reclassify_domain_error(error, NativeErrorCode::CorruptXref));
     if let Err(error) = validation_result {
@@ -1597,11 +1598,28 @@ mod writer_boundary_tests {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn validate_incremental_append_output(
     output_path: &Path,
     previous_len: u64,
     previous_xref_start: u64,
     expected_object_ids: &[ObjectId],
+) -> Result<()> {
+    validate_incremental_append_output_matching(
+        output_path,
+        previous_len,
+        previous_xref_start,
+        expected_object_ids,
+        None,
+    )
+}
+
+fn validate_incremental_append_output_matching(
+    output_path: &Path,
+    previous_len: u64,
+    previous_xref_start: u64,
+    expected_object_ids: &[ObjectId],
+    expected_revision_bytes: Option<&[u8]>,
 ) -> Result<()> {
     let final_len = fs::metadata(output_path)?.len();
     if final_len <= previous_len {
@@ -1617,7 +1635,15 @@ pub(crate) fn validate_incremental_append_output(
         previous_len,
         previous_xref_start,
         expected_object_ids,
-    )
+    )?;
+    if let Some(expected_bytes) = expected_revision_bytes {
+        if appended_bytes != expected_bytes {
+            return Err(
+                "Native incremental append readback bytes do not match written revision".into(),
+            );
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn validate_incremental_append_bytes(

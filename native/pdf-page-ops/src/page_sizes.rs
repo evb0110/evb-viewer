@@ -1855,6 +1855,30 @@ pub(crate) mod tests {
             "dangling /Pages",
         );
 
+        // 4b. Indexed /Pages object of the wrong type (integer instead of dict) -> InvalidRequest.
+        let mut wrong_type_pages = Document::with_version("1.7");
+        let not_a_dict_id = wrong_type_pages.add_object(Object::Integer(42));
+        let catalog_id = wrong_type_pages.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => not_a_dict_id,
+        });
+        wrong_type_pages.trailer.set("Root", catalog_id);
+        let mut wrong_type_bytes = Vec::new();
+        wrong_type_pages.save_to(&mut wrong_type_bytes).unwrap();
+        let wrong_type_err = write_page_sizes_sidecar_to_sink(
+            wrong_type_bytes.as_slice(),
+            wrong_type_bytes.len() as u64,
+            true,
+            |_| Ok(()),
+        )
+        .expect_err("wrong-type indexed /Pages must fail");
+        assert_eq!(
+            wrong_type_err
+                .downcast_ref::<crate::NativeError>()
+                .map(|error| error.code),
+            Some(NativeErrorCode::InvalidRequest)
+        );
+
         // 5. Shared /Kids DAG exceeding /Count -> CorruptXref immediately.
         let mut dag = Document::with_version("1.7");
         let leaf_id = dag.add_object(dictionary! {

@@ -932,16 +932,28 @@ pub(crate) fn load_page_geometry_source<S: ByteSource>(bytes: S, len: u64) -> Re
         }
         document.objects.insert(id, object);
     }
-    // A page tree that lists no page or has broken ends is damaged; a catalog
-    // or tree root the index cannot find is the index's damage.
-    let has_root_tree = document
+    // A page tree that lists no page, has an indexed wrong-type /Pages target,
+    // or has broken ends is page-tree damage (`invalid-request`); a catalog or
+    // /Pages root the cross-reference index cannot find is index damage (`corrupt-xref`).
+    let has_indexed_pages_entry = document
         .catalog()
-        .and_then(|catalog| catalog.get(b"Pages"))
-        .and_then(Object::as_reference)
-        .and_then(|pages| document.get_dictionary(pages))
-        .is_ok();
+        .ok()
+        .and_then(|catalog| catalog.get(b"Pages").ok())
+        .is_some_and(|pages| match pages {
+            Object::Reference(id) => {
+                matches!(
+                    index.entry(id.0),
+                    Some(XrefEntry::Offset { generation, .. }) if generation == id.1
+                ) || matches!(
+                    index.entry(id.0),
+                    Some(XrefEntry::InStream { .. }) if id.1 == 0
+                )
+            }
+            // A non-reference /Pages value inside a readable catalog is page-tree damage.
+            _ => true,
+        });
     let resolver = PageTreeResolver::with_both_ends(&document).map_err(|error| {
-        if has_root_tree {
+        if has_indexed_pages_entry {
             page_tree_damaged(error)
         } else {
             corrupt(format!("PDF has no pages: {error}"))
