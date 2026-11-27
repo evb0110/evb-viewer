@@ -21,6 +21,10 @@ function isBuildLogBoundary(line) {
         .test(trimmed);
 }
 
+function isWarningRepeatTrailer(line) {
+    return /^\s*\(x\d+\)\s*$/u.test(line);
+}
+
 function getWarningHeaderLine(line) {
     const headerTail = line.replace(/^\s*(?:WARN\s*|\[warn\]\s*)/u, '').trim();
     return headerTail.length > 0 ? `WARN ${headerTail}` : 'WARN';
@@ -44,6 +48,11 @@ function readWarningBlockLines(lines, startIndex) {
             }
             cursor += 1;
             continue;
+        }
+        if (isWarningRepeatTrailer(next)) {
+            blockLines.push(next.trimEnd());
+            cursor += 1;
+            break;
         }
 
         blockLines.push(next.trimEnd());

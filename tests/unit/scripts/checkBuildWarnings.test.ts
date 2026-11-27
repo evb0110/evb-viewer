@@ -139,6 +139,44 @@ describe('check-build-warnings', () => {
         expect(result.stdout).toContain('Build warning check passed: 1 known warning(s).');
     });
 
+    it('ends deduplicated multiline Rolldown plugin timing diagnostics at Vite repeat trailers', async () => {
+        const result = await runWarningCheck([
+            '[warn] \u001B[33m\u001B[33m[PLUGIN_TIMINGS] \u001B[0mJavaScript callbacks ran for 2.9s of this 4.3s build (67%).',
+            'The slowest callbacks, timed inside each callback (the wait before a callback starts is excluded, the time it awaits is included):',
+            '  - plugin vite:worker-import-meta-url transform (67%, 2.9s, 1 call)',
+            'See https://rolldown.rs/reference/InputOptions.checks#bundlertimings for more details.',
+            '\u001B[39m\u001B[2m (x2)\u001B[22m',
+            '✓ 3124 modules transformed.',
+            'rendering chunks...',
+            'computing gzip size...',
+            '[info] built client bundle',
+            '',
+        ].join('\n'));
+
+        expect(result.stdout).toContain('Build warning check passed: 1 known warning(s).');
+    });
+
+    it('still rejects unknown warnings that carry a Vite repeat trailer without swallowing later progress lines', async () => {
+        await expect(runWarningCheck([
+            '[warn] \u001B[33munexpected deduplicated warning',
+            '\u001B[39m\u001B[2m (x2)\u001B[22m',
+            '✓ 3124 modules transformed.',
+            '',
+        ].join('\n'))).rejects.toMatchObject({
+            code: 1,
+            stderr: expect.stringContaining('unexpected deduplicated warning'),
+        });
+
+        await expect(runWarningCheck([
+            '[warn] \u001B[33munexpected deduplicated warning',
+            '\u001B[39m\u001B[2m (x2)\u001B[22m',
+            '✓ 3124 modules transformed.',
+            '',
+        ].join('\n'))).rejects.toMatchObject({
+            stderr: expect.not.stringContaining('3124 modules transformed.'),
+        });
+    });
+
     it('allows the exact upstream PDF.js fillable-field SVG fragment warning', async () => {
         const result = await runWarningCheck([
             '[warn] [vite:css][postcss] SvgoParserError: <input>:1:291: Text data outside of root node.',
