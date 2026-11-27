@@ -9,8 +9,8 @@ import type {
 const DOCUMENT_WHEEL_ZOOM_SENSITIVITY = 0.0016;
 export const DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS = 180;
 const WHEEL_LINE_DELTA_PX = 16;
-const WHEEL_DELTA_LINE_MODE = 1;
-const WHEEL_DELTA_PAGE_MODE = 2;
+export const WHEEL_DELTA_LINE_MODE = 1;
+export const WHEEL_DELTA_PAGE_MODE = 2;
 
 export type TDocumentWheelIntent = 'scroll' | 'platform-scroll' | 'zoom';
 
@@ -51,6 +51,7 @@ export interface IDocumentWheelSourceEvent {
     readonly clientX: number;
     readonly clientY: number;
     readonly defaultPrevented: boolean;
+    readonly deltaMode?: number;
     readonly deltaX: number;
     readonly deltaY: number;
     readonly timeStamp: number;

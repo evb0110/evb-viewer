@@ -272,4 +272,149 @@ describe('createWheelFlipGate', () => {
             deltaY: 120,
         })).toBe(false);
     });
+
+    it('keeps blocking strictly decreasing and rounded decaying tails above 90% of peak over 280ms', () => {
+        for (const samples of [
+            [
+                [56, 118],
+                [112, 116],
+                [168, 114],
+                [224, 112],
+                [280, 110],
+            ],
+            [
+                [56, 118],
+                [112, 116],
+                [168, 114],
+                [224, 112],
+                [280, 112],
+            ],
+        ] as const) {
+            const gate = createWheelFlipGate();
+            gate.recordFlip(1, {
+                timeStamp: 0,
+                deltaY: 120,
+                cancelable: true,
+            });
+            for (const [
+                timeStamp,
+                deltaY,
+            ] of samples) {
+                expect(gate.shouldBlockFlip(1, {
+                    timeStamp,
+                    deltaY,
+                    cancelable: true,
+                })).toBe(true);
+            }
+        }
+    });
+
+    it('keeps a cancelable tail fenced across a >200ms gap while the host wheel sequence remains open', () => {
+        let hostSequenceOpen = true;
+        const gate = createWheelFlipGate({ isHostSequenceOpen: () => hostSequenceOpen });
+
+        gate.recordFlip(1, {
+            timeStamp: 0,
+            deltaY: 120,
+            cancelable: true,
+        });
+        // 250ms delivery gap exceeds the 200ms timing fallback, but the host
+        // sequence has not ended yet so this decaying tail must stay blocked.
+        expect(gate.shouldBlockFlip(1, {
+            timeStamp: 250,
+            deltaY: 80,
+            cancelable: true,
+        })).toBe(true);
+        expect(gate.shouldBlockFlip(1, {
+            timeStamp: 500,
+            deltaY: 40,
+            cancelable: true,
+        })).toBe(true);
+
+        // Once the host closes the sequence, a new gesture flips after the gap.
+        hostSequenceOpen = false;
+        expect(gate.shouldBlockFlip(1, {
+            timeStamp: 750,
+            deltaY: 120,
+            cancelable: true,
+        })).toBe(false);
+    });
+
+    it('allows repeated 1-line, 2-line, and small page-mode notches below 40px after cooldown', () => {
+        // Sixteen 1-line packets (16 px) spaced 100ms apart should keep turning pages.
+        const oneLineGate = createWheelFlipGate();
+        let oneLineFlips = 0;
+        for (let index = 0; index < 16; index += 1) {
+            const packet = {
+                timeStamp: index * 100,
+                deltaY: 16,
+                deltaMode: 1,
+                cancelable: true,
+            };
+            if (!oneLineGate.shouldBlockFlip(1, packet)) {
+                oneLineGate.recordFlip(1, packet);
+                oneLineFlips += 1;
+            }
+        }
+        expect(oneLineFlips).toBeGreaterThanOrEqual(5);
+
+        // Repeated 2-line packets (32 px) spaced 100ms apart also renew cleanly.
+        const twoLineGate = createWheelFlipGate();
+        let twoLineFlips = 0;
+        for (let index = 0; index < 10; index += 1) {
+            const packet = {
+                timeStamp: index * 100,
+                deltaY: 32,
+                deltaMode: 1,
+                cancelable: true,
+            };
+            if (!twoLineGate.shouldBlockFlip(1, packet)) {
+                twoLineGate.recordFlip(1, packet);
+                twoLineFlips += 1;
+            }
+        }
+        expect(twoLineFlips).toBeGreaterThanOrEqual(3);
+
+        // Repeated page-mode notches (even in a tiny viewport < 40px) also renew.
+        const pageModeGate = createWheelFlipGate();
+        pageModeGate.recordFlip(1, {
+            timeStamp: 0,
+            deltaY: 24,
+            deltaMode: 2,
+            cancelable: true,
+        });
+        expect(pageModeGate.shouldBlockFlip(1, {
+            timeStamp: 140,
+            deltaY: 24,
+            deltaMode: 2,
+            cancelable: true,
+        })).toBe(true);
+        expect(pageModeGate.shouldBlockFlip(1, {
+            timeStamp: 280,
+            deltaY: 24,
+            deltaMode: 2,
+            cancelable: true,
+        })).toBe(false);
+
+        // A decaying line-mode sequence stays blocked.
+        const decayingLineGate = createWheelFlipGate();
+        decayingLineGate.recordFlip(1, {
+            timeStamp: 0,
+            deltaY: 48,
+            deltaMode: 1,
+            cancelable: true,
+        });
+        expect(decayingLineGate.shouldBlockFlip(1, {
+            timeStamp: 140,
+            deltaY: 32,
+            deltaMode: 1,
+            cancelable: true,
+        })).toBe(true);
+        expect(decayingLineGate.shouldBlockFlip(1, {
+            timeStamp: 280,
+            deltaY: 16,
+            deltaMode: 1,
+            cancelable: true,
+        })).toBe(true);
+    });
 });

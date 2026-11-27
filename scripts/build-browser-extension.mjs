@@ -38,6 +38,7 @@ const unpackedRoot = path.join(outputRoot, 'unpacked');
 const EXCLUDED_WORKSPACE_ENTRIES = new Set([
     '200.html',
     '404.html',
+    'about',
     'electron',
     'favicon-dev-16x16.png',
     'favicon-dev-32x32.png',
